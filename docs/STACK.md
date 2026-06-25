@@ -13,7 +13,7 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 |---|---|---|
 | Frontend + Backend | Next.js 14 na Vercel | **Next.js 15 (App Router) — container Docker no Coolify** |
 | Banco de dados | Supabase Postgres (cloud) | **PostgreSQL 16 — recurso one-click do Coolify** |
-| Auth | Supabase Auth | **Auth.js (NextAuth v5)** + Postgres, ou **Supabase self-hosted** |
+| Auth | Supabase Auth | **Auth.js (NextAuth v5)** + Postgres |
 | Storage de arquivos | Supabase Storage | **MinIO (S3-compatível) — container Coolify** |
 | Deploy / SSL / Proxy | Vercel | **Coolify + Traefik + Let's Encrypt (automático)** |
 | Open Finance | Pluggy/Belvo | **Pluggy** (API externa — inalterada) |
@@ -50,15 +50,14 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 - Geração de **PDF** (medição de obra / relatórios) via **@react-pdf/renderer** ou **Puppeteer** no worker.
 
 ### Banco de dados
-- **PostgreSQL 16** (recurso nativo do Coolify, com backups agendados).
-- **Multi-tenancy** por coluna `tenant_id` + isolamento na camada de aplicação (ou RLS se usar Supabase self-hosted).
+- **PostgreSQL 16 puro** (recurso nativo do Coolify, com backups agendados). **Sem Supabase** — Postgres direto via ORM.
+- **Multi-tenancy** por coluna `tenant_id` + isolamento na camada de aplicação. (Opcional: RLS nativa do Postgres com `SET app.tenant_id` por sessão, se quiser defesa em profundidade.)
 - Modelar **versões/cenários** como dados versionados (`version_id` em todas as tabelas de movimento).
 
 ### Autenticação
-- **Auth.js (NextAuth v5)** com adapter Drizzle/Prisma + Postgres.
+- **Auth.js (NextAuth v5)** com adapter Drizzle + Postgres (tabelas de sessão/usuário no próprio banco).
 - Papéis: `owner`, `admin`, `contador` (somente leitura), `membro`.
 - Sessão por JWT/cookie httpOnly. RBAC na camada de API.
-- *(Alternativa: subir o stack Supabase self-hosted completo no Coolify se quiser Auth + Realtime + Storage integrados — mais pesado, porém compatível com o plano original.)*
 
 ### Storage de documentos
 - **MinIO** (S3-compatível) para o repositório de notas fiscais/contratos do módulo Despesas.
