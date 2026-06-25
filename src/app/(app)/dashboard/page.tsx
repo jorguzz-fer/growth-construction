@@ -1,40 +1,84 @@
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { getActiveContext } from "@/lib/context";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  getUnits,
+  getPermutas,
+  getReembolsos,
+  permToCalc,
+  reembToCalc,
+  toCalcUnit,
+} from "@/lib/queries";
+import { calcTotals } from "@/lib/calc";
 import { brlk } from "@/lib/utils";
+import { PageHeader } from "@/components/app/page-header";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
-/*
- * Dashboard "hello world" da Fase 0.
- *
- * Os KPIs abaixo são placeholders estáticos só para validar layout, fontes e
- * tokens de design. A ligação com dados reais (versões, projeção, caixa) entra
- * a partir da Fase 2. Ver docs/SPEC.md §9.1.
- */
-const kpis = [
-  { label: "VGV do empreendimento", value: brlk(46789988.9), tone: "accent" },
-  { label: "Unidades", value: "195", tone: "ink" },
-  { label: "Vendidas", value: "0", tone: "forecast" },
-  { label: "Receita realizada", value: brlk(0), tone: "atual" },
-] as const;
+export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const ctx = await getActiveContext();
+  if (!ctx) return null;
+
+  const [unitRows, permRows, reembRows, cashRows] = await Promise.all([
+    getUnits(ctx.version.id),
+    getPermutas(ctx.version.id),
+    getReembolsos(ctx.version.id),
+    db
+      .select()
+      .from(schema.cashEntries)
+      .where(eq(schema.cashEntries.versionId, ctx.version.id)),
+  ]);
+
+  const totals = calcTotals(
+    unitRows.map(toCalcUnit),
+    permToCalc(permRows),
+    reembToCalc(reembRows),
+  );
+  const realizado = cashRows
+    .filter((c) => Number(c.valor) > 0)
+    .reduce((a, c) => a + Number(c.valor), 0);
+
+  const kpis = [
+    { label: "VGV total", value: brlk(totals.vgv), tone: "accent" as const },
+    { label: "Vendidas", value: String(totals.vend), tone: "success" as const },
+    {
+      label: "Disponíveis",
+      value: String(totals.disp),
+      tone: "neutral" as const,
+    },
+    {
+      label: "Receita realizada",
+      value: brlk(realizado),
+      tone: "warning" as const,
+    },
+  ];
+
+  const fontes = [
+    { label: "Sinais / Atos", value: totals.sinais },
+    { label: "Mensais", value: totals.mens },
+    { label: "Semestrais", value: totals.sem },
+    { label: "Anuais", value: totals.anu },
+    { label: "FGTS", value: totals.fgts },
+    { label: "Subsídio", value: totals.sub },
+    { label: "Permuta (estimada)", value: totals.permRec },
+    { label: "Financiamento", value: totals.banco },
+    { label: "Reembolsos", value: totals.reemb },
+  ];
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <header className="mb-8">
-        <span className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.2em] text-[var(--color-ink3)]">
-          SIGNATURE SUARÃO · RMV Empreendimentos
-        </span>
-        <h1 className="mt-1 font-[family-name:var(--font-serif)] text-3xl text-[var(--color-ink)]">
-          Dashboard
-        </h1>
-        <p className="mt-1 text-sm text-[var(--color-ink3)]">
-          Visão geral do empreendimento — placeholders da Fase 0.
-        </p>
-      </header>
+    <>
+      <PageHeader
+        eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
+        title="Dashboard"
+        subtitle={`Versão ativa: ${ctx.version.label}`}
+        actions={
+          <Badge tone="accent">
+            {totals.vend + totals.res + totals.disp} unidades
+          </Badge>
+        }
+      />
 
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {kpis.map((k) => (
@@ -52,24 +96,27 @@ export default function DashboardPage() {
       </section>
 
       <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Próximos passos</CardTitle>
-          <CardDescription>
-            Roadmap de migração (docs/STACK.md §7)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-[var(--color-ink2)]">
-          <ul className="list-inside list-disc space-y-1">
-            <li>Fase 0 — Scaffold ✓ (você está aqui)</li>
-            <li>Fase 1 — Modelo de dados (Drizzle schema completo)</li>
-            <li>Fase 2 — Módulo Receitas (unidades, plano de pagamento, INCC)</li>
-            <li>Fase 3 — Módulo Despesas (plano de contas, fornecedores, R2)</li>
-            <li>Fase 4 — Caixa &amp; Open Finance (Pluggy)</li>
-            <li>Fase 5 — Reports (DRE, medição de obra, rolling forecast)</li>
-            <li>Fase 6 — Config &amp; multi-tenant (RBAC, auditoria)</li>
-          </ul>
+        <CardContent className="p-5">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+            Receita contratada por fonte
+          </h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+            {fontes.map((f) => (
+              <div
+                key={f.label}
+                className="flex items-center justify-between border-b border-[var(--color-accent2)]/8 py-1.5"
+              >
+                <span className="text-[13px] text-[var(--color-ink2)]">
+                  {f.label}
+                </span>
+                <span className="font-[family-name:var(--font-mono)] text-[13px] text-[var(--color-ink)]">
+                  {brlk(f.value)}
+                </span>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
-    </main>
+    </>
   );
 }
