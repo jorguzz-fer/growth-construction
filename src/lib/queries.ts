@@ -1,0 +1,107 @@
+import { and, asc, eq } from "drizzle-orm";
+import { db, schema } from "./db";
+import { emptyUnit } from "./calc/__fixtures__";
+import type {
+  CalcPermuta,
+  CalcReembolso,
+  CalcUnit,
+  InccRow,
+} from "./calc/types";
+
+export type UnitRow = typeof schema.units.$inferSelect;
+export type ReembolsoRow = typeof schema.reembolsos.$inferSelect;
+export type PermutaRow = typeof schema.permutas.$inferSelect;
+
+/** Converte uma linha de unidade do banco para o tipo consumido pelos cálculos. */
+export function toCalcUnit(row: UnitRow): CalcUnit {
+  // Plano salvo no banco, ou a cascata desligada (unidade ainda sem venda).
+  const plan = row.paymentPlan ?? stripIdentity(emptyUnit(row.code));
+  return {
+    ...plan,
+    code: row.code,
+    status: row.status,
+    valor: Number(row.valor),
+  };
+}
+
+/** Remove os campos de identidade, deixando só o plano de pagamento (JSONB). */
+function stripIdentity(u: CalcUnit) {
+  const { code: _c, status: _s, valor: _v, ...plan } = u;
+  void _c;
+  void _s;
+  void _v;
+  return plan;
+}
+
+export function toInccRows(
+  rows: (typeof schema.inccRates.$inferSelect)[],
+): InccRow[] {
+  return rows.map((r) => ({
+    m: r.mes,
+    mo: Number(r.monthly),
+    ac: Number(r.accumulated),
+  }));
+}
+
+// ─────────────────────────────── leituras ───────────────────────────────
+
+export async function getUnits(versionId: string): Promise<UnitRow[]> {
+  return db
+    .select()
+    .from(schema.units)
+    .where(eq(schema.units.versionId, versionId))
+    .orderBy(asc(schema.units.code));
+}
+
+export async function getUnit(
+  versionId: string,
+  unitId: string,
+): Promise<UnitRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(schema.units)
+    .where(
+      and(eq(schema.units.versionId, versionId), eq(schema.units.id, unitId)),
+    )
+    .limit(1);
+  return row;
+}
+
+export async function getReembolsos(
+  versionId: string,
+): Promise<ReembolsoRow[]> {
+  return db
+    .select()
+    .from(schema.reembolsos)
+    .where(eq(schema.reembolsos.versionId, versionId));
+}
+
+export async function getPermutas(versionId: string): Promise<PermutaRow[]> {
+  return db
+    .select()
+    .from(schema.permutas)
+    .where(eq(schema.permutas.versionId, versionId));
+}
+
+export async function getInccRows(projectId: string): Promise<InccRow[]> {
+  const rows = await db
+    .select()
+    .from(schema.inccRates)
+    .where(eq(schema.inccRates.projectId, projectId))
+    .orderBy(asc(schema.inccRates.ordem));
+  return toInccRows(rows);
+}
+
+// helpers de conversão para agregados
+
+export function reembToCalc(rows: ReembolsoRow[]): CalcReembolso[] {
+  return rows.map((r) => ({ data: r.data ?? "", valor: Number(r.valor ?? 0) }));
+}
+
+export function permToCalc(rows: PermutaRow[]): CalcPermuta[] {
+  return rows.map((p) => ({
+    estimado: Number(p.estimado ?? 0),
+    status: p.status ?? "",
+    valorVenda: Number(p.valorVenda ?? 0),
+  }));
+}

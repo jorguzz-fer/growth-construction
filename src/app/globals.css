@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens portados do protótipo (growth-tools-construction.html).
+ * Paleta: índigo como acento, com verdes/âmbares/vermelhos para status.
+ * Fontes: Outfit (UI), DM Serif Display (títulos), DM Mono (labels/monospace).
+ */
+@theme {
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-dm-serif), ui-serif, Georgia, serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, "SF Mono", monospace;
+
+  /* tintas (texto) */
+  --color-ink: #0d0d14;
+  --color-ink2: #3d3d52;
+  --color-ink3: #7b7b96;
+  --color-ink4: #b8b8cc;
+
+  /* superfícies */
+  --color-surface: #ffffff;
+  --color-surface2: #f6f5fb;
+  --color-surface3: #eeedfb;
+  --color-surface4: #e4e2f8;
+
+  /* acento (índigo) */
+  --color-accent: #3730a3;
+  --color-accent2: #6366f1;
+  --color-accent3: #a5b4fc;
+  --color-accent4: #eef2ff;
+
+  /* status — versões: budget=índigo, forecast=verde, atual=âmbar */
+  --color-budget: #6366f1;
+  --color-forecast: #10b981;
+  --color-atual: #f59e0b;
+
+  /* semânticos */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  --radius-DEFAULT: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-surface2);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
