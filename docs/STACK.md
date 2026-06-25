@@ -14,7 +14,7 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 | Frontend + Backend | Next.js 14 na Vercel | **Next.js 15 (App Router) — container Docker no Coolify** |
 | Banco de dados | Supabase Postgres (cloud) | **PostgreSQL 16 — recurso one-click do Coolify** |
 | Auth | Supabase Auth | **Auth.js (NextAuth v5)** + Postgres |
-| Storage de arquivos | Supabase Storage | **MinIO (S3-compatível) — container Coolify** |
+| Storage de arquivos | Supabase Storage | **Cloudflare R2 (S3-compatível) — serviço externo** |
 | Deploy / SSL / Proxy | Vercel | **Coolify + Traefik + Let's Encrypt (automático)** |
 | Open Finance | Pluggy/Belvo | **Pluggy** (API externa — inalterada) |
 | Jobs/agendados | Vercel Cron | **Coolify Scheduled Tasks** ou worker BullMQ + Redis |
@@ -30,9 +30,10 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 │      ├─ app          → Next.js 15 (web + API routes)        │
 │      ├─ postgres     → PostgreSQL 16                        │
 │      ├─ redis        → Redis 7 (cache + filas BullMQ)       │
-│      ├─ minio        → MinIO (documentos/anexos)            │
 │      └─ worker       → Node worker (jobs: sync OF, PDFs)    │
 └─────────────────────────────────────────────────────────────┘
+        │
+        └─ Cloudflare R2 (S3-compatível) → documentos/anexos (externo)
 ```
 
 ### Frontend / App
@@ -60,8 +61,10 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 - Sessão por JWT/cookie httpOnly. RBAC na camada de API.
 
 ### Storage de documentos
-- **MinIO** (S3-compatível) para o repositório de notas fiscais/contratos do módulo Despesas.
-- SDK `@aws-sdk/client-s3` apontando para o endpoint MinIO interno do Coolify.
+- **Cloudflare R2** (S3-compatível) para o repositório de notas fiscais/contratos do módulo Despesas.
+- SDK `@aws-sdk/client-s3` apontando para o endpoint R2 da conta (`https://<accountid>.r2.cloudflarestorage.com`) com `region: 'auto'`.
+- **Vantagens:** sem egress fee (download grátis), fora da VPS (não consome disco/RAM do Coolify), durabilidade gerenciada pela Cloudflare.
+- Upload via **presigned URLs** geradas no servidor (cliente envia direto ao R2, sem passar pela app). Acesso de leitura por presigned URL ou domínio público/custom domain do bucket.
 
 ### Open Finance
 - **Pluggy** (agregador brasileiro) — API externa.
@@ -80,13 +83,13 @@ O protótipo planejava **Next.js + Supabase Cloud + Vercel Pro**. Para auto-hosp
 - VPS com Ubuntu 22.04+ e Coolify instalado (`curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash`).
 - Domínio apontando para o IP da VPS (DNS A record). Subdomínios sugeridos:
   - `app.growthtools.com.br` → Next.js
-  - `s3.growthtools.com.br` → MinIO (opcional, console)
+  - *(R2 é externo — não precisa de subdomínio na VPS; opcionalmente configure um custom domain do bucket no painel Cloudflare)*
 
 ### Passos
 1. **Criar projeto** no Coolify (ex.: `growth-tools`).
 2. **Adicionar recurso PostgreSQL** (one-click) → anotar `DATABASE_URL` interna.
 3. **Adicionar recurso Redis** (one-click).
-4. **Adicionar recurso MinIO** (one-click) → criar bucket `documentos`, gerar access/secret key.
+4. **Criar bucket no Cloudflare R2** (painel Cloudflare → R2 → Create bucket `documentos`) e gerar um **API Token R2** (Access Key ID + Secret Access Key). Não é um recurso do Coolify — é externo.
 5. **Adicionar aplicação** apontando para o repositório Git:
    - Build pack: **Dockerfile** (ver §4) ou **Nixpacks**.
    - Porta exposta: `3000`.
@@ -144,12 +147,14 @@ DATABASE_URL=postgresql://user:pass@postgres:5432/growthtools
 # Redis
 REDIS_URL=redis://redis:6379
 
-# MinIO / S3
-S3_ENDPOINT=http://minio:9000
-S3_BUCKET=documentos
-S3_ACCESS_KEY=__minio_access_key__
-S3_SECRET_KEY=__minio_secret_key__
-S3_REGION=us-east-1
+# Cloudflare R2 (S3-compatível)
+R2_ENDPOINT=https://__account_id__.r2.cloudflarestorage.com
+R2_BUCKET=documentos
+R2_ACCESS_KEY_ID=__r2_access_key_id__
+R2_SECRET_ACCESS_KEY=__r2_secret_access_key__
+R2_REGION=auto
+# opcional: domínio público/custom do bucket para servir leitura
+R2_PUBLIC_URL=https://docs.growthtools.com.br
 
 # Open Finance (Pluggy)
 PLUGGY_CLIENT_ID=__id__
@@ -193,7 +198,7 @@ growth-construction/
 1. **Fase 0 — Scaffold:** Next.js 15 + Tailwind + Drizzle + Auth.js; Dockerfile; subir "hello world" no Coolify com Postgres.
 2. **Fase 1 — Modelo de dados:** migrar entidades do §3 do SPEC para schema Drizzle (tenant, projeto, versão, unidade, plano de pagamento, despesa, fornecedor, conta).
 3. **Fase 2 — Receitas:** portar Unidades, plano de pagamento, INCC, Projeção, Consolidado, Simulador (reusar lógica de cálculo).
-4. **Fase 3 — Despesas:** Lançamentos, Plano de Contas, Fornecedores, repositório de documentos (MinIO).
+4. **Fase 3 — Despesas:** Lançamentos, Plano de Contas, Fornecedores, repositório de documentos (Cloudflare R2).
 5. **Fase 4 — Caixa & Open Finance:** integração Pluggy + conciliação automática.
 6. **Fase 5 — Reports:** Dashboard multi-versão, DRE, Fluxo de Caixa, Medição (PDF), Rolling, Resumo.
 7. **Fase 6 — Config & multi-tenant:** Usuários, papéis, acesso contabilidade (read-only), auditoria.
