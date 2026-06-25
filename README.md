@@ -22,11 +22,19 @@ de produção para deploy em **VPS + Coolify**.
 | Open Finance | Pluggy — *Fase 4* |
 | Deploy | Docker (standalone) + Coolify + Traefik |
 
-## Status — Fase 0 (Scaffold)
+## Status
 
-Esqueleto do projeto pronto: Next.js + Tailwind + Drizzle + Auth.js + Dockerfile,
-com páginas placeholder (`/`, `/dashboard`, `/login`). O modelo de domínio e os
-módulos funcionais entram nas fases seguintes (ver [`docs/STACK.md §7`](./docs/STACK.md)).
+- **Fase 0 — Scaffold ✓**: Next.js + Tailwind + Drizzle + Auth.js + Dockerfile,
+  com páginas placeholder (`/`, `/dashboard`, `/login`).
+- **Fase 1 — Modelo de dados ✓**: schema Drizzle completo do domínio
+  (projetos, versões/cenários, unidades + plano de pagamento, permutas,
+  reembolsos, caixa, despesas, fornecedores, contas bancárias, plano de contas
+  CEF/DRE, INCC), migrações e seed de demonstração.
+- **Bônus**: lógica de cálculo pura portada do protótipo para `src/lib/calc/`
+  (projeção, totais, INCC, simulador SAC/PRICE) — com **17 testes de paridade**.
+
+Os módulos funcionais (telas) entram nas fases seguintes
+(ver [`docs/STACK.md §7`](./docs/STACK.md)).
 
 ## Desenvolvimento
 
@@ -53,8 +61,10 @@ npm run dev                     # http://localhost:3000
 | `npm run build` / `start` | Build e execução de produção |
 | `npm run typecheck` | Checagem de tipos (tsc) |
 | `npm run lint` | ESLint |
+| `npm run test` | Testes (Vitest) da lógica de cálculo |
 | `npm run db:generate` | Gera migrações Drizzle |
 | `npm run db:migrate` | Aplica migrações |
+| `npm run db:seed` | Popula o tenant de demonstração (RMV) |
 | `npm run db:studio` | Drizzle Studio (explorar o banco) |
 
 ## Estrutura
@@ -67,9 +77,10 @@ src/
 │  └─ api/auth/…         # handler do Auth.js
 ├─ components/ui/        # componentes base (button, card)
 └─ lib/
-   ├─ db/                # Drizzle: schema, client, migrations
+   ├─ db/                # Drizzle: schema, client, migrations, seed
    ├─ auth.ts            # configuração Auth.js
-   ├─ calc/              # cálculos (calcProj, INCC, simulador) — Fase 2
+   ├─ calc/              # cálculos puros + constantes + testes ✓
+   │                     #   (projeção, totais, INCC, simulador SAC/PRICE)
    ├─ openfinance/       # cliente Pluggy — Fase 4
    └─ pdf/               # geração de PDF (medição de obra) — Fase 5
 ```
