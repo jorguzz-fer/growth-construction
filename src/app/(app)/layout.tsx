@@ -63,6 +63,15 @@ export default async function AppLayout({
       ? await readUrl(ctx.tenant.logoKey)
       : null;
 
+  const [me] = ctx.userId
+    ? await db
+        .select({ name: schema.users.name, email: schema.users.email })
+        .from(schema.users)
+        .where(eq(schema.users.id, ctx.userId))
+        .limit(1)
+    : [];
+  const userName = me?.name || me?.email || "Usuário";
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
@@ -72,7 +81,7 @@ export default async function AppLayout({
         projects={ctx.projects}
         version={ctx.version}
         versions={ctx.versions}
-        userName="RMV Admin"
+        userName={userName}
         userRole={ctx.role}
         perms={ctx.perms}
         badges={{ unidades, reembolso, permuta }}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { useState, useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
@@ -264,7 +265,11 @@ export function Sidebar({
       </nav>
 
       <div className="mt-auto border-t border-white/10 p-3">
-        <div className="flex items-center gap-2 px-1 py-1">
+        <Link
+          href="/perfil"
+          onClick={close}
+          className="flex items-center gap-2 rounded-[8px] px-1 py-1 hover:bg-white/5"
+        >
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-accent2)]/40 text-[10px] font-semibold">
             {userName.slice(0, 2).toUpperCase()}
           </div>
@@ -276,7 +281,13 @@ export function Sidebar({
               {userRole}
             </div>
           </div>
-        </div>
+        </Link>
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="mt-1 w-full rounded-[8px] px-2 py-1.5 text-left text-[11px] text-white/40 hover:bg-white/5 hover:text-white/70"
+        >
+          Sair
+        </button>
       </div>
       </aside>
     </>

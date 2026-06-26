@@ -1,0 +1,60 @@
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { getActiveContext } from "@/lib/context";
+import { changePassword } from "@/lib/actions/account";
+import { PageHeader } from "@/components/app/page-header";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { MfaSetup } from "@/components/app/mfa-setup";
+
+export const dynamic = "force-dynamic";
+
+export default async function PerfilPage() {
+  const ctx = await getActiveContext();
+  if (!ctx || !ctx.userId) return null;
+  const [user] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.id, ctx.userId))
+    .limit(1);
+
+  return (
+    <>
+      <PageHeader
+        title="Meu perfil"
+        subtitle={`${user?.name ?? user?.email ?? ""} · papel ${ctx.role}`}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+              Autenticação em 2 fatores (MFA)
+            </h2>
+            <MfaSetup enabled={!!user?.mfaEnabled} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+              Alterar senha
+            </h2>
+            <form action={changePassword} className="space-y-3">
+              <div>
+                <Label>Senha atual</Label>
+                <Input name="current" type="password" autoComplete="current-password" />
+              </div>
+              <div>
+                <Label>Nova senha (mín. 8)</Label>
+                <Input name="next" type="password" autoComplete="new-password" required />
+              </div>
+              <Button type="submit">Salvar senha</Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}

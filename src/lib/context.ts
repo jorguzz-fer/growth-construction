@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
+import { auth } from "./auth";
 import { effectivePermissions, type AccessLevel } from "./permissions";
 
 export type Tenant = typeof schema.tenants.$inferSelect;
@@ -37,12 +38,32 @@ export const ACTIVE_VERSION_COOKIE = "gtc_version";
  * banco ainda não foi semeado.
  */
 export async function getActiveContext(): Promise<ActiveContext | null> {
+  const session = await auth();
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return null;
+
   const ck = await cookies();
+
+  const [user] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.email, email))
+    .limit(1);
+  if (!user) return null;
+
+  // Vínculos do usuário (multi-tenant); por ora usa o primeiro tenant.
+  const memberships = await db
+    .select()
+    .from(schema.memberships)
+    .where(eq(schema.memberships.userId, user.id))
+    .orderBy(asc(schema.memberships.createdAt));
+  if (memberships.length === 0) return null;
+  const membership = memberships[0];
 
   const [tenant] = await db
     .select()
     .from(schema.tenants)
-    .orderBy(asc(schema.tenants.createdAt))
+    .where(eq(schema.tenants.id, membership.tenantId))
     .limit(1);
   if (!tenant) return null;
 
@@ -68,22 +89,15 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     versions.find((v) => v.isDefault) ??
     versions[0];
 
-  // Usuário atual: enquanto o login (Auth.js) não está ativo, assume o owner.
-  const [membership] = await db
-    .select()
-    .from(schema.memberships)
-    .where(eq(schema.memberships.tenantId, tenant.id))
-    .orderBy(asc(schema.memberships.createdAt));
-
-  const role = (membership?.role as Role) ?? "owner";
+  const role = membership.role as Role;
   return {
     tenant,
     projects,
     project,
     versions,
     version,
-    userId: membership?.userId ?? null,
+    userId: user.id,
     role,
-    perms: effectivePermissions(role, membership?.permissions ?? null),
+    perms: effectivePermissions(role, membership.permissions ?? null),
   };
 }
