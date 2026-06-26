@@ -152,6 +152,16 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type DocumentRow = typeof schema.documents.$inferSelect;
+
+export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
+  return db
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.tenantId, tenantId))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type CashRow = typeof schema.cashEntries.$inferSelect;
 
 export async function getCash(versionId: string): Promise<CashRow[]> {

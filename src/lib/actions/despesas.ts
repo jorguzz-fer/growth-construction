@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { canEdit, getActiveContext } from "@/lib/context";
+import { hasLevel } from "@/lib/permissions";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
@@ -62,6 +64,42 @@ export async function addDespesa(formData: FormData) {
     entity: "despesa",
     entityId: row.id,
     meta: { valor: row.valor, contaCef: row.contaCef },
+  });
+  revalidatePath("/despesas");
+}
+
+/** Anexa um documento (NF/contrato) a uma despesa, no R2. */
+export async function uploadDespesaDoc(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !hasLevel(ctx.perms, "despesas", "edit")) {
+    throw new Error("Sem permissão.");
+  }
+  if (!isR2Configured()) {
+    throw new Error("Storage (R2) não configurado — defina as variáveis R2_*.");
+  }
+  const despesaId = (formData.get("despesaId") as string) || null;
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo deve ter até 10 MB.");
+
+  const safe = file.name.replace(/[^\w.\-]+/g, "_");
+  const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${safe}`;
+  await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+
+  await db.insert(schema.documents).values({
+    tenantId: ctx.tenant.id,
+    despesaId,
+    storageKey: key,
+    filename: file.name,
+    contentType: file.type || null,
+    size: file.size,
+  });
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "document.upload",
+    entity: "document",
+    meta: { filename: file.name, despesaId },
   });
   revalidatePath("/despesas");
 }

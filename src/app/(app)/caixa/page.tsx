@@ -23,6 +23,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConciliarToggle } from "@/components/app/conciliar-toggle";
+import { ImportExtratoButton } from "@/components/app/import-extrato";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,9 @@ async function Lancamentos({
   void ctx;
   return (
     <>
+      <div className="mb-3 flex justify-end">
+        <ImportExtratoButton />
+      </div>
       <Card className="mb-6">
         <CardContent className="p-5">
           <form action={addCash} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
