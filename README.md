@@ -100,8 +100,18 @@ Configure as variáveis de [`.env.example`](./.env.example) como secrets.
 **Migrações são automáticas:** o `docker-entrypoint.sh` roda o runner de
 migração (`migrate.mjs`, um bundle esbuild do migrator do Drizzle — não precisa
 do `drizzle-kit` em runtime) antes de subir o servidor. É idempotente: a cada
-deploy aplica só o que falta. Para popular o tenant de demonstração, rode uma
-vez `npm run db:seed` apontando para o banco.
+deploy aplica só o que falta.
+
+**Seed (opcional, 1ª vez):** para popular o tenant de demonstração (RMV /
+SIGNATURE SUARÃO), abra o **terminal do container do app** no Coolify e rode:
+
+```bash
+node seed.mjs
+```
+
+O `seed.mjs` é um bundle autossuficiente embarcado na imagem (usa o
+`DATABASE_URL` do próprio container). Localmente, o equivalente é
+`npm run db:seed`.
 
 Variáveis obrigatórias em produção:
 

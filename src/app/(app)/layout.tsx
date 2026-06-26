@@ -21,10 +21,11 @@ export default async function AppLayout({
             Banco vazio
           </h1>
           <p className="mt-2 text-sm text-[var(--color-ink3)]">
-            Nenhum tenant encontrado. Rode as migrações e o seed:
+            Nenhum tenant encontrado. As migrações rodam no deploy; para popular
+            o tenant de demonstração, rode no terminal do container:
           </p>
           <pre className="mt-3 rounded-[8px] bg-[var(--color-ink)] p-3 text-left text-xs text-white">
-            npm run db:migrate{"\n"}npm run db:seed
+            node seed.mjs
           </pre>
           <Link
             href="/"

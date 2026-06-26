@@ -18,7 +18,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/lib/db/seed.ts",
-    "build:migrate": "esbuild src/lib/db/migrate.ts --bundle --platform=node --target=node22 --format=esm --outfile=.migrate/migrate.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+    "build:migrate": "esbuild src/lib/db/migrate.ts --bundle --platform=node --target=node22 --format=esm --outfile=.migrate/migrate.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build:seed": "esbuild src/lib/db/seed.ts --bundle --platform=node --target=node22 --format=esm --outfile=.migrate/seed.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
