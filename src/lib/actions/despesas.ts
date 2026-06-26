@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { canEdit, getActiveContext } from "@/lib/context";
+import { logAudit } from "@/lib/audit";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
 export async function addStakeholder(formData: FormData) {
@@ -38,18 +39,29 @@ export async function addBankAccount(formData: FormData) {
 
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
-  await db.insert(schema.despesas).values({
-    versionId: ctx.version.id,
+  if (!ctx || !canEdit(ctx.role)) return;
+  const [row] = await db
+    .insert(schema.despesas)
+    .values({
+      versionId: ctx.version.id,
+      tenantId: ctx.tenant.id,
+      fornecedorId: (formData.get("fornecedorId") as string) || null,
+      bancoId: (formData.get("bancoId") as string) || null,
+      contaCef: (formData.get("contaCef") as string) || null,
+      categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
+      competencia: (formData.get("competencia") as string) || null,
+      vencimento: (formData.get("vencimento") as string) || null,
+      valor: (formData.get("valor") as string) || "0",
+      status: (formData.get("status") as string) || "A pagar",
+    })
+    .returning();
+  await logAudit({
     tenantId: ctx.tenant.id,
-    fornecedorId: (formData.get("fornecedorId") as string) || null,
-    bancoId: (formData.get("bancoId") as string) || null,
-    contaCef: (formData.get("contaCef") as string) || null,
-    categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
-    competencia: (formData.get("competencia") as string) || null,
-    vencimento: (formData.get("vencimento") as string) || null,
-    valor: (formData.get("valor") as string) || "0",
-    status: (formData.get("status") as string) || "A pagar",
+    userId: ctx.userId,
+    action: "despesa.create",
+    entity: "despesa",
+    entityId: row.id,
+    meta: { valor: row.valor, contaCef: row.contaCef },
   });
   revalidatePath("/despesas");
 }

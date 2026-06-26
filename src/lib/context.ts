@@ -6,12 +6,22 @@ export type Tenant = typeof schema.tenants.$inferSelect;
 export type Project = typeof schema.projects.$inferSelect;
 export type Version = typeof schema.versions.$inferSelect;
 
+export type Role = "owner" | "admin" | "membro" | "contador";
+
 export interface ActiveContext {
   tenant: Tenant;
   projects: Project[];
   project: Project;
   versions: Version[];
   version: Version;
+  /** usuário "logado" (enquanto não há Auth.js ativo, o owner do tenant). */
+  userId: string | null;
+  role: Role;
+}
+
+/** RBAC: contador é somente-leitura; os demais podem editar. */
+export function canEdit(role: Role): boolean {
+  return role !== "contador";
 }
 
 export const ACTIVE_PROJECT_COOKIE = "gtc_project";
@@ -55,5 +65,20 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     versions.find((v) => v.isDefault) ??
     versions[0];
 
-  return { tenant, projects, project, versions, version };
+  // Usuário atual: enquanto o login (Auth.js) não está ativo, assume o owner.
+  const [membership] = await db
+    .select()
+    .from(schema.memberships)
+    .where(eq(schema.memberships.tenantId, tenant.id))
+    .orderBy(asc(schema.memberships.createdAt));
+
+  return {
+    tenant,
+    projects,
+    project,
+    versions,
+    version,
+    userId: membership?.userId ?? null,
+    role: (membership?.role as Role) ?? "owner",
+  };
 }

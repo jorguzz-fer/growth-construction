@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import { calcProjection, reembursementsByMonth } from "./calc/projection";
@@ -190,4 +190,41 @@ export function sortMonthKey(a: string, b: string): number {
   const [ma, ya] = a.split("/").map(Number);
   const [mb, yb] = b.split("/").map(Number);
   return ya - yb || ma - mb;
+}
+
+// ──────────────────────── Config & multi-tenant ──────────────────────────
+
+export interface MemberRow {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+}
+
+export async function getMembers(tenantId: string): Promise<MemberRow[]> {
+  return db
+    .select({
+      userId: schema.memberships.userId,
+      name: schema.users.name,
+      email: schema.users.email,
+      role: schema.memberships.role,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+    .where(eq(schema.memberships.tenantId, tenantId))
+    .orderBy(asc(schema.memberships.createdAt));
+}
+
+export type AuditRow = typeof schema.auditLog.$inferSelect;
+
+export async function getAuditLog(
+  tenantId: string,
+  limit = 20,
+): Promise<AuditRow[]> {
+  return db
+    .select()
+    .from(schema.auditLog)
+    .where(eq(schema.auditLog.tenantId, tenantId))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(limit);
 }
