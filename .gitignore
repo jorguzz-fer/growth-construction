@@ -30,3 +30,6 @@ yarn-error.log*
 
 # drizzle
 /drizzle
+
+# migrate bundle (gerado por build:migrate)
+/.migrate

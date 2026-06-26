@@ -13,7 +13,10 @@ import { users, accounts, sessions, verificationTokens } from "@/lib/db/schema";
  * Para habilitar, por exemplo, login por e-mail/OAuth, adicione o provider em
  * `providers` e configure os secrets correspondentes nas variáveis de ambiente.
  */
-export const { handlers, signIn, signOut, auth } = NextAuth({
+// Inicialização lazy (Auth.js v5): a config — incluindo o DrizzleAdapter, que
+// inspeciona o client do banco — só é montada por requisição, em runtime. Isso
+// evita que `next build` precise de DATABASE_URL/AUTH_SECRET em build time.
+export const { handlers, signIn, signOut, auth } = NextAuth(() => ({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
@@ -29,4 +32,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // Resend({ from: process.env.EMAIL_FROM }),
     // Google({ clientId: ..., clientSecret: ... }),
   ],
-});
+}));
