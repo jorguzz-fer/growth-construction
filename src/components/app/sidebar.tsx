@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
 import { duplicateVersion } from "@/lib/actions/versions";
@@ -48,6 +48,8 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
 
   const allSections: NavSection[] = [
     {
@@ -100,7 +102,34 @@ export function Sidebar({
   const sections = allSections.filter((s) => hasLevel(perms, s.permKey, "view"));
 
   return (
-    <aside className="flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white">
+    <>
+      {/* Barra superior mobile com hambúrguer */}
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-white/10 bg-[var(--color-ink)] px-4 lg:hidden">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-label="Menu"
+          className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white hover:bg-white/10"
+        >
+          <span className="text-xl leading-none">≡</span>
+        </button>
+        <span className="font-[family-name:var(--font-serif)] text-sm text-white">
+          {tenantName}
+        </span>
+      </div>
+
+      {/* Backdrop do drawer */}
+      {open && (
+        <div
+          onClick={close}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
       <div className="border-b border-white/10 px-4 py-4">
         {logoUrl ? (
           <Image
@@ -214,6 +243,7 @@ export function Sidebar({
                 <Link
                   key={it.href}
                   href={it.href}
+                  onClick={close}
                   className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[12.5px] transition-colors ${
                     active
                       ? "border-[var(--color-accent2)] bg-[var(--color-accent2)]/20 text-white"
@@ -248,6 +278,7 @@ export function Sidebar({
           </div>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

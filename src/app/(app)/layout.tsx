@@ -78,7 +78,9 @@ export default async function AppLayout({
         badges={{ unidades, reembolso, permuta }}
       />
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-6 py-8">{children}</div>
+        <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
+          {children}
+        </div>
       </main>
     </div>
   );
