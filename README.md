@@ -95,6 +95,22 @@ src/
 ## Deploy (Coolify)
 
 Build pack **Dockerfile**, porta `3000`, HTTPS automático via Traefik.
-Configure as variáveis de [`.env.example`](./.env.example) como secrets e rode
-`npm run db:migrate` no pós-deploy. Passo a passo completo em
-[`docs/STACK.md §3`](./docs/STACK.md).
+Configure as variáveis de [`.env.example`](./.env.example) como secrets.
+
+**Migrações são automáticas:** o `docker-entrypoint.sh` roda o runner de
+migração (`migrate.mjs`, um bundle esbuild do migrator do Drizzle — não precisa
+do `drizzle-kit` em runtime) antes de subir o servidor. É idempotente: a cada
+deploy aplica só o que falta. Para popular o tenant de demonstração, rode uma
+vez `npm run db:seed` apontando para o banco.
+
+Variáveis obrigatórias em produção:
+
+```env
+NODE_ENV=production
+DATABASE_URL=postgresql://postgres:SENHA@servico-pg:5432/postgres
+AUTH_SECRET=<openssl rand -base64 32>
+AUTH_TRUST_HOST=true          # necessário atrás do Traefik
+NEXT_PUBLIC_APP_URL=https://app.growthtools.com.br
+```
+
+Passo a passo completo em [`docs/STACK.md §3`](./docs/STACK.md).

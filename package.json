@@ -17,7 +17,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx src/lib/db/seed.ts"
+    "db:seed": "tsx src/lib/db/seed.ts",
+    "build:migrate": "esbuild src/lib/db/migrate.ts --bundle --platform=node --target=node22 --format=esm --outfile=.migrate/migrate.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
@@ -42,6 +43,7 @@
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "drizzle-kit": "^0.30.1",
+    "esbuild": "^0.24.2",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.5.19",
     "tailwindcss": "^4.0.0",
