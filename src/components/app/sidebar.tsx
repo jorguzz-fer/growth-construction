@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useTransition } from "react";
+import { signOut } from "next-auth/react";
+import { useState, useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
+import { duplicateVersion } from "@/lib/actions/versions";
+import { hasLevel, type AccessLevel } from "@/lib/permissions";
 
 interface NavItem {
   href: string;
@@ -13,10 +17,13 @@ interface NavItem {
 }
 interface NavSection {
   title: string;
+  /** chave de permissão da seção. */
+  permKey: string;
   items: NavItem[];
 }
 
 export interface SidebarProps {
+  logoUrl: string | null;
   tenantName: string;
   project: Project;
   projects: Project[];
@@ -24,10 +31,12 @@ export interface SidebarProps {
   versions: Version[];
   userName: string;
   userRole: string;
+  perms: Record<string, AccessLevel>;
   badges: { unidades: number; reembolso: number; permuta: number };
 }
 
 export function Sidebar({
+  logoUrl,
   tenantName,
   project,
   projects,
@@ -35,14 +44,18 @@ export function Sidebar({
   versions,
   userName,
   userRole,
+  perms,
   badges,
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
 
-  const sections: NavSection[] = [
+  const allSections: NavSection[] = [
     {
       title: "Módulo Receitas",
+      permKey: "receitas",
       items: [
         { href: "/unidades", label: "Unidades", badge: badges.unidades },
         { href: "/simulador", label: "Simulador" },
@@ -53,6 +66,7 @@ export function Sidebar({
     },
     {
       title: "Módulo Despesas",
+      permKey: "despesas",
       items: [
         { href: "/despesas", label: "Lançamentos" },
         { href: "/fornecedores", label: "Fornecedores" },
@@ -61,6 +75,7 @@ export function Sidebar({
     },
     {
       title: "Reports & Dashboards",
+      permKey: "reports",
       items: [
         { href: "/dashboard", label: "Dashboard" },
         { href: "/projecao", label: "Projeção de Receitas" },
@@ -75,19 +90,62 @@ export function Sidebar({
     },
     {
       title: "Config",
+      permKey: "config",
       items: [
+        { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
       ],
     },
   ];
 
+  // Mostra só as seções em que o usuário tem ao menos visualização.
+  const sections = allSections.filter((s) => hasLevel(perms, s.permKey, "view"));
+
   return (
-    <aside className="flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white">
+    <>
+      {/* Barra superior mobile com hambúrguer */}
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-white/10 bg-[var(--color-ink)] px-4 lg:hidden">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-label="Menu"
+          className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white hover:bg-white/10"
+        >
+          <span className="text-xl leading-none">≡</span>
+        </button>
+        <span className="font-[family-name:var(--font-serif)] text-sm text-white">
+          {tenantName}
+        </span>
+      </div>
+
+      {/* Backdrop do drawer */}
+      {open && (
+        <div
+          onClick={close}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
       <div className="border-b border-white/10 px-4 py-4">
-        <div className="font-[family-name:var(--font-serif)] text-[15px]">
-          Growth Tools
-        </div>
+        {logoUrl ? (
+          <Image
+            src={logoUrl}
+            alt={tenantName}
+            width={160}
+            height={40}
+            unoptimized
+            className="mb-1 max-h-10 w-auto object-contain"
+          />
+        ) : (
+          <div className="font-[family-name:var(--font-serif)] text-[15px]">
+            Growth Tools
+          </div>
+        )}
         <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] text-white/30">
           Construction App
         </div>
@@ -153,6 +211,22 @@ export function Sidebar({
             );
           })}
         </div>
+        {versions.length < 6 && (
+          <button
+            disabled={pending}
+            onClick={() => {
+              const label = window.prompt(
+                "Nome da nova versão:",
+                `Cópia de ${version.label}`,
+              );
+              if (label)
+                startTransition(() => duplicateVersion(version.id, label));
+            }}
+            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-dashed border-white/15 px-2 py-1.5 text-[11px] text-white/40 transition-colors hover:border-white/30 hover:text-white/70 disabled:opacity-50"
+          >
+            + Nova versão (duplicar atual)
+          </button>
+        )}
         <div className="mt-1 font-[family-name:var(--font-mono)] text-[9.5px] text-white/20">
           {versions.length}/6 versões
         </div>
@@ -170,6 +244,7 @@ export function Sidebar({
                 <Link
                   key={it.href}
                   href={it.href}
+                  onClick={close}
                   className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[12.5px] transition-colors ${
                     active
                       ? "border-[var(--color-accent2)] bg-[var(--color-accent2)]/20 text-white"
@@ -190,7 +265,11 @@ export function Sidebar({
       </nav>
 
       <div className="mt-auto border-t border-white/10 p-3">
-        <div className="flex items-center gap-2 px-1 py-1">
+        <Link
+          href="/perfil"
+          onClick={close}
+          className="flex items-center gap-2 rounded-[8px] px-1 py-1 hover:bg-white/5"
+        >
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-accent2)]/40 text-[10px] font-semibold">
             {userName.slice(0, 2).toUpperCase()}
           </div>
@@ -202,8 +281,15 @@ export function Sidebar({
               {userRole}
             </div>
           </div>
-        </div>
+        </Link>
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="mt-1 w-full rounded-[8px] px-2 py-1.5 text-left text-[11px] text-white/40 hover:bg-white/5 hover:text-white/70"
+        >
+          Sair
+        </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

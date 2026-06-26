@@ -152,6 +152,16 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type DocumentRow = typeof schema.documents.$inferSelect;
+
+export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
+  return db
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.tenantId, tenantId))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type CashRow = typeof schema.cashEntries.$inferSelect;
 
 export async function getCash(versionId: string): Promise<CashRow[]> {
@@ -199,6 +209,8 @@ export interface MemberRow {
   name: string | null;
   email: string | null;
   role: string;
+  permissions: Record<string, string> | null;
+  mfaEnabled: boolean;
 }
 
 export async function getMembers(tenantId: string): Promise<MemberRow[]> {
@@ -208,6 +220,8 @@ export async function getMembers(tenantId: string): Promise<MemberRow[]> {
       name: schema.users.name,
       email: schema.users.email,
       role: schema.memberships.role,
+      permissions: schema.memberships.permissions,
+      mfaEnabled: schema.users.mfaEnabled,
     })
     .from(schema.memberships)
     .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))

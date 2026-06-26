@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { hasLevel } from "@/lib/permissions";
+import { logAudit } from "@/lib/audit";
 
 export async function addCash(formData: FormData) {
   const ctx = await getActiveContext();
@@ -20,6 +22,45 @@ export async function addCash(formData: FormData) {
     rec: false,
   });
   revalidatePath("/caixa");
+}
+
+export interface ImportCashRow {
+  data?: string;
+  descricao?: string;
+  valor?: number;
+  cat?: string;
+}
+
+/** Importa lançamentos de caixa de um extrato (XLSX/CSV). */
+export async function importCash(
+  rows: ImportCashRow[],
+): Promise<{ inserted: number }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !hasLevel(ctx.perms, "reports", "edit")) {
+    throw new Error("Sem permissão para importar extrato.");
+  }
+  const valid = rows.filter((r) => r.valor != null && r.valor !== 0);
+  if (valid.length === 0) return { inserted: 0 };
+  await db.insert(schema.cashEntries).values(
+    valid.map((r) => ({
+      versionId: ctx.version.id,
+      tenantId: ctx.tenant.id,
+      data: r.data || null,
+      descricao: r.descricao || null,
+      valor: String(r.valor ?? 0),
+      cat: r.cat || "extrato",
+      rec: false,
+    })),
+  );
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "cash.import",
+    entity: "cash_entry",
+    meta: { count: valid.length },
+  });
+  revalidatePath("/caixa");
+  return { inserted: valid.length };
 }
 
 /** Alterna o estado de conciliação de um lançamento de caixa. */

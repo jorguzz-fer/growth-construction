@@ -16,7 +16,11 @@ import {
   DEFAULT_INCC,
 } from "@/lib/calc/constants";
 import { bla401, emptyUnit } from "@/lib/calc/__fixtures__";
+import { hashPassword } from "@/lib/password";
 import type { CalcUnit } from "@/lib/calc/types";
+
+/** Senha inicial dos usuários semeados — TROCAR no primeiro acesso. */
+const SENHA_INICIAL = "Trocar@2026";
 
 /** Extrai a parte do plano de pagamento (JSONB) de uma CalcUnit. */
 function planOf(u: CalcUnit) {
@@ -48,11 +52,41 @@ async function main() {
   // Usuário owner + vínculo (RBAC). O login real (Auth.js) entra na operação.
   const [owner] = await db
     .insert(schema.users)
-    .values({ name: "RMV Admin", email: "admin@rmv.com.br" })
+    .values({
+      name: "RMV Admin",
+      email: "admin@rmv.com.br",
+      passwordHash: hashPassword(SENHA_INICIAL),
+    })
     .returning();
   await db
     .insert(schema.memberships)
     .values({ userId: owner.id, tenantId: tenant.id, role: "owner" });
+
+  // Co-fundadores como Admins.
+  const admins = [
+    { name: "Fernando Jorge", email: "fer.jorge@gmail.com" },
+    { name: "Thiago Liberman", email: "thiago.liberman@gmail.com" },
+  ];
+  for (const a of admins) {
+    const [u] = await db
+      .insert(schema.users)
+      .values({ ...a, passwordHash: hashPassword(SENHA_INICIAL) })
+      .onConflictDoNothing({ target: schema.users.email })
+      .returning();
+    const userId =
+      u?.id ??
+      (
+        await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, a.email))
+          .limit(1)
+      )[0].id;
+    await db
+      .insert(schema.memberships)
+      .values({ userId, tenantId: tenant.id, role: "admin" })
+      .onConflictDoNothing();
+  }
 
   const [project] = await db
     .insert(schema.projects)
@@ -203,6 +237,10 @@ async function main() {
   ]);
 
   console.log("✓ Seed concluído.");
+  console.log(`\nLogins (senha inicial: ${SENHA_INICIAL} — troque no 1º acesso):`);
+  console.log("  admin@rmv.com.br (owner)");
+  console.log("  fer.jorge@gmail.com (admin)");
+  console.log("  thiago.liberman@gmail.com (admin)");
 }
 
 main()

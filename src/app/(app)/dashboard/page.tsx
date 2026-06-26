@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { BarChart, DoughnutChart, CHART_COLORS } from "@/components/app/charts";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,49 @@ export default async function DashboardPage() {
         ))}
       </section>
 
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+              Receita contratada por fonte
+            </h2>
+            <DoughnutChart
+              data={{
+                labels: fontes.filter((f) => f.value > 0).map((f) => f.label),
+                datasets: [
+                  {
+                    data: fontes.filter((f) => f.value > 0).map((f) => f.value),
+                    backgroundColor: Object.values(CHART_COLORS),
+                    borderWidth: 0,
+                  },
+                ],
+              }}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+              Receita projetada por versão
+            </h2>
+            <BarChart
+              currency
+              data={{
+                labels: comparativo.map((c) => c.version.label),
+                datasets: [
+                  {
+                    label: "Receita projetada",
+                    data: comparativo.map((c) => c.receita),
+                    backgroundColor: comparativo.map((c) => c.version.color),
+                    borderRadius: 6,
+                  },
+                ],
+              }}
+            />
+          </CardContent>
+        </Card>
+      </section>
+
       <Card className="mt-6">
         <CardContent className="p-5">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
@@ -183,7 +227,7 @@ export default async function DashboardPage() {
       <Card className="mt-6">
         <CardContent className="p-5">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-            Receita contratada por fonte
+            Detalhe da receita por fonte
           </h2>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
             {fontes.map((f) => (
