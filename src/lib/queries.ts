@@ -1,11 +1,13 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
+import { calcProjection, reembursementsByMonth } from "./calc/projection";
 import type {
   CalcPermuta,
   CalcReembolso,
   CalcUnit,
   InccRow,
+  MonthlyProjection,
 } from "./calc/types";
 
 export type UnitRow = typeof schema.units.$inferSelect;
@@ -158,4 +160,34 @@ export async function getCash(versionId: string): Promise<CashRow[]> {
     .from(schema.cashEntries)
     .where(eq(schema.cashEntries.versionId, versionId))
     .orderBy(asc(schema.cashEntries.data));
+}
+
+/**
+ * Receita projetada mês a mês de uma versão (unidades + reembolsos), pronta
+ * para os relatórios. Reutiliza calcProjection + reembursementsByMonth.
+ */
+export async function getMonthlyRevenue(
+  versionId: string,
+  projectId: string,
+): Promise<MonthlyProjection> {
+  const [unitRows, reembRows, incc] = await Promise.all([
+    getUnits(versionId),
+    getReembolsos(versionId),
+    getInccRows(projectId),
+  ]);
+  const out: MonthlyProjection = {};
+  for (const r of unitRows) {
+    const p = calcProjection(toCalcUnit(r), incc);
+    for (const [mm, v] of Object.entries(p)) out[mm] = (out[mm] || 0) + v;
+  }
+  const reemb = reembursementsByMonth(reembToCalc(reembRows));
+  for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  return out;
+}
+
+/** Ordena chaves "MM/YYYY" cronologicamente. */
+export function sortMonthKey(a: string, b: string): number {
+  const [ma, ya] = a.split("/").map(Number);
+  const [mb, yb] = b.split("/").map(Number);
+  return ya - yb || ma - mb;
 }
