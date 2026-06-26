@@ -5,7 +5,9 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+# --include=dev garante as devDependencies (next/typescript/tailwind/esbuild)
+# mesmo que o ambiente passe NODE_ENV=production em build time.
+RUN npm ci --include=dev
 
 # --- build ---
 FROM node:22-alpine AS build
