@@ -2,6 +2,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { Sidebar } from "@/components/app/sidebar";
 
 export const dynamic = "force-dynamic";
@@ -57,9 +58,15 @@ export default async function AppLayout({
       .then((r) => r.length),
   ]);
 
+  const logoUrl =
+    ctx.tenant.logoKey && isR2Configured()
+      ? await readUrl(ctx.tenant.logoKey)
+      : null;
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
+        logoUrl={logoUrl}
         tenantName={ctx.tenant.name}
         project={ctx.project}
         projects={ctx.projects}
@@ -67,6 +74,7 @@ export default async function AppLayout({
         versions={ctx.versions}
         userName="RMV Admin"
         userRole={ctx.role}
+        perms={ctx.perms}
         badges={{ unidades, reembolso, permuta }}
       />
       <main className="flex-1 overflow-y-auto">

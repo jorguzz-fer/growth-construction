@@ -8,6 +8,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { RoleSelect } from "@/components/app/role-select";
+import { PermissionsMatrix } from "@/components/app/permissions-matrix";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,27 @@ export default async function UsuariosPage() {
           ))}
         </tbody>
       </Table>
+
+      {/* Permissões por seção */}
+      {podeGerir && (
+        <>
+          <h2 className="mb-1 mt-8 text-sm font-semibold text-[var(--color-ink)]">
+            Permissões por seção
+          </h2>
+          <p className="mb-3 text-xs text-[var(--color-ink3)]">
+            Sobrescreve o perfil de acesso por membro. O owner tem acesso total.
+          </p>
+          <PermissionsMatrix
+            members={members.map((m) => ({
+              userId: m.userId,
+              name: m.name,
+              email: m.email,
+              role: m.role as Role,
+              permissions: m.permissions,
+            }))}
+          />
+        </>
+      )}
 
       {/* Auditoria */}
       <h2 className="mb-3 mt-8 text-sm font-semibold text-[var(--color-ink)]">

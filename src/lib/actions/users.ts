@@ -70,6 +70,33 @@ export async function inviteContador(formData: FormData) {
   await invite(formData, "contador");
 }
 
+/** Define os overrides de permissão por seção de um membro. */
+export async function setMemberPermissions(
+  userId: string,
+  permissions: Record<string, string>,
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) return;
+  await db
+    .update(schema.memberships)
+    .set({ permissions })
+    .where(
+      and(
+        eq(schema.memberships.userId, userId),
+        eq(schema.memberships.tenantId, ctx.tenant.id),
+      ),
+    );
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "membership.permissions",
+    entity: "membership",
+    entityId: userId,
+    meta: permissions,
+  });
+  revalidatePath("/usuarios");
+}
+
 export async function changeRole(userId: string, role: Role) {
   const ctx = await getActiveContext();
   if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) return;

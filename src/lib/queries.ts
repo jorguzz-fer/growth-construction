@@ -199,6 +199,8 @@ export interface MemberRow {
   name: string | null;
   email: string | null;
   role: string;
+  permissions: Record<string, string> | null;
+  mfaEnabled: boolean;
 }
 
 export async function getMembers(tenantId: string): Promise<MemberRow[]> {
@@ -208,6 +210,8 @@ export async function getMembers(tenantId: string): Promise<MemberRow[]> {
       name: schema.users.name,
       email: schema.users.email,
       role: schema.memberships.role,
+      permissions: schema.memberships.permissions,
+      mfaEnabled: schema.users.mfaEnabled,
     })
     .from(schema.memberships)
     .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))

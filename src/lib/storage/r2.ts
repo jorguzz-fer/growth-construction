@@ -38,6 +38,22 @@ function client(): S3Client {
   return cached;
 }
 
+/** Upload direto de um objeto (usado para arquivos pequenos, ex.: logo). */
+export async function putObject(
+  key: string,
+  body: Uint8Array | Buffer,
+  contentType: string,
+): Promise<void> {
+  await client().send(
+    new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    }),
+  );
+}
+
 /** Presigned URL de upload (PUT). Válida por `expiresIn` segundos. */
 export async function presignUpload(
   key: string,

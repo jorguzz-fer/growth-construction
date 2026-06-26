@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
 import { duplicateVersion } from "@/lib/actions/versions";
+import { hasLevel, type AccessLevel } from "@/lib/permissions";
 
 interface NavItem {
   href: string;
@@ -14,10 +16,13 @@ interface NavItem {
 }
 interface NavSection {
   title: string;
+  /** chave de permissão da seção. */
+  permKey: string;
   items: NavItem[];
 }
 
 export interface SidebarProps {
+  logoUrl: string | null;
   tenantName: string;
   project: Project;
   projects: Project[];
@@ -25,10 +30,12 @@ export interface SidebarProps {
   versions: Version[];
   userName: string;
   userRole: string;
+  perms: Record<string, AccessLevel>;
   badges: { unidades: number; reembolso: number; permuta: number };
 }
 
 export function Sidebar({
+  logoUrl,
   tenantName,
   project,
   projects,
@@ -36,14 +43,16 @@ export function Sidebar({
   versions,
   userName,
   userRole,
+  perms,
   badges,
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
 
-  const sections: NavSection[] = [
+  const allSections: NavSection[] = [
     {
       title: "Módulo Receitas",
+      permKey: "receitas",
       items: [
         { href: "/unidades", label: "Unidades", badge: badges.unidades },
         { href: "/simulador", label: "Simulador" },
@@ -54,6 +63,7 @@ export function Sidebar({
     },
     {
       title: "Módulo Despesas",
+      permKey: "despesas",
       items: [
         { href: "/despesas", label: "Lançamentos" },
         { href: "/fornecedores", label: "Fornecedores" },
@@ -62,6 +72,7 @@ export function Sidebar({
     },
     {
       title: "Reports & Dashboards",
+      permKey: "reports",
       items: [
         { href: "/dashboard", label: "Dashboard" },
         { href: "/projecao", label: "Projeção de Receitas" },
@@ -76,19 +87,35 @@ export function Sidebar({
     },
     {
       title: "Config",
+      permKey: "config",
       items: [
+        { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
       ],
     },
   ];
 
+  // Mostra só as seções em que o usuário tem ao menos visualização.
+  const sections = allSections.filter((s) => hasLevel(perms, s.permKey, "view"));
+
   return (
     <aside className="flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white">
       <div className="border-b border-white/10 px-4 py-4">
-        <div className="font-[family-name:var(--font-serif)] text-[15px]">
-          Growth Tools
-        </div>
+        {logoUrl ? (
+          <Image
+            src={logoUrl}
+            alt={tenantName}
+            width={160}
+            height={40}
+            unoptimized
+            className="mb-1 max-h-10 w-auto object-contain"
+          />
+        ) : (
+          <div className="font-[family-name:var(--font-serif)] text-[15px]">
+            Growth Tools
+          </div>
+        )}
         <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] text-white/30">
           Construction App
         </div>
