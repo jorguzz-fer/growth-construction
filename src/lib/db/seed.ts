@@ -1,12 +1,12 @@
 /**
- * Seed do banco — popula um tenant de demonstração (RMV / SIGNATURE SUARÃO)
- * com as 3 versões fixas, plano de contas (CEF + complementar), tabela INCC,
- * stakeholders, contas bancárias e unidades de amostra com plano de pagamento.
+ * Seed do banco — popula um tenant de demonstração (RMV / SIGNATURE SUARÃO).
  *
- * Uso: `npm run db:seed` (requer DATABASE_URL apontando para um Postgres).
- * Idempotente no nível do tenant: se "RMV Empreendimentos" já existir, aborta.
- *
- * Os dados de origem vêm de src/lib/calc/constants e do protótipo (docs/SPEC.md).
+ * Uso: `node seed.mjs` (no container) ou `npm run db:seed` (local).
+ * É IDEMPOTENTE e AUTO-CORRETIVO:
+ *  - garante os usuários (owner + admins) com senha inicial, mesmo se o tenant
+ *    já existir (corrige contas sem senha);
+ *  - só insere os dados de demonstração (projeto/versões/contas/INCC/unidades)
+ *    se ainda não existirem.
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "./index";
@@ -22,7 +22,8 @@ import type { CalcUnit } from "@/lib/calc/types";
 /** Senha inicial dos usuários semeados — TROCAR no primeiro acesso. */
 const SENHA_INICIAL = "Trocar@2026";
 
-/** Extrai a parte do plano de pagamento (JSONB) de uma CalcUnit. */
+type SeedRole = "owner" | "admin";
+
 function planOf(u: CalcUnit) {
   const { code: _c, status: _s, valor: _v, ...plan } = u;
   void _c;
@@ -31,67 +32,96 @@ function planOf(u: CalcUnit) {
   return plan;
 }
 
+/** Garante o usuário (com senha se faltar) e o vínculo com o tenant. */
+async function ensureUser(
+  name: string,
+  email: string,
+  role: SeedRole,
+  tenantId: string,
+) {
+  const [existing] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.email, email))
+    .limit(1);
+
+  let userId: string;
+  if (existing) {
+    userId = existing.id;
+    if (!existing.passwordHash) {
+      await db
+        .update(schema.users)
+        .set({ passwordHash: hashPassword(SENHA_INICIAL) })
+        .where(eq(schema.users.id, userId));
+      console.log(`  senha inicial definida para ${email}`);
+    } else {
+      console.log(`  ${email} já tem senha (mantida)`);
+    }
+  } else {
+    const [u] = await db
+      .insert(schema.users)
+      .values({ name, email, passwordHash: hashPassword(SENHA_INICIAL) })
+      .returning();
+    userId = u.id;
+    console.log(`  usuário criado: ${email}`);
+  }
+
+  await db
+    .insert(schema.memberships)
+    .values({ userId, tenantId, role })
+    .onConflictDoNothing();
+  return userId;
+}
+
 async function main() {
-  const existing = await db
-    .select({ id: schema.tenants.id })
+  // Tenant: encontra ou cria.
+  let [tenant] = await db
+    .select()
     .from(schema.tenants)
     .where(eq(schema.tenants.name, "RMV Empreendimentos"))
     .limit(1);
-
-  if (existing.length > 0) {
-    console.log("Tenant 'RMV Empreendimentos' já existe — seed abortado.");
-    return;
-  }
-
-  console.log("Criando tenant, projeto e versões...");
-  const [tenant] = await db
-    .insert(schema.tenants)
-    .values({ name: "RMV Empreendimentos" })
-    .returning();
-
-  // Usuário owner + vínculo (RBAC). O login real (Auth.js) entra na operação.
-  const [owner] = await db
-    .insert(schema.users)
-    .values({
-      name: "RMV Admin",
-      email: "admin@rmv.com.br",
-      passwordHash: hashPassword(SENHA_INICIAL),
-    })
-    .returning();
-  await db
-    .insert(schema.memberships)
-    .values({ userId: owner.id, tenantId: tenant.id, role: "owner" });
-
-  // Co-fundadores como Admins.
-  const admins = [
-    { name: "Fernando Jorge", email: "fer.jorge@gmail.com" },
-    { name: "Thiago Liberman", email: "thiago.liberman@gmail.com" },
-  ];
-  for (const a of admins) {
-    const [u] = await db
-      .insert(schema.users)
-      .values({ ...a, passwordHash: hashPassword(SENHA_INICIAL) })
-      .onConflictDoNothing({ target: schema.users.email })
+  if (!tenant) {
+    [tenant] = await db
+      .insert(schema.tenants)
+      .values({ name: "RMV Empreendimentos" })
       .returning();
-    const userId =
-      u?.id ??
-      (
-        await db
-          .select({ id: schema.users.id })
-          .from(schema.users)
-          .where(eq(schema.users.email, a.email))
-          .limit(1)
-      )[0].id;
-    await db
-      .insert(schema.memberships)
-      .values({ userId, tenantId: tenant.id, role: "admin" })
-      .onConflictDoNothing();
+    console.log("Tenant criado.");
+  } else {
+    console.log("Tenant já existe — garantindo usuários e dados.");
   }
 
+  // Usuários SEMPRE garantidos (corrige contas sem senha).
+  console.log("Garantindo usuários...");
+  await ensureUser("RMV Admin", "admin@rmv.com.br", "owner", tenant.id);
+  await ensureUser("Fernando Jorge", "fer.jorge@gmail.com", "admin", tenant.id);
+  await ensureUser("Thiago Liberman", "thiago.liberman@gmail.com", "admin", tenant.id);
+
+  // Dados de demonstração só se ainda não houver projeto.
+  const [existingProject] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(eq(schema.projects.tenantId, tenant.id))
+    .limit(1);
+
+  if (existingProject) {
+    console.log("Dados de demonstração já existem — pulando.");
+  } else {
+    await seedDemoData(tenant.id);
+  }
+
+  console.log("\n✓ Seed concluído.");
+  console.log(`Logins (senha inicial: ${SENHA_INICIAL} — troque no 1º acesso):`);
+  console.log("  admin@rmv.com.br (owner)");
+  console.log("  fer.jorge@gmail.com (admin)");
+  console.log("  thiago.liberman@gmail.com (admin)");
+}
+
+async function seedDemoData(tenantId: string) {
+  console.log("Criando projeto e versões...");
   const [project] = await db
     .insert(schema.projects)
     .values({
-      tenantId: tenant.id,
+      tenantId,
       name: "SIGNATURE SUARÃO",
       kind: "proj",
       status: "Em andamento",
@@ -99,61 +129,23 @@ async function main() {
     .returning();
 
   const versionsSeed = [
-    {
-      key: "budget",
-      kind: "budget" as const,
-      label: "Budget / Orçamento",
-      color: "#6366f1",
-      isDefault: false,
-    },
-    {
-      key: "forecast",
-      kind: "forecast" as const,
-      label: "Previsto / Forecast",
-      color: "#10b981",
-      isDefault: true,
-    },
-    {
-      key: "atual",
-      kind: "atual" as const,
-      label: "Atual — caixa real",
-      color: "#f59e0b",
-      isDefault: false,
-    },
+    { key: "budget", kind: "budget" as const, label: "Budget / Orçamento", color: "#6366f1", isDefault: false },
+    { key: "forecast", kind: "forecast" as const, label: "Previsto / Forecast", color: "#10b981", isDefault: true },
+    { key: "atual", kind: "atual" as const, label: "Atual — caixa real", color: "#f59e0b", isDefault: false },
   ];
   const insertedVersions = await db
     .insert(schema.versions)
-    .values(
-      versionsSeed.map((v) => ({
-        ...v,
-        projectId: project.id,
-        tenantId: tenant.id,
-      })),
-    )
+    .values(versionsSeed.map((v) => ({ ...v, projectId: project.id, tenantId })))
     .returning();
   const forecast = insertedVersions.find((v) => v.key === "forecast")!;
 
   console.log("Plano de contas (CEF + complementar)...");
   const chartRows = [
     ...PLANO_CONTAS.obra.flatMap((g) =>
-      g.sub.map((s) => ({
-        tenantId: tenant.id,
-        code: s.id,
-        name: s.nome,
-        groupCode: g.id,
-        groupName: g.nome,
-        kind: "cef" as const,
-      })),
+      g.sub.map((s) => ({ tenantId, code: s.id, name: s.nome, groupCode: g.id, groupName: g.nome, kind: "cef" as const })),
     ),
     ...PLANO_CONTAS.complementar.flatMap((g) =>
-      g.sub.map((s) => ({
-        tenantId: tenant.id,
-        code: s.id,
-        name: s.nome,
-        groupCode: g.id,
-        groupName: g.nome,
-        kind: "complementar" as const,
-      })),
+      g.sub.map((s) => ({ tenantId, code: s.id, name: s.nome, groupCode: g.id, groupName: g.nome, kind: "complementar" as const })),
     ),
   ];
   await db.insert(schema.chartAccounts).values(chartRows);
@@ -163,7 +155,7 @@ async function main() {
   await db.insert(schema.inccRates).values(
     DEFAULT_INCC.map((r, i) => ({
       projectId: project.id,
-      tenantId: tenant.id,
+      tenantId,
       mes: r.m,
       monthly: r.mo.toString(),
       accumulated: r.ac.toString(),
@@ -173,36 +165,17 @@ async function main() {
 
   console.log("Stakeholders e contas bancárias...");
   await db.insert(schema.stakeholders).values([
-    {
-      tenantId: tenant.id,
-      nome: "Brasil Mix Concreto Ltda",
-      tipo: "PJ",
-      doc: "20.957.509/0001-34",
-      papeis: ["Fornecedor de Material"],
-    },
-    {
-      tenantId: tenant.id,
-      nome: "Inácio de Sousa",
-      tipo: "PF",
-      doc: "332.641.358-09",
-      papeis: ["Mão de Obra RPA"],
-    },
-    {
-      tenantId: tenant.id,
-      nome: "BMV Construções Ltda",
-      tipo: "PJ",
-      doc: "",
-      papeis: ["Construtora"],
-    },
+    { tenantId, nome: "Brasil Mix Concreto Ltda", tipo: "PJ", doc: "20.957.509/0001-34", papeis: ["Fornecedor de Material"] },
+    { tenantId, nome: "Inácio de Sousa", tipo: "PF", doc: "332.641.358-09", papeis: ["Mão de Obra RPA"] },
+    { tenantId, nome: "BMV Construções Ltda", tipo: "PJ", doc: "", papeis: ["Construtora"] },
   ]);
-  // sanidade: todos os papéis seedados existem na lista canônica
   void PAPEIS_STAKEHOLDER;
 
   await db.insert(schema.bankAccounts).values([
-    { tenantId: tenant.id, banco: "Itaú", ag: "0039", cc: "99155-9", tipo: "Imobiliária" },
-    { tenantId: tenant.id, banco: "Caixa", ag: "0742", op: "1292", cc: "579179671-0", tipo: "Construtora" },
-    { tenantId: tenant.id, banco: "Inter", ag: "0001", cc: "28519646-4", tipo: "Imobiliária" },
-    { tenantId: tenant.id, banco: "Caixa", ag: "0742", op: "1292", cc: "575733196-4", tipo: "Imobiliária" },
+    { tenantId, banco: "Itaú", ag: "0039", cc: "99155-9", tipo: "Imobiliária" },
+    { tenantId, banco: "Caixa", ag: "0742", op: "1292", cc: "579179671-0", tipo: "Construtora" },
+    { tenantId, banco: "Inter", ag: "0001", cc: "28519646-4", tipo: "Imobiliária" },
+    { tenantId, banco: "Caixa", ag: "0742", op: "1292", cc: "575733196-4", tipo: "Imobiliária" },
   ]);
 
   console.log("Unidades de amostra (versão forecast)...");
@@ -211,7 +184,7 @@ async function main() {
   await db.insert(schema.units).values([
     {
       versionId: forecast.id,
-      tenantId: tenant.id,
+      tenantId,
       code: u401.code,
       bloco: "A",
       tipo: "3D T1",
@@ -224,7 +197,7 @@ async function main() {
     },
     {
       versionId: forecast.id,
-      tenantId: tenant.id,
+      tenantId,
       code: u402.code,
       bloco: "A",
       tipo: "3D T2",
@@ -235,12 +208,6 @@ async function main() {
       paymentPlan: planOf(u402),
     },
   ]);
-
-  console.log("✓ Seed concluído.");
-  console.log(`\nLogins (senha inicial: ${SENHA_INICIAL} — troque no 1º acesso):`);
-  console.log("  admin@rmv.com.br (owner)");
-  console.log("  fer.jorge@gmail.com (admin)");
-  console.log("  thiago.liberman@gmail.com (admin)");
 }
 
 main()
