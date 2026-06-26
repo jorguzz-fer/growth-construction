@@ -54,6 +54,32 @@ async function main() {
     .insert(schema.memberships)
     .values({ userId: owner.id, tenantId: tenant.id, role: "owner" });
 
+  // Co-fundadores como Admins.
+  const admins = [
+    { name: "Fernando Jorge", email: "fer.jorge@gmail.com" },
+    { name: "Thiago Liberman", email: "thiago.liberman@gmail.com" },
+  ];
+  for (const a of admins) {
+    const [u] = await db
+      .insert(schema.users)
+      .values(a)
+      .onConflictDoNothing({ target: schema.users.email })
+      .returning();
+    const userId =
+      u?.id ??
+      (
+        await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, a.email))
+          .limit(1)
+      )[0].id;
+    await db
+      .insert(schema.memberships)
+      .values({ userId, tenantId: tenant.id, role: "admin" })
+      .onConflictDoNothing();
+  }
+
   const [project] = await db
     .insert(schema.projects)
     .values({

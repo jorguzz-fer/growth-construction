@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
+import { duplicateVersion } from "@/lib/actions/versions";
 
 interface NavItem {
   href: string;
@@ -153,6 +154,22 @@ export function Sidebar({
             );
           })}
         </div>
+        {versions.length < 6 && (
+          <button
+            disabled={pending}
+            onClick={() => {
+              const label = window.prompt(
+                "Nome da nova versão:",
+                `Cópia de ${version.label}`,
+              );
+              if (label)
+                startTransition(() => duplicateVersion(version.id, label));
+            }}
+            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-dashed border-white/15 px-2 py-1.5 text-[11px] text-white/40 transition-colors hover:border-white/30 hover:text-white/70 disabled:opacity-50"
+          >
+            + Nova versão (duplicar atual)
+          </button>
+        )}
         <div className="mt-1 font-[family-name:var(--font-mono)] text-[9.5px] text-white/20">
           {versions.length}/6 versões
         </div>

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
+import { effectivePermissions, type AccessLevel } from "./permissions";
 
 export type Tenant = typeof schema.tenants.$inferSelect;
 export type Project = typeof schema.projects.$inferSelect;
@@ -17,6 +18,8 @@ export interface ActiveContext {
   /** usuário "logado" (enquanto não há Auth.js ativo, o owner do tenant). */
   userId: string | null;
   role: Role;
+  /** permissões efetivas por seção (role + overrides do membership). */
+  perms: Record<string, AccessLevel>;
 }
 
 /** RBAC: contador é somente-leitura; os demais podem editar. */
@@ -72,6 +75,7 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     .where(eq(schema.memberships.tenantId, tenant.id))
     .orderBy(asc(schema.memberships.createdAt));
 
+  const role = (membership?.role as Role) ?? "owner";
   return {
     tenant,
     projects,
@@ -79,6 +83,7 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     versions,
     version,
     userId: membership?.userId ?? null,
-    role: (membership?.role as Role) ?? "owner",
+    role,
+    perms: effectivePermissions(role, membership?.permissions ?? null),
   };
 }

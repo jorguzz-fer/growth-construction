@@ -42,6 +42,11 @@ export const users = pgTable("user", {
   email: text("email").unique(),
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
+  /** hash da senha (login por credenciais; scrypt). */
+  passwordHash: text("password_hash"),
+  /** segredo TOTP (base32) para MFA. */
+  mfaSecret: text("mfa_secret"),
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
 });
 
 export const accounts = pgTable(
@@ -90,6 +95,8 @@ export const verificationTokens = pgTable(
 export const tenants = pgTable("tenant", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  /** chave do logo no storage R2. */
+  logoKey: text("logo_key"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -104,6 +111,12 @@ export const memberships = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     role: roleEnum("role").notNull().default("membro"),
+    /**
+     * Permissões por seção (override do perfil/role). Mapa seção → nível
+     * ("none" | "view" | "edit"). Null = usa os defaults do role.
+     * Ver src/lib/permissions.ts.
+     */
+    permissions: jsonb("permissions").$type<Record<string, string>>(),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (m) => [primaryKey({ columns: [m.userId, m.tenantId] })],

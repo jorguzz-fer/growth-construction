@@ -1,10 +1,14 @@
+import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
 import { getUnits, toCalcUnit } from "@/lib/queries";
 import { calcUnitTotal } from "@/lib/calc";
+import { hasLevel } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { ImportUnitsButton } from "@/components/app/import-units";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +18,7 @@ export default async function UnidadesPage() {
 
   const rows = await getUnits(ctx.version.id);
   const vgv = rows.reduce((a, r) => a + Number(r.valor), 0);
+  const canEdit = hasLevel(ctx.perms, "receitas", "edit");
 
   return (
     <>
@@ -21,6 +26,16 @@ export default async function UnidadesPage() {
         eyebrow={ctx.version.label}
         title="Unidades / Dados de Venda"
         subtitle={`${rows.length} unidades · VGV ${brl0(vgv)}`}
+        actions={
+          canEdit ? (
+            <>
+              <ImportUnitsButton />
+              <Link href="/unidades/nova" className={buttonVariants({ size: "sm" })}>
+                Nova Unidade
+              </Link>
+            </>
+          ) : undefined
+        }
       />
 
       <Table>
@@ -44,7 +59,12 @@ export default async function UnidadesPage() {
             return (
               <TR key={row.id}>
                 <TD className="font-medium text-[var(--color-ink)]">
-                  {row.code}
+                  <Link
+                    href={`/unidades/${row.id}`}
+                    className="hover:text-[var(--color-accent2)] hover:underline"
+                  >
+                    {row.code}
+                  </Link>
                 </TD>
                 <TD>{row.tipo ?? "—"}</TD>
                 <TD className="text-right font-[family-name:var(--font-mono)]">
