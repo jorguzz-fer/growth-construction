@@ -105,3 +105,47 @@ export function permToCalc(rows: PermutaRow[]): CalcPermuta[] {
     valorVenda: Number(p.valorVenda ?? 0),
   }));
 }
+
+// ────────────────────────── Módulo Despesas ──────────────────────────
+
+export type StakeholderRow = typeof schema.stakeholders.$inferSelect;
+export type BankAccountRow = typeof schema.bankAccounts.$inferSelect;
+export type ChartAccountRow = typeof schema.chartAccounts.$inferSelect;
+export type DespesaRow = typeof schema.despesas.$inferSelect;
+
+export async function getStakeholders(
+  tenantId: string,
+): Promise<StakeholderRow[]> {
+  return db
+    .select()
+    .from(schema.stakeholders)
+    .where(eq(schema.stakeholders.tenantId, tenantId))
+    .orderBy(asc(schema.stakeholders.nome));
+}
+
+export async function getBankAccounts(
+  tenantId: string,
+): Promise<BankAccountRow[]> {
+  return db
+    .select()
+    .from(schema.bankAccounts)
+    .where(eq(schema.bankAccounts.tenantId, tenantId))
+    .orderBy(asc(schema.bankAccounts.banco));
+}
+
+export async function getChartAccounts(
+  tenantId: string,
+): Promise<ChartAccountRow[]> {
+  return db
+    .select()
+    .from(schema.chartAccounts)
+    .where(eq(schema.chartAccounts.tenantId, tenantId));
+}
+
+export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
+  return db
+    .select()
+    .from(schema.despesas)
+    .where(eq(schema.despesas.versionId, versionId))
+    .orderBy(asc(schema.despesas.competencia));
+}
