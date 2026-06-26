@@ -2,7 +2,9 @@ import { getActiveContext } from "@/lib/context";
 import { getCash, getMonthlyRevenue, sortMonthKey } from "@/lib/queries";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { BarChart, CHART_COLORS } from "@/components/app/charts";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,42 @@ export default async function RollingPage() {
         title="Rolling Forecast"
         subtitle={`Previsto ${brl0(totP)} · Realizado ${brl0(totR)} · atingimento ${totP > 0 ? ((totR / totP) * 100).toFixed(0) : 0}%`}
       />
+
+      {(() => {
+        const labels = axis.filter(
+          (m) => (previsto[m] || 0) > 0 || (realizado[m] || 0) > 0,
+        );
+        if (labels.length === 0) return null;
+        return (
+          <Card className="mb-6">
+            <CardContent className="p-5">
+              <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+                Previsto vs. realizado
+              </h2>
+              <BarChart
+                currency
+                data={{
+                  labels,
+                  datasets: [
+                    {
+                      label: "Previsto",
+                      data: labels.map((m) => previsto[m] || 0),
+                      backgroundColor: CHART_COLORS.indigo,
+                      borderRadius: 4,
+                    },
+                    {
+                      label: "Realizado",
+                      data: labels.map((m) => realizado[m] || 0),
+                      backgroundColor: CHART_COLORS.green,
+                      borderRadius: 4,
+                    },
+                  ],
+                }}
+              />
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Table>
         <THead>

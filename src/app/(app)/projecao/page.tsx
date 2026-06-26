@@ -13,7 +13,9 @@ import {
 } from "@/lib/calc";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { LineChart, CHART_COLORS } from "@/components/app/charts";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +65,32 @@ export default async function ProjecaoPage() {
         title="Projeção de Receitas"
         subtitle={`Recebíveis projetados mês a mês · total ${brl0(totalGeral)}`}
       />
+
+      {linhas.some((l) => l.total > 0) && (
+        <Card className="mb-6">
+          <CardContent className="p-5">
+            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+              Recebíveis projetados por mês
+            </h2>
+            <LineChart
+              currency
+              data={{
+                labels: linhas.filter((l) => l.total > 0).map((l) => l.mm),
+                datasets: [
+                  {
+                    label: "Total/mês",
+                    data: linhas.filter((l) => l.total > 0).map((l) => l.total),
+                    borderColor: CHART_COLORS.indigo,
+                    backgroundColor: "rgba(99,102,241,.15)",
+                    fill: true,
+                    tension: 0.3,
+                  },
+                ],
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Table>
         <THead>
