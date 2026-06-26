@@ -149,3 +149,13 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .where(eq(schema.despesas.versionId, versionId))
     .orderBy(asc(schema.despesas.competencia));
 }
+
+export type CashRow = typeof schema.cashEntries.$inferSelect;
+
+export async function getCash(versionId: string): Promise<CashRow[]> {
+  return db
+    .select()
+    .from(schema.cashEntries)
+    .where(eq(schema.cashEntries.versionId, versionId))
+    .orderBy(asc(schema.cashEntries.data));
+}
