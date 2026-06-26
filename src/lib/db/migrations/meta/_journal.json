@@ -15,6 +15,13 @@
       "when": 1782418532638,
       "tag": "0001_tan_misty_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782433367611,
+      "tag": "0002_perpetual_captain_britain",
+      "breakpoints": true
     }
   ]
 }

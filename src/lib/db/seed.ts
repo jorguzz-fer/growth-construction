@@ -45,6 +45,15 @@ async function main() {
     .values({ name: "RMV Empreendimentos" })
     .returning();
 
+  // Usuário owner + vínculo (RBAC). O login real (Auth.js) entra na operação.
+  const [owner] = await db
+    .insert(schema.users)
+    .values({ name: "RMV Admin", email: "admin@rmv.com.br" })
+    .returning();
+  await db
+    .insert(schema.memberships)
+    .values({ userId: owner.id, tenantId: tenant.id, role: "owner" });
+
   const [project] = await db
     .insert(schema.projects)
     .values({

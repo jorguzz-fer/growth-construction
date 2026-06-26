@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import {
+  getMonthlyRevenue,
   getUnits,
   getPermutas,
   getReembolsos,
@@ -14,8 +15,32 @@ import { brlk } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
+
+/** Agrega os indicadores de uma versão para o comparativo multi-versão. */
+async function versionSummary(
+  projectId: string,
+  versionId: string,
+): Promise<{ vgv: number; vend: number; receita: number; realizado: number }> {
+  const [unitRows, revenue, cashRows] = await Promise.all([
+    getUnits(versionId),
+    getMonthlyRevenue(versionId, projectId),
+    db
+      .select({ valor: schema.cashEntries.valor })
+      .from(schema.cashEntries)
+      .where(eq(schema.cashEntries.versionId, versionId)),
+  ]);
+  return {
+    vgv: unitRows.reduce((a, u) => a + Number(u.valor), 0),
+    vend: unitRows.filter((u) => u.status === "Vendido").length,
+    receita: Object.values(revenue).reduce((a, b) => a + b, 0),
+    realizado: cashRows
+      .filter((c) => Number(c.valor) > 0)
+      .reduce((a, c) => a + Number(c.valor), 0),
+  };
+}
 
 export default async function DashboardPage() {
   const ctx = await getActiveContext();
@@ -54,6 +79,15 @@ export default async function DashboardPage() {
       tone: "warning" as const,
     },
   ];
+
+  // Comparativo multi-versão (até 3 primeiras versões do projeto).
+  const compareVersions = ctx.versions.slice(0, 3);
+  const comparativo = await Promise.all(
+    compareVersions.map(async (v) => ({
+      version: v,
+      ...(await versionSummary(ctx.project.id, v.id)),
+    })),
+  );
 
   const fontes = [
     { label: "Sinais / Atos", value: totals.sinais },
@@ -94,6 +128,57 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </section>
+
+      <Card className="mt-6">
+        <CardContent className="p-5">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+            Comparativo entre versões
+          </h2>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Versão</TH>
+                <TH className="text-right">VGV</TH>
+                <TH className="text-right">Vendidas</TH>
+                <TH className="text-right">Receita proj.</TH>
+                <TH className="text-right">Realizado</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {comparativo.map((c) => (
+                <TR key={c.version.id}>
+                  <TD>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ background: c.version.color }}
+                      />
+                      <span className="font-medium text-[var(--color-ink)]">
+                        {c.version.label}
+                      </span>
+                      {c.version.id === ctx.version.id && (
+                        <Badge tone="accent">ativa</Badge>
+                      )}
+                    </span>
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">
+                    {brlk(c.vgv)}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">
+                    {c.vend}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">
+                    {brlk(c.receita)}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">
+                    {brlk(c.realizado)}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardContent className="p-5">

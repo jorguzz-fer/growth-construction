@@ -408,3 +408,25 @@ export const inccRates = pgTable(
   },
   (r) => [unique("incc_project_mes_uq").on(r.projectId, r.mes)],
 );
+
+// ─────────────────────────────── Auditoria ──────────────────────────────
+
+/**
+ * Log de auditoria: registra quem alterou o quê (ver docs/SPEC.md §12.7).
+ * Append-only; preenchido pela camada de Server Actions.
+ */
+export const auditLog = pgTable("audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  /** ação executada, ex.: "despesa.create". */
+  action: text("action").notNull(),
+  /** entidade afetada, ex.: "despesa". */
+  entity: text("entity").notNull(),
+  entityId: text("entity_id"),
+  /** detalhes (diff/resumo) em JSON. */
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});

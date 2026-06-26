@@ -65,7 +65,7 @@ export default async function AppLayout({
         version={ctx.version}
         versions={ctx.versions}
         userName="RMV Admin"
-        userRole="owner"
+        userRole={ctx.role}
         badges={{ unidades, reembolso, permuta }}
       />
       <main className="flex-1 overflow-y-auto">

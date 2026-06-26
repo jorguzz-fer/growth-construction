@@ -1,11 +1,13 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
+import { calcProjection, reembursementsByMonth } from "./calc/projection";
 import type {
   CalcPermuta,
   CalcReembolso,
   CalcUnit,
   InccRow,
+  MonthlyProjection,
 } from "./calc/types";
 
 export type UnitRow = typeof schema.units.$inferSelect;
@@ -104,4 +106,125 @@ export function permToCalc(rows: PermutaRow[]): CalcPermuta[] {
     status: p.status ?? "",
     valorVenda: Number(p.valorVenda ?? 0),
   }));
+}
+
+// ────────────────────────── Módulo Despesas ──────────────────────────
+
+export type StakeholderRow = typeof schema.stakeholders.$inferSelect;
+export type BankAccountRow = typeof schema.bankAccounts.$inferSelect;
+export type ChartAccountRow = typeof schema.chartAccounts.$inferSelect;
+export type DespesaRow = typeof schema.despesas.$inferSelect;
+
+export async function getStakeholders(
+  tenantId: string,
+): Promise<StakeholderRow[]> {
+  return db
+    .select()
+    .from(schema.stakeholders)
+    .where(eq(schema.stakeholders.tenantId, tenantId))
+    .orderBy(asc(schema.stakeholders.nome));
+}
+
+export async function getBankAccounts(
+  tenantId: string,
+): Promise<BankAccountRow[]> {
+  return db
+    .select()
+    .from(schema.bankAccounts)
+    .where(eq(schema.bankAccounts.tenantId, tenantId))
+    .orderBy(asc(schema.bankAccounts.banco));
+}
+
+export async function getChartAccounts(
+  tenantId: string,
+): Promise<ChartAccountRow[]> {
+  return db
+    .select()
+    .from(schema.chartAccounts)
+    .where(eq(schema.chartAccounts.tenantId, tenantId));
+}
+
+export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
+  return db
+    .select()
+    .from(schema.despesas)
+    .where(eq(schema.despesas.versionId, versionId))
+    .orderBy(asc(schema.despesas.competencia));
+}
+
+export type CashRow = typeof schema.cashEntries.$inferSelect;
+
+export async function getCash(versionId: string): Promise<CashRow[]> {
+  return db
+    .select()
+    .from(schema.cashEntries)
+    .where(eq(schema.cashEntries.versionId, versionId))
+    .orderBy(asc(schema.cashEntries.data));
+}
+
+/**
+ * Receita projetada mês a mês de uma versão (unidades + reembolsos), pronta
+ * para os relatórios. Reutiliza calcProjection + reembursementsByMonth.
+ */
+export async function getMonthlyRevenue(
+  versionId: string,
+  projectId: string,
+): Promise<MonthlyProjection> {
+  const [unitRows, reembRows, incc] = await Promise.all([
+    getUnits(versionId),
+    getReembolsos(versionId),
+    getInccRows(projectId),
+  ]);
+  const out: MonthlyProjection = {};
+  for (const r of unitRows) {
+    const p = calcProjection(toCalcUnit(r), incc);
+    for (const [mm, v] of Object.entries(p)) out[mm] = (out[mm] || 0) + v;
+  }
+  const reemb = reembursementsByMonth(reembToCalc(reembRows));
+  for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  return out;
+}
+
+/** Ordena chaves "MM/YYYY" cronologicamente. */
+export function sortMonthKey(a: string, b: string): number {
+  const [ma, ya] = a.split("/").map(Number);
+  const [mb, yb] = b.split("/").map(Number);
+  return ya - yb || ma - mb;
+}
+
+// ──────────────────────── Config & multi-tenant ──────────────────────────
+
+export interface MemberRow {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+}
+
+export async function getMembers(tenantId: string): Promise<MemberRow[]> {
+  return db
+    .select({
+      userId: schema.memberships.userId,
+      name: schema.users.name,
+      email: schema.users.email,
+      role: schema.memberships.role,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+    .where(eq(schema.memberships.tenantId, tenantId))
+    .orderBy(asc(schema.memberships.createdAt));
+}
+
+export type AuditRow = typeof schema.auditLog.$inferSelect;
+
+export async function getAuditLog(
+  tenantId: string,
+  limit = 20,
+): Promise<AuditRow[]> {
+  return db
+    .select()
+    .from(schema.auditLog)
+    .where(eq(schema.auditLog.tenantId, tenantId))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(limit);
 }

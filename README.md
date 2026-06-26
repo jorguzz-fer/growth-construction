@@ -22,19 +22,26 @@ de produção para deploy em **VPS + Coolify**.
 | Open Finance | Pluggy — *Fase 4* |
 | Deploy | Docker (standalone) + Coolify + Traefik |
 
-## Status
+## Status — roadmap (docs/STACK.md §7)
 
-- **Fase 0 — Scaffold ✓**: Next.js + Tailwind + Drizzle + Auth.js + Dockerfile,
-  com páginas placeholder (`/`, `/dashboard`, `/login`).
-- **Fase 1 — Modelo de dados ✓**: schema Drizzle completo do domínio
-  (projetos, versões/cenários, unidades + plano de pagamento, permutas,
-  reembolsos, caixa, despesas, fornecedores, contas bancárias, plano de contas
-  CEF/DRE, INCC), migrações e seed de demonstração.
-- **Bônus**: lógica de cálculo pura portada do protótipo para `src/lib/calc/`
-  (projeção, totais, INCC, simulador SAC/PRICE) — com **17 testes de paridade**.
+- **Fase 0 — Scaffold ✓**: Next.js 15 + Tailwind + Drizzle + Auth.js + Dockerfile.
+- **Fase 1 — Modelo de dados ✓**: schema Drizzle completo + migrações + seed.
+- **Fase 2 — Receitas ✓**: app shell (sidebar, seletor de projeto/versão),
+  Unidades, Projeção, Consolidado, Simulador, Parâmetros/INCC, Reembolso, Permuta.
+- **Fase 3 — Despesas ✓**: Plano de Contas, Fornecedores & Stakeholders,
+  Lançamentos de Despesas; storage R2 (presigned URLs).
+- **Fase 4 — Caixa & Open Finance ✓**: Caixa (lançamentos, conciliação,
+  previstas); cliente Pluggy + worker de sincronização.
+- **Fase 5 — Reports ✓**: Dashboard multi-versão, DRE, Fluxo de Caixa, Medição
+  de Obra (imprimível CEF), Rolling Forecast, Resumo Executivo.
+- **Fase 6 — Config & multi-tenant ✓**: Usuários & Acessos (RBAC), Acesso
+  Contabilidade (somente-leitura), log de auditoria.
 
-Os módulos funcionais (telas) entram nas fases seguintes
-(ver [`docs/STACK.md §7`](./docs/STACK.md)).
+A lógica de cálculo do protótipo está portada em `src/lib/calc/` (projeção,
+totais, INCC, simulador SAC/PRICE) com **17 testes de paridade**.
+
+> Login (Auth.js) tem o adapter Drizzle pronto; habilitar um provider
+> (e-mail/OAuth) é passo de operação. RBAC, versões e auditoria já funcionam.
 
 ## Desenvolvimento
 
