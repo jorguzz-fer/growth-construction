@@ -170,3 +170,81 @@ export async function duplicateVersion(sourceVersionId: string, label: string) {
   });
   revalidatePath("/", "layout");
 }
+
+async function guardVersionEdit(versionId: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "versao", "editar")) return null;
+  if (!ctx.versions.some((v) => v.id === versionId)) return null;
+  return ctx;
+}
+
+export async function updateVersion(
+  versionId: string,
+  patch: { label?: string; color?: string },
+) {
+  const ctx = await guardVersionEdit(versionId);
+  if (!ctx) return;
+  const set: { label?: string; color?: string } = {};
+  if (patch.label && patch.label.trim()) set.label = patch.label.trim();
+  if (patch.color) set.color = patch.color;
+  if (Object.keys(set).length === 0) return;
+  await db.update(schema.versions).set(set).where(eq(schema.versions.id, versionId));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "version.update",
+    entity: "version",
+    entityId: versionId,
+    meta: set,
+  });
+  revalidatePath("/", "layout");
+}
+
+export async function toggleVersionLock(versionId: string, locked: boolean) {
+  const ctx = await guardVersionEdit(versionId);
+  if (!ctx) return;
+  await db.update(schema.versions).set({ locked }).where(eq(schema.versions.id, versionId));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "version.lock",
+    entity: "version",
+    entityId: versionId,
+    meta: { locked },
+  });
+  revalidatePath("/", "layout");
+}
+
+export async function setDefaultVersion(versionId: string) {
+  const ctx = await guardVersionEdit(versionId);
+  if (!ctx) return;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.versions)
+      .set({ isDefault: false })
+      .where(eq(schema.versions.projectId, ctx.project.id));
+    await tx
+      .update(schema.versions)
+      .set({ isDefault: true })
+      .where(eq(schema.versions.id, versionId));
+  });
+  revalidatePath("/", "layout");
+}
+
+export async function deleteVersion(versionId: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "versao", "excluir")) return;
+  const target = ctx.versions.find((v) => v.id === versionId);
+  if (!target) return;
+  if (target.kind !== "custom") throw new Error("Só versões customizadas podem ser excluídas.");
+  await db.delete(schema.versions).where(eq(schema.versions.id, versionId));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "version.delete",
+    entity: "version",
+    entityId: versionId,
+    meta: { label: target.label },
+  });
+  revalidatePath("/", "layout");
+}

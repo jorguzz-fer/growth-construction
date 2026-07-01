@@ -117,6 +117,10 @@ export default async function DespesasPage({
                     </Select>
                   </div>
                   <div>
+                    <Label>Nº Documento</Label>
+                    <Input name="numDoc" placeholder="auto (BMV-…)" />
+                  </div>
+                  <div>
                     <Label>Competência</Label>
                     <Input name="competencia" placeholder="01/2026" />
                   </div>
@@ -182,6 +186,7 @@ function DespesasTable({
       <THead>
         <tr>
           <TH>{venc ? "Vencimento" : "Competência"}</TH>
+          <TH>Nº Doc</TH>
           <TH>Fornecedor</TH>
           <TH>Conta CEF</TH>
           <TH>Cat. DRE</TH>
@@ -195,6 +200,9 @@ function DespesasTable({
             <TD className="font-[family-name:var(--font-mono)]">
               {(venc ? d.vencimento : d.competencia) ?? "—"}
             </TD>
+            <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+              {d.numDoc ?? "—"}
+            </TD>
             <TD>{d.fornecedorId ? fornById.get(d.fornecedorId) ?? "—" : "—"}</TD>
             <TD><Badge tone="warning">{d.contaCef ?? "—"}</Badge></TD>
             <TD className="text-[var(--color-ink2)]">{d.categoriaDre ?? "—"}</TD>
@@ -204,7 +212,7 @@ function DespesasTable({
         ))}
         {rows.length === 0 && (
           <TR>
-            <TD colSpan={6} className="py-6 text-center text-[var(--color-ink3)]">
+            <TD colSpan={7} className="py-6 text-center text-[var(--color-ink3)]">
               Nada por aqui nesta versão.
             </TD>
           </TR>

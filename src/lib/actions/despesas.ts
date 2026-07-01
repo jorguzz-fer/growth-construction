@@ -1,5 +1,6 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -39,14 +40,35 @@ export async function addBankAccount(formData: FormData) {
   revalidatePath("/fornecedores");
 }
 
+/** Próximo nº de documento interno do tenant (BMV-{ano}-NNNNNN). */
+async function nextDocNumber(tenantId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `BMV-${year}-`;
+  const rows = await db
+    .select({ n: schema.despesas.numDoc })
+    .from(schema.despesas)
+    .where(eq(schema.despesas.tenantId, tenantId));
+  let max = 0;
+  for (const r of rows) {
+    const m = r.n?.match(new RegExp(`^${prefix}(\\d+)$`));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}${String(max + 1).padStart(6, "0")}`;
+}
+
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  const numDoc =
+    ((formData.get("numDoc") as string) || "").trim() ||
+    (await nextDocNumber(ctx.tenant.id));
   const [row] = await db
     .insert(schema.despesas)
     .values({
       versionId: ctx.version.id,
       tenantId: ctx.tenant.id,
+      numDoc,
       fornecedorId: (formData.get("fornecedorId") as string) || null,
       bancoId: (formData.get("bancoId") as string) || null,
       contaCef: (formData.get("contaCef") as string) || null,

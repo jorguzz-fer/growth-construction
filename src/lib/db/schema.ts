@@ -203,6 +203,8 @@ export const versions = pgTable(
     label: text("label").notNull(),
     color: text("color").notNull(),
     isDefault: boolean("is_default").notNull().default(false),
+    /** congelada: bloqueia lançamentos/edições (ver Configuração da Versão). */
+    locked: boolean("locked").notNull().default(false),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (v) => [unique("version_project_key_uq").on(v.projectId, v.key)],
@@ -344,6 +346,8 @@ export const despesas = pgTable("despesa", {
   tenantId: uuid("tenant_id")
     .notNull()
     .references(() => tenants.id, { onDelete: "cascade" }),
+  /** nº de documento interno (ex.: BMV-2026-001682). */
+  numDoc: text("num_doc"),
   fornecedorId: uuid("fornecedor_id").references(() => stakeholders.id, {
     onDelete: "set null",
   }),

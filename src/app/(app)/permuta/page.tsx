@@ -24,7 +24,7 @@ export default async function PermutaPage() {
     <>
       <PageHeader
         eyebrow={ctx.version.label}
-        title="Permuta"
+        title="Inventário de Permuta"
         subtitle={`${rows.length} ativos · estimado ${brl0(estimado)} · vendido ${brl0(vendido)}`}
       />
 

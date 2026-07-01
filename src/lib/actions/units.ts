@@ -28,6 +28,7 @@ export async function saveUnit(input: SaveUnitInput) {
   if (!ctx || !can(ctx.perms, "unidades", input.id ? "editar" : "criar")) {
     throw new Error("Sem permissão para editar unidades.");
   }
+  if (ctx.version.locked) throw new Error("Versão congelada — edição bloqueada.");
 
   const values = {
     versionId: ctx.version.id,

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getActiveContext, type Role } from "@/lib/context";
 import { can } from "@/lib/permissions";
-import { getAuditLog, getMembers } from "@/lib/queries";
+import { getMembers } from "@/lib/queries";
 import { inviteMember } from "@/lib/actions/users";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,10 +24,7 @@ export default async function UsuariosPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [members, audit] = await Promise.all([
-    getMembers(ctx.tenant.id),
-    getAuditLog(ctx.tenant.id),
-  ]);
+  const members = await getMembers(ctx.tenant.id);
   const podeGerir = can(ctx.perms, "usuarios", "criar");
 
   return (
@@ -108,43 +105,6 @@ export default async function UsuariosPage() {
           .
         </p>
       )}
-
-      {/* Auditoria */}
-      <h2 className="mb-3 mt-8 text-sm font-semibold text-[var(--color-ink)]">
-        Auditoria recente
-      </h2>
-      <Table>
-        <THead>
-          <tr>
-            <TH>Quando</TH>
-            <TH>Ação</TH>
-            <TH>Entidade</TH>
-          </tr>
-        </THead>
-        <tbody>
-          {audit.map((a) => (
-            <TR key={a.id}>
-              <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                {a.createdAt.toLocaleString("pt-BR")}
-              </TD>
-              <TD>
-                <Badge tone="accent">{a.action}</Badge>
-              </TD>
-              <TD className="font-[family-name:var(--font-mono)]">
-                {a.entity}
-                {a.entityId ? ` · ${a.entityId.slice(0, 8)}` : ""}
-              </TD>
-            </TR>
-          ))}
-          {audit.length === 0 && (
-            <TR>
-              <TD colSpan={3} className="py-6 text-center text-[var(--color-ink3)]">
-                Sem eventos de auditoria ainda.
-              </TD>
-            </TR>
-          )}
-        </tbody>
-      </Table>
 
       {!can(ctx.perms, "usuarios", "editar") && (
         <p className="mt-4 text-sm text-[var(--color-warning)]">

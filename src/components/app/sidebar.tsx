@@ -152,14 +152,20 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="border-b border-white/10 px-4 py-3">
+      <Link
+        href="/empresa"
+        onClick={close}
+        className="block border-b border-white/10 px-4 py-3 hover:bg-white/5"
+        title="Editar empresa"
+      >
         <div className="font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
           Empresa
         </div>
-        <div className="text-[13px] font-semibold text-white/90">
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold text-white/90">
           {tenantName}
+          <span className="text-[10px] text-white/40">✎</span>
         </div>
-      </div>
+      </Link>
 
       {/* Seletor de projeto */}
       <div className="border-b border-white/10 px-4 py-2.5">

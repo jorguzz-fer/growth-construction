@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
@@ -95,6 +96,18 @@ export default async function AppLayout({
         badges={{ unidades, reembolso, permuta }}
       />
       <main className="flex-1 overflow-y-auto">
+        {logoUrl && (
+          <div className="sticky top-0 z-30 hidden justify-end border-b border-[var(--color-accent2)]/12 bg-[var(--color-surface2)]/85 px-6 py-2 backdrop-blur lg:flex">
+            <Image
+              src={logoUrl}
+              alt={ctx.tenant.name}
+              width={130}
+              height={32}
+              unoptimized
+              className="max-h-8 w-auto object-contain"
+            />
+          </div>
+        )}
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
           {denied ? <AccessDenied /> : children}
         </div>

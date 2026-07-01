@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 export async function addCash(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "caixa", "criar")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada.");
   await db.insert(schema.cashEntries).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
