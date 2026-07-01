@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
 import { getUnits, toCalcUnit } from "@/lib/queries";
 import { calcUnitTotal } from "@/lib/calc";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ export default async function UnidadesPage() {
 
   const rows = await getUnits(ctx.version.id);
   const vgv = rows.reduce((a, r) => a + Number(r.valor), 0);
-  const canEdit = hasLevel(ctx.perms, "receitas", "edit");
+  const canEdit = can(ctx.perms, "unidades", "criar");
 
   return (
     <>

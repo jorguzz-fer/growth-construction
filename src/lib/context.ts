@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { auth } from "./auth";
-import { effectivePermissions, type AccessLevel } from "./permissions";
+import { effectivePermissions, type PermMatrix } from "./permissions";
 
 export type Tenant = typeof schema.tenants.$inferSelect;
 export type Project = typeof schema.projects.$inferSelect;
@@ -19,11 +19,11 @@ export interface ActiveContext {
   /** usuário "logado" (enquanto não há Auth.js ativo, o owner do tenant). */
   userId: string | null;
   role: Role;
-  /** permissões efetivas por seção (role + overrides do membership). */
-  perms: Record<string, AccessLevel>;
+  /** permissões efetivas por tela × ação (role + overrides do membership). */
+  perms: PermMatrix;
 }
 
-/** RBAC: contador é somente-leitura; os demais podem editar. */
+/** RBAC legado (mantido por compat): contador é somente-leitura. */
 export function canEdit(role: Role): boolean {
   return role !== "contador";
 }

@@ -4,12 +4,13 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
 export async function addCash(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "caixa", "criar")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada.");
   await db.insert(schema.cashEntries).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
@@ -36,7 +37,7 @@ export async function importCash(
   rows: ImportCashRow[],
 ): Promise<{ inserted: number }> {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "reports", "edit")) {
+  if (!ctx || !can(ctx.perms, "caixa", "criar")) {
     throw new Error("Sem permissão para importar extrato.");
   }
   const valid = rows.filter((r) => r.valor != null && r.valor !== 0);
@@ -65,6 +66,8 @@ export async function importCash(
 
 /** Alterna o estado de conciliação de um lançamento de caixa. */
 export async function toggleConciliado(id: string, rec: boolean) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) return;
   await db
     .update(schema.cashEntries)
     .set({ rec })

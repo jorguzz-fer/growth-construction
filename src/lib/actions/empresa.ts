@@ -4,14 +4,14 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 
 /** Faz upload do logo da empresa para o R2 e salva a chave no tenant. */
 export async function uploadLogo(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "config", "edit")) {
+  if (!ctx || !can(ctx.perms, "empresa", "editar")) {
     throw new Error("Sem permissão.");
   }
   if (!isR2Configured()) {
@@ -46,7 +46,7 @@ export async function uploadLogo(formData: FormData) {
 
 export async function renameTenant(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "config", "edit")) return;
+  if (!ctx || !can(ctx.perms, "empresa", "editar")) return;
   const name = ((formData.get("name") as string) || "").trim();
   if (!name) return;
   await db

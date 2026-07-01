@@ -27,11 +27,12 @@ import { ImportExtratoButton } from "@/components/app/import-extrato";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "conciliacao" | "previstas";
+type Tab = "lancamentos" | "conciliacao" | "previstas" | "janela";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
   { key: "conciliacao", label: "Conciliação" },
   { key: "previstas", label: "Previstas" },
+  { key: "janela", label: "Janela 7 dias" },
 ];
 
 export default async function CaixaPage({
@@ -57,7 +58,7 @@ export default async function CaixaPage({
     <>
       <PageHeader
         eyebrow={ctx.version.label}
-        title="Caixa"
+        title="Controle de Caixa"
         subtitle={`${cash.length} lançamentos · realizado ${brl0(entradas)} · ${conciliados} conciliados`}
         actions={
           <Badge tone={pluggyCfg() ? "success" : "neutral"}>
@@ -85,6 +86,7 @@ export default async function CaixaPage({
       {tab === "lancamentos" && <Lancamentos ctx={ctx} cash={cash} />}
       {tab === "conciliacao" && <Conciliacao cash={cash} />}
       {tab === "previstas" && <Previstas ctx={ctx} />}
+      {tab === "janela" && <Janela7 cash={cash} />}
     </>
   );
 }
@@ -207,6 +209,69 @@ async function Previstas({
         )}
       </tbody>
     </Table>
+  );
+}
+
+function Janela7({ cash }: { cash: Awaited<ReturnType<typeof getCash>> }) {
+  const today = new Date();
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+
+  const parse = (d: string | null): Date | null => {
+    if (!d) return null;
+    const p = d.split("/");
+    if (p.length !== 3) return null;
+    const dt = new Date(Number(p[2]), Number(p[0]) - 1, Number(p[1]));
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+
+  const rows = cash
+    .map((c) => ({ c, dt: parse(c.data) }))
+    .filter((x) => x.dt && x.dt >= start && x.dt <= end)
+    .sort((a, b) => a.dt!.getTime() - b.dt!.getTime());
+  const total = rows.reduce((a, x) => a + Number(x.c.valor), 0);
+
+  return (
+    <>
+      <p className="mb-3 text-sm text-[var(--color-ink3)]">
+        Movimentação dos próximos 7 dias · total {brl0(total)}
+      </p>
+      <Table>
+        <THead>
+          <tr>
+            <TH>Data</TH>
+            <TH>Descrição</TH>
+            <TH className="text-right">Valor</TH>
+            <TH>Conciliação</TH>
+          </tr>
+        </THead>
+        <tbody>
+          {rows.map(({ c }) => (
+            <TR key={c.id}>
+              <TD className="font-[family-name:var(--font-mono)]">{c.data}</TD>
+              <TD>{c.descricao ?? "—"}</TD>
+              <TD className="text-right font-[family-name:var(--font-mono)]">
+                {brl0(Number(c.valor))}
+              </TD>
+              <TD>
+                <Badge tone={c.rec ? "success" : "warning"}>
+                  {c.rec ? "conciliado" : "pendente"}
+                </Badge>
+              </TD>
+            </TR>
+          ))}
+          {rows.length === 0 && (
+            <TR>
+              <TD colSpan={4} className="py-6 text-center text-[var(--color-ink3)]">
+                Sem movimentação nos próximos 7 dias.
+              </TD>
+            </TR>
+          )}
+        </tbody>
+      </Table>
+    </>
   );
 }
 

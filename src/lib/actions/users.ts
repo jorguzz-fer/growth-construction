@@ -3,7 +3,8 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { canEdit, getActiveContext, type Role } from "@/lib/context";
+import { getActiveContext, type Role } from "@/lib/context";
+import { can, type PermMatrix } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
 const ROLES: Role[] = ["owner", "admin", "membro", "contador"];
@@ -15,8 +16,7 @@ const ROLES: Role[] = ["owner", "admin", "membro", "contador"];
  */
 async function invite(formData: FormData, fixedRole?: Role) {
   const ctx = await getActiveContext();
-  if (!ctx || !canEdit(ctx.role)) return;
-  if (ctx.role !== "owner" && ctx.role !== "admin") return;
+  if (!ctx || !can(ctx.perms, "usuarios", "criar")) return;
 
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   const name = (formData.get("name") as string) || null;
@@ -70,13 +70,13 @@ export async function inviteContador(formData: FormData) {
   await invite(formData, "contador");
 }
 
-/** Define os overrides de permissão por seção de um membro. */
+/** Define os overrides de permissão granular (tela × ação) de um membro. */
 export async function setMemberPermissions(
   userId: string,
-  permissions: Record<string, string>,
+  permissions: PermMatrix,
 ) {
   const ctx = await getActiveContext();
-  if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) return;
+  if (!ctx || !can(ctx.perms, "acessos", "editar")) return;
   await db
     .update(schema.memberships)
     .set({ permissions })
@@ -99,7 +99,7 @@ export async function setMemberPermissions(
 
 export async function changeRole(userId: string, role: Role) {
   const ctx = await getActiveContext();
-  if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) return;
+  if (!ctx || !can(ctx.perms, "usuarios", "editar")) return;
   await db
     .update(schema.memberships)
     .set({ role })

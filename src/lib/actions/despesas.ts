@@ -1,16 +1,17 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { canEdit, getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { getActiveContext } from "@/lib/context";
+import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
 export async function addStakeholder(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   const papeis = formData.getAll("papeis").map(String).filter(Boolean);
   await db.insert(schema.stakeholders).values({
     tenantId: ctx.tenant.id,
@@ -26,7 +27,7 @@ export async function addStakeholder(formData: FormData) {
 
 export async function addBankAccount(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   await db.insert(schema.bankAccounts).values({
     tenantId: ctx.tenant.id,
     banco: (formData.get("banco") as string) || "Banco",
@@ -39,14 +40,35 @@ export async function addBankAccount(formData: FormData) {
   revalidatePath("/fornecedores");
 }
 
+/** Próximo nº de documento interno do tenant (BMV-{ano}-NNNNNN). */
+async function nextDocNumber(tenantId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `BMV-${year}-`;
+  const rows = await db
+    .select({ n: schema.despesas.numDoc })
+    .from(schema.despesas)
+    .where(eq(schema.despesas.tenantId, tenantId));
+  let max = 0;
+  for (const r of rows) {
+    const m = r.n?.match(new RegExp(`^${prefix}(\\d+)$`));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}${String(max + 1).padStart(6, "0")}`;
+}
+
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !canEdit(ctx.role)) return;
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  const numDoc =
+    ((formData.get("numDoc") as string) || "").trim() ||
+    (await nextDocNumber(ctx.tenant.id));
   const [row] = await db
     .insert(schema.despesas)
     .values({
       versionId: ctx.version.id,
       tenantId: ctx.tenant.id,
+      numDoc,
       fornecedorId: (formData.get("fornecedorId") as string) || null,
       bancoId: (formData.get("bancoId") as string) || null,
       contaCef: (formData.get("contaCef") as string) || null,
@@ -71,7 +93,7 @@ export async function addDespesa(formData: FormData) {
 /** Anexa um documento (NF/contrato) a uma despesa, no R2. */
 export async function uploadDespesaDoc(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "despesas", "edit")) {
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) {
     throw new Error("Sem permissão.");
   }
   if (!isR2Configured()) {

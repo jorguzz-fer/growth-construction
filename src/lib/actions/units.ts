@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { emptyPlan } from "@/lib/calc/plan";
 import type { PaymentPlan, UnitStatus } from "@/lib/calc/types";
@@ -25,9 +25,10 @@ export interface SaveUnitInput {
 
 export async function saveUnit(input: SaveUnitInput) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "receitas", "edit")) {
+  if (!ctx || !can(ctx.perms, "unidades", input.id ? "editar" : "criar")) {
     throw new Error("Sem permissão para editar unidades.");
   }
+  if (ctx.version.locked) throw new Error("Versão congelada — edição bloqueada.");
 
   const values = {
     versionId: ctx.version.id,
@@ -93,7 +94,7 @@ export async function importUnits(
   rows: ImportUnitRow[],
 ): Promise<{ inserted: number }> {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "receitas", "edit")) {
+  if (!ctx || !can(ctx.perms, "unidades", "criar")) {
     throw new Error("Sem permissão para importar unidades.");
   }
   const valid = rows.filter((r) => r.code && r.code.trim());
@@ -126,7 +127,7 @@ export async function importUnits(
 
 export async function deleteUnit(id: string) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "receitas", "edit")) return;
+  if (!ctx || !can(ctx.perms, "unidades", "excluir")) return;
   await db
     .delete(schema.units)
     .where(

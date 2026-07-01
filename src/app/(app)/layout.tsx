@@ -1,9 +1,13 @@
 import Link from "next/link";
+import Image from "next/image";
+import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { Sidebar } from "@/components/app/sidebar";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +76,11 @@ export default async function AppLayout({
     : [];
   const userName = me?.name || me?.email || "Usuário";
 
+  // Enforcement central de "Ver": mapeia a rota atual para a tela governada.
+  const pathname = (await headers()).get("x-pathname");
+  const screenId = screenIdOfPath(pathname);
+  const denied = screenId ? !can(ctx.perms, screenId, "ver") : false;
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
@@ -87,8 +96,20 @@ export default async function AppLayout({
         badges={{ unidades, reembolso, permuta }}
       />
       <main className="flex-1 overflow-y-auto">
+        {logoUrl && (
+          <div className="sticky top-0 z-30 hidden justify-end border-b border-[var(--color-accent2)]/12 bg-[var(--color-surface2)]/85 px-6 py-2 backdrop-blur lg:flex">
+            <Image
+              src={logoUrl}
+              alt={ctx.tenant.name}
+              width={130}
+              height={32}
+              unoptimized
+              className="max-h-8 w-auto object-contain"
+            />
+          </div>
+        )}
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
-          {children}
+          {denied ? <AccessDenied /> : children}
         </div>
       </main>
     </div>
