@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { generateSecret, qrDataUrl, verifyTotp } from "@/lib/totp";
+import { generateSecret, otpauthUrl, qrDataUrl, verifyTotp } from "@/lib/totp";
 
 async function currentUser() {
   const session = await auth();
@@ -35,16 +35,36 @@ export async function changePassword(formData: FormData) {
   revalidatePath("/perfil");
 }
 
-/** Gera um segredo TOTP (ainda não habilitado) e retorna o QR para escanear. */
-export async function beginMfa(): Promise<{ qr: string }> {
+export interface MfaSetupData {
+  qr: string;
+  /** segredo base32 para digitação manual. */
+  secret: string;
+  /** otpauth:// para "Abrir no app autenticador". */
+  otpauth: string;
+}
+
+/**
+ * Retorna os dados de enrollment do MFA para o usuário logado. Reaproveita um
+ * segredo pendente (gerado mas ainda não confirmado) para que recarregar a
+ * página não invalide o QR já escaneado; gera um novo apenas se não houver.
+ */
+export async function getOrCreateMfaSetup(): Promise<MfaSetupData> {
   const u = await currentUser();
   if (!u) throw new Error("Não autenticado.");
-  const secret = generateSecret();
-  await db
-    .update(schema.users)
-    .set({ mfaSecret: secret, mfaEnabled: false })
-    .where(eq(schema.users.id, u.id));
-  return { qr: await qrDataUrl(secret, u.email ?? "conta") };
+  let secret = !u.mfaEnabled && u.mfaSecret ? u.mfaSecret : null;
+  if (!secret) {
+    secret = generateSecret();
+    await db
+      .update(schema.users)
+      .set({ mfaSecret: secret, mfaEnabled: false })
+      .where(eq(schema.users.id, u.id));
+  }
+  const label = u.email ?? "conta";
+  return {
+    qr: await qrDataUrl(secret, label),
+    secret,
+    otpauth: otpauthUrl(secret, label),
+  };
 }
 
 /** Confirma o código e ativa o MFA. */
@@ -57,7 +77,8 @@ export async function confirmMfa(formData: FormData) {
     .update(schema.users)
     .set({ mfaEnabled: true })
     .where(eq(schema.users.id, u.id));
-  revalidatePath("/perfil");
+  // Libera o gate do layout (que redireciona p/ /mfa enquanto não ativado).
+  revalidatePath("/", "layout");
 }
 
 export async function disableMfa() {
