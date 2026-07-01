@@ -290,7 +290,12 @@ export function Sidebar({
           </div>
         </Link>
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={async () => {
+            // Redirect no cliente (relativo): atrás do proxy, o callbackUrl
+            // resolvido no servidor apontava para o host interno (0.0.0.0).
+            await signOut({ redirect: false });
+            window.location.href = "/login";
+          }}
           className="mt-1 w-full rounded-[8px] px-2 py-1.5 text-left text-[11px] text-white/40 hover:bg-white/5 hover:text-white/70"
         >
           Sair
