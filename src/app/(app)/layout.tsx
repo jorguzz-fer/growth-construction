@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -69,11 +70,19 @@ export default async function AppLayout({
 
   const [me] = ctx.userId
     ? await db
-        .select({ name: schema.users.name, email: schema.users.email })
+        .select({
+          name: schema.users.name,
+          email: schema.users.email,
+          mfaEnabled: schema.users.mfaEnabled,
+        })
         .from(schema.users)
         .where(eq(schema.users.id, ctx.userId))
         .limit(1)
     : [];
+
+  // MFA é obrigatório: sem verificação em duas etapas ativa, vai ao enrollment.
+  if (me && !me.mfaEnabled) redirect("/mfa");
+
   const userName = me?.name || me?.email || "Usuário";
 
   // Enforcement central de "Ver": mapeia a rota atual para a tela governada.

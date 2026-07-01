@@ -3,90 +3,189 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { precheckLogin } from "@/lib/actions/auth-precheck";
 
+/**
+ * Login em duas etapas: (1) e-mail + senha; (2) se o usuário tem MFA ativo,
+ * tela dedicada só com o código de 6 dígitos. Quem ainda não ativou o MFA
+ * entra e é levado ao enrollment obrigatório (/mfa) pelo gate do layout.
+ */
 export default function LoginPage() {
   const router = useRouter();
+  const [step, setStep] = useState<1 | 2>(1);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totp, setTotp] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  function done() {
+    const params = new URLSearchParams(window.location.search);
+    router.push(params.get("callbackUrl") || "/dashboard");
+    router.refresh();
+  }
+
+  async function finishSignIn(totp: string) {
     const res = await signIn("credentials", {
       email,
       password,
       totp,
       redirect: false,
     });
-    setLoading(false);
     if (res?.error) {
-      setError("Credenciais inválidas ou código MFA incorreto.");
-      return;
+      setError(
+        totp ? "Código inválido — tente novamente." : "Credenciais inválidas.",
+      );
+      return false;
     }
-    const params = new URLSearchParams(window.location.search);
-    router.push(params.get("callbackUrl") || "/dashboard");
-    router.refresh();
+    done();
+    return true;
+  }
+
+  async function submitStep1(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const pre = await precheckLogin(email, password);
+      if (!pre.ok) {
+        setError("E-mail ou senha incorretos.");
+        return;
+      }
+      if (pre.mfaRequired) {
+        setStep(2);
+        return;
+      }
+      await finishSignIn("");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitStep2(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await finishSignIn(code);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <span className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.2em] text-[var(--color-ink3)]">
-            Growth Tools · Construction
-          </span>
-          <CardTitle className="font-[family-name:var(--font-serif)] text-2xl">
-            Entrar
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="space-y-3">
-            <div>
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-              />
+    <main className="flex min-h-screen flex-col items-center justify-center bg-[#0d0d14] px-4 py-10">
+      <div className="mb-6 text-center">
+        <div className="font-[family-name:var(--font-serif)] text-xl text-white">
+          Growth Tools
+        </div>
+        <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.2em] text-white/30">
+          Construction App
+        </div>
+      </div>
+
+      <div className="w-full max-w-[400px] rounded-[18px] border border-white/10 bg-[#15151f] p-7 sm:p-8">
+        {step === 1 ? (
+          <>
+            <h1 className="text-center text-lg font-semibold text-white">
+              Entrar
+            </h1>
+            <form onSubmit={submitStep1} className="mt-5 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-[12.5px] font-medium text-white/80">
+                  E-mail
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                  className="h-11 w-full rounded-[10px] border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-[var(--color-accent3)] focus:ring-2 focus:ring-[var(--color-accent2)]/30"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[12.5px] font-medium text-white/80">
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                  className="h-11 w-full rounded-[10px] border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-[var(--color-accent3)] focus:ring-2 focus:ring-[var(--color-accent2)]/30"
+                />
+              </div>
+              {error && (
+                <p className="text-center text-[13px] text-[#f87171]">{error}</p>
+              )}
+              <button
+                type="submit"
+                disabled={loading}
+                className="h-11 w-full rounded-[10px] bg-[var(--color-accent2)] text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent)] disabled:opacity-40"
+              >
+                {loading ? "Verificando…" : "Continuar"}
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/5 ring-1 ring-white/10">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
             </div>
-            <div>
-              <Label>Senha</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </div>
-            <div>
-              <Label>Código MFA (se ativado)</Label>
-              <Input
+            <h1 className="text-center text-lg font-semibold text-white">
+              Verificação em duas etapas
+            </h1>
+            <p className="mx-auto mt-2 max-w-[300px] text-center text-[13px] leading-relaxed text-white/50">
+              Digite o código de 6 dígitos gerado pelo seu app autenticador.
+            </p>
+            <form onSubmit={submitStep2} className="mt-5">
+              <input
+                value={code}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
                 inputMode="numeric"
-                value={totp}
-                onChange={(e) => setTotp(e.target.value)}
-                placeholder="000000"
                 autoComplete="one-time-code"
+                autoFocus
+                placeholder="0 0 0 0 0 0"
+                className="h-12 w-full rounded-[10px] border border-white/10 bg-black/30 text-center font-[family-name:var(--font-mono)] text-lg tracking-[0.5em] text-white outline-none placeholder:text-white/20 focus:border-[var(--color-accent3)] focus:ring-2 focus:ring-[var(--color-accent2)]/30"
               />
-            </div>
-            {error && (
-              <p className="text-sm text-[var(--color-danger)]">{error}</p>
-            )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Entrando..." : "Entrar"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              {error && (
+                <p className="mt-2 text-center text-[13px] text-[#f87171]">
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={loading || code.length < 6}
+                className="mt-4 h-11 w-full rounded-[10px] bg-[var(--color-accent2)] text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent)] disabled:opacity-40"
+              >
+                {loading ? "Verificando…" : "Entrar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStep(1);
+                  setCode("");
+                  setError(null);
+                }}
+                className="mt-3 w-full text-center text-[12px] text-white/40 hover:text-white/70"
+              >
+                ← voltar
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+
+      <p className="mt-6 text-center text-[12px] text-white/30">
+        A verificação em duas etapas é obrigatória para acessar o painel.
+      </p>
     </main>
   );
 }

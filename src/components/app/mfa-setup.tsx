@@ -1,82 +1,53 @@
 "use client";
 
-import Image from "next/image";
-import { useState, useTransition } from "react";
-import { beginMfa, confirmMfa, disableMfa } from "@/lib/actions/account";
+import { useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { disableMfa } from "@/lib/actions/account";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
+/**
+ * Estado do MFA no perfil. Como a verificação em duas etapas é obrigatória,
+ * não há "desativar" — apenas reconfigurar (gera novo QR e leva ao enrollment).
+ */
 export function MfaSetup({ enabled }: { enabled: boolean }) {
-  const [qr, setQr] = useState<string | null>(null);
+  const router = useRouter();
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
-  if (enabled) {
+  if (!enabled) {
     return (
       <div className="space-y-3">
-        <Badge tone="success">MFA ativado</Badge>
+        <Badge tone="warning">pendente</Badge>
         <p className="text-sm text-[var(--color-ink3)]">
-          Seu acesso exige um código do app autenticador.
+          A verificação em duas etapas é obrigatória. Conclua a ativação.
         </p>
-        <Button
-          variant="outline"
-          disabled={pending}
-          onClick={() => start(() => disableMfa())}
-        >
-          Desativar MFA
-        </Button>
+        <Button onClick={() => router.push("/mfa")}>Ativar agora</Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <Badge tone="warning">MFA desativado</Badge>
-      {!qr ? (
-        <div>
-          <p className="mb-2 text-sm text-[var(--color-ink3)]">
-            Proteja sua conta com um segundo fator (Google Authenticator, Authy…).
-          </p>
-          <Button
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                const { qr } = await beginMfa();
-                setQr(qr);
-              })
-            }
-          >
-            Configurar MFA
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-[var(--color-ink2)]">
-            1. Escaneie o QR no seu app autenticador:
-          </p>
-          <Image src={qr} alt="QR MFA" width={180} height={180} unoptimized />
-          <form
-            action={async (fd) => {
-              setError(null);
-              try {
-                await confirmMfa(fd);
-                setQr(null);
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Erro.");
-              }
-            }}
-            className="flex items-end gap-2"
-          >
-            <div>
-              <Label>2. Digite o código gerado</Label>
-              <Input name="code" inputMode="numeric" placeholder="000000" required />
-            </div>
-            <Button type="submit">Ativar</Button>
-          </form>
-          {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
-        </div>
-      )}
+      <Badge tone="success">ativada</Badge>
+      <p className="text-sm text-[var(--color-ink3)]">
+        Seu acesso exige um código do app autenticador a cada login.
+      </p>
+      <Button
+        variant="outline"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            // Invalida o segredo atual e reinicia o enrollment (novo QR).
+            await disableMfa();
+            router.push("/mfa");
+          })
+        }
+      >
+        {pending ? "Preparando…" : "Reconfigurar (novo QR)"}
+      </Button>
+      <p className="text-xs text-[var(--color-ink4)]">
+        Use se trocou de celular. Você fará a ativação novamente em seguida.
+      </p>
     </div>
   );
 }
