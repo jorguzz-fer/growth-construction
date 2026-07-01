@@ -3,6 +3,8 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
+import { getActiveContext } from "@/lib/context";
+import { can } from "@/lib/permissions";
 import { recalcIncc } from "@/lib/calc";
 
 /**
@@ -13,6 +15,8 @@ export async function saveIncc(
   projectId: string,
   monthly: { mes: string; mo: number }[],
 ) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
   const recalced = recalcIncc(monthly.map((r) => ({ m: r.mes, mo: r.mo, ac: 0 })));
 
   await db.transaction(async (tx) => {

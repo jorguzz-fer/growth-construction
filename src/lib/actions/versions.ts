@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
 const MAX_VERSIONS = 6;
@@ -17,7 +17,7 @@ const PALETTE = ["#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#0ea5e9"];
  */
 export async function duplicateVersion(sourceVersionId: string, label: string) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "reports", "edit")) {
+  if (!ctx || !can(ctx.perms, "versao", "criar")) {
     throw new Error("Sem permissão para criar versões.");
   }
   if (ctx.versions.length >= MAX_VERSIONS) {

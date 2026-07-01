@@ -1,5 +1,5 @@
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { UnitForm } from "@/components/app/unit-form";
 import { emptyPlan } from "@/lib/calc";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function NovaUnidadePage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
-  if (!hasLevel(ctx.perms, "receitas", "edit")) {
+  if (!can(ctx.perms, "unidades", "criar")) {
     return <p className="text-sm text-[var(--color-warning)]">Sem permissão para criar unidades.</p>;
   }
 

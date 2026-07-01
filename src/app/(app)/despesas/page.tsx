@@ -8,7 +8,7 @@ import {
   getDocuments,
 } from "@/lib/queries";
 import { addDespesa, uploadDespesaDoc } from "@/lib/actions/despesas";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { brl0 } from "@/lib/utils";
@@ -37,7 +37,7 @@ export default async function DespesasPage({
   if (!ctx) return null;
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
-  const canEdit = hasLevel(ctx.perms, "despesas", "edit");
+  const canEdit = can(ctx.perms, "despesas", "criar");
 
   const [despesas, fornecedores, contas, bancos] = await Promise.all([
     getDespesas(ctx.version.id),

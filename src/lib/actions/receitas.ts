@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { can } from "@/lib/permissions";
 
 export async function addReembolso(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "reembolso", "criar")) return;
   await db.insert(schema.reembolsos).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
@@ -23,7 +24,7 @@ export async function addReembolso(formData: FormData) {
 
 export async function addPermuta(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "permuta", "criar")) return;
   await db.insert(schema.permutas).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,

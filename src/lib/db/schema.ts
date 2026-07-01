@@ -112,11 +112,13 @@ export const memberships = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     role: roleEnum("role").notNull().default("membro"),
     /**
-     * Permissões por seção (override do perfil/role). Mapa seção → nível
-     * ("none" | "view" | "edit"). Null = usa os defaults do role.
+     * Permissões granulares (override do perfil/role): matriz tela → ações
+     * {ver,criar,editar,excluir}. Null = usa os defaults do role.
      * Ver src/lib/permissions.ts.
      */
-    permissions: jsonb("permissions").$type<Record<string, string>>(),
+    permissions: jsonb("permissions").$type<
+      Record<string, { ver: boolean; criar: boolean; editar: boolean; excluir: boolean }>
+    >(),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (m) => [primaryKey({ columns: [m.userId, m.tenantId] })],

@@ -209,7 +209,7 @@ export interface MemberRow {
   name: string | null;
   email: string | null;
   role: string;
-  permissions: Record<string, string> | null;
+  permissions: import("@/lib/permissions").PermMatrix | null;
   mfaEnabled: boolean;
 }
 

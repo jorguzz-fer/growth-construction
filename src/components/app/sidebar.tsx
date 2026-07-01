@@ -8,7 +8,7 @@ import { useState, useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
 import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
 import { duplicateVersion } from "@/lib/actions/versions";
-import { hasLevel, type AccessLevel } from "@/lib/permissions";
+import { can, type PermMatrix } from "@/lib/permissions";
 
 interface NavItem {
   href: string;
@@ -17,8 +17,6 @@ interface NavItem {
 }
 interface NavSection {
   title: string;
-  /** chave de permissão da seção. */
-  permKey: string;
   items: NavItem[];
 }
 
@@ -31,7 +29,7 @@ export interface SidebarProps {
   versions: Version[];
   userName: string;
   userRole: string;
-  perms: Record<string, AccessLevel>;
+  perms: PermMatrix;
   badges: { unidades: number; reembolso: number; permuta: number };
 }
 
@@ -55,7 +53,6 @@ export function Sidebar({
   const allSections: NavSection[] = [
     {
       title: "Módulo Receitas",
-      permKey: "receitas",
       items: [
         { href: "/unidades", label: "Unidades", badge: badges.unidades },
         { href: "/simulador", label: "Simulador" },
@@ -66,7 +63,6 @@ export function Sidebar({
     },
     {
       title: "Módulo Despesas",
-      permKey: "despesas",
       items: [
         { href: "/despesas", label: "Lançamentos" },
         { href: "/fornecedores", label: "Fornecedores" },
@@ -75,7 +71,6 @@ export function Sidebar({
     },
     {
       title: "Reports & Dashboards",
-      permKey: "reports",
       items: [
         { href: "/dashboard", label: "Dashboard" },
         { href: "/projecao", label: "Projeção de Receitas" },
@@ -90,17 +85,23 @@ export function Sidebar({
     },
     {
       title: "Config",
-      permKey: "config",
       items: [
         { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
+        { href: "/acessos", label: "Gestão de Acessos" },
+        { href: "/acoes", label: "Log de Auditoria" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
       ],
     },
   ];
 
-  // Mostra só as seções em que o usuário tem ao menos visualização.
-  const sections = allSections.filter((s) => hasLevel(perms, s.permKey, "view"));
+  // Mostra só os itens com permissão de "Ver"; oculta seções vazias.
+  const sections = allSections
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((it) => can(perms, it.href.replace(/^\//, ""), "ver")),
+    }))
+    .filter((s) => s.items.length > 0);
 
   return (
     <>

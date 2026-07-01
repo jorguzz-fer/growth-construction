@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { Sidebar } from "@/components/app/sidebar";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +75,11 @@ export default async function AppLayout({
     : [];
   const userName = me?.name || me?.email || "Usuário";
 
+  // Enforcement central de "Ver": mapeia a rota atual para a tela governada.
+  const pathname = (await headers()).get("x-pathname");
+  const screenId = screenIdOfPath(pathname);
+  const denied = screenId ? !can(ctx.perms, screenId, "ver") : false;
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
@@ -88,7 +96,7 @@ export default async function AppLayout({
       />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
-          {children}
+          {denied ? <AccessDenied /> : children}
         </div>
       </main>
     </div>

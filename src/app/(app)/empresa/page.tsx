@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { renameTenant, uploadLogo } from "@/lib/actions/empresa";
 import { PageHeader } from "@/components/app/page-header";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function EmpresaPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
-  const canEdit = hasLevel(ctx.perms, "config", "edit");
+  const canEdit = can(ctx.perms, "empresa", "editar");
   const r2 = isR2Configured();
   const logoUrl =
     ctx.tenant.logoKey && r2 ? await readUrl(ctx.tenant.logoKey) : null;

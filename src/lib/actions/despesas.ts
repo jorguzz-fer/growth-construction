@@ -2,15 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { canEdit, getActiveContext } from "@/lib/context";
-import { hasLevel } from "@/lib/permissions";
+import { getActiveContext } from "@/lib/context";
+import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
 export async function addStakeholder(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   const papeis = formData.getAll("papeis").map(String).filter(Boolean);
   await db.insert(schema.stakeholders).values({
     tenantId: ctx.tenant.id,
@@ -26,7 +26,7 @@ export async function addStakeholder(formData: FormData) {
 
 export async function addBankAccount(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx) return;
+  if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   await db.insert(schema.bankAccounts).values({
     tenantId: ctx.tenant.id,
     banco: (formData.get("banco") as string) || "Banco",
@@ -41,7 +41,7 @@ export async function addBankAccount(formData: FormData) {
 
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !canEdit(ctx.role)) return;
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
   const [row] = await db
     .insert(schema.despesas)
     .values({
@@ -71,7 +71,7 @@ export async function addDespesa(formData: FormData) {
 /** Anexa um documento (NF/contrato) a uma despesa, no R2. */
 export async function uploadDespesaDoc(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !hasLevel(ctx.perms, "despesas", "edit")) {
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) {
     throw new Error("Sem permissão.");
   }
   if (!isR2Configured()) {

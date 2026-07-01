@@ -29,7 +29,11 @@ export function middleware(req: NextRequest) {
     url.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(url);
   }
-  return NextResponse.next();
+
+  // Expõe o pathname para o layout aplicar o controle de "Ver" por tela.
+  const headers = new Headers(req.headers);
+  headers.set("x-pathname", pathname);
+  return NextResponse.next({ request: { headers } });
 }
 
 export const config = {
