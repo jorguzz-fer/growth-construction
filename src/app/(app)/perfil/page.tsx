@@ -5,7 +5,8 @@ import { changePassword } from "@/lib/actions/account";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { Label } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { MfaSetup } from "@/components/app/mfa-setup";
 
 export const dynamic = "force-dynamic";
@@ -44,11 +45,11 @@ export default async function PerfilPage() {
             <form action={changePassword} className="space-y-3">
               <div>
                 <Label>Senha atual</Label>
-                <Input name="current" type="password" autoComplete="current-password" />
+                <PasswordInput name="current" autoComplete="current-password" />
               </div>
               <div>
                 <Label>Nova senha (mín. 8)</Label>
-                <Input name="next" type="password" autoComplete="new-password" required />
+                <PasswordInput name="next" autoComplete="new-password" required />
               </div>
               <Button type="submit">Salvar senha</Button>
             </form>

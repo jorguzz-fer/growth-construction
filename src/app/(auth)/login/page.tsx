@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { precheckLogin } from "@/lib/actions/auth-precheck";
+import { PasswordInput } from "@/components/ui/password-input";
 
 /**
  * Login em duas etapas: (1) e-mail + senha; (2) se o usuário tem MFA ativo,
@@ -108,13 +109,13 @@ export default function LoginPage() {
                 <label className="mb-1.5 block text-[12.5px] font-medium text-white/80">
                   Senha
                 </label>
-                <input
-                  type="password"
+                <PasswordInput
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   required
-                  className="h-11 w-full rounded-[10px] border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-white/20 focus:border-[var(--color-accent3)] focus:ring-2 focus:ring-[var(--color-accent2)]/30"
+                  className="h-11 rounded-[10px] border-white/10 bg-black/30 text-white placeholder:text-white/20 focus:border-[var(--color-accent3)] focus:ring-[var(--color-accent2)]/30"
+                  iconClassName="text-white/40 hover:text-white"
                 />
               </div>
               {error && (

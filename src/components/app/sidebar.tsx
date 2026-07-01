@@ -237,6 +237,14 @@ export function Sidebar({
         <div className="mt-1 font-[family-name:var(--font-mono)] text-[9.5px] text-white/20">
           {versions.length}/6 versões
         </div>
+        {can(perms, "versao", "ver") && (
+          <a
+            href="/versao/template"
+            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
+          >
+            <span aria-hidden>📗</span> Baixar planilha modelo
+          </a>
+        )}
       </div>
 
       <nav className="flex-1 py-1">
