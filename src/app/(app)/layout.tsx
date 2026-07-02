@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { mfaEnforced } from "@/lib/mfa";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -80,8 +81,9 @@ export default async function AppLayout({
         .limit(1)
     : [];
 
-  // MFA é obrigatório: sem verificação em duas etapas ativa, vai ao enrollment.
-  if (me && !me.mfaEnabled) redirect("/mfa");
+  // MFA obrigatório (quando exigido por env): força o enrollment se não ativo.
+  // Em standby (fase de testes), não redireciona.
+  if (mfaEnforced() && me && !me.mfaEnabled) redirect("/mfa");
 
   const userName = me?.name || me?.email || "Usuário";
 

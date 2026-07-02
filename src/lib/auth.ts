@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users, accounts, sessions, verificationTokens } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/password";
+import { mfaEnforced } from "@/lib/mfa";
 import { verifyTotp } from "@/lib/totp";
 
 /*
@@ -41,8 +42,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth(() => ({
         if (!u || !u.passwordHash) return null;
         if (!verifyPassword(password, u.passwordHash)) return null;
 
-        // Segundo fator, se habilitado.
-        if (u.mfaEnabled) {
+        // Segundo fator — só quando o MFA está sendo exigido (env) e ativo.
+        if (mfaEnforced() && u.mfaEnabled) {
           const code = String(creds?.totp ?? "");
           if (!u.mfaSecret || !verifyTotp(u.mfaSecret, code)) return null;
         }

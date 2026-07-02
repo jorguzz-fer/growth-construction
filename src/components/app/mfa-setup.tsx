@@ -10,9 +10,28 @@ import { Badge } from "@/components/ui/badge";
  * Estado do MFA no perfil. Como a verificação em duas etapas é obrigatória,
  * não há "desativar" — apenas reconfigurar (gera novo QR e leva ao enrollment).
  */
-export function MfaSetup({ enabled }: { enabled: boolean }) {
+export function MfaSetup({
+  enabled,
+  enforced,
+}: {
+  enabled: boolean;
+  enforced: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
+
+  // Fase de testes: MFA em standby — opcional, não força enrollment.
+  if (!enforced) {
+    return (
+      <div className="space-y-3">
+        <Badge tone="neutral">em standby (fase de testes)</Badge>
+        <p className="text-sm text-[var(--color-ink3)]">
+          A verificação em duas etapas está desativada por enquanto. Será
+          reativada como obrigatória quando os testes terminarem.
+        </p>
+      </div>
+    );
+  }
 
   if (!enabled) {
     return (
