@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
+import { mfaEnforced } from "@/lib/mfa";
 
 export interface PrecheckResult {
   ok: boolean;
@@ -34,5 +35,5 @@ export async function precheckLogin(
   if (!u?.passwordHash || !verifyPassword(password, u.passwordHash)) {
     return { ok: false, mfaRequired: false };
   }
-  return { ok: true, mfaRequired: u.mfaEnabled };
+  return { ok: true, mfaRequired: mfaEnforced() && u.mfaEnabled };
 }

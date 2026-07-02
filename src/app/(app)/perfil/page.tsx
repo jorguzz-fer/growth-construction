@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { changePassword } from "@/lib/actions/account";
+import { mfaEnforced } from "@/lib/mfa";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ export default async function PerfilPage() {
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">
               Autenticação em 2 fatores (MFA)
             </h2>
-            <MfaSetup enabled={!!user?.mfaEnabled} />
+            <MfaSetup enabled={!!user?.mfaEnabled} enforced={mfaEnforced()} />
           </CardContent>
         </Card>
 
