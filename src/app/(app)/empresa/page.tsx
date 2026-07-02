@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { R2HealthCheck } from "@/components/app/r2-healthcheck";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,8 @@ export default async function EmpresaPage() {
                 {r2 ? "R2 ativo" : "R2 não configurado"}
               </Badge>
             </div>
+
+            {canEdit && <R2HealthCheck />}
 
             <div className="flex h-24 w-full items-center justify-center rounded-[8px] border border-dashed border-[var(--color-accent2)]/20 bg-[var(--color-surface2)]">
               {logoUrl ? (
