@@ -27,14 +27,20 @@ export async function importVersionData(formData: FormData): Promise<ImportResul
   if (!ctx || !can(ctx.perms, "versao", "editar")) {
     throw new Error("Sem permissão para importar dados.");
   }
-  if (ctx.version.locked) {
+
+  // Versão-alvo: a indicada no form (validada no projeto do tenant), ou a ativa.
+  const wantedId = (formData.get("versionId") as string) || ctx.version.id;
+  const target = ctx.versions.find((v) => v.id === wantedId);
+  if (!target) throw new Error("Versão inválida.");
+  if (target.locked) {
     throw new Error("Versão congelada — descongele para importar.");
   }
+
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione uma planilha.");
 
   const parsed = parseWorkbook(await file.arrayBuffer());
-  const vId = ctx.version.id;
+  const vId = target.id;
   const tId = ctx.tenant.id;
   const result: ImportResult = { units: 0, reembolsos: 0, permutas: 0, despesas: 0, incc: 0 };
 

@@ -197,24 +197,33 @@ export function Sidebar({
           {versions.map((v) => {
             const active = v.id === version.id;
             return (
-              <button
-                key={v.id}
-                disabled={pending}
-                onClick={() =>
-                  startTransition(() => setActiveVersion(v.id))
-                }
-                className={`flex items-center gap-2 rounded-[8px] px-2 py-1.5 text-left text-[12px] transition-colors ${
-                  active
-                    ? "bg-[var(--color-accent2)]/20 text-white"
-                    : "text-white/50 hover:bg-white/5 hover:text-white/85"
-                }`}
-              >
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-full"
-                  style={{ background: v.color }}
-                />
-                {v.label}
-              </button>
+              <div key={v.id} className="flex items-center gap-1">
+                <button
+                  disabled={pending}
+                  onClick={() => startTransition(() => setActiveVersion(v.id))}
+                  className={`flex flex-1 items-center gap-2 rounded-[8px] px-2 py-1.5 text-left text-[12px] transition-colors ${
+                    active
+                      ? "bg-[var(--color-accent2)]/20 text-white"
+                      : "text-white/50 hover:bg-white/5 hover:text-white/85"
+                  }`}
+                >
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full"
+                    style={{ background: v.color }}
+                  />
+                  {v.label}
+                </button>
+                {can(perms, "versao", "ver") && (
+                  <Link
+                    href={`/versao?v=${v.id}`}
+                    onClick={close}
+                    title="Configurar / importar dados desta versão"
+                    className="shrink-0 rounded-[6px] px-1.5 py-1 text-[11px] text-white/30 transition-colors hover:bg-white/10 hover:text-white/80"
+                  >
+                    ✎
+                  </Link>
+                )}
+              </div>
             );
           })}
         </div>
