@@ -41,10 +41,16 @@ const SHEETS_INFO = [
   "Despesas_CEF (Módulo Despesas)",
 ];
 
-export default async function VersaoPage() {
+export default async function VersaoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ v?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
-  const v = ctx.version;
+  const sp = await searchParams;
+  // Configura a versão indicada por ?v=; sem parâmetro, a versão ativa.
+  const v = ctx.versions.find((x) => x.id === sp.v) ?? ctx.version;
   const canEdit = can(ctx.perms, "versao", "editar");
   const canDelete = can(ctx.perms, "versao", "excluir");
   const isFixed = v.kind !== "custom";
@@ -145,7 +151,7 @@ export default async function VersaoPage() {
                 ))}
               </ol>
               <a
-                href="/versao/template"
+                href={`/versao/template?v=${v.id}`}
                 className={buttonVariants({ className: "w-full" })}
               >
                 ⬇ Baixar planilha modelo (.xlsx)
@@ -163,7 +169,7 @@ export default async function VersaoPage() {
                 versão. <strong>Os dados existentes serão substituídos.</strong>
               </p>
               {canEdit ? (
-                <ImportVersion locked={v.locked} />
+                <ImportVersion versionId={v.id} locked={v.locked} />
               ) : (
                 <p className="text-sm text-[var(--color-ink3)]">
                   Sem permissão para importar nesta versão.

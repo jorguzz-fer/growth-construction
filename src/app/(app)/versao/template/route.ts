@@ -6,15 +6,19 @@ import { buildTemplateBuffer } from "@/lib/xlsx/growth-template";
 export const dynamic = "force-dynamic";
 
 /** Download da planilha modelo (.xlsx) no formato padrão Growth Tools. */
-export async function GET() {
+export async function GET(req: Request) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "versao", "ver")) {
     return new Response("Não autorizado", { status: 403 });
   }
 
+  // Versão indicada por ?v= (para nomear o arquivo); INCC é do projeto.
+  const wantedId = new URL(req.url).searchParams.get("v");
+  const version = ctx.versions.find((v) => v.id === wantedId) ?? ctx.version;
+
   const incc = await getInccRows(ctx.project.id);
   const buffer = buildTemplateBuffer(incc);
-  const slug = ctx.version.label.replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
+  const slug = version.label.replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
   const filename = `Growth_Tools_Modelo_${slug || "versao"}.xlsx`;
 
   return new Response(new Uint8Array(buffer), {

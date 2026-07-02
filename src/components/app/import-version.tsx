@@ -4,8 +4,14 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { importVersionData, type ImportResult } from "@/lib/actions/version-io";
 
-/** Dropzone para importar a planilha preenchida na versão ativa. */
-export function ImportVersion({ locked }: { locked: boolean }) {
+/** Dropzone para importar a planilha preenchida na versão indicada. */
+export function ImportVersion({
+  versionId,
+  locked,
+}: {
+  versionId: string;
+  locked: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -18,6 +24,7 @@ export function ImportVersion({ locked }: { locked: boolean }) {
     setResult(null);
     const fd = new FormData();
     fd.set("file", file);
+    fd.set("versionId", versionId);
     start(async () => {
       try {
         const r = await importVersionData(fd);
