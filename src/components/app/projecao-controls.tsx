@@ -13,9 +13,11 @@ export interface YearOption {
 export function ProjecaoYearSelect({
   years,
   selected,
+  basePath = "/projecao",
 }: {
   years: YearOption[];
   selected: number;
+  basePath?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -23,7 +25,7 @@ export function ProjecaoYearSelect({
     <Select
       value={String(selected)}
       disabled={pending}
-      onChange={(e) => start(() => router.push(`/projecao?ano=${e.target.value}`))}
+      onChange={(e) => start(() => router.push(`${basePath}?ano=${e.target.value}`))}
       className="h-9 w-auto"
     >
       {years.map((y) => (
