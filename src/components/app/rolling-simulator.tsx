@@ -16,16 +16,16 @@ export interface DriverItem {
 export function RollingSimulator({
   receitaSources,
   custoGroups,
+  gastosFixos,
   custoVar,
-  outrasDespesas,
   realizado,
   years,
   periodo,
 }: {
   receitaSources: DriverItem[];
   custoGroups: DriverItem[];
+  gastosFixos: DriverItem[];
   custoVar: number;
-  outrasDespesas: number;
   realizado: number;
   years: { value: string; label: string }[];
   periodo: string;
@@ -34,6 +34,7 @@ export function RollingSimulator({
   const [pending, start] = useTransition();
   const [dRec, setDRec] = useState<Record<string, number>>({});
   const [dCusto, setDCusto] = useState<Record<string, number>>({});
+  const [dGasto, setDGasto] = useState<Record<string, number>>({});
 
   const receita = receitaSources.reduce(
     (a, s) => a + s.base * (1 + (dRec[s.key] || 0) / 100),
@@ -43,14 +44,19 @@ export function RollingSimulator({
     (a, g) => a + g.base * (1 + (dCusto[g.key] || 0) / 100),
     0,
   );
+  const gastos = gastosFixos.reduce(
+    (a, g) => a + g.base * (1 + (dGasto[g.key] || 0) / 100),
+    0,
+  );
   const margemBruta = receita - custoObra - custoVar;
-  const ebitda = margemBruta - outrasDespesas;
+  const ebitda = margemBruta - gastos;
   const resultado = ebitda;
   const pct = (v: number) => (receita > 0 ? (v / receita) * 100 : 0);
 
   const reset = () => {
     setDRec({});
     setDCusto({});
+    setDGasto({});
   };
 
   return (
@@ -89,19 +95,30 @@ export function RollingSimulator({
 
       {/* Bases */}
       <div className="mb-6 flex flex-wrap gap-x-10 gap-y-2">
+        <Base label="Custo de Obra (CEF)" value={brl0(custoObra)} tone="danger" />
+        <Base label="Custo Variável (medição)" value={brl0(custoVar)} tone="danger" />
+        <Base label="Gastos Fixos / Corporativos" value={brl0(gastos)} tone="danger" />
         <Base label="Receita Total" value={brl0(receita)} />
-        <Base label="Custo Variável" value={brl0(custoVar)} tone="danger" />
         <Base label="Realizado" value={brlk(realizado)} tone="success" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <DriverPanel
-          title="↑ Drivers — Despesas"
-          firstCol="Grupo / conta"
+          title="↑ Drivers — Despesas de Obra (CEF)"
+          firstCol="Grupo CEF"
           groupHeader="Grupos CEF — Obra"
           items={custoGroups}
           values={dCusto}
           onChange={(k, v) => setDCusto((s) => ({ ...s, [k]: v }))}
+          negative
+        />
+        <DriverPanel
+          title="↑ Drivers — Gastos Fixos / Corporativos"
+          firstCol="Categoria"
+          groupHeader="Despesas fixas & administrativas"
+          items={gastosFixos}
+          values={dGasto}
+          onChange={(k, v) => setDGasto((s) => ({ ...s, [k]: v }))}
           negative
         />
         <DriverPanel
@@ -191,9 +208,12 @@ function DriverPanel({
     <Card>
       <CardContent className="p-5">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">{title}</h2>
-        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 gap-y-1">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 gap-y-1">
           <div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
             {firstCol}
+          </div>
+          <div className="text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+            Base R$
           </div>
           <div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
             Variação %
@@ -202,7 +222,7 @@ function DriverPanel({
             Impacto R$
           </div>
           {groupHeader && (
-            <div className="col-span-3 mt-1 border-b border-[var(--color-accent2)]/12 pb-1 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-accent)]">
+            <div className="col-span-4 mt-1 border-b border-[var(--color-accent2)]/12 pb-1 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-accent)]">
               {groupHeader}
             </div>
           )}
@@ -213,6 +233,13 @@ function DriverPanel({
               <div key={it.key} className="contents">
                 <div className="border-b border-[var(--color-accent2)]/8 py-2 text-[13px] text-[var(--color-ink2)]">
                   {it.label}
+                </div>
+                <div
+                  className={`border-b border-[var(--color-accent2)]/8 py-2 text-right font-[family-name:var(--font-mono)] text-[12px] ${
+                    it.base > 0 ? "text-[var(--color-ink3)]" : "text-[var(--color-ink4)]"
+                  }`}
+                >
+                  {it.base > 0 ? brl0(it.base) : "—"}
                 </div>
                 <div className="border-b border-[var(--color-accent2)]/8 py-2">
                   <input
@@ -225,14 +252,16 @@ function DriverPanel({
                 </div>
                 <div
                   className={`border-b border-[var(--color-accent2)]/8 py-2 text-right font-[family-name:var(--font-mono)] text-[13px] ${
-                    v === 0
+                    v === 0 || impacto === 0
                       ? "text-[var(--color-ink4)]"
-                      : impacto >= 0
+                      : impacto > 0
                         ? "text-[var(--color-success)]"
                         : "text-[var(--color-danger)]"
                   }`}
                 >
-                  {v === 0 ? "—" : `${impacto >= 0 ? "+" : "−"}${brl0(Math.abs(impacto))}`}
+                  {v === 0 || impacto === 0
+                    ? "—"
+                    : `${impacto > 0 ? "+" : "−"}${brl0(Math.abs(impacto))}`}
                 </div>
               </div>
             );
