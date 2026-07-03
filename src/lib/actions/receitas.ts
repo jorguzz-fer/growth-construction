@@ -35,12 +35,16 @@ export async function addPermuta(formData: FormData) {
     tenantId: ctx.tenant.id,
     unitCode: (formData.get("unitCode") as string) || null,
     cliente: (formData.get("cliente") as string) || null,
+    dataRecebimento: (formData.get("dataRecebimento") as string) || null,
     tipo: (formData.get("tipo") as string) || null,
     descricao: (formData.get("descricao") as string) || null,
     estimado: (formData.get("estimado") as string) || "0",
     status: (formData.get("status") as string) || "Disponivel",
     dataVenda: (formData.get("dataVenda") as string) || null,
     valorVenda: (formData.get("valorVenda") as string) || "0",
+    tipoPermuta: (formData.get("tipoPermuta") as string) || null,
+    obs: (formData.get("obs") as string) || null,
   });
   revalidatePath("/permuta");
+  redirect("/permuta");
 }
