@@ -11,16 +11,55 @@ export async function addCash(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "caixa", "criar")) return;
   if (ctx.version.locked) throw new Error("Versão congelada.");
-  await db.insert(schema.cashEntries).values({
-    versionId: ctx.version.id,
+
+  // Tipo de lançamento define o sinal do valor e a categoria:
+  //  - receita: entrada (+), categoria escolhida (mensais/AS/…);
+  //  - despesa: saída (−), lançamento avulso do extrato sem contraparte;
+  //  - ajuste:  ajuste manual de caixa, + ou − conforme "sinal".
+  // Entradas de ajuste e avulsas do extrato já nascem conciliadas (não têm
+  // contraparte nos módulos de receita/despesa para casar).
+  const tipo = ((formData.get("tipo") as string) || "receita").toLowerCase();
+  const magnitude = Math.abs(Number(formData.get("valor")) || 0);
+
+  let sign = 1;
+  let cat = (formData.get("cat") as string) || "outro";
+  let rec = false;
+  if (tipo === "despesa") {
+    sign = -1;
+    cat = "despesa_extrato";
+    rec = true;
+  } else if (tipo === "ajuste") {
+    sign = (formData.get("sinal") as string) === "menos" ? -1 : 1;
+    cat = "ajuste";
+    rec = true;
+  } else if (tipo === "receita" && cat === "extrato") {
+    // Receita avulsa do extrato (sem categoria de receita conhecida).
+    cat = "receita_extrato";
+    rec = true;
+  }
+
+  const [row] = await db
+    .insert(schema.cashEntries)
+    .values({
+      versionId: ctx.version.id,
+      tenantId: ctx.tenant.id,
+      data: (formData.get("data") as string) || null,
+      descricao: (formData.get("descricao") as string) || null,
+      valor: String(sign * magnitude),
+      cat,
+      unitCode: (formData.get("unitCode") as string) || null,
+      bankAccountId: (formData.get("bankAccountId") as string) || null,
+      rec,
+    })
+    .returning();
+
+  await logAudit({
     tenantId: ctx.tenant.id,
-    data: (formData.get("data") as string) || null,
-    descricao: (formData.get("descricao") as string) || null,
-    valor: (formData.get("valor") as string) || "0",
-    cat: (formData.get("cat") as string) || "outro",
-    unitCode: (formData.get("unitCode") as string) || null,
-    bankAccountId: (formData.get("bankAccountId") as string) || null,
-    rec: false,
+    userId: ctx.userId,
+    action: tipo === "ajuste" ? "cash.adjust" : "cash.create",
+    entity: "cash_entry",
+    entityId: row.id,
+    meta: { tipo, cat, valor: row.valor },
   });
   revalidatePath("/caixa");
 }

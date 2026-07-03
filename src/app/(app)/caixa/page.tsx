@@ -9,7 +9,6 @@ import {
   reembToCalc,
   toCalcUnit,
 } from "@/lib/queries";
-import { addCash } from "@/lib/actions/caixa";
 import {
   calcProjection,
   reembursementsByMonth,
@@ -19,12 +18,11 @@ import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConciliarToggle } from "@/components/app/conciliar-toggle";
 import { ImportExtratoButton } from "@/components/app/import-extrato";
+import { CaixaEntryForm } from "@/components/app/caixa-entry-form";
 
 export const dynamic = "force-dynamic";
 
@@ -215,49 +213,28 @@ export default async function CaixaPage({
         ))}
       </div>
 
-      {tab === "lancamentos" && <Lancamentos cash={cash} />}
+      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} />}
       {tab === "conciliacao" && <Conciliacao cash={cash} conciliados={conciliados} />}
       {tab === "previstas" && <Previstas ctx={ctx} />}
     </>
   );
 }
 
-function Lancamentos({ cash }: { cash: Awaited<ReturnType<typeof getCash>> }) {
+function Lancamentos({
+  cash,
+  contas,
+}: {
+  cash: Awaited<ReturnType<typeof getCash>>;
+  contas: Awaited<ReturnType<typeof getBankAccounts>>;
+}) {
   return (
     <>
       <div className="mb-3 flex justify-end">
         <ImportExtratoButton />
       </div>
-      <Card className="mb-6">
-        <CardContent className="p-5">
-          <form action={addCash} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <div>
-              <Label>Data (MM/DD/YYYY)</Label>
-              <Input name="data" placeholder="06/10/2026" />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Descrição</Label>
-              <Input name="descricao" placeholder="BLA 401 - Parcela #6" />
-            </div>
-            <div>
-              <Label>Valor</Label>
-              <Input name="valor" type="number" step="0.01" placeholder="0" />
-            </div>
-            <div>
-              <Label>Categoria</Label>
-              <Select name="cat" defaultValue="mensais">
-                <option value="mensais">Mensais</option>
-                <option value="AS">Ato/Sinal</option>
-                <option value="reembolso">Reembolso</option>
-                <option value="outro">Outro</option>
-              </Select>
-            </div>
-            <div className="flex items-end sm:col-span-5">
-              <Button type="submit">Adicionar lançamento</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <CaixaEntryForm
+        contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+      />
       <CashTable cash={cash} withToggle={false} />
     </>
   );
@@ -340,6 +317,14 @@ async function Previstas({
   );
 }
 
+const CAT_LABEL: Record<string, string> = {
+  ajuste: "Ajuste de caixa",
+  despesa_extrato: "Despesa (extrato)",
+  receita_extrato: "Receita (extrato)",
+  extrato: "Extrato",
+};
+const catLabel = (c: string | null) => (c ? CAT_LABEL[c] ?? c : "—");
+
 function CashTable({
   cash,
   withToggle,
@@ -359,15 +344,21 @@ function CashTable({
         </tr>
       </THead>
       <tbody>
-        {cash.map((c) => (
+        {cash.map((c) => {
+          const v = Number(c.valor);
+          return (
           <TR key={c.id}>
             <TD className="font-[family-name:var(--font-mono)]">{c.data ?? "—"}</TD>
             <TD>{c.descricao ?? "—"}</TD>
             <TD>
-              <Badge>{c.cat ?? "—"}</Badge>
+              <Badge tone={c.cat === "ajuste" ? "info" : "neutral"}>{catLabel(c.cat)}</Badge>
             </TD>
-            <TD className="text-right font-[family-name:var(--font-mono)]">
-              {brl0(Number(c.valor))}
+            <TD
+              className={`text-right font-[family-name:var(--font-mono)] ${
+                v < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"
+              }`}
+            >
+              {brl0(v)}
             </TD>
             <TD>
               {withToggle ? (
@@ -379,7 +370,8 @@ function CashTable({
               )}
             </TD>
           </TR>
-        ))}
+          );
+        })}
         {cash.length === 0 && (
           <TR>
             <TD colSpan={5} className="py-6 text-center text-[var(--color-ink3)]">
