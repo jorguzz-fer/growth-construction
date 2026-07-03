@@ -167,6 +167,7 @@ export const dreCategoryEnum = pgEnum("dre_category", [
   "Despesa Fixa",
   "Retiradas",
   "Investimento",
+  "Empréstimos",
 ]);
 
 // ──────────────────────── Projetos & versões ────────────────────────

@@ -41,6 +41,7 @@ const DRE_CATS = [
   { name: "Despesa Fixa", desc: "Escritório, contabilidade, tecnologia", icon: "➖", color: "#f59e0b" },
   { name: "Retiradas", desc: "Pró-labore, distribuição de lucros", icon: "💰", color: "var(--color-accent)" },
   { name: "Investimento", desc: "Compra de terreno, equipamentos permanentes", icon: "🏢", color: "#3b82f6" },
+  { name: "Empréstimos", desc: "Captação e amortização de empréstimos", icon: "🏦", color: "#0ea5e9" },
 ];
 
 export default async function PlanoContasPage() {
@@ -100,7 +101,7 @@ export default async function PlanoContasPage() {
                 ))}
               </div>
               <p className="mt-4 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-ink3)]">
-                ⓘ As 7 categorias DRE são fixas (estrutura do relatório) e não são
+                ⓘ As categorias DRE são fixas (estrutura do relatório) e não são
                 editáveis. A edição de inserir/editar/excluir vale para os grupos e
                 subitens CEF / complementares.
               </p>

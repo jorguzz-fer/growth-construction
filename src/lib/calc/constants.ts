@@ -241,6 +241,7 @@ export const CATEGORIAS_DRE = [
   "Despesa Fixa",
   "Retiradas",
   "Investimento",
+  "Empréstimos",
 ] as const;
 export type CategoriaDRE = (typeof CATEGORIAS_DRE)[number];
 

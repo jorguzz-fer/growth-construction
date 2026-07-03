@@ -1,0 +1,1 @@
+ALTER TYPE "public"."dre_category" ADD VALUE 'Empréstimos';
