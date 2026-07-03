@@ -1,6 +1,7 @@
 import { getActiveContext } from "@/lib/context";
 import { getBankAccounts, getStakeholders } from "@/lib/queries";
-import { addBankAccount, addStakeholder } from "@/lib/actions/despesas";
+import { addBankAccount } from "@/lib/actions/despesas";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { PAPEIS_STAKEHOLDER } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { FornecedorForm } from "@/components/app/fornecedor-form";
 
 export const dynamic = "force-dynamic";
 
@@ -27,52 +29,7 @@ export default async function FornecedoresPage() {
       />
 
       {/* Novo stakeholder */}
-      <Card className="mb-6">
-        <CardContent className="p-5">
-          <form action={addStakeholder} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="sm:col-span-2">
-                <Label>Nome</Label>
-                <Input name="nome" placeholder="Razão social / nome" required />
-              </div>
-              <div>
-                <Label>Tipo</Label>
-                <Select name="tipo" defaultValue="PJ">
-                  <option>PJ</option>
-                  <option>PF</option>
-                </Select>
-              </div>
-              <div>
-                <Label>CNPJ / CPF</Label>
-                <Input name="doc" />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>E-mail</Label>
-                <Input name="email" type="email" />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Telefone</Label>
-                <Input name="tel" />
-              </div>
-            </div>
-            <div>
-              <Label>Papéis</Label>
-              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                {PAPEIS_STAKEHOLDER.map((p) => (
-                  <label
-                    key={p}
-                    className="flex items-center gap-1.5 text-[13px] text-[var(--color-ink2)]"
-                  >
-                    <input type="checkbox" name="papeis" value={p} />
-                    {p}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <Button type="submit">Cadastrar fornecedor</Button>
-          </form>
-        </CardContent>
-      </Card>
+      <FornecedorForm papeis={PAPEIS_STAKEHOLDER} aiConfigured={isAiConfigured()} />
 
       <Table>
         <THead>
