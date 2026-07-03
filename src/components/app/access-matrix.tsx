@@ -10,6 +10,7 @@ import {
 import { setMemberPermissions } from "@/lib/actions/users";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export interface AccessMatrixMember {
   userId: string;
@@ -94,19 +95,26 @@ function MemberMatrix({
   );
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const ownerFull = member.role === "owner"; // owner sempre total
   const editable = canEdit && !ownerFull;
 
-  const persist = (next: PermMatrix) => {
+  // Persiste (e registra no log de auditoria) apenas ao clicar em "Salvar" —
+  // evita gerar uma entrada de auditoria a cada clique de checkbox.
+  const save = () => {
+    if (!editable || !dirty) return;
     setSaved(false);
     start(async () => {
-      await setMemberPermissions(member.userId, next);
+      await setMemberPermissions(member.userId, perms);
+      setDirty(false);
       setSaved(true);
     });
   };
 
   function toggle(screenId: string, action: PermAction) {
     if (!editable) return;
+    setSaved(false);
+    setDirty(true);
     setPerms((prev) => {
       const cur = { ...prev[screenId] };
       const val = !cur[action];
@@ -117,9 +125,7 @@ function MemberMatrix({
       } else if (action !== "ver" && val) {
         cur.ver = true;
       }
-      const next = { ...prev, [screenId]: cur };
-      persist(next);
-      return next;
+      return { ...prev, [screenId]: cur };
     });
   }
 
@@ -137,11 +143,24 @@ function MemberMatrix({
           </h2>
           {ownerFull ? (
             <Badge tone="accent">owner — acesso total</Badge>
-          ) : saved && !pending ? (
-            <span className="text-xs text-[var(--color-success)]">Salvo.</span>
-          ) : pending ? (
-            <span className="text-xs text-[var(--color-ink3)]">Salvando…</span>
-          ) : null}
+          ) : (
+            <div className="flex items-center gap-3">
+              {pending ? (
+                <span className="text-xs text-[var(--color-ink3)]">Salvando…</span>
+              ) : saved ? (
+                <span className="text-xs text-[var(--color-success)]">Salvo.</span>
+              ) : dirty ? (
+                <span className="text-xs text-[var(--color-warning)]">
+                  Alterações não salvas
+                </span>
+              ) : null}
+              {editable && (
+                <Button size="sm" onClick={save} disabled={!dirty || pending}>
+                  Salvar
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
