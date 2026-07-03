@@ -231,10 +231,12 @@ export interface MemberRow {
   role: string;
   permissions: import("@/lib/permissions").PermMatrix | null;
   mfaEnabled: boolean;
+  /** já definiu senha? (senão, ainda não consegue logar). */
+  hasPassword: boolean;
 }
 
 export async function getMembers(tenantId: string): Promise<MemberRow[]> {
-  return db
+  const rows = await db
     .select({
       userId: schema.memberships.userId,
       name: schema.users.name,
@@ -242,11 +244,16 @@ export async function getMembers(tenantId: string): Promise<MemberRow[]> {
       role: schema.memberships.role,
       permissions: schema.memberships.permissions,
       mfaEnabled: schema.users.mfaEnabled,
+      passwordHash: schema.users.passwordHash,
     })
     .from(schema.memberships)
     .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
     .where(eq(schema.memberships.tenantId, tenantId))
     .orderBy(asc(schema.memberships.createdAt));
+  return rows.map(({ passwordHash, ...m }) => ({
+    ...m,
+    hasPassword: Boolean(passwordHash),
+  }));
 }
 
 export type AuditRow = typeof schema.auditLog.$inferSelect;
