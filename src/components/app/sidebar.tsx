@@ -51,7 +51,7 @@ export function Sidebar({
     {
       title: "Módulo Receitas",
       items: [
-        { href: "/unidades", label: "Unidades", badge: badges.unidades },
+        { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
         { href: "/permuta", label: "Permuta", badge: badges.permuta },
@@ -61,7 +61,7 @@ export function Sidebar({
     {
       title: "Módulo Despesas",
       items: [
-        { href: "/despesas", label: "Lançamentos" },
+        { href: "/despesas", label: "Despesas / Lançamentos" },
         { href: "/fornecedores", label: "Fornecedores" },
         { href: "/planocontas", label: "Plano de Contas" },
       ],
