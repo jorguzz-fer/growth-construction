@@ -52,6 +52,7 @@ export function Sidebar({
       title: "Módulo Receitas",
       items: [
         { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
+        { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
         { href: "/permuta", label: "Permuta", badge: badges.permuta },

@@ -412,6 +412,59 @@ export const medicoes = pgTable("medicao", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
+/**
+ * Cliente comprador de uma unidade — cadastro comercial com dados cadastrais,
+ * financeiros e de inteligência de mercado. Vinculado ao tenant e à unidade
+ * comprada (por código). Ver pedido de "sessão de clientes (compradores)".
+ */
+export const clientes = pgTable("cliente", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** código da unidade comprada (ex.: "BLA 401"). */
+  unitCode: text("unit_code"),
+  statusContrato: text("status_contrato"),
+  // ── Dados cadastrais ──
+  nomeCompleto: text("nome_completo").notNull(),
+  cpfCnpj: text("cpf_cnpj"),
+  nascimento: text("nascimento"),
+  nacionalidade: text("nacionalidade"),
+  estadoCivil: text("estado_civil"),
+  endereco: text("endereco"),
+  cidadeEstado: text("cidade_estado"),
+  cep: text("cep"),
+  emailPrincipal: text("email_principal"),
+  emailSecundario: text("email_secundario"),
+  celular: text("celular"),
+  telefone: text("telefone"),
+  // ── Dados financeiros ──
+  bancoFinanc: text("banco_financ"),
+  rendaBruta: numeric("renda_bruta", { precision: 15, scale: 2 }),
+  rendaLiquida: numeric("renda_liquida", { precision: 15, scale: 2 }),
+  comprometimento: text("comprometimento"),
+  possuiFgts: text("possui_fgts"),
+  saldoFgts: numeric("saldo_fgts", { precision: 15, scale: 2 }),
+  scoreCredito: integer("score_credito"),
+  restricoes: text("restricoes"),
+  // ── Inteligência de mercado ──
+  morarOuInvestir: text("morar_ou_investir"),
+  ramoAtividade: text("ramo_atividade"),
+  cargoFuncao: text("cargo_funcao"),
+  areaAtuacao: text("area_atuacao"),
+  empresa: text("empresa"),
+  regimeTrabalho: text("regime_trabalho"),
+  localTrabalho: text("local_trabalho"),
+  tempoEmpresa: text("tempo_empresa"),
+  possuiImovel: text("possui_imovel"),
+  motivacaoCompra: text("motivacao_compra"),
+  comoConheceu: text("como_conheceu"),
+  indicadoPor: text("indicado_por"),
+  interesse: integer("interesse"),
+  obsEstrategicas: text("obs_estrategicas"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 // ───────────────────────────── Caixa & INCC ─────────────────────────────
 
 /** Lançamento de caixa (real) por versão, conciliável. Ver docs/SPEC.md §9.4. */
