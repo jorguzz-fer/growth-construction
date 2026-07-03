@@ -48,6 +48,7 @@ export const SCREENS: Screen[] = [
   { id: "acoes", label: "Log de Auditoria", modulo: "Config" },
   { id: "contabilidade", label: "Acesso Contabilidade", modulo: "Config" },
   { id: "empresa", label: "Empresa", modulo: "Config" },
+  { id: "projeto", label: "Projetos", modulo: "Config" },
   { id: "versao", label: "Configuração da Versão", modulo: "Config" },
 ];
 

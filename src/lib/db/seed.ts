@@ -125,6 +125,7 @@ async function seedDemoData(tenantId: string) {
       name: "SIGNATURE SUARÃO",
       kind: "proj",
       status: "Em andamento",
+      durationMonths: 24,
     })
     .returning();
 

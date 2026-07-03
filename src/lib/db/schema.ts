@@ -179,6 +179,8 @@ export const projects = pgTable("project", {
   name: text("name").notNull(),
   kind: projectKindEnum("kind").notNull().default("proj"),
   status: projectStatusEnum("status").notNull().default("Planejamento"),
+  /** Duração planejada do empreendimento, em meses. */
+  durationMonths: integer("duration_months"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

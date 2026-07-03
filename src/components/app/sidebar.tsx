@@ -86,6 +86,7 @@ export function Sidebar({
     {
       title: "Config",
       items: [
+        { href: "/projeto", label: "Projetos" },
         { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
         { href: "/acessos", label: "Gestão de Acessos" },
