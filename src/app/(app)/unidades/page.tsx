@@ -8,7 +8,6 @@ import { PageHeader } from "@/components/app/page-header";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
-import { ImportUnitsButton } from "@/components/app/import-units";
 import { UnitActions } from "@/components/app/unit-actions";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +31,9 @@ export default async function UnidadesPage() {
         subtitle={`${rows.length} unidades · VGV ${brl0(vgv)}`}
         actions={
           canEdit ? (
-            <>
-              <ImportUnitsButton />
-              <Link href="/unidades/nova" className={buttonVariants({ size: "sm" })}>
-                Nova Unidade
-              </Link>
-            </>
+            <Link href="/unidades/nova" className={buttonVariants({ size: "sm" })}>
+              Nova Unidade
+            </Link>
           ) : undefined
         }
       />
