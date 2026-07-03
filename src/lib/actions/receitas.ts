@@ -1,25 +1,30 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
+import { excelSerial } from "@/lib/utils";
 
 export async function addReembolso(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "reembolso", "criar")) return;
+  const data = (formData.get("data") as string) || null;
   await db.insert(schema.reembolsos).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
-    data: (formData.get("data") as string) || null,
+    data,
     origem: (formData.get("origem") as string) || null,
     valor: (formData.get("valor") as string) || "0",
     pct: (formData.get("pct") as string) || null,
     obs: (formData.get("obs") as string) || null,
-    serial: Math.floor(10000 + Math.random() * 89999),
-    status: "received",
+    // SERIAL = INT(Data): calculado automaticamente a partir da data real.
+    serial: excelSerial(data),
+    status: "Recebido",
   });
   revalidatePath("/reembolso");
+  redirect("/reembolso");
 }
 
 export async function addPermuta(formData: FormData) {
