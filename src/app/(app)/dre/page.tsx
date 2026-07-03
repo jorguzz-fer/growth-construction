@@ -125,7 +125,7 @@ export default async function DREPage({
   ];
 
   const scopeLabel = isAll
-    ? "Todos os projetos (DRE geral)"
+    ? "Empresa toda (matriz + filiais + projetos)"
     : selectedProjects[0].name;
   const periodLabel = periodMonths
     ? years.find((y) => y.value === periodo)?.label
@@ -139,7 +139,10 @@ export default async function DREPage({
         subtitle={`${periodLabel} · análise vertical (% da receita)`}
         actions={
           <DreControls
-            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            projects={ctx.projects.map((p) => ({
+              id: p.id,
+              label: p.kind === "office" ? `${p.name} · Unidade/Escritório` : p.name,
+            }))}
             proj={projParam}
             periods={[
               { value: "acum", label: "Acumulado (todos os anos)" },

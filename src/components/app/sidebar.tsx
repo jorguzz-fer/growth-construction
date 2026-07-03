@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState, useTransition } from "react";
 import type { Project, Version } from "@/lib/context";
-import { setActiveProject, setActiveVersion } from "@/lib/actions/context";
+import { setActiveVersion } from "@/lib/actions/context";
 import { duplicateVersion } from "@/lib/actions/versions";
 import { can, type PermMatrix } from "@/lib/permissions";
+import { ProjectSwitcher } from "@/components/app/project-switcher";
 
 interface NavItem {
   href: string;
@@ -157,25 +158,17 @@ export function Sidebar({
         </div>
       </Link>
 
-      {/* Seletor de projeto */}
+      {/* Seletor de projeto / unidade */}
       <div className="border-b border-white/10 px-4 py-2.5">
-        <div className="font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
-          Projeto
+        <div className="mb-1 font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
+          Projeto / Unidade
         </div>
-        <select
-          value={project.id}
-          disabled={pending}
-          onChange={(e) =>
-            startTransition(() => setActiveProject(e.target.value))
-          }
-          className="mt-1 w-full rounded-[8px] border border-white/10 bg-white/5 px-2 py-1 text-[12.5px] text-white outline-none"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id} className="text-black">
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <ProjectSwitcher
+          projects={projects}
+          activeId={project.id}
+          canCreate={can(perms, "projeto", "criar")}
+          canDelete={can(perms, "projeto", "excluir")}
+        />
       </div>
 
       {/* Seletor de versão */}

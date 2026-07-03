@@ -15,8 +15,8 @@ export default async function ProjetoPage() {
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
-        title="Projetos"
-        subtitle="Cadastre os empreendimentos (nome e duração). Todas as demais telas ficam vinculadas ao projeto selecionado."
+        title="Projetos & Unidades"
+        subtitle="Cadastre empreendimentos (nome e duração) e unidades/escritórios (matriz e filiais). Todas as demais telas ficam vinculadas ao item selecionado."
       />
 
       <ProjectManager
