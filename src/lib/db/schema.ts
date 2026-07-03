@@ -314,6 +314,10 @@ export const bankAccounts = pgTable("bank_account", {
   op: text("op"),
   cc: text("cc"),
   tipo: bankAccountTypeEnum("tipo").notNull().default("Construtora"),
+  /** saldo atual da conta — rastreado (Open Finance/extrato) ou manual. */
+  saldo: numeric("saldo", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** como o saldo é atualizado: "manual" ou "auto" (Open Finance/extrato). */
+  saldoSource: text("saldo_source").notNull().default("manual"),
   openFinanceId: text("open_finance_id"),
   lastSync: timestamp("last_sync", { mode: "date" }),
 });
