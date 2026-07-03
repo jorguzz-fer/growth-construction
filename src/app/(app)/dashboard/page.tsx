@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getActiveContext, type Version } from "@/lib/context";
 import {
   getMonthlyRevenue,
   getUnits,
@@ -9,87 +10,161 @@ import {
   permToCalc,
   reembToCalc,
   toCalcUnit,
+  type UnitRow,
 } from "@/lib/queries";
-import { calcTotals } from "@/lib/calc";
-import { brlk } from "@/lib/utils";
+import { addMonths, calcTotals, parseDate } from "@/lib/calc";
+import { brlk, brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { buttonVariants } from "@/components/ui/button";
 import { BarChart, DoughnutChart, CHART_COLORS } from "@/components/app/charts";
+import { DashboardVersions } from "@/components/app/dashboard-versions";
 
 export const dynamic = "force-dynamic";
 
-/** Agrega os indicadores de uma versão para o comparativo multi-versão. */
-async function versionSummary(
-  projectId: string,
-  versionId: string,
-): Promise<{ vgv: number; vend: number; receita: number; realizado: number }> {
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+interface Summary {
+  version: Version;
+  vgv: number;
+  realizado: number;
+  receitaProj: number;
+  aReceber: number;
+  monthly: Record<string, number>;
+}
+
+/** Indicadores agregados de uma versão (para os KPIs e o comparativo). */
+async function versionSummary(projectId: string, version: Version): Promise<Summary> {
   const [unitRows, revenue, cashRows] = await Promise.all([
-    getUnits(versionId),
-    getMonthlyRevenue(versionId, projectId),
+    getUnits(version.id),
+    getMonthlyRevenue(version.id, projectId),
     db
       .select({ valor: schema.cashEntries.valor })
       .from(schema.cashEntries)
-      .where(eq(schema.cashEntries.versionId, versionId)),
+      .where(eq(schema.cashEntries.versionId, version.id)),
   ]);
-  return {
-    vgv: unitRows.reduce((a, u) => a + Number(u.valor), 0),
-    vend: unitRows.filter((u) => u.status === "Vendido").length,
-    receita: Object.values(revenue).reduce((a, b) => a + b, 0),
-    realizado: cashRows
-      .filter((c) => Number(c.valor) > 0)
-      .reduce((a, c) => a + Number(c.valor), 0),
-  };
-}
-
-export default async function DashboardPage() {
-  const ctx = await getActiveContext();
-  if (!ctx) return null;
-
-  const [unitRows, permRows, reembRows, cashRows] = await Promise.all([
-    getUnits(ctx.version.id),
-    getPermutas(ctx.version.id),
-    getReembolsos(ctx.version.id),
-    db
-      .select()
-      .from(schema.cashEntries)
-      .where(eq(schema.cashEntries.versionId, ctx.version.id)),
-  ]);
-
-  const totals = calcTotals(
-    unitRows.map(toCalcUnit),
-    permToCalc(permRows),
-    reembToCalc(reembRows),
-  );
+  const receitaProj = Object.values(revenue).reduce((a, b) => a + b, 0);
   const realizado = cashRows
     .filter((c) => Number(c.valor) > 0)
     .reduce((a, c) => a + Number(c.valor), 0);
+  return {
+    version,
+    vgv: unitRows.reduce((a, u) => a + Number(u.valor), 0),
+    realizado,
+    receitaProj,
+    aReceber: Math.max(0, receitaProj - realizado),
+    monthly: revenue,
+  };
+}
 
-  const kpis = [
-    { label: "VGV total", value: brlk(totals.vgv), tone: "accent" as const },
-    { label: "Vendidas", value: String(totals.vend), tone: "success" as const },
-    {
-      label: "Disponíveis",
-      value: String(totals.disp),
-      tone: "neutral" as const,
-    },
-    {
-      label: "Receita realizada",
-      value: brlk(realizado),
-      tone: "warning" as const,
-    },
-  ];
+interface Venc {
+  ord: number;
+  dateLabel: string;
+  unitCode: string;
+  label: string;
+  value: number;
+  overdue: boolean;
+}
 
-  // Comparativo multi-versão (até 3 primeiras versões do projeto).
-  const compareVersions = ctx.versions.slice(0, 3);
-  const comparativo = await Promise.all(
-    compareVersions.map(async (v) => ({
-      version: v,
-      ...(await versionSummary(ctx.project.id, v.id)),
-    })),
+/** Expande o plano de pagamento das unidades vendidas em vencimentos rotulados. */
+function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
+  const out: Venc[] = [];
+  for (const u of units) {
+    if (u.status !== "Vendido" || !u.paymentPlan) continue;
+    const p = u.paymentPlan;
+    const periodic: { venc: string; val: number; n: number; label: string; step: number }[] = [
+      { venc: p.AS.venc, val: p.AS.val, n: p.AS.n, label: "Ato", step: 1 },
+      { venc: p.S1.venc, val: p.S1.val, n: p.S1.n, label: "Sinal 1", step: 1 },
+      { venc: p.S2.venc, val: p.S2.val, n: p.S2.n, label: "Sinal 2", step: 1 },
+      { venc: p.S3.venc, val: p.S3.val, n: p.S3.n, label: "Sinal 3", step: 1 },
+      { venc: p.Mensais.venc, val: p.Mensais.val, n: p.Mensais.n, label: "Mensal", step: 1 },
+      { venc: p.Semestrais.venc, val: p.Semestrais.val, n: p.Semestrais.n, label: "Semestral", step: 6 },
+      { venc: p.Anuais.venc, val: p.Anuais.val, n: p.Anuais.n, label: "Anual", step: 12 },
+    ];
+    for (const s of periodic) {
+      const d = parseDate(s.venc);
+      const val = Number(s.val) || 0;
+      const n = Math.max(1, Number(s.n) || 1);
+      if (!d || val <= 0) continue;
+      for (let i = 0; i < n; i++) {
+        const a = addMonths(d.mo, d.yr, i * s.step);
+        const ord = a.yr * 12 + (a.mo - 1);
+        out.push({
+          ord,
+          dateLabel: `${String(d.d).padStart(2, "0")}/${String(a.mo).padStart(2, "0")}/${a.yr}`,
+          unitCode: u.code,
+          label: n > 1 ? `${s.label} #${i + 1}` : s.label,
+          value: val,
+          overdue: ord < todayOrd,
+        });
+      }
+    }
+    const singles: { venc: string; val: number; label: string }[] = [
+      { venc: p.FGTS.dataPrev, val: p.FGTS.val, label: "FGTS" },
+      { venc: p.Subsidio.dataPrev, val: p.Subsidio.val, label: "Subsídio" },
+      { venc: p.Permuta.dataPrev, val: p.Permuta.val, label: "Permuta" },
+      { venc: p.Banco.dataPrimParc, val: p.Banco.valFinanc, label: "Financiamento" },
+    ];
+    for (const s of singles) {
+      const d = parseDate(s.venc);
+      const val = Number(s.val) || 0;
+      if (!d || val <= 0) continue;
+      const ord = d.yr * 12 + (d.mo - 1);
+      out.push({
+        ord,
+        dateLabel: `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}`,
+        unitCode: u.code,
+        label: s.label,
+        value: val,
+        overdue: ord < todayOrd,
+      });
+    }
+  }
+  return out;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ v?: string }>;
+}) {
+  const ctx = await getActiveContext();
+  if (!ctx) return null;
+
+  const sp = await searchParams;
+  const wanted = (sp.v ?? "").split(",").filter(Boolean);
+  const validWanted = ctx.versions.filter((v) => wanted.includes(v.id)).slice(0, 3);
+  const selected = validWanted.length > 0 ? validWanted : ctx.versions.slice(0, 3);
+
+  const summaries = await Promise.all(
+    selected.map((v) => versionSummary(ctx.project.id, v)),
   );
 
+  // Ano do comparativo: o que concentra mais receita projetada nas versões.
+  const yearTotals = new Map<number, number>();
+  for (const s of summaries) {
+    for (const [mm, val] of Object.entries(s.monthly)) {
+      const y = Number(mm.split("/")[1]);
+      if (y) yearTotals.set(y, (yearTotals.get(y) || 0) + val);
+    }
+  }
+  const year =
+    [...yearTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ??
+    new Date().getFullYear();
+
+  // Fontes de receita + próximos vencimentos: da versão primária (1ª selecionada).
+  const primary = selected[0];
+  const [primUnits, primPerm, primReemb] = await Promise.all([
+    getUnits(primary.id),
+    getPermutas(primary.id),
+    getReembolsos(primary.id),
+  ]);
+  const totals = calcTotals(
+    primUnits.map(toCalcUnit),
+    permToCalc(primPerm),
+    reembToCalc(primReemb),
+  );
   const fontes = [
     { label: "Sinais / Atos", value: totals.sinais },
     { label: "Mensais", value: totals.mens },
@@ -97,9 +172,21 @@ export default async function DashboardPage() {
     { label: "Anuais", value: totals.anu },
     { label: "FGTS", value: totals.fgts },
     { label: "Subsídio", value: totals.sub },
-    { label: "Permuta (estimada)", value: totals.permRec },
+    { label: "Permuta", value: totals.permRec },
     { label: "Financiamento", value: totals.banco },
-    { label: "Reembolsos", value: totals.reemb },
+  ].filter((f) => f.value > 0);
+
+  const now = new Date();
+  const todayOrd = now.getFullYear() * 12 + now.getMonth();
+  const vencimentos = expandVencimentos(primUnits, todayOrd)
+    .filter((v) => v.ord >= todayOrd - 3)
+    .sort((a, b) => a.ord - b.ord)
+    .slice(0, 6);
+
+  const kpis = [
+    { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
+    { icon: "↗", label: "Realizado acum.", get: (s: Summary) => brlk(s.realizado) },
+    { icon: "⏱", label: "A receber", get: (s: Summary) => brlk(s.aReceber) },
   ];
 
   return (
@@ -107,145 +194,145 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
         title="Dashboard"
-        subtitle={`Versão ativa: ${ctx.version.label}`}
-        actions={
-          <Badge tone="accent">
-            {totals.vend + totals.res + totals.disp} unidades
-          </Badge>
-        }
+        subtitle="Visão geral do projeto — independente da versão ativa"
       />
 
-      <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <DashboardVersions
+        versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+        selected={selected.map((v) => v.id)}
+      />
+
+      {/* KPIs por versão */}
+      <section className="grid gap-4 md:grid-cols-3">
         {kpis.map((k) => (
           <Card key={k.label}>
             <CardContent className="p-5">
-              <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                {k.label}
+              <p className="flex items-center gap-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                <span aria-hidden>{k.icon}</span> {k.label}
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--color-ink)]">
-                {k.value}
-              </p>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                {summaries.map((s) => (
+                  <div key={s.version.id}>
+                    <div
+                      className="font-[family-name:var(--font-mono)] text-[10px]"
+                      style={{ color: s.version.color }}
+                    >
+                      {s.version.label}
+                    </div>
+                    <div
+                      className="text-lg font-semibold"
+                      style={{ color: s.version.color }}
+                    >
+                      {k.get(s)}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         ))}
       </section>
 
+      {/* Comparativo mensal por versão */}
+      <Card className="mt-6">
+        <CardContent className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+              Comparativo de versões — {year}
+            </h2>
+            <Link href="/rolling" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              ⟳ Rolling
+            </Link>
+          </div>
+          <BarChart
+            height={320}
+            currency
+            data={{
+              labels: MESES,
+              datasets: summaries.map((s) => ({
+                label: s.version.label,
+                data: Array.from(
+                  { length: 12 },
+                  (_, i) => s.monthly[`${String(i + 1).padStart(2, "0")}/${year}`] || 0,
+                ),
+                backgroundColor: s.version.color,
+                borderRadius: 4,
+              })),
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Fontes de receita + próximos vencimentos */}
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <CardContent className="p-5">
             <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-              Receita contratada por fonte
+              Fontes de receita
+              <span className="ml-2 font-normal text-[var(--color-ink3)]">
+                · {primary.label}
+              </span>
             </h2>
-            <DoughnutChart
-              data={{
-                labels: fontes.filter((f) => f.value > 0).map((f) => f.label),
-                datasets: [
-                  {
-                    data: fontes.filter((f) => f.value > 0).map((f) => f.value),
-                    backgroundColor: Object.values(CHART_COLORS),
-                    borderWidth: 0,
-                  },
-                ],
-              }}
-            />
+            {fontes.length ? (
+              <DoughnutChart
+                data={{
+                  labels: fontes.map((f) => f.label),
+                  datasets: [
+                    {
+                      data: fontes.map((f) => f.value),
+                      backgroundColor: Object.values(CHART_COLORS),
+                      borderWidth: 0,
+                    },
+                  ],
+                }}
+              />
+            ) : (
+              <p className="py-10 text-center text-sm text-[var(--color-ink4)]">
+                Sem receita contratada nesta versão.
+              </p>
+            )}
           </CardContent>
         </Card>
+
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-              Receita projetada por versão
-            </h2>
-            <BarChart
-              currency
-              data={{
-                labels: comparativo.map((c) => c.version.label),
-                datasets: [
-                  {
-                    label: "Receita projetada",
-                    data: comparativo.map((c) => c.receita),
-                    backgroundColor: comparativo.map((c) => c.version.color),
-                    borderRadius: 6,
-                  },
-                ],
-              }}
-            />
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+                Próximos vencimentos
+              </h2>
+              <Link href="/caixa" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                ver caixa
+              </Link>
+            </div>
+            {vencimentos.length ? (
+              <ul className="divide-y divide-[var(--color-accent2)]/8">
+                {vencimentos.map((v, i) => (
+                  <li key={i} className="flex items-center gap-3 py-2.5">
+                    <span className="w-24 font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink3)]">
+                      {v.dateLabel}
+                    </span>
+                    <span className="flex-1 text-[13px] text-[var(--color-ink2)]">
+                      {v.unitCode} — {v.label}
+                    </span>
+                    <span
+                      className={`font-[family-name:var(--font-mono)] text-[13px] font-semibold ${
+                        v.overdue ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"
+                      }`}
+                    >
+                      {brl0(v.value)}
+                    </span>
+                    {v.overdue && <Badge tone="danger">Atraso</Badge>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-10 text-center text-sm text-[var(--color-ink4)]">
+                Sem vencimentos próximos nesta versão.
+              </p>
+            )}
           </CardContent>
         </Card>
       </section>
-
-      <Card className="mt-6">
-        <CardContent className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-            Comparativo entre versões
-          </h2>
-          <Table>
-            <THead>
-              <tr>
-                <TH>Versão</TH>
-                <TH className="text-right">VGV</TH>
-                <TH className="text-right">Vendidas</TH>
-                <TH className="text-right">Receita proj.</TH>
-                <TH className="text-right">Realizado</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {comparativo.map((c) => (
-                <TR key={c.version.id}>
-                  <TD>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ background: c.version.color }}
-                      />
-                      <span className="font-medium text-[var(--color-ink)]">
-                        {c.version.label}
-                      </span>
-                      {c.version.id === ctx.version.id && (
-                        <Badge tone="accent">ativa</Badge>
-                      )}
-                    </span>
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {brlk(c.vgv)}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {c.vend}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {brlk(c.receita)}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {brlk(c.realizado)}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-6">
-        <CardContent className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-            Detalhe da receita por fonte
-          </h2>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
-            {fontes.map((f) => (
-              <div
-                key={f.label}
-                className="flex items-center justify-between border-b border-[var(--color-accent2)]/8 py-1.5"
-              >
-                <span className="text-[13px] text-[var(--color-ink2)]">
-                  {f.label}
-                </span>
-                <span className="font-[family-name:var(--font-mono)] text-[13px] text-[var(--color-ink)]">
-                  {brlk(f.value)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </>
   );
 }
