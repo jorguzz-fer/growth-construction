@@ -35,7 +35,7 @@ export function DreControls({
             {p.label}
           </option>
         ))}
-        <option value="all">Todos os projetos (DRE geral)</option>
+        <option value="all">Empresa toda (matriz + filiais + projetos)</option>
       </Select>
       <Select
         value={periodo}

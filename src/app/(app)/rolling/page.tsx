@@ -115,31 +115,57 @@ export default async function RollingPage({
     { key: "Reembolso", label: "Reembolso", base: sumOver(reembMonth) },
   ].filter((d) => d.base > 0);
 
-  // ── Drivers de despesa: grupos CEF (obra) ────────────────────────────────
-  const cefNames = new Map<string, string>();
+  // ── Bases de despesa: por grupo CEF (obra) e por categoria (corporativo) ──
+  // Grupos CEF vêm do plano de contas (sempre presentes), então os drivers de
+  // obra nunca ficam em branco mesmo sem despesas lançadas ainda.
+  const cefGroups = new Map<string, string>(); // code → name
   for (const r of chart) {
-    if (r.kind === "cef" && !cefNames.has(r.groupCode))
-      cefNames.set(r.groupCode, r.groupName);
+    if (r.kind === "cef" && !cefGroups.has(r.groupCode))
+      cefGroups.set(r.groupCode, r.groupName);
   }
   const groupBase: Record<string, number> = {};
-  let outrasDespesas = 0;
+  const catBase: Record<string, number> = {};
   for (const d of despesas) {
     if (!inP(toMonth(d.competencia))) continue;
     const val = Number(d.valor);
     const grp = d.contaCef ? d.contaCef.split(".")[0] : null;
-    if (grp) groupBase[grp] = (groupBase[grp] || 0) + val;
-    else outrasDespesas += val;
+    if (grp) {
+      groupBase[grp] = (groupBase[grp] || 0) + val;
+    } else {
+      const cat = d.categoriaDre || "Outros";
+      catBase[cat] = (catBase[cat] || 0) + val;
+    }
   }
-  const custoGroups: DriverItem[] = Object.entries(groupBase)
-    .filter(([, base]) => base > 0)
-    .sort((a, b) =>
-      a[0].localeCompare(b[0], undefined, { numeric: true }),
-    )
-    .map(([code, base]) => ({
+  // Grupos que aparecem em despesas mas não no plano (defensivo).
+  for (const code of Object.keys(groupBase)) {
+    if (!cefGroups.has(code)) cefGroups.set(code, "");
+  }
+  const custoGroups: DriverItem[] = [...cefGroups.keys()]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .map((code) => ({
       key: code,
-      label: cefNames.get(code) ? `${code} · ${cefNames.get(code)}` : `Grupo ${code}`,
-      base,
+      label: cefGroups.get(code) ? `${code} · ${cefGroups.get(code)}` : `Grupo ${code}`,
+      base: groupBase[code] || 0,
     }));
+
+  // Gastos fixos / corporativos: despesas sem conta CEF, por categoria DRE.
+  const CORP_CATS = [
+    "Custo Fixo",
+    "Despesa Variável",
+    "Despesa Fixa",
+    "Retiradas",
+    "Investimento",
+    "Empréstimos",
+  ];
+  const gastosFixos: DriverItem[] = [
+    ...new Set([...CORP_CATS, ...Object.keys(catBase)]),
+  ]
+    .map((cat) => ({ key: cat, label: cat, base: catBase[cat] || 0 }))
+    .sort((a, b) => {
+      const ia = CORP_CATS.indexOf(a.key);
+      const ib = CORP_CATS.indexOf(b.key);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.key.localeCompare(b.key);
+    });
 
   // ── Custo variável (medição de obra do engenheiro) ───────────────────────
   const custoVar = medicoes
@@ -167,8 +193,8 @@ export default async function RollingPage({
       <RollingSimulator
         receitaSources={receitaSources}
         custoGroups={custoGroups}
+        gastosFixos={gastosFixos}
         custoVar={custoVar}
-        outrasDespesas={outrasDespesas}
         realizado={realizado}
         years={[
           { value: "acum", label: "Acumulado (todos os anos)" },
