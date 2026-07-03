@@ -9,6 +9,7 @@ import { Badge, unitStatusTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ImportUnitsButton } from "@/components/app/import-units";
+import { UnitActions } from "@/components/app/unit-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export default async function UnidadesPage() {
   const rows = await getUnits(ctx.version.id);
   const vgv = rows.reduce((a, r) => a + Number(r.valor), 0);
   const canEdit = can(ctx.perms, "unidades", "criar");
+  const canEditar = can(ctx.perms, "unidades", "editar");
+  const canExcluir = can(ctx.perms, "unidades", "excluir");
+  const showActions = canEditar || canExcluir;
 
   return (
     <>
@@ -48,6 +52,7 @@ export default async function UnidadesPage() {
             <TH className="text-right">Contratado</TH>
             <TH className="text-right">Saldo</TH>
             <TH>Status</TH>
+            {showActions && <TH className="text-right">Ações</TH>}
           </tr>
         </THead>
         <tbody>
@@ -90,6 +95,16 @@ export default async function UnidadesPage() {
                 <TD>
                   <Badge tone={unitStatusTone(row.status)}>{row.status}</Badge>
                 </TD>
+                {showActions && (
+                  <TD className="text-right">
+                    <UnitActions
+                      id={row.id}
+                      code={row.code}
+                      canEditar={canEditar}
+                      canExcluir={canExcluir}
+                    />
+                  </TD>
+                )}
               </TR>
             );
           })}
