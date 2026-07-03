@@ -229,8 +229,10 @@ function Lancamentos({
 }) {
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <ImportExtratoButton />
+      <div className="mb-4">
+        <ImportExtratoButton
+          contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+        />
       </div>
       <CaixaEntryForm
         contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
