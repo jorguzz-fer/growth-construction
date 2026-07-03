@@ -15,11 +15,28 @@ import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
-import { LineChart, CHART_COLORS } from "@/components/app/charts";
+import { BarChart, CHART_COLORS } from "@/components/app/charts";
+import {
+  ProjecaoYearSelect,
+  ProjecaoExport,
+  type ExportMatrix,
+} from "@/components/app/projecao-controls";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjecaoPage() {
+function sortMonth(a: string, b: string): number {
+  const [ma, ya] = a.split("/").map(Number);
+  const [mb, yb] = b.split("/").map(Number);
+  return ya - yb || ma - mb;
+}
+
+const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
+
+export default async function ProjecaoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ano?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
@@ -29,117 +46,206 @@ export default async function ProjecaoPage() {
     getInccRows(ctx.project.id),
   ]);
 
-  // Soma a projeção de todas as unidades vendidas, mês a mês.
+  const perUnit = unitRows.map((u) => ({
+    row: u,
+    proj: calcProjection(toCalcUnit(u), incc),
+  }));
   const unitsProj: MonthlyProjection = {};
-  for (const row of unitRows) {
-    const p = calcProjection(toCalcUnit(row), incc);
-    for (const [mm, v] of Object.entries(p)) {
-      unitsProj[mm] = (unitsProj[mm] || 0) + v;
-    }
+  for (const u of perUnit) {
+    for (const [mm, v] of Object.entries(u.proj)) unitsProj[mm] = (unitsProj[mm] || 0) + v;
   }
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 
-  // Eixo: meses da tabela INCC; inclui também meses extras presentes na projeção.
+  // Horizonte (48 meses da tabela INCC + meses extras da projeção).
   const axis = Array.from(
-    new Set([
-      ...incc.map((r) => r.m),
-      ...Object.keys(unitsProj),
-      ...Object.keys(reembMonth),
-    ]),
+    new Set([...incc.map((r) => r.m), ...Object.keys(unitsProj), ...Object.keys(reembMonth)]),
   ).sort(sortMonth);
 
-  let acumulado = 0;
-  const linhas = axis.map((mm) => {
-    const proj = unitsProj[mm] || 0;
-    const reemb = reembMonth[mm] || 0;
-    const total = proj + reemb;
-    acumulado += total;
-    return { mm, proj, reemb, total, acumulado };
-  });
-  const totalGeral = linhas.reduce((a, l) => a + l.total, 0);
+  // Janelas de 12 meses (Ano 1..N).
+  const years: { value: number; months: string[]; label: string }[] = [];
+  for (let i = 0; i < axis.length; i += 12) {
+    const months = axis.slice(i, i + 12);
+    if (months.length === 0) continue;
+    years.push({
+      value: years.length + 1,
+      months,
+      label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
+    });
+  }
+  const sp = await searchParams;
+  const wantedAno = Number(sp.ano) || 1;
+  const selectedYear = Math.min(Math.max(1, wantedAno), Math.max(1, years.length));
+  const yearMonths = years[selectedYear - 1]?.months ?? [];
+
+  const vendidas = unitRows.filter((u) => u.status === "Vendido").length;
+  const grand = (p: MonthlyProjection) => Object.values(p).reduce((a, b) => a + b, 0);
+  const reembGrand = grand(reembMonth);
+  const totalGrand = grand(unitsProj) + reembGrand;
+
+  // Matriz completa (todos os meses) para exportação.
+  const exportMatrix: ExportMatrix = {
+    months: axis,
+    rows: [
+      { label: "Reembolso", values: axis.map((m) => reembMonth[m] || 0), total: reembGrand },
+      {
+        label: "TOTAL (todas as unidades)",
+        values: axis.map((m) => (unitsProj[m] || 0) + (reembMonth[m] || 0)),
+        total: totalGrand,
+      },
+      ...perUnit.map((u) => ({
+        label: `${u.row.code} ${u.row.tipo ?? ""}`.trim(),
+        values: axis.map((m) => u.proj[m] || 0),
+        total: grand(u.proj),
+      })),
+    ],
+  };
 
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
         title="Projeção de Receitas"
-        subtitle={`Recebíveis projetados mês a mês · total ${brl0(totalGeral)}`}
+        subtitle={`Versão: ${ctx.version.label} · ${vendidas} unidades vendidas`}
+        actions={
+          <div className="flex items-center gap-2">
+            {years.length > 1 && (
+              <ProjecaoYearSelect years={years} selected={selectedYear} />
+            )}
+            <ProjecaoExport matrix={exportMatrix} filename={`projecao-${ctx.version.key}.csv`} />
+          </div>
+        }
       />
 
-      {linhas.some((l) => l.total > 0) && (
-        <Card className="mb-6">
-          <CardContent className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-              Recebíveis projetados por mês
+      <Card className="mb-6">
+        <CardContent className="p-5">
+          <BarChart
+            height={300}
+            currency
+            stacked
+            data={{
+              labels: yearMonths,
+              datasets: [
+                {
+                  label: "Unidades vendidas",
+                  data: yearMonths.map((m) => unitsProj[m] || 0),
+                  backgroundColor: CHART_COLORS.violet,
+                  borderRadius: 4,
+                },
+                {
+                  label: "Reembolso",
+                  data: yearMonths.map((m) => reembMonth[m] || 0),
+                  backgroundColor: CHART_COLORS.green,
+                  borderRadius: 4,
+                },
+              ],
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Consolidado por fonte */}
+      <Card className="mb-6">
+        <CardContent className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+              Consolidado por fonte — todas as unidades
             </h2>
-            <LineChart
-              currency
-              data={{
-                labels: linhas.filter((l) => l.total > 0).map((l) => l.mm),
-                datasets: [
-                  {
-                    label: "Total/mês",
-                    data: linhas.filter((l) => l.total > 0).map((l) => l.total),
-                    borderColor: CHART_COLORS.indigo,
-                    backgroundColor: "rgba(99,102,241,.15)",
-                    fill: true,
-                    tension: 0.3,
-                  },
-                ],
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
+            <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-accent)]">
+              {vendidas} unidades vendidas
+            </span>
+          </div>
+          <Matrix
+            months={yearMonths}
+            rows={[
+              {
+                label: "Reembolso",
+                values: yearMonths.map((m) => reembMonth[m] || 0),
+                total: reembGrand,
+              },
+            ]}
+            totalRow={{
+              label: "TOTAL (todas as unidades)",
+              values: yearMonths.map((m) => (unitsProj[m] || 0) + (reembMonth[m] || 0)),
+              total: totalGrand,
+            }}
+          />
+        </CardContent>
+      </Card>
 
-      <Table>
-        <THead>
-          <tr>
-            <TH>Mês</TH>
-            <TH className="text-right">Unidades</TH>
-            <TH className="text-right">Reembolsos</TH>
-            <TH className="text-right">Total</TH>
-            <TH className="text-right">Acumulado</TH>
-          </tr>
-        </THead>
-        <tbody>
-          {linhas
-            .filter((l) => l.total > 0)
-            .map((l) => (
-              <TR key={l.mm}>
-                <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
-                  {l.mm}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)]">
-                  {l.proj > 0 ? brl0(l.proj) : "—"}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)]">
-                  {l.reemb > 0 ? brl0(l.reemb) : "—"}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
-                  {brl0(l.total)}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                  {brl0(l.acumulado)}
-                </TD>
-              </TR>
-            ))}
-        </tbody>
-      </Table>
-
-      {linhas.every((l) => l.total === 0) && (
-        <p className="mt-4 text-sm text-[var(--color-ink3)]">
-          Nenhuma receita projetada nesta versão. Marque unidades como vendidas e
-          preencha o plano de pagamento.
-        </p>
-      )}
+      {/* Detalhe por unidade */}
+      <Card>
+        <CardContent className="p-5">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+            <span aria-hidden>≣</span> Detalhe por unidade
+          </h2>
+          <Matrix
+            months={yearMonths}
+            firstColLabel="Unidade"
+            rows={perUnit.map((u) => ({
+              label: `${u.row.code} ${u.row.tipo ?? ""}`.trim(),
+              values: yearMonths.map((m) => u.proj[m] || 0),
+              total: grand(u.proj),
+            }))}
+          />
+        </CardContent>
+      </Card>
     </>
   );
 }
 
-/** Ordena chaves "MM/YYYY" cronologicamente. */
-function sortMonth(a: string, b: string): number {
-  const [ma, ya] = a.split("/").map(Number);
-  const [mb, yb] = b.split("/").map(Number);
-  return ya - yb || ma - mb;
+function Matrix({
+  months,
+  rows,
+  totalRow,
+  firstColLabel = "Fonte",
+}: {
+  months: string[];
+  rows: { label: string; values: number[]; total: number }[];
+  totalRow?: { label: string; values: number[]; total: number };
+  firstColLabel?: string;
+}) {
+  return (
+    <Table>
+      <THead>
+        <tr>
+          <TH>{firstColLabel}</TH>
+          {months.map((m) => (
+            <TH key={m} className="text-right">
+              {m}
+            </TH>
+          ))}
+          <TH className="text-right">Total</TH>
+        </tr>
+      </THead>
+      <tbody>
+        {rows.map((r) => (
+          <TR key={r.label}>
+            <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">{r.label}</TD>
+            {r.values.map((v, i) => (
+              <TD key={i} className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
+                {fmt(v)}
+              </TD>
+            ))}
+            <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
+              {fmt(r.total)}
+            </TD>
+          </TR>
+        ))}
+        {totalRow && (
+          <TR>
+            <TD className="whitespace-nowrap font-semibold text-[var(--color-accent)]">
+              {totalRow.label}
+            </TD>
+            {totalRow.values.map((v, i) => (
+              <TD key={i} className="text-right font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
+                {fmt(v)}
+              </TD>
+            ))}
+            <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
+              {fmt(totalRow.total)}
+            </TD>
+          </TR>
+        )}
+      </tbody>
+    </Table>
+  );
 }

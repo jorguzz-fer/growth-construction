@@ -65,14 +65,22 @@ export function BarChart({
   data,
   height = 260,
   currency,
+  stacked,
 }: {
   data: ChartData<"bar">;
   height?: number;
   currency?: boolean;
+  stacked?: boolean;
 }) {
+  const options = cartesianOptions<"bar">(currency);
+  if (stacked) {
+    const scales = options.scales as Record<string, { stacked?: boolean }>;
+    scales.x = { ...scales.x, stacked: true };
+    scales.y = { ...scales.y, stacked: true };
+  }
   return (
     <div style={{ height }}>
-      <Bar data={data} options={cartesianOptions<"bar">(currency)} />
+      <Bar data={data} options={options} />
     </div>
   );
 }
