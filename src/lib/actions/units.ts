@@ -128,6 +128,7 @@ export async function importUnits(
 export async function deleteUnit(id: string) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "unidades", "excluir")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada — exclusão bloqueada.");
   await db
     .delete(schema.units)
     .where(

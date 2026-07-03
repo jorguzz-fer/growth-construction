@@ -8,6 +8,17 @@ import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import type { CategoriaDRE } from "@/lib/calc/constants";
+import { getChartAccounts, getStakeholders } from "@/lib/queries";
+import {
+  AI_ACCEPTED_MIME,
+  extractDespesaFromDocument,
+  isAiConfigured,
+  type ExtractedDespesa,
+} from "@/lib/ai/despesa-extract";
+import {
+  extractFornecedorFromDocument,
+  type ExtractedFornecedor,
+} from "@/lib/ai/fornecedor-extract";
 
 export async function addStakeholder(formData: FormData) {
   const ctx = await getActiveContext();
@@ -23,6 +34,31 @@ export async function addStakeholder(formData: FormData) {
     tel: (formData.get("tel") as string) || null,
   });
   revalidatePath("/fornecedores");
+}
+
+/**
+ * Lê um documento (PDF/imagem) com IA e devolve os dados do fornecedor para o
+ * cliente pré-preencher o formulário (o usuário revisa antes de cadastrar).
+ */
+export async function extractFornecedorFromDoc(
+  formData: FormData,
+): Promise<ExtractedFornecedor> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "criar")) {
+    throw new Error("Sem permissão.");
+  }
+  if (!isAiConfigured()) {
+    throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo deve ter até 10 MB.");
+  const mime = file.type || "";
+  if (!(AI_ACCEPTED_MIME as readonly string[]).includes(mime)) {
+    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP).");
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return extractFornecedorFromDocument(bytes, mime);
 }
 
 export async function addBankAccount(formData: FormData) {
@@ -79,6 +115,27 @@ export async function addDespesa(formData: FormData) {
       status: (formData.get("status") as string) || "A pagar",
     })
     .returning();
+
+  // Documento anexado (opcional): armazena no R2 e vincula à despesa criada.
+  const file = formData.get("file") as File | null;
+  if (file && file.size > 0 && isR2Configured()) {
+    const safe = file.name.replace(/[^\w.\-]+/g, "_");
+    const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${safe}`;
+    await putObject(
+      key,
+      new Uint8Array(await file.arrayBuffer()),
+      file.type || "application/octet-stream",
+    );
+    await db.insert(schema.documents).values({
+      tenantId: ctx.tenant.id,
+      despesaId: row.id,
+      storageKey: key,
+      filename: file.name,
+      contentType: file.type || null,
+      size: file.size,
+    });
+  }
+
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
@@ -88,6 +145,39 @@ export async function addDespesa(formData: FormData) {
     meta: { valor: row.valor, contaCef: row.contaCef },
   });
   revalidatePath("/despesas");
+}
+
+/**
+ * Lê um documento (PDF/imagem) com IA e devolve os campos da despesa para o
+ * cliente pré-preencher o formulário (o usuário revisa antes de lançar).
+ */
+export async function extractDespesaFromDoc(
+  formData: FormData,
+): Promise<ExtractedDespesa> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) {
+    throw new Error("Sem permissão.");
+  }
+  if (!isAiConfigured()) {
+    throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo deve ter até 10 MB.");
+  const mime = file.type || "";
+  if (!(AI_ACCEPTED_MIME as readonly string[]).includes(mime)) {
+    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP).");
+  }
+
+  const [fornecedores, contas] = await Promise.all([
+    getStakeholders(ctx.tenant.id),
+    getChartAccounts(ctx.tenant.id),
+  ]);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return extractDespesaFromDocument(bytes, mime, {
+    fornecedores: fornecedores.map((f) => ({ nome: f.nome, doc: f.doc })),
+    contas: contas.map((c) => ({ code: c.code, name: c.name })),
+  });
 }
 
 /** Anexa um documento (NF/contrato) a uma despesa, no R2. */

@@ -172,6 +172,26 @@ export async function getCash(versionId: string): Promise<CashRow[]> {
     .orderBy(asc(schema.cashEntries.data));
 }
 
+export type ClienteRow = typeof schema.clientes.$inferSelect;
+
+export async function getClientes(tenantId: string): Promise<ClienteRow[]> {
+  return db
+    .select()
+    .from(schema.clientes)
+    .where(eq(schema.clientes.tenantId, tenantId))
+    .orderBy(asc(schema.clientes.nomeCompleto));
+}
+
+export type MedicaoRow = typeof schema.medicoes.$inferSelect;
+
+export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
+  return db
+    .select()
+    .from(schema.medicoes)
+    .where(eq(schema.medicoes.versionId, versionId))
+    .orderBy(asc(schema.medicoes.competencia), asc(schema.medicoes.grupoCode));
+}
+
 /**
  * Receita projetada mês a mês de uma versão (unidades + reembolsos), pronta
  * para os relatórios. Reutiliza calcProjection + reembursementsByMonth.

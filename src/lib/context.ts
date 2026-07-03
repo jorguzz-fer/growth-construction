@@ -8,7 +8,7 @@ export type Tenant = typeof schema.tenants.$inferSelect;
 export type Project = typeof schema.projects.$inferSelect;
 export type Version = typeof schema.versions.$inferSelect;
 
-export type Role = "owner" | "admin" | "membro" | "contador";
+export type Role = "owner" | "admin" | "membro" | "contador" | "engenheiro";
 
 export interface ActiveContext {
   tenant: Tenant;

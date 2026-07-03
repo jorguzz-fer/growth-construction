@@ -1,121 +1,220 @@
-import { getActiveContext } from "@/lib/context";
-import { getDespesas, getMonthlyRevenue } from "@/lib/queries";
-import { CATEGORIAS_DRE, type CategoriaDRE } from "@/lib/calc/constants";
+import { asc, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { getActiveContext, type Project } from "@/lib/context";
+import {
+  getDespesas,
+  getInccRows,
+  getMedicoes,
+  getMonthlyRevenue,
+} from "@/lib/queries";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { DreControls } from "@/components/app/dre-controls";
 
 export const dynamic = "force-dynamic";
 
-/** Sinal de cada categoria DRE no resultado (Receita soma; demais subtraem). */
-const SINAL: Record<CategoriaDRE, 1 | -1> = {
-  Receita: 1,
-  "Custo Variável": -1,
-  "Custo Fixo": -1,
-  "Despesa Variável": -1,
-  "Despesa Fixa": -1,
-  Retiradas: -1,
-  Investimento: -1,
-};
+interface Inputs {
+  receita: number;
+  custoVar: number;
+  byCat: Record<string, number>;
+}
 
-export default async function DREPage() {
+async function defaultVersionId(projectId: string): Promise<string | null> {
+  const vs = await db
+    .select()
+    .from(schema.versions)
+    .where(eq(schema.versions.projectId, projectId))
+    .orderBy(asc(schema.versions.createdAt));
+  return (vs.find((v) => v.isDefault) ?? vs[0])?.id ?? null;
+}
+
+async function projectInputs(
+  project: Project,
+  periodMonths: Set<string> | null,
+): Promise<Inputs> {
+  const vid = await defaultVersionId(project.id);
+  if (!vid) return { receita: 0, custoVar: 0, byCat: {} };
+  const [revenue, medicoes, despesas] = await Promise.all([
+    getMonthlyRevenue(vid, project.id),
+    getMedicoes(vid),
+    getDespesas(vid),
+  ]);
+  const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
+
+  const receitaProj = Object.entries(revenue)
+    .filter(([mm]) => inP(mm))
+    .reduce((a, [, v]) => a + v, 0);
+  const custoVar = medicoes
+    .filter((m) => inP(m.competencia))
+    .reduce((a, m) => a + Number(m.valor), 0);
+  const byCat: Record<string, number> = {};
+  for (const d of despesas) {
+    if (!d.categoriaDre || !inP(d.competencia)) continue;
+    byCat[d.categoriaDre] = (byCat[d.categoriaDre] || 0) + Number(d.valor);
+  }
+  return { receita: receitaProj + (byCat["Receita"] || 0), custoVar, byCat };
+}
+
+export default async function DREPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string; periodo?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  const sp = await searchParams;
 
-  const [despesas, revenue] = await Promise.all([
-    getDespesas(ctx.version.id),
-    getMonthlyRevenue(ctx.version.id, ctx.project.id),
-  ]);
+  const projParam = sp.proj ?? ctx.project.id;
+  const isAll = projParam === "all";
+  const selectedProjects = isAll
+    ? ctx.projects
+    : [ctx.projects.find((p) => p.id === projParam) ?? ctx.project];
 
-  // Soma despesas por categoria DRE.
-  const porCategoria = new Map<CategoriaDRE, number>();
-  for (const c of CATEGORIAS_DRE) porCategoria.set(c, 0);
-  for (const d of despesas) {
-    if (d.categoriaDre) {
-      porCategoria.set(
-        d.categoriaDre,
-        (porCategoria.get(d.categoriaDre) || 0) + Number(d.valor),
-      );
+  // Janelas de ano (só para projeto único, a partir da tabela INCC).
+  const years: { value: string; months: string[]; label: string }[] = [];
+  if (!isAll) {
+    const incc = await getInccRows(selectedProjects[0].id);
+    const axis = incc.map((r) => r.m);
+    for (let i = 0; i < axis.length; i += 12) {
+      const months = axis.slice(i, i + 12);
+      if (months.length)
+        years.push({
+          value: String(years.length + 1),
+          months,
+          label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
+        });
     }
   }
-  // Receita: receita projetada da versão (além de despesas marcadas Receita).
-  const receitaProjetada = Object.values(revenue).reduce((a, b) => a + b, 0);
-  porCategoria.set(
-    "Receita",
-    (porCategoria.get("Receita") || 0) + receitaProjetada,
-  );
+  const periodo = isAll ? "acum" : sp.periodo ?? "acum";
+  const periodMonths =
+    !isAll && periodo !== "acum"
+      ? new Set(years.find((y) => y.value === periodo)?.months ?? [])
+      : null;
 
-  const resultado = CATEGORIAS_DRE.reduce(
-    (acc, c) => acc + SINAL[c] * (porCategoria.get(c) || 0),
-    0,
-  );
-  const margem =
-    receitaProjetada > 0 ? (resultado / receitaProjetada) * 100 : 0;
+  // Agrega os inputs dos projetos selecionados.
+  const all = await Promise.all(selectedProjects.map((p) => projectInputs(p, periodMonths)));
+  const R = all.reduce((a, x) => a + x.receita, 0);
+  const CV = all.reduce((a, x) => a + x.custoVar, 0);
+  const cat = (k: string) => all.reduce((a, x) => a + (x.byCat[k] || 0), 0);
+  const CF = cat("Custo Fixo");
+  const DV = cat("Despesa Variável");
+  const DF = cat("Despesa Fixa");
+  const RET = cat("Retiradas");
+  const INV = cat("Investimento");
+  const EMP = cat("Empréstimos");
+
+  const MC = R - CV - CF; // Margem de Contribuição
+  const EBITDA = MC - (DF + DV + RET);
+  const RF = EBITDA - INV - EMP; // Resultado Final
+
+  const pct = (v: number) => (R > 0 ? (v / R) * 100 : 0);
+  const rows: { label: string; value: number; kind: "item" | "sub" | "final" }[] = [
+    { label: "Receita", value: R, kind: "item" },
+    { label: "(−) Custo Variável (medição de obra)", value: CV, kind: "item" },
+    { label: "(−) Custo Fixo", value: CF, kind: "item" },
+    { label: "= Margem de Contribuição", value: MC, kind: "sub" },
+    { label: "(−) Despesa Variável", value: DV, kind: "item" },
+    { label: "(−) Despesa Fixa", value: DF, kind: "item" },
+    { label: "(−) Retiradas", value: RET, kind: "item" },
+    { label: "= EBITDA", value: EBITDA, kind: "sub" },
+    { label: "(−) Investimentos", value: INV, kind: "item" },
+    { label: "(−) Empréstimos", value: EMP, kind: "item" },
+    { label: "= Resultado Final", value: RF, kind: "final" },
+  ];
+
+  const scopeLabel = isAll
+    ? "Todos os projetos (DRE geral)"
+    : selectedProjects[0].name;
+  const periodLabel = periodMonths
+    ? years.find((y) => y.value === periodo)?.label
+    : "Acumulado (todo o horizonte)";
 
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
+        eyebrow={scopeLabel}
         title="DRE — Demonstração de Resultado"
-        subtitle="Por categoria DRE · receita projetada vs. despesas lançadas"
+        subtitle={`${periodLabel} · análise vertical (% da receita)`}
+        actions={
+          <DreControls
+            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            proj={projParam}
+            periods={[
+              { value: "acum", label: "Acumulado (todos os anos)" },
+              ...years.map((y) => ({ value: y.value, label: y.label })),
+            ]}
+            periodo={periodo}
+            periodDisabled={isAll}
+          />
+        }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <Kpi label="Receita" value={brl0(porCategoria.get("Receita") || 0)} />
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Kpi label="Receita" value={brl0(R)} />
+        <Kpi label="Margem de Contribuição" value={brl0(MC)} tone={MC >= 0 ? "pos" : "neg"} />
+        <Kpi label="EBITDA" value={brl0(EBITDA)} tone={EBITDA >= 0 ? "pos" : "neg"} />
         <Kpi
-          label="Resultado"
-          value={brl0(resultado)}
-          tone={resultado >= 0 ? "pos" : "neg"}
+          label="Resultado Final"
+          value={brl0(RF)}
+          tone={RF >= 0 ? "pos" : "neg"}
+          sub={`${pct(RF).toFixed(1)}% da receita`}
         />
-        <Kpi label="Margem" value={`${margem.toFixed(1)}%`} />
       </div>
 
-      <Table>
-        <THead>
-          <tr>
-            <TH>Categoria DRE</TH>
-            <TH className="text-right">Valor</TH>
-            <TH className="text-right">Efeito</TH>
-          </tr>
-        </THead>
-        <tbody>
-          {CATEGORIAS_DRE.map((c) => {
-            const v = porCategoria.get(c) || 0;
-            return (
-              <TR key={c}>
-                <TD className="font-medium text-[var(--color-ink)]">{c}</TD>
-                <TD className="text-right font-[family-name:var(--font-mono)]">
-                  {brl0(v)}
-                </TD>
-                <TD
-                  className={`text-right font-[family-name:var(--font-mono)] ${
-                    SINAL[c] > 0
-                      ? "text-[var(--color-success)]"
-                      : "text-[var(--color-danger)]"
-                  }`}
-                >
-                  {SINAL[c] > 0 ? "+" : "−"}
-                  {brl0(v)}
-                </TD>
-              </TR>
-            );
-          })}
-          <TR>
-            <TD className="font-semibold text-[var(--color-ink)]">Resultado</TD>
-            <TD />
-            <TD
-              className={`text-right font-[family-name:var(--font-mono)] font-semibold ${
-                resultado >= 0
-                  ? "text-[var(--color-success)]"
-                  : "text-[var(--color-danger)]"
-              }`}
-            >
-              {brl0(resultado)}
-            </TD>
-          </TR>
-        </tbody>
-      </Table>
+      <Card>
+        <CardContent className="p-5">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Item</TH>
+                <TH className="text-right">Valor</TH>
+                <TH className="text-right">% Receita (vertical)</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {rows.map((r) => {
+                const isSub = r.kind !== "item";
+                return (
+                  <TR
+                    key={r.label}
+                    className={isSub ? "bg-[var(--color-surface2)]" : undefined}
+                  >
+                    <TD
+                      className={
+                        r.kind === "final"
+                          ? "font-semibold text-[var(--color-accent)]"
+                          : isSub
+                            ? "font-semibold text-[var(--color-ink)]"
+                            : "text-[var(--color-ink2)]"
+                      }
+                    >
+                      {r.label}
+                    </TD>
+                    <TD
+                      className={`text-right font-[family-name:var(--font-mono)] ${
+                        isSub ? "font-semibold" : ""
+                      } ${
+                        r.value < 0
+                          ? "text-[var(--color-danger)]"
+                          : r.kind === "final" || r.kind === "sub"
+                            ? "text-[var(--color-success)]"
+                            : "text-[var(--color-ink)]"
+                      }`}
+                    >
+                      {brl0(r.value)}
+                    </TD>
+                    <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                      {pct(r.value).toFixed(1)}%
+                    </TD>
+                  </TR>
+                );
+              })}
+            </tbody>
+          </Table>
+        </CardContent>
+      </Card>
     </>
   );
 }
@@ -124,10 +223,12 @@ function Kpi({
   label,
   value,
   tone,
+  sub,
 }: {
   label: string;
   value: string;
   tone?: "pos" | "neg";
+  sub?: string;
 }) {
   return (
     <Card>
@@ -146,6 +247,7 @@ function Kpi({
         >
           {value}
         </p>
+        {sub && <p className="mt-0.5 text-[11px] text-[var(--color-ink3)]">{sub}</p>}
       </CardContent>
     </Card>
   );

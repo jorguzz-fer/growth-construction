@@ -7,7 +7,7 @@ import { getActiveContext, type Role } from "@/lib/context";
 import { can, type PermMatrix } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
-const ROLES: Role[] = ["owner", "admin", "membro", "contador"];
+const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
 
 /**
  * Convida um membro para o tenant: garante o usuário (por e-mail) e cria o

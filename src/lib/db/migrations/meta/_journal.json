@@ -36,6 +36,41 @@
       "when": 1782939776248,
       "tag": "0004_sparkling_roughhouse",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783089195547,
+      "tag": "0005_slimy_wonder_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783104796227,
+      "tag": "0006_early_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783106752805,
+      "tag": "0007_familiar_vision",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783107127356,
+      "tag": "0008_fine_starbolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783107519201,
+      "tag": "0009_confused_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }

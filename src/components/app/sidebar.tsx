@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState, useTransition } from "react";
@@ -21,7 +20,6 @@ interface NavSection {
 }
 
 export interface SidebarProps {
-  logoUrl: string | null;
   tenantName: string;
   project: Project;
   projects: Project[];
@@ -34,7 +32,6 @@ export interface SidebarProps {
 }
 
 export function Sidebar({
-  logoUrl,
   tenantName,
   project,
   projects,
@@ -54,7 +51,8 @@ export function Sidebar({
     {
       title: "Módulo Receitas",
       items: [
-        { href: "/unidades", label: "Unidades", badge: badges.unidades },
+        { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
+        { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
         { href: "/permuta", label: "Permuta", badge: badges.permuta },
@@ -64,8 +62,10 @@ export function Sidebar({
     {
       title: "Módulo Despesas",
       items: [
-        { href: "/despesas", label: "Lançamentos" },
+        { href: "/despesas", label: "Despesas / Lançamentos" },
+        { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
+        { href: "/contas", label: "Contas Correntes" },
         { href: "/planocontas", label: "Plano de Contas" },
       ],
     },
@@ -86,6 +86,7 @@ export function Sidebar({
     {
       title: "Config",
       items: [
+        { href: "/projeto", label: "Projetos" },
         { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
         { href: "/acessos", label: "Gestão de Acessos" },
@@ -133,20 +134,9 @@ export function Sidebar({
         }`}
       >
       <div className="border-b border-white/10 px-4 py-4">
-        {logoUrl ? (
-          <Image
-            src={logoUrl}
-            alt={tenantName}
-            width={160}
-            height={40}
-            unoptimized
-            className="mb-1 max-h-10 w-auto object-contain"
-          />
-        ) : (
-          <div className="font-[family-name:var(--font-serif)] text-[15px]">
-            Growth Tools
-          </div>
-        )}
+        <div className="font-[family-name:var(--font-serif)] text-[15px]">
+          Growth Tools
+        </div>
         <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] text-white/30">
           Construction App
         </div>

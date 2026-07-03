@@ -1,0 +1,148 @@
+"use server";
+
+import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
+import { db, schema } from "@/lib/db";
+import {
+  getActiveContext,
+  ACTIVE_PROJECT_COOKIE,
+  ACTIVE_VERSION_COOKIE,
+} from "@/lib/context";
+import { can } from "@/lib/permissions";
+import { logAudit } from "@/lib/audit";
+import { DEFAULT_INCC } from "@/lib/calc/constants";
+
+const ONE_YEAR = 60 * 60 * 24 * 365;
+
+/** Versões padrão criadas junto com um projeto novo (ver seed.ts). */
+const DEFAULT_VERSIONS = [
+  { key: "budget", kind: "budget" as const, label: "Budget / Orçamento", color: "#6366f1", isDefault: false },
+  { key: "forecast", kind: "forecast" as const, label: "Previsto / Forecast", color: "#10b981", isDefault: true },
+  { key: "atual", kind: "atual" as const, label: "Atual — caixa real", color: "#f59e0b", isDefault: false },
+];
+
+/** Normaliza a duração (meses): inteiro positivo ou null. */
+function normDuration(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/**
+ * Cria um projeto (empreendimento) com nome e duração e já provisiona as três
+ * versões padrão (budget/forecast/atual) e a tabela INCC, de modo que todas as
+ * telas vinculadas ao projeto funcionem imediatamente. O projeto criado passa a
+ * ser o projeto ativo.
+ */
+export async function createProject(name: string, durationMonths: number | null) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "criar")) {
+    throw new Error("Sem permissão para criar projetos.");
+  }
+  const clean = (name || "").trim();
+  if (!clean) throw new Error("Informe o nome do projeto.");
+
+  const tenantId = ctx.tenant.id;
+  const duration = normDuration(durationMonths);
+
+  const projectId = await db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(schema.projects)
+      .values({ tenantId, name: clean, durationMonths: duration })
+      .returning();
+
+    await tx
+      .insert(schema.versions)
+      .values(DEFAULT_VERSIONS.map((v) => ({ ...v, projectId: project.id, tenantId })));
+
+    await tx.insert(schema.inccRates).values(
+      DEFAULT_INCC.map((r, i) => ({
+        projectId: project.id,
+        tenantId,
+        mes: r.m,
+        monthly: r.mo.toString(),
+        accumulated: r.ac.toString(),
+        ordem: i,
+      })),
+    );
+
+    return project.id;
+  });
+
+  // Torna o novo projeto o ativo (e reseta a versão para a default).
+  const ck = await cookies();
+  ck.set(ACTIVE_PROJECT_COOKIE, projectId, { path: "/", maxAge: ONE_YEAR });
+  ck.delete(ACTIVE_VERSION_COOKIE);
+
+  await logAudit({
+    tenantId,
+    userId: ctx.userId,
+    action: "project.create",
+    entity: "project",
+    entityId: projectId,
+    meta: { name: clean, durationMonths: duration },
+  });
+  revalidatePath("/", "layout");
+}
+
+/** Renomeia / ajusta a duração de um projeto do tenant. */
+export async function updateProject(
+  projectId: string,
+  patch: { name?: string; durationMonths?: number | null },
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "editar")) return;
+  if (!ctx.projects.some((p) => p.id === projectId)) return;
+
+  const set: { name?: string; durationMonths?: number | null } = {};
+  if (patch.name !== undefined && patch.name.trim()) set.name = patch.name.trim();
+  if (patch.durationMonths !== undefined) set.durationMonths = normDuration(patch.durationMonths);
+  if (Object.keys(set).length === 0) return;
+
+  await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "project.update",
+    entity: "project",
+    entityId: projectId,
+    meta: set,
+  });
+  revalidatePath("/", "layout");
+}
+
+/**
+ * Exclui um projeto e, em cascata, todas as suas versões e dados de movimento.
+ * Não é permitido excluir o último projeto do tenant (o contexto exige ao menos
+ * um). Se o projeto ativo for excluído, a seleção volta para o primeiro.
+ */
+export async function deleteProject(projectId: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "excluir")) return;
+  const target = ctx.projects.find((p) => p.id === projectId);
+  if (!target) return;
+  if (ctx.projects.length <= 1) {
+    throw new Error("Não é possível excluir o único projeto do tenant.");
+  }
+
+  await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
+
+  // Se o projeto excluído era o ativo, limpa os cookies (fallback p/ projects[0]).
+  if (ctx.project.id === projectId) {
+    const ck = await cookies();
+    ck.delete(ACTIVE_PROJECT_COOKIE);
+    ck.delete(ACTIVE_VERSION_COOKIE);
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "project.delete",
+    entity: "project",
+    entityId: projectId,
+    meta: { name: target.name },
+  });
+  revalidatePath("/", "layout");
+}

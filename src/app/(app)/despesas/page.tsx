@@ -7,17 +7,19 @@ import {
   getBankAccounts,
   getDocuments,
 } from "@/lib/queries";
-import { addDespesa, uploadDespesaDoc } from "@/lib/actions/despesas";
+import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { DespesaForm } from "@/components/app/despesa-form";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,8 @@ export default async function DespesasPage({
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const canEdit = can(ctx.perms, "despesas", "criar");
+  const aiConfigured = isAiConfigured();
+  const r2Configured = isR2Configured();
 
   const [despesas, fornecedores, contas, bancos] = await Promise.all([
     getDespesas(ctx.version.id),
@@ -78,73 +82,18 @@ export default async function DespesasPage({
       {tab === "lancamentos" && (
         <>
           {canEdit && (
-            <Card className="mb-6">
-              <CardContent className="p-5">
-                <form action={addDespesa} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="sm:col-span-2">
-                    <Label>Fornecedor</Label>
-                    <Select name="fornecedorId" defaultValue="">
-                      <option value="">Selecione...</option>
-                      {fornecedores.map((f) => (
-                        <option key={f.id} value={f.id}>{f.nome}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Conta CEF / Plano de Contas</Label>
-                    <Select name="contaCef" defaultValue="">
-                      <option value="">Selecione...</option>
-                      {contasOrdenadas.map((c) => (
-                        <option key={c.id} value={c.code}>{c.code} — {c.name}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Categoria DRE</Label>
-                    <Select name="categoriaDre" defaultValue="Custo Variável">
-                      {CATEGORIAS_DRE.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Banco</Label>
-                    <Select name="bancoId" defaultValue="">
-                      <option value="">—</option>
-                      {bancos.map((b) => (
-                        <option key={b.id} value={b.id}>{b.banco} · {b.tipo}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Nº Documento</Label>
-                    <Input name="numDoc" placeholder="auto (BMV-…)" />
-                  </div>
-                  <div>
-                    <Label>Competência</Label>
-                    <Input name="competencia" placeholder="01/2026" />
-                  </div>
-                  <div>
-                    <Label>Vencimento (MM/DD/YYYY)</Label>
-                    <Input name="vencimento" placeholder="01/27/2026" />
-                  </div>
-                  <div>
-                    <Label>Valor</Label>
-                    <Input name="valor" type="number" step="0.01" placeholder="0" />
-                  </div>
-                  <div>
-                    <Label>Status</Label>
-                    <Select name="status" defaultValue="A pagar">
-                      <option>A pagar</option>
-                      <option>Pago</option>
-                    </Select>
-                  </div>
-                  <div className="flex items-end">
-                    <Button type="submit" className="w-full">Lançar despesa</Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
+            <DespesaForm
+              fornecedores={fornecedores.map((f) => ({
+                id: f.id,
+                nome: f.nome,
+                doc: f.doc,
+              }))}
+              contas={contasOrdenadas.map((c) => ({ code: c.code, name: c.name }))}
+              bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
+              categorias={CATEGORIAS_DRE}
+              aiConfigured={aiConfigured}
+              r2Configured={r2Configured}
+            />
           )}
           <DespesasTable rows={despesas} fornById={fornById} />
         </>

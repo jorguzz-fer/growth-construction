@@ -1,7 +1,5 @@
 import { getActiveContext } from "@/lib/context";
 import {
-  getDespesas,
-  getMonthlyRevenue,
   getPermutas,
   getReembolsos,
   getUnits,
@@ -10,9 +8,11 @@ import {
   toCalcUnit,
 } from "@/lib/queries";
 import { calcTotals } from "@/lib/calc";
-import { brl0, brlk } from "@/lib/utils";
+import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +20,10 @@ export default async function ResumoPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [unitRows, permRows, reembRows, despesas, revenue] = await Promise.all([
+  const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(ctx.version.id),
     getPermutas(ctx.version.id),
     getReembolsos(ctx.version.id),
-    getDespesas(ctx.version.id),
-    getMonthlyRevenue(ctx.version.id, ctx.project.id),
   ]);
 
   const totals = calcTotals(
@@ -34,122 +32,151 @@ export default async function ResumoPage() {
     reembToCalc(reembRows),
   );
   const totalUnidades = totals.vend + totals.res + totals.disp;
-  const receitaProjetada = Object.values(revenue).reduce((a, b) => a + b, 0);
-  const totalDespesas = despesas.reduce((a, d) => a + Number(d.valor), 0);
-  const resultado = receitaProjetada - totalDespesas;
-  const pctVendido =
-    totalUnidades > 0 ? (totals.vend / totalUnidades) * 100 : 0;
 
-  const blocos = [
-    {
-      titulo: "Comercial",
-      itens: [
-        ["VGV total", brl0(totals.vgv)],
-        ["Unidades", String(totalUnidades)],
-        ["Vendidas", `${totals.vend} (${pctVendido.toFixed(0)}%)`],
-        ["Reservadas", String(totals.res)],
-        ["Disponíveis", String(totals.disp)],
-      ],
-    },
-    {
-      titulo: "Receitas",
-      itens: [
-        ["Receita projetada", brl0(receitaProjetada)],
-        ["Sinais / Atos", brl0(totals.sinais)],
-        ["Mensais", brl0(totals.mens)],
-        ["Financiamento", brl0(totals.banco)],
-        ["Reembolsos", brl0(totals.reemb)],
-      ],
-    },
-    {
-      titulo: "Resultado",
-      itens: [
-        ["Receita projetada", brl0(receitaProjetada)],
-        ["Despesas lançadas", brl0(totalDespesas)],
-        ["Resultado", brl0(resultado)],
-        [
-          "Permuta (estimada)",
-          brl0(totals.permRec),
-        ],
-        ["Permuta (vendida)", brl0(totals.permVend)],
-      ],
-    },
+  // Permuta por tipo (estimado), quando classificada em tipoPermuta.
+  const permByTipo = (match: string) =>
+    permRows
+      .filter((p) => (p.tipoPermuta ?? "").toLowerCase().includes(match))
+      .reduce((a, p) => a + Number(p.estimado ?? 0), 0);
+  const permMateriais = permByTipo("material");
+  const permServicos = permByTipo("servi");
+
+  const indicadores: { label: string; value: number }[] = [
+    { label: "VGV Total (tabela de preços)", value: totals.vgv },
+    { label: "AS + S1 + S2 + S3 (Sinais)", value: totals.sinais },
+    { label: "Mensais (c/INCC p.5+)", value: totals.mens },
+    { label: "Semestrais (c/INCC p.5+)", value: totals.sem },
+    { label: "Anuais (c/INCC p.5+)", value: totals.anu },
+    { label: "FGTS", value: totals.fgts },
+    { label: "Subsídio estimado", value: totals.sub },
+    { label: "Permuta Recebido (estimado)", value: totals.permRec },
+    { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
+    { label: "Permuta por Materiais", value: permMateriais },
+    { label: "Permuta por Serviços de Terceiros", value: permServicos },
+    { label: "Reembolso (aba própria)", value: totals.reemb },
   ];
 
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
+        eyebrow={`${ctx.project.name} · Versão ${ctx.version.label}`}
         title="Resumo Executivo"
-        subtitle={`Versão ${ctx.version.label} · síntese para gestão e sócios`}
+        subtitle="Indicadores gerais calculados dinamicamente"
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Big label="VGV" value={brlk(totals.vgv)} />
-        <Big label="Vendido" value={`${pctVendido.toFixed(0)}%`} />
-        <Big label="Receita proj." value={brlk(receitaProjetada)} />
-        <Big
-          label="Resultado"
-          value={brlk(resultado)}
-          tone={resultado >= 0 ? "pos" : "neg"}
-        />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        {blocos.map((b) => (
-          <Card key={b.titulo}>
-            <CardContent className="p-5">
-              <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-                {b.titulo}
-              </h2>
-              <dl className="space-y-2">
-                {b.itens.map(([k, v]) => (
-                  <div
-                    key={k}
-                    className="flex items-center justify-between border-b border-[var(--color-accent2)]/8 pb-1.5"
-                  >
-                    <dt className="text-[13px] text-[var(--color-ink2)]">{k}</dt>
-                    <dd className="font-[family-name:var(--font-mono)] text-[13px] text-[var(--color-ink)]">
-                      {v}
-                    </dd>
-                  </div>
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        {/* Indicadores gerais */}
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">
+              Indicadores Gerais
+            </h2>
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Indicador</TH>
+                  <TH className="text-right">Valor</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {indicadores.map((i) => (
+                  <TR key={i.label}>
+                    <TD className="text-[var(--color-ink2)]">{i.label}</TD>
+                    <TD
+                      className={`text-right font-[family-name:var(--font-mono)] font-medium ${
+                        i.value > 0
+                          ? "text-[var(--color-accent2)]"
+                          : "text-[var(--color-ink4)]"
+                      }`}
+                    >
+                      {brl0(i.value)}
+                    </TD>
+                  </TR>
                 ))}
+              </tbody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        {/* Coluna direita */}
+        <div className="space-y-6">
+          <Card>
+            <CardContent className="p-5">
+              <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">
+                Unidades
+              </h2>
+              <dl className="space-y-3">
+                <StatRow label="Disponíveis" value={totals.disp} />
+                <StatRow label="Reservadas" value={totals.res} tone="warning" />
+                <StatRow label="Vendidas" value={totals.vend} tone="success" />
+                <div className="flex items-center justify-between border-t border-[var(--color-accent2)]/12 pt-3">
+                  <dt className="text-sm font-semibold text-[var(--color-ink)]">
+                    Total
+                  </dt>
+                  <dd className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--color-ink)]">
+                    {totalUnidades}
+                  </dd>
+                </div>
               </dl>
             </CardContent>
           </Card>
-        ))}
+
+          <Card>
+            <CardContent className="p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+                  Financiamento Banco
+                </h2>
+                <Badge tone="danger">não gera projeção</Badge>
+              </div>
+              <dl className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <dt className="text-[13px] text-[var(--color-ink2)]">Aprovado</dt>
+                  <dd className="font-[family-name:var(--font-mono)] text-[13px] font-medium text-[var(--color-success)]">
+                    {brl0(totals.banco)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between border-t border-[var(--color-accent2)]/12 pt-3">
+                  <dt className="text-sm font-semibold text-[var(--color-ink)]">
+                    Total financiado
+                  </dt>
+                  <dd className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--color-ink)]">
+                    {brl0(totals.banco)}
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </>
   );
 }
 
-function Big({
+function StatRow({
   label,
   value,
   tone,
 }: {
   label: string;
-  value: string;
-  tone?: "pos" | "neg";
+  value: number;
+  tone?: "warning" | "success";
 }) {
+  const color =
+    tone === "warning"
+      ? "var(--color-warning)"
+      : tone === "success"
+        ? "var(--color-success)"
+        : "var(--color-ink)";
   return (
-    <Card>
-      <CardContent className="p-5">
-        <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-          {label}
-        </p>
-        <p
-          className={`mt-2 text-2xl font-semibold ${
-            tone === "pos"
-              ? "text-[var(--color-success)]"
-              : tone === "neg"
-                ? "text-[var(--color-danger)]"
-                : "text-[var(--color-ink)]"
-          }`}
-        >
-          {value}
-        </p>
-      </CardContent>
-    </Card>
+    <div className="flex items-center justify-between">
+      <dt className="text-[13px] text-[var(--color-ink2)]">{label}</dt>
+      <dd
+        className="font-[family-name:var(--font-mono)] text-sm font-semibold"
+        style={{ color }}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }

@@ -1,150 +1,181 @@
 import { getActiveContext } from "@/lib/context";
-import { getCash, getMonthlyRevenue, sortMonthKey } from "@/lib/queries";
-import { brl0 } from "@/lib/utils";
+import {
+  getCash,
+  getChartAccounts,
+  getDespesas,
+  getInccRows,
+  getMedicoes,
+  getReembolsos,
+  getUnits,
+  reembToCalc,
+  toCalcUnit,
+} from "@/lib/queries";
+import {
+  calcProjectionBySource,
+  reembursementsByMonth,
+  PROJECTION_SOURCES,
+  type MonthlyProjection,
+  type ProjectionSource,
+} from "@/lib/calc";
 import { PageHeader } from "@/components/app/page-header";
-import { Card, CardContent } from "@/components/ui/card";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
-import { BarChart, CHART_COLORS } from "@/components/app/charts";
+import {
+  RollingSimulator,
+  type DriverItem,
+} from "@/components/app/rolling-simulator";
 
 export const dynamic = "force-dynamic";
 
-function dataMonth(d: string | null): string | null {
-  if (!d) return null;
-  const p = d.split("/");
-  return p.length === 3 ? `${p[0]}/${p[2]}` : null;
+function sortMonth(a: string, b: string): number {
+  const [ma, ya] = a.split("/").map(Number);
+  const [mb, yb] = b.split("/").map(Number);
+  return ya - yb || ma - mb;
 }
 
-export default async function RollingPage() {
+/** "MM/DD/YYYY" ou "MM/YYYY" → "MM/YYYY". */
+function toMonth(d: string | null): string | null {
+  if (!d) return null;
+  const p = d.split("/");
+  if (p.length === 3) return `${p[0]}/${p[2]}`;
+  if (p.length === 2) return d;
+  return null;
+}
+
+export default async function RollingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ periodo?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [previsto, cash] = await Promise.all([
-    getMonthlyRevenue(ctx.version.id, ctx.project.id),
-    getCash(ctx.version.id),
-  ]);
+  const [unitRows, reembRows, incc, despesas, medicoes, cash, chart] =
+    await Promise.all([
+      getUnits(ctx.version.id),
+      getReembolsos(ctx.version.id),
+      getInccRows(ctx.project.id),
+      getDespesas(ctx.version.id),
+      getMedicoes(ctx.version.id),
+      getCash(ctx.version.id),
+      getChartAccounts(ctx.tenant.id),
+    ]);
 
-  const realizado: Record<string, number> = {};
-  for (const c of cash) {
-    const mm = dataMonth(c.data);
-    if (mm && Number(c.valor) > 0)
-      realizado[mm] = (realizado[mm] || 0) + Number(c.valor);
+  // ── Receita projetada por fonte (todas as unidades) + reembolso ──────────
+  const sources = Object.fromEntries(
+    PROJECTION_SOURCES.map((s) => [s, {} as MonthlyProjection]),
+  ) as Record<ProjectionSource, MonthlyProjection>;
+  for (const u of unitRows) {
+    const bs = calcProjectionBySource(toCalcUnit(u), incc);
+    for (const s of PROJECTION_SOURCES) {
+      for (const [mm, v] of Object.entries(bs[s])) {
+        sources[s][mm] = (sources[s][mm] || 0) + v;
+      }
+    }
+  }
+  const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
+
+  // ── Horizonte + janelas de 12 meses (Ano N) ──────────────────────────────
+  const axis = Array.from(
+    new Set([
+      ...incc.map((r) => r.m),
+      ...PROJECTION_SOURCES.flatMap((s) => Object.keys(sources[s])),
+      ...Object.keys(reembMonth),
+      ...despesas.map((d) => toMonth(d.competencia)).filter(Boolean) as string[],
+      ...medicoes.map((m) => m.competencia),
+    ]),
+  ).sort(sortMonth);
+
+  const years: { value: string; months: string[]; label: string }[] = [];
+  for (let i = 0; i < axis.length; i += 12) {
+    const months = axis.slice(i, i + 12);
+    if (months.length)
+      years.push({
+        value: String(years.length + 1),
+        months,
+        label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
+      });
   }
 
-  const axis = [
-    ...new Set([...Object.keys(previsto), ...Object.keys(realizado)]),
-  ].sort(sortMonthKey);
-  const maxVal = Math.max(
-    1,
-    ...axis.map((m) => Math.max(previsto[m] || 0, realizado[m] || 0)),
-  );
+  const sp = await searchParams;
+  const periodo = sp.periodo ?? "acum";
+  const periodMonths =
+    periodo !== "acum"
+      ? new Set(years.find((y) => y.value === periodo)?.months ?? [])
+      : null;
+  const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
+  const sumOver = (map: MonthlyProjection) =>
+    Object.entries(map).reduce((a, [mm, v]) => a + (inP(mm) ? v : 0), 0);
 
-  const totP = Object.values(previsto).reduce((a, b) => a + b, 0);
-  const totR = Object.values(realizado).reduce((a, b) => a + b, 0);
+  // ── Drivers de receita (por fonte + reembolso) ───────────────────────────
+  const receitaSources: DriverItem[] = [
+    ...PROJECTION_SOURCES.map((s) => ({
+      key: s,
+      label: s,
+      base: sumOver(sources[s]),
+    })),
+    { key: "Reembolso", label: "Reembolso", base: sumOver(reembMonth) },
+  ].filter((d) => d.base > 0);
+
+  // ── Drivers de despesa: grupos CEF (obra) ────────────────────────────────
+  const cefNames = new Map<string, string>();
+  for (const r of chart) {
+    if (r.kind === "cef" && !cefNames.has(r.groupCode))
+      cefNames.set(r.groupCode, r.groupName);
+  }
+  const groupBase: Record<string, number> = {};
+  let outrasDespesas = 0;
+  for (const d of despesas) {
+    if (!inP(toMonth(d.competencia))) continue;
+    const val = Number(d.valor);
+    const grp = d.contaCef ? d.contaCef.split(".")[0] : null;
+    if (grp) groupBase[grp] = (groupBase[grp] || 0) + val;
+    else outrasDespesas += val;
+  }
+  const custoGroups: DriverItem[] = Object.entries(groupBase)
+    .filter(([, base]) => base > 0)
+    .sort((a, b) =>
+      a[0].localeCompare(b[0], undefined, { numeric: true }),
+    )
+    .map(([code, base]) => ({
+      key: code,
+      label: cefNames.get(code) ? `${code} · ${cefNames.get(code)}` : `Grupo ${code}`,
+      base,
+    }));
+
+  // ── Custo variável (medição de obra do engenheiro) ───────────────────────
+  const custoVar = medicoes
+    .filter((m) => inP(m.competencia))
+    .reduce((a, m) => a + Number(m.valor), 0);
+
+  // ── Realizado (entradas de caixa positivas no período) ───────────────────
+  const realizado = cash.reduce((a, c) => {
+    const v = Number(c.valor);
+    return v > 0 && inP(toMonth(c.data)) ? a + v : a;
+  }, 0);
+
+  const periodLabel =
+    periodMonths && years.find((y) => y.value === periodo)
+      ? years.find((y) => y.value === periodo)!.label
+      : "Acumulado (todo o horizonte)";
 
   return (
     <>
       <PageHeader
         eyebrow={ctx.version.label}
         title="Rolling Forecast"
-        subtitle={`Previsto ${brl0(totP)} · Realizado ${brl0(totR)} · atingimento ${totP > 0 ? ((totR / totP) * 100).toFixed(0) : 0}%`}
+        subtitle={`Simulador driver-based · ${periodLabel} · variações não alteram os dados reais`}
       />
-
-      {(() => {
-        const labels = axis.filter(
-          (m) => (previsto[m] || 0) > 0 || (realizado[m] || 0) > 0,
-        );
-        if (labels.length === 0) return null;
-        return (
-          <Card className="mb-6">
-            <CardContent className="p-5">
-              <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-                Previsto vs. realizado
-              </h2>
-              <BarChart
-                currency
-                data={{
-                  labels,
-                  datasets: [
-                    {
-                      label: "Previsto",
-                      data: labels.map((m) => previsto[m] || 0),
-                      backgroundColor: CHART_COLORS.indigo,
-                      borderRadius: 4,
-                    },
-                    {
-                      label: "Realizado",
-                      data: labels.map((m) => realizado[m] || 0),
-                      backgroundColor: CHART_COLORS.green,
-                      borderRadius: 4,
-                    },
-                  ],
-                }}
-              />
-            </CardContent>
-          </Card>
-        );
-      })()}
-
-      <Table>
-        <THead>
-          <tr>
-            <TH>Mês</TH>
-            <TH className="text-right">Previsto</TH>
-            <TH className="text-right">Realizado</TH>
-            <TH>Comparativo</TH>
-          </tr>
-        </THead>
-        <tbody>
-          {axis
-            .filter((m) => (previsto[m] || 0) > 0 || (realizado[m] || 0) > 0)
-            .map((m) => {
-              const p = previsto[m] || 0;
-              const r = realizado[m] || 0;
-              return (
-                <TR key={m}>
-                  <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
-                    {m}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {p > 0 ? brl0(p) : "—"}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)]">
-                    {r > 0 ? brl0(r) : "—"}
-                  </TD>
-                  <TD>
-                    <div className="flex flex-col gap-1">
-                      <Bar value={p} max={maxVal} color="var(--color-budget)" />
-                      <Bar value={r} max={maxVal} color="var(--color-forecast)" />
-                    </div>
-                  </TD>
-                </TR>
-              );
-            })}
-        </tbody>
-      </Table>
-
-      <div className="mt-3 flex gap-4 text-xs text-[var(--color-ink3)]">
-        <Legend color="var(--color-budget)" label="Previsto" />
-        <Legend color="var(--color-forecast)" label="Realizado" />
-      </div>
+      <RollingSimulator
+        receitaSources={receitaSources}
+        custoGroups={custoGroups}
+        custoVar={custoVar}
+        outrasDespesas={outrasDespesas}
+        realizado={realizado}
+        years={[
+          { value: "acum", label: "Acumulado (todos os anos)" },
+          ...years.map((y) => ({ value: y.value, label: y.label })),
+        ]}
+        periodo={periodo}
+      />
     </>
-  );
-}
-
-function Bar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = Math.max(0, Math.min(100, (value / max) * 100));
-  return (
-    <div className="h-2 w-40 overflow-hidden rounded-full bg-[var(--color-surface3)]">
-      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
-    </div>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
-      {label}
-    </span>
   );
 }

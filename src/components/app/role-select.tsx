@@ -4,7 +4,7 @@ import { useTransition } from "react";
 import { changeRole } from "@/lib/actions/users";
 import type { Role } from "@/lib/context";
 
-const ROLES: Role[] = ["owner", "admin", "membro", "contador"];
+const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
 
 export function RoleSelect({
   userId,

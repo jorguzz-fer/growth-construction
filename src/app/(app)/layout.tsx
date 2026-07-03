@@ -95,7 +95,6 @@ export default async function AppLayout({
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
-        logoUrl={logoUrl}
         tenantName={ctx.tenant.name}
         project={ctx.project}
         projects={ctx.projects}
