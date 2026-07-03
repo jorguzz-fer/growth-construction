@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
 import {
   getInccRows,
@@ -8,13 +7,17 @@ import {
   toCalcUnit,
 } from "@/lib/queries";
 import {
-  calcProjection,
+  calcProjectionBySource,
   reembursementsByMonth,
+  PROJECTION_SOURCES,
   type MonthlyProjection,
+  type ProjectionSource,
 } from "@/lib/calc";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { ConsolidadoControls } from "@/components/app/consolidado-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -26,26 +29,26 @@ const VIEWS: { key: View; label: string }[] = [
   { key: "anual", label: "Anual" },
 ];
 
-function bucketKey(mm: string, view: View): string {
-  const [m, y] = mm.split("/").map(Number);
-  if (view === "mensal") return mm;
-  if (view === "anual") return String(y);
-  if (view === "semestral") return `${y} · S${m <= 6 ? 1 : 2}`;
-  return `${y} · T${Math.ceil(m / 3)}`;
+function sortMonth(a: string, b: string): number {
+  const [ma, ya] = a.split("/").map(Number);
+  const [mb, yb] = b.split("/").map(Number);
+  return ya - yb || ma - mb;
 }
+
+const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
+const sumOver = (map: MonthlyProjection, months: string[]) =>
+  months.reduce((a, m) => a + (map[m] || 0), 0);
 
 export default async function ConsolidadoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; ano?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
   const sp = await searchParams;
-  const view: View = VIEWS.some((v) => v.key === sp.view)
-    ? (sp.view as View)
-    : "anual";
+  const view: View = VIEWS.some((v) => v.key === sp.view) ? (sp.view as View) : "mensal";
 
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(ctx.version.id),
@@ -53,86 +56,140 @@ export default async function ConsolidadoPage({
     getInccRows(ctx.project.id),
   ]);
 
-  const monthly: MonthlyProjection = {};
-  for (const row of unitRows) {
-    const p = calcProjection(toCalcUnit(row), incc);
-    for (const [mm, v] of Object.entries(p)) monthly[mm] = (monthly[mm] || 0) + v;
+  // Agrega a projeção por fonte, somando todas as unidades.
+  const sources = Object.fromEntries(
+    PROJECTION_SOURCES.map((s) => [s, {} as MonthlyProjection]),
+  ) as Record<ProjectionSource, MonthlyProjection>;
+  for (const u of unitRows) {
+    const bs = calcProjectionBySource(toCalcUnit(u), incc);
+    for (const s of PROJECTION_SOURCES) {
+      for (const [mm, v] of Object.entries(bs[s])) {
+        sources[s][mm] = (sources[s][mm] || 0) + v;
+      }
+    }
   }
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
-  const allMonths = new Set([
-    ...Object.keys(monthly),
-    ...Object.keys(reembMonth),
-  ]);
 
-  const buckets = new Map<string, number>();
-  const order: string[] = [];
-  for (const mm of [...allMonths].sort(sortMonth)) {
-    const total = (monthly[mm] || 0) + (reembMonth[mm] || 0);
-    if (total <= 0) continue;
-    const k = bucketKey(mm, view);
-    if (!buckets.has(k)) order.push(k);
-    buckets.set(k, (buckets.get(k) || 0) + total);
+  // Horizonte (48 meses INCC + extras) e janelas de ano.
+  const axis = Array.from(
+    new Set([
+      ...incc.map((r) => r.m),
+      ...PROJECTION_SOURCES.flatMap((s) => Object.keys(sources[s])),
+      ...Object.keys(reembMonth),
+    ]),
+  ).sort(sortMonth);
+
+  const yearWindows: { value: number; months: string[]; label: string }[] = [];
+  for (let i = 0; i < axis.length; i += 12) {
+    const months = axis.slice(i, i + 12);
+    if (months.length === 0) continue;
+    yearWindows.push({
+      value: yearWindows.length + 1,
+      months,
+      label: `Ano ${yearWindows.length + 1} (${months[0]}–${months[months.length - 1]})`,
+    });
   }
-  const totalGeral = [...buckets.values()].reduce((a, b) => a + b, 0);
+  const wantedAno = Number(sp.ano) || 1;
+  const ano = Math.min(Math.max(1, wantedAno), Math.max(1, yearWindows.length));
+  const yearMonths = yearWindows[ano - 1]?.months ?? [];
+
+  // Colunas conforme a periodicidade.
+  const columns: { label: string; months: string[] }[] = [];
+  if (view === "anual") {
+    for (const y of yearWindows) columns.push({ label: `Ano ${y.value}`, months: y.months });
+  } else if (view === "mensal") {
+    for (const m of yearMonths) columns.push({ label: m, months: [m] });
+  } else {
+    const size = view === "trimestral" ? 3 : 6;
+    const prefix = view === "trimestral" ? "T" : "S";
+    for (let i = 0; i < yearMonths.length; i += size) {
+      const chunk = yearMonths.slice(i, i + size);
+      if (chunk.length) columns.push({ label: `${prefix}${i / size + 1}`, months: chunk });
+    }
+  }
+
+  // Linhas: fontes + reembolso; TOTAL por coluna e geral.
+  const rowMaps: { label: string; map: MonthlyProjection }[] = [
+    ...PROJECTION_SOURCES.map((s) => ({ label: s, map: sources[s] })),
+    { label: "Reembolso", map: reembMonth },
+  ];
+  const rows = rowMaps.map((r) => ({
+    label: r.label,
+    values: columns.map((c) => sumOver(r.map, c.months)),
+    total: sumOver(r.map, axis),
+  }));
+  const totalRow = {
+    values: columns.map((_, ci) => rows.reduce((a, r) => a + r.values[ci], 0)),
+    total: rows.reduce((a, r) => a + r.total, 0),
+  };
 
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
         title="Consolidado"
-        subtitle={`Recebíveis agregados · total ${brl0(totalGeral)}`}
+        subtitle="Reembolso incluído no TOTAL"
         actions={
-          <div className="flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
-            {VIEWS.map((v) => (
-              <Link
-                key={v.key}
-                href={`/consolidado?view=${v.key}`}
-                className={`rounded-[6px] px-2.5 py-1 text-xs transition-colors ${
-                  v.key === view
-                    ? "bg-white text-[var(--color-ink)] shadow-sm"
-                    : "text-[var(--color-ink3)] hover:text-[var(--color-ink)]"
-                }`}
-              >
-                {v.label}
-              </Link>
-            ))}
-          </div>
+          <ConsolidadoControls
+            views={VIEWS}
+            view={view}
+            years={yearWindows.map((y) => ({ value: y.value, label: y.label }))}
+            ano={ano}
+            anoDisabled={view === "anual"}
+          />
         }
       />
 
-      <Table>
-        <THead>
-          <tr>
-            <TH>Período</TH>
-            <TH className="text-right">Recebíveis</TH>
-            <TH className="text-right">% do total</TH>
-          </tr>
-        </THead>
-        <tbody>
-          {order.map((k) => {
-            const v = buckets.get(k) || 0;
-            return (
-              <TR key={k}>
-                <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
-                  {k}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)]">
-                  {brl0(v)}
-                </TD>
-                <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                  {totalGeral > 0 ? ((v / totalGeral) * 100).toFixed(1) : "0"}%
+      <Card>
+        <CardContent className="p-5">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Fonte</TH>
+                {columns.map((c) => (
+                  <TH key={c.label} className="text-right">
+                    {c.label}
+                  </TH>
+                ))}
+                <TH className="text-right">Total</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {rows.map((r) => (
+                <TR key={r.label}>
+                  <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
+                    {r.label}
+                  </TD>
+                  {r.values.map((v, i) => (
+                    <TD
+                      key={i}
+                      className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]"
+                    >
+                      {fmt(v)}
+                    </TD>
+                  ))}
+                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                    {fmt(r.total)}
+                  </TD>
+                </TR>
+              ))}
+              <TR>
+                <TD className="font-semibold text-[var(--color-ink)]">TOTAL</TD>
+                {totalRow.values.map((v, i) => (
+                  <TD
+                    key={i}
+                    className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-ink)]"
+                  >
+                    {fmt(v)}
+                  </TD>
+                ))}
+                <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
+                  {fmt(totalRow.total)}
                 </TD>
               </TR>
-            );
-          })}
-        </tbody>
-      </Table>
+            </tbody>
+          </Table>
+        </CardContent>
+      </Card>
     </>
   );
-}
-
-function sortMonth(a: string, b: string): number {
-  const [ma, ya] = a.split("/").map(Number);
-  const [mb, yb] = b.split("/").map(Number);
-  return ya - yb || ma - mb;
 }

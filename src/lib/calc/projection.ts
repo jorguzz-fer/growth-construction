@@ -141,6 +141,103 @@ export function calcProjection(
   return proj;
 }
 
+/** Fontes de receita usadas no consolidado (quebra da projeção por tipo). */
+export const PROJECTION_SOURCES = [
+  "AS/Sinais",
+  "Mensais",
+  "Semestrais",
+  "Anuais",
+  "FGTS",
+  "Subsídio",
+  "Permuta",
+] as const;
+export type ProjectionSource = (typeof PROJECTION_SOURCES)[number];
+
+/**
+ * Igual a `calcProjection`, mas separando a receita projetada por tipo de fonte
+ * (AS/Sinais, Mensais, …). Usado no Consolidado. Retorna um mapa vazio por
+ * fonte se a unidade não estiver vendida.
+ */
+export function calcProjectionBySource(
+  u: CalcUnit,
+  incc: readonly InccRow[] = [],
+): Record<ProjectionSource, MonthlyProjection> {
+  const out = {
+    "AS/Sinais": {},
+    Mensais: {},
+    Semestrais: {},
+    Anuais: {},
+    FGTS: {},
+    Subsídio: {},
+    Permuta: {},
+  } as Record<ProjectionSource, MonthlyProjection>;
+  if (u.status !== "Vendido") return out;
+  const add = (key: ProjectionSource, mm: string, v: number) => {
+    if (v > 0) out[key][mm] = (out[key][mm] || 0) + v;
+  };
+  const periodic = (val: number, i: number, mk: string) =>
+    Math.round(
+      val * (1 + (i >= INCC_FROM_INSTALLMENT ? getIncc(incc, mk) : 0) / 100) * 100,
+    ) / 100;
+
+  const signals: { use: boolean; val: number; venc: string; n: number }[] = [
+    { use: u.usarAS, val: u.AS.val, venc: u.AS.venc, n: u.AS.n },
+    { use: u.AS.usarS1, val: u.S1.val, venc: u.S1.venc, n: u.S1.n },
+    { use: u.S1.usarS2, val: u.S2.val, venc: u.S2.venc, n: u.S2.n },
+    { use: u.S2.usarS3, val: u.S3.val, venc: u.S3.venc, n: u.S3.n },
+  ];
+  for (const s of signals) {
+    if (s.use && s.val > 0) {
+      const d = parseDate(s.venc);
+      if (d)
+        for (let i = 0; i < (s.n || 1); i++) {
+          const dt = addMonths(d.mo, d.yr, i);
+          add("AS/Sinais", monthKey(dt.mo, dt.yr), s.val);
+        }
+    }
+  }
+  if (u.S3.usarMens && u.Mensais.val > 0) {
+    const d = parseDate(u.Mensais.venc);
+    if (d)
+      for (let i = 0; i < (u.Mensais.n || 0); i++) {
+        const dt = addMonths(d.mo, d.yr, i);
+        const mk = monthKey(dt.mo, dt.yr);
+        add("Mensais", mk, periodic(u.Mensais.val, i, mk));
+      }
+  }
+  if (u.Mensais.usarSem && u.Semestrais.val > 0) {
+    const d = parseDate(u.Semestrais.venc);
+    if (d)
+      for (let i = 0; i < (u.Semestrais.n || 0); i++) {
+        const dt = addMonths(d.mo, d.yr, i * 6);
+        const mk = monthKey(dt.mo, dt.yr);
+        add("Semestrais", mk, periodic(u.Semestrais.val, i, mk));
+      }
+  }
+  if (u.Semestrais.usarAnu && u.Anuais.val > 0) {
+    const d = parseDate(u.Anuais.venc);
+    if (d)
+      for (let i = 0; i < (u.Anuais.n || 0); i++) {
+        const dt = addMonths(d.mo, d.yr, i * 12);
+        const mk = monthKey(dt.mo, dt.yr);
+        add("Anuais", mk, periodic(u.Anuais.val, i, mk));
+      }
+  }
+  if (u.Anuais.usarFGTS && u.FGTS.val > 0) {
+    const d = parseDate(u.FGTS.dataPrev);
+    if (d) add("FGTS", monthKey(d.mo, d.yr), u.FGTS.val);
+  }
+  if (u.FGTS.usarSub && u.Subsidio.val > 0 && u.Subsidio.statusSub === "Recebido") {
+    const d = parseDate(u.Subsidio.dataPrev);
+    if (d) add("Subsídio", monthKey(d.mo, d.yr), u.Subsidio.val);
+  }
+  if (u.Subsidio.usarPer && u.Permuta.val > 0) {
+    const d = parseDate(u.Permuta.dataPrev);
+    if (d) add("Permuta", monthKey(d.mo, d.yr), u.Permuta.val);
+  }
+  return out;
+}
+
 /**
  * Total contratado da unidade (soma de todas as fontes). Comparado ao VGV
  * gera o saldo. Espelha `calcUnitTotal()`. Retorna 0 se não vendida.
