@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -143,6 +143,86 @@ export async function addDespesa(formData: FormData) {
     entity: "despesa",
     entityId: row.id,
     meta: { valor: row.valor, contaCef: row.contaCef },
+  });
+  revalidatePath("/despesas");
+}
+
+/** Campos editáveis de uma despesa já lançada. */
+export interface DespesaPatch {
+  fornecedorId?: string | null;
+  bancoId?: string | null;
+  contaCef?: string | null;
+  categoriaDre?: string | null;
+  numDoc?: string | null;
+  competencia?: string | null;
+  vencimento?: string | null;
+  valor?: string;
+  status?: string | null;
+}
+
+/** Edita uma despesa já lançada (mesma versão/tenant do contexto ativo). */
+export async function updateDespesa(id: string, patch: DespesaPatch) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "editar")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada — edição bloqueada.");
+
+  const [existing] = await db
+    .select()
+    .from(schema.despesas)
+    .where(
+      and(eq(schema.despesas.id, id), eq(schema.despesas.versionId, ctx.version.id)),
+    )
+    .limit(1);
+  if (!existing) return;
+
+  const set: Partial<typeof schema.despesas.$inferInsert> = {};
+  if (patch.fornecedorId !== undefined) set.fornecedorId = patch.fornecedorId || null;
+  if (patch.bancoId !== undefined) set.bancoId = patch.bancoId || null;
+  if (patch.contaCef !== undefined) set.contaCef = patch.contaCef || null;
+  if (patch.categoriaDre !== undefined)
+    set.categoriaDre = (patch.categoriaDre || null) as CategoriaDRE | null;
+  if (patch.numDoc !== undefined) set.numDoc = patch.numDoc?.trim() || null;
+  if (patch.competencia !== undefined) set.competencia = patch.competencia || null;
+  if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
+  if (patch.valor !== undefined) set.valor = patch.valor.trim() || "0";
+  if (patch.status !== undefined) set.status = patch.status || null;
+  if (Object.keys(set).length === 0) return;
+
+  await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "despesa.update",
+    entity: "despesa",
+    entityId: id,
+    meta: set,
+  });
+  revalidatePath("/despesas");
+}
+
+/** Exclui uma despesa já lançada (documentos vinculados caem em cascata). */
+export async function deleteDespesa(id: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "excluir")) return;
+  if (ctx.version.locked) throw new Error("Versão congelada — exclusão bloqueada.");
+
+  const [existing] = await db
+    .select()
+    .from(schema.despesas)
+    .where(
+      and(eq(schema.despesas.id, id), eq(schema.despesas.versionId, ctx.version.id)),
+    )
+    .limit(1);
+  if (!existing) return;
+
+  await db.delete(schema.despesas).where(eq(schema.despesas.id, id));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "despesa.delete",
+    entity: "despesa",
+    entityId: id,
+    meta: { valor: existing.valor, numDoc: existing.numDoc },
   });
   revalidatePath("/despesas");
 }

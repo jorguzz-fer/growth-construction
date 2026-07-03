@@ -17,9 +17,9 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
+import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,8 @@ export default async function DespesasPage({
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const canEdit = can(ctx.perms, "despesas", "criar");
+  const canEditar = can(ctx.perms, "despesas", "editar");
+  const canExcluir = can(ctx.perms, "despesas", "excluir");
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
@@ -54,6 +56,24 @@ export default async function DespesasPage({
   const contasOrdenadas = [...contas].sort((a, b) =>
     a.code.localeCompare(b.code, undefined, { numeric: true }),
   );
+  const toDTO = (d: (typeof despesas)[number]): DespesaDTO => ({
+    id: d.id,
+    numDoc: d.numDoc,
+    fornecedorId: d.fornecedorId,
+    bancoId: d.bancoId,
+    contaCef: d.contaCef,
+    categoriaDre: d.categoriaDre,
+    competencia: d.competencia,
+    vencimento: d.vencimento,
+    valor: String(d.valor),
+    status: d.status,
+  });
+  const refProps = {
+    fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome })),
+    contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
+    bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
+    categorias: CATEGORIAS_DRE,
+  };
 
   return (
     <>
@@ -95,7 +115,12 @@ export default async function DespesasPage({
               r2Configured={r2Configured}
             />
           )}
-          <DespesasTable rows={despesas} fornById={fornById} />
+          <DespesasTable
+            rows={despesas.map(toDTO)}
+            canEditar={canEditar}
+            canExcluir={canExcluir}
+            {...refProps}
+          />
         </>
       )}
 
@@ -103,9 +128,12 @@ export default async function DespesasPage({
         <DespesasTable
           rows={despesas
             .filter((d) => d.status !== "Pago")
-            .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))}
-          fornById={fornById}
+            .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))
+            .map(toDTO)}
           venc
+          canEditar={false}
+          canExcluir={false}
+          {...refProps}
         />
       )}
 
@@ -118,56 +146,6 @@ export default async function DespesasPage({
         />
       )}
     </>
-  );
-}
-
-function DespesasTable({
-  rows,
-  fornById,
-  venc,
-}: {
-  rows: Awaited<ReturnType<typeof getDespesas>>;
-  fornById: Map<string, string>;
-  venc?: boolean;
-}) {
-  return (
-    <Table>
-      <THead>
-        <tr>
-          <TH>{venc ? "Vencimento" : "Competência"}</TH>
-          <TH>Nº Doc</TH>
-          <TH>Fornecedor</TH>
-          <TH>Conta CEF</TH>
-          <TH>Cat. DRE</TH>
-          <TH className="text-right">Valor</TH>
-          <TH>Status</TH>
-        </tr>
-      </THead>
-      <tbody>
-        {rows.map((d) => (
-          <TR key={d.id}>
-            <TD className="font-[family-name:var(--font-mono)]">
-              {(venc ? d.vencimento : d.competencia) ?? "—"}
-            </TD>
-            <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-              {d.numDoc ?? "—"}
-            </TD>
-            <TD>{d.fornecedorId ? fornById.get(d.fornecedorId) ?? "—" : "—"}</TD>
-            <TD><Badge tone="warning">{d.contaCef ?? "—"}</Badge></TD>
-            <TD className="text-[var(--color-ink2)]">{d.categoriaDre ?? "—"}</TD>
-            <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(Number(d.valor))}</TD>
-            <TD><Badge tone={d.status === "Pago" ? "success" : "neutral"}>{d.status ?? "—"}</Badge></TD>
-          </TR>
-        ))}
-        {rows.length === 0 && (
-          <TR>
-            <TD colSpan={7} className="py-6 text-center text-[var(--color-ink3)]">
-              Nada por aqui nesta versão.
-            </TD>
-          </TR>
-        )}
-      </tbody>
-    </Table>
   );
 }
 
