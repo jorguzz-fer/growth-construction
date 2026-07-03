@@ -18,6 +18,7 @@ const roleTone: Record<string, "accent" | "info" | "neutral" | "warning"> = {
   admin: "info",
   membro: "neutral",
   contador: "warning",
+  engenheiro: "info",
 };
 
 export default async function UsuariosPage() {
@@ -55,6 +56,7 @@ export default async function UsuariosPage() {
                   <option value="admin">admin</option>
                   <option value="membro">membro</option>
                   <option value="contador">contador</option>
+                  <option value="engenheiro">engenheiro</option>
                 </Select>
               </div>
               <div className="flex items-end">

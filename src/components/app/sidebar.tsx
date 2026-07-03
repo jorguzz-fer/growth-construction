@@ -62,6 +62,7 @@ export function Sidebar({
       title: "Módulo Despesas",
       items: [
         { href: "/despesas", label: "Despesas / Lançamentos" },
+        { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
         { href: "/planocontas", label: "Plano de Contas" },
       ],

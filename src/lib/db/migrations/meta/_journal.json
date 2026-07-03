@@ -43,6 +43,13 @@
       "when": 1783089195547,
       "tag": "0005_slimy_wonder_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783104796227,
+      "tag": "0006_early_enchantress",
+      "breakpoints": true
     }
   ]
 }

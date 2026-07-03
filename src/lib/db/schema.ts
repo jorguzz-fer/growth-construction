@@ -30,6 +30,7 @@ export const roleEnum = pgEnum("role", [
   "admin",
   "membro",
   "contador", // somente leitura (acesso contabilidade)
+  "engenheiro", // acesso apenas ao Lançamento de Medição
 ]);
 
 // ───────────────────────────── Auth.js ──────────────────────────────
@@ -383,6 +384,28 @@ export const documents = pgTable("document", {
   contentType: text("content_type"),
   size: integer("size"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Medição de obra lançada pelo engenheiro, por competência (MM/YYYY) e grupo
+ * de obra (CEF). A soma das medições alimenta o Custo Variável da DRE.
+ */
+export const medicoes = pgTable("medicao", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  versionId: uuid("version_id")
+    .notNull()
+    .references(() => versions.id, { onDelete: "cascade" }),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** "MM/YYYY". */
+  competencia: text("competencia").notNull(),
+  /** código do grupo CEF (ex.: "1", "3"). */
+  grupoCode: text("grupo_code").notNull(),
+  grupoName: text("grupo_name").notNull(),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 // ───────────────────────────── Caixa & INCC ─────────────────────────────

@@ -1,5 +1,5 @@
 import { getActiveContext } from "@/lib/context";
-import { getDespesas, getMonthlyRevenue } from "@/lib/queries";
+import { getDespesas, getMedicoes, getMonthlyRevenue } from "@/lib/queries";
 import { CATEGORIAS_DRE, type CategoriaDRE } from "@/lib/calc/constants";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -23,9 +23,10 @@ export default async function DREPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [despesas, revenue] = await Promise.all([
+  const [despesas, revenue, medicoes] = await Promise.all([
     getDespesas(ctx.version.id),
     getMonthlyRevenue(ctx.version.id, ctx.project.id),
+    getMedicoes(ctx.version.id),
   ]);
 
   // Soma despesas por categoria DRE.
@@ -39,6 +40,12 @@ export default async function DREPage() {
       );
     }
   }
+  // Custo Variável = somatória das medições de obra (lançadas pelo engenheiro),
+  // por competência. Substitui o valor vindo de despesas.
+  porCategoria.set(
+    "Custo Variável",
+    medicoes.reduce((a, m) => a + Number(m.valor), 0),
+  );
   // Receita: receita projetada da versão (além de despesas marcadas Receita).
   const receitaProjetada = Object.values(revenue).reduce((a, b) => a + b, 0);
   porCategoria.set(

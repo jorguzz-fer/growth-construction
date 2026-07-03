@@ -36,6 +36,7 @@ export const SCREENS: Screen[] = [
   { id: "rolling", label: "Rolling Forecast", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
+  { id: "medicaolanc", label: "Lançamento de Medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
   { id: "reembolso", label: "Reembolso", modulo: "Receitas" },
   { id: "permuta", label: "Inventário de Permuta", modulo: "Receitas" },
@@ -79,6 +80,9 @@ export function defaultPermissions(role: Role): PermMatrix {
       out[s.id] = { ...FULL };
     } else if (role === "membro") {
       out[s.id] = s.modulo === "Config" ? { ...NONE } : { ...EDIT };
+    } else if (role === "engenheiro") {
+      // engenheiro: acesso apenas ao Lançamento de Medição
+      out[s.id] = s.id === "medicaolanc" ? { ...FULL } : { ...NONE };
     } else {
       // contador: somente leitura de um subconjunto
       out[s.id] = CONTADOR_VE.has(s.id) ? { ...VIEW } : { ...NONE };
