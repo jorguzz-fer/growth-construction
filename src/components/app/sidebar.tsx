@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState, useTransition } from "react";
@@ -21,7 +20,6 @@ interface NavSection {
 }
 
 export interface SidebarProps {
-  logoUrl: string | null;
   tenantName: string;
   project: Project;
   projects: Project[];
@@ -34,7 +32,6 @@ export interface SidebarProps {
 }
 
 export function Sidebar({
-  logoUrl,
   tenantName,
   project,
   projects,
@@ -134,20 +131,9 @@ export function Sidebar({
         }`}
       >
       <div className="border-b border-white/10 px-4 py-4">
-        {logoUrl ? (
-          <Image
-            src={logoUrl}
-            alt={tenantName}
-            width={160}
-            height={40}
-            unoptimized
-            className="mb-1 max-h-10 w-auto object-contain"
-          />
-        ) : (
-          <div className="font-[family-name:var(--font-serif)] text-[15px]">
-            Growth Tools
-          </div>
-        )}
+        <div className="font-[family-name:var(--font-serif)] text-[15px]">
+          Growth Tools
+        </div>
         <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] text-white/30">
           Construction App
         </div>
