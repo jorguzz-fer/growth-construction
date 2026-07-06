@@ -507,6 +507,8 @@ export const inccRates = pgTable(
     /** acumulado (%). */
     accumulated: numeric("accumulated", { precision: 8, scale: 4 }).notNull(),
     ordem: integer("ordem").notNull(),
+    /** true = valor projetado (média móvel 12m); false = índice oficial. */
+    projected: boolean("projected").notNull().default(false),
   },
   (r) => [unique("incc_project_mes_uq").on(r.projectId, r.mes)],
 );

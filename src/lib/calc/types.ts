@@ -84,6 +84,8 @@ export interface InccRow {
   mo: number;
   /** acumulado % */
   ac: number;
+  /** true = valor projetado (média móvel); false/undefined = índice oficial. */
+  projected?: boolean;
 }
 
 /** Reembolso (subconjunto usado nos cálculos). */

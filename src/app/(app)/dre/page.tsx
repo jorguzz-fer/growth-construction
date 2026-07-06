@@ -72,24 +72,32 @@ export default async function DREPage({
     ? ctx.projects
     : [ctx.projects.find((p) => p.id === projParam) ?? ctx.project];
 
-  // Janelas de ano (só para projeto único, a partir da tabela INCC).
+  // Janelas de ano a partir da tabela INCC. Para "empresa toda", usa a união
+  // dos meses de todos os projetos selecionados, de modo que o filtro de
+  // período continua editável em qualquer combinação de filtros.
+  const inccAll = await Promise.all(
+    selectedProjects.map((p) => getInccRows(p.id)),
+  );
+  const axis = [
+    ...new Set(inccAll.flat().map((r) => r.m)),
+  ].sort((a, b) => {
+    const [ma, ya] = a.split("/").map(Number);
+    const [mb, yb] = b.split("/").map(Number);
+    return ya - yb || ma - mb;
+  });
   const years: { value: string; months: string[]; label: string }[] = [];
-  if (!isAll) {
-    const incc = await getInccRows(selectedProjects[0].id);
-    const axis = incc.map((r) => r.m);
-    for (let i = 0; i < axis.length; i += 12) {
-      const months = axis.slice(i, i + 12);
-      if (months.length)
-        years.push({
-          value: String(years.length + 1),
-          months,
-          label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
-        });
-    }
+  for (let i = 0; i < axis.length; i += 12) {
+    const months = axis.slice(i, i + 12);
+    if (months.length)
+      years.push({
+        value: String(years.length + 1),
+        months,
+        label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
+      });
   }
-  const periodo = isAll ? "acum" : sp.periodo ?? "acum";
+  const periodo = sp.periodo ?? "acum";
   const periodMonths =
-    !isAll && periodo !== "acum"
+    periodo !== "acum"
       ? new Set(years.find((y) => y.value === periodo)?.months ?? [])
       : null;
 
@@ -149,7 +157,7 @@ export default async function DREPage({
               ...years.map((y) => ({ value: y.value, label: y.label })),
             ]}
             periodo={periodo}
-            periodDisabled={isAll}
+            periodDisabled={false}
           />
         }
       />

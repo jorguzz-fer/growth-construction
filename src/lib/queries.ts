@@ -42,6 +42,7 @@ export function toInccRows(
     m: r.mes,
     mo: Number(r.monthly),
     ac: Number(r.accumulated),
+    projected: r.projected,
   }));
 }
 
