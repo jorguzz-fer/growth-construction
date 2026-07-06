@@ -8,7 +8,7 @@
  * Chaves de mês (matriz de projeção e tabela INCC) seguem: "MM/YYYY".
  */
 
-export type UnitStatus = "Disponivel" | "Reservado" | "Vendido";
+export type UnitStatus = "Disponivel" | "Reservado" | "Vendido" | "Permutado";
 export type SubsidioStatus = "Aguardando Caixa" | "Recebido";
 
 /** Sinais/atos: valor, vencimento, nº de parcelas e flag que libera o próximo. */
@@ -84,6 +84,8 @@ export interface InccRow {
   mo: number;
   /** acumulado % */
   ac: number;
+  /** true = valor projetado (média móvel); false/undefined = índice oficial. */
+  projected?: boolean;
 }
 
 /** Reembolso (subconjunto usado nos cálculos). */

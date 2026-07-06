@@ -1,0 +1,1 @@
+ALTER TABLE "incc_rate" ADD COLUMN "projected" boolean DEFAULT false NOT NULL;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import type { Project } from "@/lib/context";
 import { setActiveProject } from "@/lib/actions/context";
 import { createProject, deleteProject } from "@/lib/actions/projects";
@@ -93,10 +94,13 @@ function SwitcherModal({
     start(() => deleteProject(p.id));
   };
 
-  return (
+  // Portal para o document.body: a sidebar usa `transform` (translate-x), o que
+  // faria um `position: fixed` filho se posicionar relativo à sidebar em vez da
+  // viewport — deixando o modal preso "sobre o menu".
+  return createPortal(
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -209,7 +213,8 @@ function SwitcherModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

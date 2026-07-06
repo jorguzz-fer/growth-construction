@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
 import { getPermutas } from "@/lib/queries";
 import { can } from "@/lib/permissions";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -90,7 +90,7 @@ export default async function PermutaPage() {
                   </TD>
                   <TD>{p.cliente || "—"}</TD>
                   <TD className="font-[family-name:var(--font-mono)]">
-                    {p.dataRecebimento || "—"}
+                    {dateBR(p.dataRecebimento)}
                   </TD>
                   <TD>
                     {p.tipo ? <Badge tone={tipoTone(p.tipo)}>{p.tipo}</Badge> : "—"}
@@ -105,7 +105,7 @@ export default async function PermutaPage() {
                     </Badge>
                   </TD>
                   <TD className="font-[family-name:var(--font-mono)]">
-                    {p.dataVenda || "—"}
+                    {dateBR(p.dataVenda)}
                   </TD>
                   <TD
                     className={`text-right font-[family-name:var(--font-mono)] ${

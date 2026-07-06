@@ -71,6 +71,20 @@
       "when": 1783107519201,
       "tag": "0009_confused_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783367443437,
+      "tag": "0010_sharp_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783371317799,
+      "tag": "0011_absent_skaar",
+      "breakpoints": true
     }
   ]
 }

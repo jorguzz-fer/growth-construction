@@ -1,10 +1,13 @@
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { addPermuta } from "@/lib/actions/receitas";
+import { getUnits, getClientes } from "@/lib/queries";
+import { TIPOS_PERMUTA } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,14 @@ export default async function NovoAtivoPermutaPage() {
       </p>
     );
   }
+
+  const [units, clientes] = await Promise.all([
+    getUnits(ctx.version.id),
+    getClientes(ctx.tenant.id),
+  ]);
+  const unitCodes = [...new Set(units.map((u) => u.code))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
 
   return (
     <>
@@ -34,23 +45,39 @@ export default async function NovoAtivoPermutaPage() {
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
             <div>
-              <Label>Unidade</Label>
-              <Input name="unitCode" placeholder="BLA 401" />
+              <Label>Unidade vendida de referência</Label>
+              <Select name="unitCode" defaultValue="">
+                <option value="">— selecione —</option>
+                {unitCodes.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
             </div>
             <div>
               <Label>Cliente</Label>
-              <Input name="cliente" placeholder="" />
+              <Select name="cliente" defaultValue="">
+                <option value="">— selecione —</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.nomeCompleto}>
+                    {c.nomeCompleto}
+                  </option>
+                ))}
+              </Select>
             </div>
             <div>
-              <Label>Data recebimento (MM/DD/YYYY)</Label>
-              <Input name="dataRecebimento" placeholder="01/10/2026" />
+              <Label>Data recebimento</Label>
+              <DateField name="dataRecebimento" />
             </div>
             <div>
-              <Label>Tipo</Label>
-              <Select name="tipo" defaultValue="Carro">
-                <option>Carro</option>
-                <option>Imovel</option>
-                <option>Outro</option>
+              <Label>Tipo do bem / serviço</Label>
+              <Select name="tipo" defaultValue="Imóvel">
+                {TIPOS_PERMUTA.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </Select>
             </div>
             <div className="lg:col-span-2">
@@ -69,12 +96,36 @@ export default async function NovoAtivoPermutaPage() {
               </Select>
             </div>
             <div>
-              <Label>Data venda (MM/DD/YYYY)</Label>
-              <Input name="dataVenda" placeholder="01/10/2026" />
+              <Label>Data venda / escambo</Label>
+              <DateField name="dataVenda" />
             </div>
             <div>
               <Label>Valor venda (R$)</Label>
               <Input name="valorVenda" type="number" step="0.01" placeholder="0" />
+            </div>
+            <div>
+              <Label>Forma da revenda do bem</Label>
+              <Select name="formaVenda" defaultValue="avista">
+                <option value="avista">Venda à vista</option>
+                <option value="parcelada">Venda parcelada</option>
+                <option value="escambo">Escambo (sem entrada financeira)</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Parcelas (se parcelada)</Label>
+              <Input name="parcelas" type="number" min="1" placeholder="Ex.: 12" />
+            </div>
+            <div>
+              <Label>Periodicidade</Label>
+              <Select name="periodicidade" defaultValue="mensal">
+                <option value="mensal">Mensal</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Vencimento da 1ª parcela</Label>
+              <DateField name="dataPrimParcela" />
             </div>
             <div>
               <Label>Tipo permuta</Label>

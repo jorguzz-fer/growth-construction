@@ -5,18 +5,34 @@ import {
   PCT_REF_CEF,
   CUSTO_EDIFICACOES_REF,
 } from "@/lib/calc/constants";
-import { brl0 } from "@/lib/utils";
+import { brl0, monthInRange, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { PrintButton } from "@/components/app/print-button";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 
-export default async function MedicaoPage() {
+export default async function MedicaoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ de?: string; ate?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const despesas = await getDespesas(ctx.version.id);
+  const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+
+  const despesasAll = await getDespesas(ctx.version.id);
+  // Filtro de período (item 3): por competência (ou vencimento) da despesa.
+  const despesas = hasRange
+    ? despesasAll.filter(
+        (d) => monthInRange(d.competencia, de, ate) || dateInRange(d.vencimento, de, ate),
+      )
+    : despesasAll;
 
   // Realizado por grupo de obra (prefixo antes do primeiro ponto da conta CEF).
   const realizadoPorGrupo = new Map<string, number>();
@@ -45,7 +61,12 @@ export default async function MedicaoPage() {
         eyebrow={`${ctx.project.name} · ${ctx.version.label}`}
         title="Medição de Obra — Relatório CEF"
         subtitle={`Evolução físico-financeira por grupo · custo de edificações ${brl0(CUSTO_EDIFICACOES_REF)}`}
-        actions={<PrintButton label="Imprimir Relatório" />}
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            <PrintButton label="Imprimir Relatório" />
+          </div>
+        }
       />
 
       <Table>

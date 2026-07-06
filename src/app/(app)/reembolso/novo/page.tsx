@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,8 @@ export default async function NovoReembolsoPage() {
             className="grid grid-cols-1 gap-4 sm:grid-cols-2"
           >
             <div>
-              <Label>Data (MM/DD/YYYY)</Label>
-              <Input name="data" placeholder="01/27/2026" required />
+              <Label>Data</Label>
+              <DateField name="data" required />
             </div>
             <div>
               <Label>Origem</Label>

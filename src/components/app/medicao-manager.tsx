@@ -5,6 +5,7 @@ import { deleteMedicao, updateMedicao } from "@/lib/actions/medicao";
 import { brl0 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MonthField } from "@/components/ui/date-field";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export interface MedicaoRowData {
@@ -104,11 +105,11 @@ function Row({
   return (
     <TR>
       <TD>
-        <Input
+        <MonthField
           value={competencia}
-          onChange={(e) => setCompetencia(e.target.value)}
+          onChange={setCompetencia}
           disabled={!canEditar || pending}
-          className="h-8 w-24 font-[family-name:var(--font-mono)] text-xs"
+          className="h-8 w-32 text-xs"
         />
       </TD>
       <TD>

@@ -262,6 +262,77 @@ export function calcUnitTotal(u: CalcUnit): number {
   return t;
 }
 
+/** Revenda de um bem recebido em permuta (item 10). */
+export interface CalcPermutaResale {
+  valorVenda: number;
+  dataVenda: string; // "MM/DD/YYYY"
+  formaVenda: string; // "avista" | "parcelada" | "escambo"
+  parcelas: number;
+  periodicidade: string; // "mensal" | "semestral" | "anual"
+  dataPrimParcela: string; // "MM/DD/YYYY"
+}
+
+const STEP: Record<string, number> = { mensal: 1, semestral: 6, anual: 12 };
+
+/**
+ * Recebimentos FINANCEIROS da revenda de bens recebidos em permuta, por mês.
+ * À vista: 1 recebimento na data da venda. Parcelada: N parcelas iguais a
+ * partir da 1ª, na periodicidade informada. Escambo NÃO gera caixa (sem
+ * entrada financeira). Alimenta Fluxo de Caixa e Caixa (previstas).
+ */
+export function permutaCashByMonth(
+  rows: readonly CalcPermutaResale[],
+): MonthlyProjection {
+  const out: MonthlyProjection = {};
+  const add = (mm: string, v: number) => {
+    if (v > 0) out[mm] = (out[mm] || 0) + v;
+  };
+  for (const r of rows) {
+    const forma = (r.formaVenda || "").toLowerCase();
+    if (!r.valorVenda || r.valorVenda <= 0) continue;
+    if (forma === "escambo") continue; // sem entrada financeira
+    if (forma === "parcelada" && r.parcelas > 0) {
+      const d = parseDate(r.dataPrimParcela) ?? parseDate(r.dataVenda);
+      if (!d) continue;
+      const step = STEP[(r.periodicidade || "mensal").toLowerCase()] ?? 1;
+      const parc = Math.round((r.valorVenda / r.parcelas) * 100) / 100;
+      for (let i = 0; i < r.parcelas; i++) {
+        const dt = addMonths(d.mo, d.yr, i * step);
+        add(monthKey(dt.mo, dt.yr), parc);
+      }
+    } else {
+      // à vista (ou forma não informada): recebimento único na data da venda.
+      const d = parseDate(r.dataVenda) ?? parseDate(r.dataPrimParcela);
+      if (d) add(monthKey(d.mo, d.yr), r.valorVenda);
+    }
+  }
+  return out;
+}
+
+/**
+ * Receita CONTÁBIL da revenda de permuta para a DRE, por mês. Igual ao caixa
+ * para à vista/parcelada; para ESCAMBO, contabiliza o valor na data do escambo
+ * (data da venda), sem gerar caixa.
+ */
+export function permutaRevenueByMonth(
+  rows: readonly CalcPermutaResale[],
+): MonthlyProjection {
+  const out: MonthlyProjection = {};
+  const add = (mm: string, v: number) => {
+    if (v > 0) out[mm] = (out[mm] || 0) + v;
+  };
+  const cash = permutaCashByMonth(rows);
+  for (const [mm, v] of Object.entries(cash)) add(mm, v);
+  // Escambo: só DRE, na data do escambo.
+  for (const r of rows) {
+    if ((r.formaVenda || "").toLowerCase() !== "escambo") continue;
+    if (!r.valorVenda || r.valorVenda <= 0) continue;
+    const d = parseDate(r.dataVenda) ?? parseDate(r.dataPrimParcela);
+    if (d) add(monthKey(d.mo, d.yr), r.valorVenda);
+  }
+  return out;
+}
+
 /** Agrega reembolsos por mês ("MM/YYYY"). Espelha `rembByMonth()`. */
 export function reembursementsByMonth(
   reembolsos: readonly CalcReembolso[],

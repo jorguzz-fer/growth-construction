@@ -245,6 +245,20 @@ export const CATEGORIAS_DRE = [
 ] as const;
 export type CategoriaDRE = (typeof CATEGORIAS_DRE)[number];
 
+/** Tipos de bem/serviço aceitos como permuta (aba Permuta). */
+export const TIPOS_PERMUTA = [
+  "Imóvel",
+  "Veículo",
+  "Materiais",
+  "Serviços",
+  "Equipamentos",
+  "Máquinas",
+  "Móveis",
+  "Terrenos",
+  "Outros bens",
+  "Outros",
+] as const;
+
 /** Os 19 papéis possíveis de um stakeholder. §3 */
 export const PAPEIS_STAKEHOLDER = [
   "Fornecedor de Material",

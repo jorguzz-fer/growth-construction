@@ -1,14 +1,25 @@
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import type { ClienteRow } from "@/lib/queries";
 
-type FieldType = "text" | "number" | "unit" | "textarea";
+type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select";
 interface Field {
   name: keyof ClienteRow;
   label: string;
   type?: FieldType;
   required?: boolean;
   colSpan?: string;
+  options?: string[];
 }
+
+const SIM_NAO = ["Sim", "Não"];
+const ESTADO_CIVIL = [
+  "Solteiro(a)",
+  "Casado(a)",
+  "Divorciado(a)",
+  "Viúvo(a)",
+  "União estável",
+];
 interface Group {
   title: string;
   fields: Field[];
@@ -27,9 +38,9 @@ const GROUPS: Group[] = [
     fields: [
       { name: "nomeCompleto", label: "Nome completo", required: true, colSpan: "sm:col-span-2" },
       { name: "cpfCnpj", label: "CPF / CNPJ" },
-      { name: "nascimento", label: "Nascimento" },
+      { name: "nascimento", label: "Nascimento", type: "date" },
       { name: "nacionalidade", label: "Nacionalidade" },
-      { name: "estadoCivil", label: "Estado civil" },
+      { name: "estadoCivil", label: "Estado civil", type: "select", options: ESTADO_CIVIL },
       { name: "endereco", label: "Endereço", colSpan: "sm:col-span-2" },
       { name: "cidadeEstado", label: "Cidade / Estado" },
       { name: "cep", label: "CEP" },
@@ -46,24 +57,24 @@ const GROUPS: Group[] = [
       { name: "rendaBruta", label: "Renda bruta (R$)", type: "number" },
       { name: "rendaLiquida", label: "Renda líquida (R$)", type: "number" },
       { name: "comprometimento", label: "Comprometimento (%)" },
-      { name: "possuiFgts", label: "Possui FGTS?" },
+      { name: "possuiFgts", label: "Possui FGTS?", type: "select", options: SIM_NAO },
       { name: "saldoFgts", label: "Saldo FGTS (R$)", type: "number" },
       { name: "scoreCredito", label: "Score de crédito", type: "number" },
-      { name: "restricoes", label: "Restrições?" },
+      { name: "restricoes", label: "Restrições?", type: "select", options: SIM_NAO },
     ],
   },
   {
     title: "Inteligência de mercado",
     fields: [
-      { name: "morarOuInvestir", label: "Morar ou investir?" },
+      { name: "morarOuInvestir", label: "Morar ou investir?", type: "select", options: ["Morar", "Investir"] },
       { name: "ramoAtividade", label: "Ramo de atividade" },
       { name: "cargoFuncao", label: "Cargo / Função" },
       { name: "areaAtuacao", label: "Área de atuação" },
       { name: "empresa", label: "Empresa" },
-      { name: "regimeTrabalho", label: "Regime de trabalho" },
+      { name: "regimeTrabalho", label: "Regime de trabalho", type: "select", options: ["CLT", "PJ", "Autônomo", "Servidor público", "Empresário", "Aposentado", "Outro"] },
       { name: "localTrabalho", label: "Local de trabalho" },
       { name: "tempoEmpresa", label: "Tempo de empresa (anos)" },
-      { name: "possuiImovel", label: "Já possui imóvel?" },
+      { name: "possuiImovel", label: "Já possui imóvel?", type: "select", options: SIM_NAO },
       { name: "motivacaoCompra", label: "Motivação de compra" },
       { name: "comoConheceu", label: "Como conheceu" },
       { name: "indicadoPor", label: "Indicado por" },
@@ -104,6 +115,17 @@ export function ClienteFields({
                       </option>
                     ))}
                   </Select>
+                ) : f.type === "select" ? (
+                  <Select name={f.name} defaultValue={val(f.name)}>
+                    <option value="">—</option>
+                    {(f.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </Select>
+                ) : f.type === "date" ? (
+                  <DateField name={f.name} defaultValue={val(f.name)} />
                 ) : f.type === "textarea" ? (
                   <textarea
                     name={f.name}

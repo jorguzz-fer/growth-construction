@@ -4,19 +4,23 @@ import {
   getBankAccounts,
   getCash,
   getInccRows,
+  getPermutas,
   getReembolsos,
   getUnits,
+  permToResale,
   reembToCalc,
   toCalcUnit,
 } from "@/lib/queries";
 import {
   calcProjection,
+  permutaCashByMonth,
   reembursementsByMonth,
   type MonthlyProjection,
 } from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -46,18 +50,22 @@ const parseData = (d: string | null): Date | null => {
 export default async function CaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
 
-  const [cash, contas] = await Promise.all([
+  const [cashAll, contas] = await Promise.all([
     getCash(ctx.version.id),
     getBankAccounts(ctx.tenant.id),
   ]);
+  // Filtro de período (item 3): entradas/saídas dentro do intervalo.
+  const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
   const saldoTotal = contas.reduce((a, c) => a + Number(c.saldo), 0);
   const conciliados = cash.filter((c) => c.rec).length;
@@ -66,7 +74,7 @@ export default async function CaixaPage({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const cashByDay = new Map<number, { entradas: number; saidas: number }>();
-  for (const c of cash) {
+  for (const c of cashAll) {
     const dt = parseData(c.data);
     if (!dt) continue;
     dt.setHours(0, 0, 0, 0);
@@ -94,9 +102,12 @@ export default async function CaixaPage({
         title="Controle de Caixa"
         subtitle="Lançamentos reais + conciliação · janela móvel de 7 dias"
         actions={
-          <Badge tone={pluggyCfg() ? "success" : "neutral"}>
-            Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
-          </Badge>
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            <Badge tone={pluggyCfg() ? "success" : "neutral"}>
+              Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
+            </Badge>
+          </div>
         }
       />
 
@@ -249,12 +260,25 @@ function Conciliacao({
   cash: Awaited<ReturnType<typeof getCash>>;
   conciliados: number;
 }) {
+  // Divergências: movimentos importados do extrato que não casaram
+  // automaticamente com contas a pagar/receber (ficam pendentes).
+  const divergencias = cash.filter((c) => !c.rec && c.cat === "extrato").length;
   return (
     <>
-      <div className="mb-3 flex gap-2">
+      <div className="mb-3 flex flex-wrap gap-2">
         <Badge tone="success">{conciliados} conciliados</Badge>
         <Badge tone="warning">{cash.length - conciliados} pendentes</Badge>
+        {divergencias > 0 && (
+          <Badge tone="danger">{divergencias} divergências do extrato</Badge>
+        )}
       </div>
+      {divergencias > 0 && (
+        <p className="mb-3 text-[12px] text-[var(--color-ink3)]">
+          Divergências são lançamentos do extrato importado sem correspondência
+          automática nos módulos de Despesas/Receitas — concilie manualmente
+          marcando a caixa ao lado.
+        </p>
+      )}
       <CashTable cash={cash} withToggle />
     </>
   );
@@ -265,10 +289,11 @@ async function Previstas({
 }: {
   ctx: NonNullable<Awaited<ReturnType<typeof getActiveContext>>>;
 }) {
-  const [unitRows, reembRows, incc] = await Promise.all([
+  const [unitRows, reembRows, incc, permutas] = await Promise.all([
     getUnits(ctx.version.id),
     getReembolsos(ctx.version.id),
     getInccRows(ctx.project.id),
+    getPermutas(ctx.version.id),
   ]);
   const monthly: MonthlyProjection = {};
   for (const r of unitRows) {
@@ -276,13 +301,22 @@ async function Previstas({
     for (const [mm, v] of Object.entries(p)) monthly[mm] = (monthly[mm] || 0) + v;
   }
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  const all = new Set([...Object.keys(monthly), ...Object.keys(reemb)]);
+  const permCash = permutaCashByMonth(permToResale(permutas));
+  const all = new Set([
+    ...Object.keys(monthly),
+    ...Object.keys(reemb),
+    ...Object.keys(permCash),
+  ]);
   const now = new Date();
   const cur = now.getFullYear() * 12 + now.getMonth();
   const rows = [...all]
     .map((mm) => {
       const [m, y] = mm.split("/").map(Number);
-      return { mm, ord: y * 12 + (m - 1), total: (monthly[mm] || 0) + (reemb[mm] || 0) };
+      return {
+        mm,
+        ord: y * 12 + (m - 1),
+        total: (monthly[mm] || 0) + (reemb[mm] || 0) + (permCash[mm] || 0),
+      };
     })
     .filter((r) => r.total > 0 && r.ord >= cur)
     .sort((a, b) => a.ord - b.ord)
@@ -350,7 +384,7 @@ function CashTable({
           const v = Number(c.valor);
           return (
           <TR key={c.id}>
-            <TD className="font-[family-name:var(--font-mono)]">{c.data ?? "—"}</TD>
+            <TD className="font-[family-name:var(--font-mono)]">{dateBR(c.data)}</TD>
             <TD>{c.descricao ?? "—"}</TD>
             <TD>
               <Badge tone={c.cat === "ajuste" ? "info" : "neutral"}>{catLabel(c.cat)}</Badge>
@@ -364,7 +398,12 @@ function CashTable({
             </TD>
             <TD>
               {withToggle ? (
-                <ConciliarToggle id={c.id} rec={c.rec} />
+                <div className="flex items-center gap-2">
+                  <ConciliarToggle id={c.id} rec={c.rec} />
+                  {!c.rec && c.cat === "extrato" && (
+                    <Badge tone="danger">divergência</Badge>
+                  )}
+                </div>
               ) : (
                 <Badge tone={c.rec ? "success" : "warning"}>
                   {c.rec ? "conciliado" : "pendente"}

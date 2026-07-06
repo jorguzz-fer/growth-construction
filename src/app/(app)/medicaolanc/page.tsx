@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { MonthField } from "@/components/ui/date-field";
 import { MedicaoTable } from "@/components/app/medicao-manager";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +55,8 @@ export default async function MedicaoLancamentoPage() {
           <CardContent className="p-5">
             <form action={addMedicao} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
               <div>
-                <Label>Competência (MM/YYYY)</Label>
-                <Input name="competencia" placeholder="01/2026" required />
+                <Label>Competência</Label>
+                <MonthField name="competencia" required />
               </div>
               <div className="sm:col-span-2">
                 <Label>Grupo de obra (CEF)</Label>

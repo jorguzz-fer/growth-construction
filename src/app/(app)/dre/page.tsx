@@ -6,7 +6,10 @@ import {
   getInccRows,
   getMedicoes,
   getMonthlyRevenue,
+  getPermutas,
+  permToResale,
 } from "@/lib/queries";
+import { permutaRevenueByMonth } from "@/lib/calc";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,14 +39,20 @@ async function projectInputs(
 ): Promise<Inputs> {
   const vid = await defaultVersionId(project.id);
   if (!vid) return { receita: 0, custoVar: 0, byCat: {} };
-  const [revenue, medicoes, despesas] = await Promise.all([
+  const [revenue, medicoes, despesas, permutas] = await Promise.all([
     getMonthlyRevenue(vid, project.id),
     getMedicoes(vid),
     getDespesas(vid),
+    getPermutas(vid),
   ]);
   const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
 
   const receitaProj = Object.entries(revenue)
+    .filter(([mm]) => inP(mm))
+    .reduce((a, [, v]) => a + v, 0);
+  // Receita da revenda de bens de permuta (inclui escambo), item 10.
+  const permRev = permutaRevenueByMonth(permToResale(permutas));
+  const receitaPermuta = Object.entries(permRev)
     .filter(([mm]) => inP(mm))
     .reduce((a, [, v]) => a + v, 0);
   const custoVar = medicoes
@@ -54,7 +63,11 @@ async function projectInputs(
     if (!d.categoriaDre || !inP(d.competencia)) continue;
     byCat[d.categoriaDre] = (byCat[d.categoriaDre] || 0) + Number(d.valor);
   }
-  return { receita: receitaProj + (byCat["Receita"] || 0), custoVar, byCat };
+  return {
+    receita: receitaProj + receitaPermuta + (byCat["Receita"] || 0),
+    custoVar,
+    byCat,
+  };
 }
 
 export default async function DREPage({
@@ -72,24 +85,32 @@ export default async function DREPage({
     ? ctx.projects
     : [ctx.projects.find((p) => p.id === projParam) ?? ctx.project];
 
-  // Janelas de ano (só para projeto único, a partir da tabela INCC).
+  // Janelas de ano a partir da tabela INCC. Para "empresa toda", usa a união
+  // dos meses de todos os projetos selecionados, de modo que o filtro de
+  // período continua editável em qualquer combinação de filtros.
+  const inccAll = await Promise.all(
+    selectedProjects.map((p) => getInccRows(p.id)),
+  );
+  const axis = [
+    ...new Set(inccAll.flat().map((r) => r.m)),
+  ].sort((a, b) => {
+    const [ma, ya] = a.split("/").map(Number);
+    const [mb, yb] = b.split("/").map(Number);
+    return ya - yb || ma - mb;
+  });
   const years: { value: string; months: string[]; label: string }[] = [];
-  if (!isAll) {
-    const incc = await getInccRows(selectedProjects[0].id);
-    const axis = incc.map((r) => r.m);
-    for (let i = 0; i < axis.length; i += 12) {
-      const months = axis.slice(i, i + 12);
-      if (months.length)
-        years.push({
-          value: String(years.length + 1),
-          months,
-          label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
-        });
-    }
+  for (let i = 0; i < axis.length; i += 12) {
+    const months = axis.slice(i, i + 12);
+    if (months.length)
+      years.push({
+        value: String(years.length + 1),
+        months,
+        label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
+      });
   }
-  const periodo = isAll ? "acum" : sp.periodo ?? "acum";
+  const periodo = sp.periodo ?? "acum";
   const periodMonths =
-    !isAll && periodo !== "acum"
+    periodo !== "acum"
       ? new Set(years.find((y) => y.value === periodo)?.months ?? [])
       : null;
 
@@ -149,7 +170,7 @@ export default async function DREPage({
               ...years.map((y) => ({ value: y.value, label: y.label })),
             ]}
             periodo={periodo}
-            periodDisabled={isAll}
+            periodDisabled={false}
           />
         }
       />
