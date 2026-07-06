@@ -6,6 +6,7 @@ import { addDespesa, extractDespesaFromDoc } from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField, MonthField } from "@/components/ui/date-field";
 
 interface Fornecedor {
   id: string;
@@ -270,19 +271,11 @@ export function DespesaForm({
           </div>
           <div>
             <Label>Competência</Label>
-            <Input
-              value={competencia}
-              onChange={(e) => setCompetencia(e.target.value)}
-              placeholder="01/2026"
-            />
+            <MonthField value={competencia} onChange={setCompetencia} />
           </div>
           <div>
-            <Label>Vencimento (MM/DD/YYYY)</Label>
-            <Input
-              value={vencimento}
-              onChange={(e) => setVencimento(e.target.value)}
-              placeholder="01/27/2026"
-            />
+            <Label>Vencimento</Label>
+            <DateField value={vencimento} onChange={setVencimento} />
           </div>
           <div>
             <Label>Valor</Label>

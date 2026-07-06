@@ -6,6 +6,7 @@ import { addCash } from "@/lib/actions/caixa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 
 interface Conta {
   id: string;
@@ -99,12 +100,8 @@ export function CaixaEntryForm({ contas }: { contas: Conta[] }) {
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
           <div>
-            <Label>Data (MM/DD/YYYY)</Label>
-            <Input
-              value={data}
-              onChange={(e) => setData(e.target.value)}
-              placeholder="06/10/2026"
-            />
+            <Label>Data</Label>
+            <DateField value={data} onChange={setData} />
           </div>
           <div className="sm:col-span-2">
             <Label>Descrição</Label>

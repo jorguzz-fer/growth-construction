@@ -33,6 +33,38 @@ export function brlk(value: number): string {
   }).format(value);
 }
 
+// ─────────────────────────────── datas ──────────────────────────────────
+// Armazenamento interno: "MM/DD/YYYY" (datas) e "MM/YYYY" (meses). Exibição
+// padronizada em DD/MM/AAAA. Os helpers abaixo convertem sem alterar o dado.
+
+/** "MM/DD/YYYY" → "DD/MM/YYYY"; "MM/YYYY" → "MM/YYYY"; vazio/invalid → "—". */
+export function dateBR(s: string | null | undefined): string {
+  if (!s) return "—";
+  const p = s.trim().split("/");
+  if (p.length === 3) return `${p[1].padStart(2, "0")}/${p[0].padStart(2, "0")}/${p[2]}`;
+  if (p.length === 2) return `${p[0].padStart(2, "0")}/${p[1]}`;
+  return s;
+}
+
+/** "MM/DD/YYYY" → "YYYY-MM-DD" (valor de <input type="date">); vazio → "". */
+export function toISODate(s: string | null | undefined): string {
+  if (!s) return "";
+  const p = s.trim().split("/");
+  if (p.length !== 3) return "";
+  const [mo, d, y] = p;
+  if (!mo || !d || !y) return "";
+  return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+/** "YYYY-MM-DD" → "MM/DD/YYYY" (formato interno); vazio → "". */
+export function fromISODate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const p = iso.trim().split("-");
+  if (p.length !== 3) return "";
+  const [y, mo, d] = p;
+  return `${mo}/${d}/${y}`;
+}
+
 /**
  * Número de série da data no padrão de planilha — INT(Data): dias desde
  * 1899-12-30 (mesma convenção do Excel/Sheets). Aceita "MM/DD/YYYY" (formato

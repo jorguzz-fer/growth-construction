@@ -15,7 +15,7 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -350,7 +350,7 @@ function CashTable({
           const v = Number(c.valor);
           return (
           <TR key={c.id}>
-            <TD className="font-[family-name:var(--font-mono)]">{c.data ?? "—"}</TD>
+            <TD className="font-[family-name:var(--font-mono)]">{dateBR(c.data)}</TD>
             <TD>{c.descricao ?? "—"}</TD>
             <TD>
               <Badge tone={c.cat === "ajuste" ? "info" : "neutral"}>{catLabel(c.cat)}</Badge>

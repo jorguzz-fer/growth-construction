@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateDespesa, deleteDespesa } from "@/lib/actions/despesas";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { Input, Select } from "@/components/ui/input";
+import { DateField, MonthField } from "@/components/ui/date-field";
 import { Button } from "@/components/ui/button";
 
 export interface DespesaDTO {
@@ -183,18 +184,19 @@ function Row({
     return (
       <TR>
         <TD>
-          <Input
-            value={venc ? f.vencimento : f.competencia}
-            onChange={(e) =>
-              setF((s) =>
-                venc
-                  ? { ...s, vencimento: e.target.value }
-                  : { ...s, competencia: e.target.value },
-              )
-            }
-            placeholder={venc ? "MM/DD/YYYY" : "MM/YYYY"}
-            className="h-8 text-xs"
-          />
+          {venc ? (
+            <DateField
+              value={f.vencimento}
+              onChange={(v) => setF((s) => ({ ...s, vencimento: v }))}
+              className="h-8 text-xs"
+            />
+          ) : (
+            <MonthField
+              value={f.competencia}
+              onChange={(v) => setF((s) => ({ ...s, competencia: v }))}
+              className="h-8 text-xs"
+            />
+          )}
         </TD>
         <TD>
           <Input
@@ -286,7 +288,7 @@ function Row({
   return (
     <TR>
       <TD className="font-[family-name:var(--font-mono)]">
-        {(venc ? d.vencimento : d.competencia) ?? "—"}
+        {dateBR(venc ? d.vencimento : d.competencia)}
       </TD>
       <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
         {d.numDoc ?? "—"}
