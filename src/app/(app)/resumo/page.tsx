@@ -1,30 +1,54 @@
 import { getActiveContext } from "@/lib/context";
 import {
+  getMonthlyRevenue,
   getPermutas,
   getReembolsos,
   getUnits,
   permToCalc,
+  permToResale,
   reembToCalc,
   toCalcUnit,
 } from "@/lib/queries";
-import { calcTotals } from "@/lib/calc";
-import { brl0 } from "@/lib/utils";
+import { calcTotals, permutaCashByMonth } from "@/lib/calc";
+import { brl0, dateBR, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 
-export default async function ResumoPage() {
+export default async function ResumoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ de?: string; ate?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [unitRows, permRows, reembRows] = await Promise.all([
+  const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+
+  const [unitRows, permRows, reembRows, revenue] = await Promise.all([
     getUnits(ctx.version.id),
     getPermutas(ctx.version.id),
     getReembolsos(ctx.version.id),
+    getMonthlyRevenue(ctx.version.id, ctx.project.id),
   ]);
+
+  // Recebimentos previstos no período (item 3): receita mensal + revenda de
+  // permuta, restritos ao intervalo [de, ate]. Os "Indicadores Gerais" abaixo
+  // são valores contratados (acumulados) e não dependem do período.
+  const permCash = permutaCashByMonth(permToResale(permRows));
+  const recebimentosPeriodo = [
+    ...Object.entries(revenue),
+    ...Object.entries(permCash),
+  ]
+    .filter(([mm]) => monthInRange(mm, de, ate))
+    .reduce((a, [, v]) => a + v, 0);
 
   const totals = calcTotals(
     unitRows.map(toCalcUnit),
@@ -62,15 +86,40 @@ export default async function ResumoPage() {
         eyebrow={`${ctx.project.name} · Versão ${ctx.version.label}`}
         title="Resumo Executivo"
         subtitle="Indicadores gerais calculados dinamicamente"
+        actions={<DateRangeFilter de={de} ate={ate} />}
       />
+
+      {hasRange && (
+        <Card className="mb-6">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+            <div>
+              <div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                Recebimentos previstos no período
+              </div>
+              <div className="text-[12px] text-[var(--color-ink3)]">
+                {dateBR(de) !== "—" ? dateBR(de) : "início"} até{" "}
+                {dateBR(ate) !== "—" ? dateBR(ate) : "fim"} · receita das unidades
+                + reembolso + revenda de permuta
+              </div>
+            </div>
+            <div className="font-[family-name:var(--font-mono)] text-2xl font-semibold text-[var(--color-success)]">
+              {brl0(recebimentosPeriodo)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Indicadores gerais */}
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
               Indicadores Gerais
             </h2>
+            <p className="mb-4 text-[11px] text-[var(--color-ink3)]">
+              Valores contratados (acumulados) — não variam por período. O recorte
+              por data afeta os recebimentos previstos acima.
+            </p>
             <Table>
               <THead>
                 <tr>
