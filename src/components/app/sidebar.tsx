@@ -30,8 +30,6 @@ export interface SidebarProps {
   userRole: string;
   perms: PermMatrix;
   badges: { unidades: number; reembolso: number; permuta: number };
-  /** operador da plataforma — vê a seção de Administração (contas/tenants). */
-  isSuperAdmin?: boolean;
 }
 
 export function Sidebar({
@@ -44,7 +42,6 @@ export function Sidebar({
   userRole,
   perms,
   badges,
-  isSuperAdmin,
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -272,25 +269,6 @@ export function Sidebar({
             })}
           </div>
         ))}
-
-        {isSuperAdmin && (
-          <div>
-            <div className="px-4 pb-1 pt-3 font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/20">
-              Plataforma
-            </div>
-            <Link
-              href="/superadmin"
-              onClick={close}
-              className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[12.5px] transition-colors ${
-                pathname === "/superadmin"
-                  ? "border-[var(--color-accent2)] bg-[var(--color-accent2)]/20 text-white"
-                  : "border-transparent text-white/50 hover:bg-white/5 hover:text-white/85"
-              }`}
-            >
-              <span className="flex-1">Administração de Contas</span>
-            </Link>
-          </div>
-        )}
       </nav>
 
       <div className="mt-auto border-t border-white/10 p-3">

@@ -1,29 +1,21 @@
-import { redirect } from "next/navigation";
-import { getActiveContext } from "@/lib/context";
-import { isSuperAdmin } from "@/lib/tenant/superadmin";
 import { getAllTenantsOverview } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { CreateTenantForm } from "@/components/app/create-tenant-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function SuperAdminPage() {
-  const ctx = await getActiveContext();
-  if (!ctx) return null;
-  // Privilégio de plataforma — não é papel do tenant. Gate explícito.
-  if (!isSuperAdmin(ctx.userEmail)) redirect("/dashboard");
-
+/** Dashboard do backoffice: criar contas + visão geral de todos os tenants. */
+export default async function PlataformaPage() {
   const tenants = await getAllTenantsOverview();
   const dateFmt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" });
 
   return (
     <>
       <PageHeader
-        title="Administração da plataforma"
-        subtitle={`${tenants.length} contas · criação e visão geral dos tenants`}
+        title="Contas (tenants)"
+        subtitle={`${tenants.length} contas · criação e visão geral da plataforma`}
       />
 
       <Card className="mb-6">
@@ -54,14 +46,7 @@ export default async function SuperAdminPage() {
         <tbody>
           {tenants.map((t) => (
             <TR key={t.id}>
-              <TD className="font-medium text-[var(--color-ink)]">
-                {t.name}
-                {t.id === ctx.tenant.id && (
-                  <Badge tone="neutral" className="ml-2">
-                    atual
-                  </Badge>
-                )}
-              </TD>
+              <TD className="font-medium text-[var(--color-ink)]">{t.name}</TD>
               <TD className="font-[family-name:var(--font-mono)] text-xs">
                 {t.owners.length ? t.owners.join(", ") : "—"}
               </TD>
