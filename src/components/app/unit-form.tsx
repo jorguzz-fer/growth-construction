@@ -8,6 +8,7 @@ import { brl0 } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 
 export interface UnitFormValue {
@@ -121,8 +122,8 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
           <Field label="VGV (valor)">
             <Input type="number" value={v.valor} onChange={(e) => setV({ ...v, valor: e.target.value })} />
           </Field>
-          <Field label="Mês venda (MM/DD/YYYY)">
-            <Input value={v.mesVenda} onChange={(e) => setV({ ...v, mesVenda: e.target.value })} />
+          <Field label="Data da venda">
+            <DateField value={v.mesVenda} onChange={(x) => setV({ ...v, mesVenda: x })} />
           </Field>
         </CardContent>
       </Card>
@@ -148,7 +149,7 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
           onToggle={(b) => setPlan({ usarAS: b })}
         >
           <Money label="Valor" value={plan.AS.val} onChange={(x) => setSrc("AS", "val", x)} />
-          <Txt label="Vencimento" value={plan.AS.venc} onChange={(x) => setSrc("AS", "venc", x)} />
+          <Dt label="Vencimento" value={plan.AS.venc} onChange={(x) => setSrc("AS", "venc", x)} />
           <Num label="Parcelas" value={plan.AS.n} onChange={(x) => setSrc("AS", "n", x)} />
           <Flag label="Usar Sinal 1" value={plan.AS.usarS1} onChange={(b) => setSrc("AS", "usarS1", b)} />
         </SourceGroup>
@@ -160,7 +161,7 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
           return (
             <SourceGroup key={k} title={`Sinal ${i + 1} (${k})`}>
               <Money label="Valor" value={src.val} onChange={(x) => setSrc(k, "val", x)} />
-              <Txt label="Vencimento" value={src.venc} onChange={(x) => setSrc(k, "venc", x)} />
+              <Dt label="Vencimento" value={src.venc} onChange={(x) => setSrc(k, "venc", x)} />
               <Num label="Parcelas" value={src.n} onChange={(x) => setSrc(k, "n", x)} />
               <Flag
                 label={nextLabel}
@@ -173,30 +174,30 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
 
         <SourceGroup title="Mensais">
           <Money label="Valor" value={plan.Mensais.val} onChange={(x) => setSrc("Mensais", "val", x)} />
-          <Txt label="1º Vencimento" value={plan.Mensais.venc} onChange={(x) => setSrc("Mensais", "venc", x)} />
+          <Dt label="1º Vencimento" value={plan.Mensais.venc} onChange={(x) => setSrc("Mensais", "venc", x)} />
           <Num label="Parcelas" value={plan.Mensais.n} onChange={(x) => setSrc("Mensais", "n", x)} />
           <Flag label="Usar Semestrais" value={plan.Mensais.usarSem} onChange={(b) => setSrc("Mensais", "usarSem", b)} />
         </SourceGroup>
         <SourceGroup title="Semestrais">
           <Money label="Valor" value={plan.Semestrais.val} onChange={(x) => setSrc("Semestrais", "val", x)} />
-          <Txt label="1º Vencimento" value={plan.Semestrais.venc} onChange={(x) => setSrc("Semestrais", "venc", x)} />
+          <Dt label="1º Vencimento" value={plan.Semestrais.venc} onChange={(x) => setSrc("Semestrais", "venc", x)} />
           <Num label="Parcelas" value={plan.Semestrais.n} onChange={(x) => setSrc("Semestrais", "n", x)} />
           <Flag label="Usar Anuais" value={plan.Semestrais.usarAnu} onChange={(b) => setSrc("Semestrais", "usarAnu", b)} />
         </SourceGroup>
         <SourceGroup title="Anuais">
           <Money label="Valor" value={plan.Anuais.val} onChange={(x) => setSrc("Anuais", "val", x)} />
-          <Txt label="1º Vencimento" value={plan.Anuais.venc} onChange={(x) => setSrc("Anuais", "venc", x)} />
+          <Dt label="1º Vencimento" value={plan.Anuais.venc} onChange={(x) => setSrc("Anuais", "venc", x)} />
           <Num label="Parcelas" value={plan.Anuais.n} onChange={(x) => setSrc("Anuais", "n", x)} />
           <Flag label="Usar FGTS" value={plan.Anuais.usarFGTS} onChange={(b) => setSrc("Anuais", "usarFGTS", b)} />
         </SourceGroup>
         <SourceGroup title="FGTS">
           <Money label="Valor" value={plan.FGTS.val} onChange={(x) => setSrc("FGTS", "val", x)} />
-          <Txt label="Data prevista" value={plan.FGTS.dataPrev} onChange={(x) => setSrc("FGTS", "dataPrev", x)} />
+          <Dt label="Data prevista" value={plan.FGTS.dataPrev} onChange={(x) => setSrc("FGTS", "dataPrev", x)} />
           <Flag label="Usar Subsídio" value={plan.FGTS.usarSub} onChange={(b) => setSrc("FGTS", "usarSub", b)} />
         </SourceGroup>
         <SourceGroup title="Subsídio">
           <Money label="Valor" value={plan.Subsidio.val} onChange={(x) => setSrc("Subsidio", "val", x)} />
-          <Txt label="Data prevista" value={plan.Subsidio.dataPrev} onChange={(x) => setSrc("Subsidio", "dataPrev", x)} />
+          <Dt label="Data prevista" value={plan.Subsidio.dataPrev} onChange={(x) => setSrc("Subsidio", "dataPrev", x)} />
           <Field label="Status subsídio">
             <Select
               value={plan.Subsidio.statusSub}
@@ -211,13 +212,13 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
         <SourceGroup title="Permuta">
           <Txt label="Descrição" value={plan.Permuta.desc} onChange={(x) => setSrc("Permuta", "desc", x)} />
           <Money label="Valor" value={plan.Permuta.val} onChange={(x) => setSrc("Permuta", "val", x)} />
-          <Txt label="Data prevista" value={plan.Permuta.dataPrev} onChange={(x) => setSrc("Permuta", "dataPrev", x)} />
+          <Dt label="Data prevista" value={plan.Permuta.dataPrev} onChange={(x) => setSrc("Permuta", "dataPrev", x)} />
           <Flag label="Usar Financiamento" value={plan.Permuta.usarFinanc} onChange={(b) => setSrc("Permuta", "usarFinanc", b)} />
         </SourceGroup>
         <SourceGroup title="Financiamento Bancário">
           <Money label="Valor financiado" value={plan.Banco.valFinanc} onChange={(x) => setSrc("Banco", "valFinanc", x)} />
-          <Txt label="Data entrada" value={plan.Banco.dataEntrada} onChange={(x) => setSrc("Banco", "dataEntrada", x)} />
-          <Txt label="1ª parcela" value={plan.Banco.dataPrimParc} onChange={(x) => setSrc("Banco", "dataPrimParc", x)} />
+          <Dt label="Data entrada" value={plan.Banco.dataEntrada} onChange={(x) => setSrc("Banco", "dataEntrada", x)} />
+          <Dt label="1ª parcela" value={plan.Banco.dataPrimParc} onChange={(x) => setSrc("Banco", "dataPrimParc", x)} />
           <Txt label="Status" value={plan.Banco.statusFinanc} onChange={(x) => setSrc("Banco", "statusFinanc", x)} />
         </SourceGroup>
       </div>
@@ -274,6 +275,13 @@ function Txt({ label, value, onChange }: { label: string; value: string; onChang
   return (
     <Field label={label}>
       <Input value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  );
+}
+function Dt({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <Field label={label}>
+      <DateField value={value} onChange={onChange} />
     </Field>
   );
 }

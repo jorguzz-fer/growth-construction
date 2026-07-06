@@ -13,13 +13,14 @@ import {
   type UnitRow,
 } from "@/lib/queries";
 import { addMonths, calcTotals, parseDate } from "@/lib/calc";
-import { brlk, brl0 } from "@/lib/utils";
+import { brlk, brl0, monthInRange, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { BarChart, DoughnutChart, CHART_COLORS } from "@/components/app/charts";
 import { DashboardVersions } from "@/components/app/dashboard-versions";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -35,18 +36,30 @@ interface Summary {
 }
 
 /** Indicadores agregados de uma versão (para os KPIs e o comparativo). */
-async function versionSummary(projectId: string, version: Version): Promise<Summary> {
-  const [unitRows, revenue, cashRows] = await Promise.all([
+async function versionSummary(
+  projectId: string,
+  version: Version,
+  de: string,
+  ate: string,
+): Promise<Summary> {
+  const hasRange = !!(de || ate);
+  const [unitRows, revenueAll, cashRows] = await Promise.all([
     getUnits(version.id),
     getMonthlyRevenue(version.id, projectId),
     db
-      .select({ valor: schema.cashEntries.valor })
+      .select({ valor: schema.cashEntries.valor, data: schema.cashEntries.data })
       .from(schema.cashEntries)
       .where(eq(schema.cashEntries.versionId, version.id)),
   ]);
+  // Filtro de período (item 3): receita por mês e realizado por data.
+  const revenue = hasRange
+    ? Object.fromEntries(
+        Object.entries(revenueAll).filter(([mm]) => monthInRange(mm, de, ate)),
+      )
+    : revenueAll;
   const receitaProj = Object.values(revenue).reduce((a, b) => a + b, 0);
   const realizado = cashRows
-    .filter((c) => Number(c.valor) > 0)
+    .filter((c) => Number(c.valor) > 0 && (!hasRange || dateInRange(c.data, de, ate)))
     .reduce((a, c) => a + Number(c.valor), 0);
   return {
     version,
@@ -127,18 +140,20 @@ function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ v?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
   const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
   const wanted = (sp.v ?? "").split(",").filter(Boolean);
   const validWanted = ctx.versions.filter((v) => wanted.includes(v.id)).slice(0, 3);
   const selected = validWanted.length > 0 ? validWanted : ctx.versions.slice(0, 3);
 
   const summaries = await Promise.all(
-    selected.map((v) => versionSummary(ctx.project.id, v)),
+    selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
   );
 
   // Ano do comparativo: o que concentra mais receita projetada nas versões.
@@ -195,6 +210,7 @@ export default async function DashboardPage({
         eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
         title="Dashboard"
         subtitle="Visão geral do projeto — independente da versão ativa"
+        actions={<DateRangeFilter de={de} ate={ate} />}
       />
 
       <DashboardVersions
