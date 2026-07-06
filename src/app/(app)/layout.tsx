@@ -3,7 +3,6 @@ import Image from "next/image";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { mfaEnforced } from "@/lib/mfa";
-import { isSuperAdmin } from "@/lib/tenant/superadmin";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -105,7 +104,6 @@ export default async function AppLayout({
         userRole={ctx.role}
         perms={ctx.perms}
         badges={{ unidades, reembolso, permuta }}
-        isSuperAdmin={isSuperAdmin(me?.email)}
       />
       <main className="flex-1 overflow-y-auto">
         {logoUrl && (
