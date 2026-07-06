@@ -260,12 +260,25 @@ function Conciliacao({
   cash: Awaited<ReturnType<typeof getCash>>;
   conciliados: number;
 }) {
+  // Divergências: movimentos importados do extrato que não casaram
+  // automaticamente com contas a pagar/receber (ficam pendentes).
+  const divergencias = cash.filter((c) => !c.rec && c.cat === "extrato").length;
   return (
     <>
-      <div className="mb-3 flex gap-2">
+      <div className="mb-3 flex flex-wrap gap-2">
         <Badge tone="success">{conciliados} conciliados</Badge>
         <Badge tone="warning">{cash.length - conciliados} pendentes</Badge>
+        {divergencias > 0 && (
+          <Badge tone="danger">{divergencias} divergências do extrato</Badge>
+        )}
       </div>
+      {divergencias > 0 && (
+        <p className="mb-3 text-[12px] text-[var(--color-ink3)]">
+          Divergências são lançamentos do extrato importado sem correspondência
+          automática nos módulos de Despesas/Receitas — concilie manualmente
+          marcando a caixa ao lado.
+        </p>
+      )}
       <CashTable cash={cash} withToggle />
     </>
   );
@@ -385,7 +398,12 @@ function CashTable({
             </TD>
             <TD>
               {withToggle ? (
-                <ConciliarToggle id={c.id} rec={c.rec} />
+                <div className="flex items-center gap-2">
+                  <ConciliarToggle id={c.id} rec={c.rec} />
+                  {!c.rec && c.cat === "extrato" && (
+                    <Badge tone="danger">divergência</Badge>
+                  )}
+                </div>
               ) : (
                 <Badge tone={c.rec ? "success" : "warning"}>
                   {c.rec ? "conciliado" : "pendente"}
