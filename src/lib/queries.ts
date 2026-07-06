@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import { calcProjection, reembursementsByMonth } from "./calc/projection";
@@ -253,6 +253,73 @@ export async function getMembers(tenantId: string): Promise<MemberRow[]> {
   return rows.map(({ passwordHash, ...m }) => ({
     ...m,
     hasPassword: Boolean(passwordHash),
+  }));
+}
+
+// ──────────────────────── Super-admin (plataforma) ───────────────────────
+
+export interface TenantOverview {
+  id: string;
+  name: string;
+  createdAt: Date;
+  members: number;
+  projects: number;
+  owners: string[];
+}
+
+/**
+ * Visão geral de TODOS os tenants — usada apenas na tela de super-admin da
+ * plataforma. Não é filtrada por tenant (é uma visão de plataforma), então o
+ * chamador é responsável por restringir o acesso a super-admins.
+ */
+export async function getAllTenantsOverview(): Promise<TenantOverview[]> {
+  const tenants = await db
+    .select()
+    .from(schema.tenants)
+    .orderBy(desc(schema.tenants.createdAt));
+
+  const memberCounts = await db
+    .select({
+      tenantId: schema.memberships.tenantId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(schema.memberships)
+    .groupBy(schema.memberships.tenantId);
+
+  const projectCounts = await db
+    .select({
+      tenantId: schema.projects.tenantId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(schema.projects)
+    .groupBy(schema.projects.tenantId);
+
+  const ownerRows = await db
+    .select({
+      tenantId: schema.memberships.tenantId,
+      email: schema.users.email,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+    .where(eq(schema.memberships.role, "owner"));
+
+  const memberMap = new Map(memberCounts.map((r) => [r.tenantId, r.n]));
+  const projectMap = new Map(projectCounts.map((r) => [r.tenantId, r.n]));
+  const ownerMap = new Map<string, string[]>();
+  for (const r of ownerRows) {
+    if (!r.email) continue;
+    const list = ownerMap.get(r.tenantId) ?? [];
+    list.push(r.email);
+    ownerMap.set(r.tenantId, list);
+  }
+
+  return tenants.map((t) => ({
+    id: t.id,
+    name: t.name,
+    createdAt: t.createdAt,
+    members: memberMap.get(t.id) ?? 0,
+    projects: projectMap.get(t.id) ?? 0,
+    owners: ownerMap.get(t.id) ?? [],
   }));
 }
 
