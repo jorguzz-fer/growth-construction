@@ -96,12 +96,36 @@ export default async function NovoAtivoPermutaPage() {
               </Select>
             </div>
             <div>
-              <Label>Data venda</Label>
+              <Label>Data venda / escambo</Label>
               <DateField name="dataVenda" />
             </div>
             <div>
               <Label>Valor venda (R$)</Label>
               <Input name="valorVenda" type="number" step="0.01" placeholder="0" />
+            </div>
+            <div>
+              <Label>Forma da revenda do bem</Label>
+              <Select name="formaVenda" defaultValue="avista">
+                <option value="avista">Venda à vista</option>
+                <option value="parcelada">Venda parcelada</option>
+                <option value="escambo">Escambo (sem entrada financeira)</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Parcelas (se parcelada)</Label>
+              <Input name="parcelas" type="number" min="1" placeholder="Ex.: 12" />
+            </div>
+            <div>
+              <Label>Periodicidade</Label>
+              <Select name="periodicidade" defaultValue="mensal">
+                <option value="mensal">Mensal</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Vencimento da 1ª parcela</Label>
+              <DateField name="dataPrimParcela" />
             </div>
             <div>
               <Label>Tipo permuta</Label>

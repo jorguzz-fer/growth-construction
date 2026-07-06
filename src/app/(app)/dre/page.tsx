@@ -6,7 +6,10 @@ import {
   getInccRows,
   getMedicoes,
   getMonthlyRevenue,
+  getPermutas,
+  permToResale,
 } from "@/lib/queries";
+import { permutaRevenueByMonth } from "@/lib/calc";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,14 +39,20 @@ async function projectInputs(
 ): Promise<Inputs> {
   const vid = await defaultVersionId(project.id);
   if (!vid) return { receita: 0, custoVar: 0, byCat: {} };
-  const [revenue, medicoes, despesas] = await Promise.all([
+  const [revenue, medicoes, despesas, permutas] = await Promise.all([
     getMonthlyRevenue(vid, project.id),
     getMedicoes(vid),
     getDespesas(vid),
+    getPermutas(vid),
   ]);
   const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
 
   const receitaProj = Object.entries(revenue)
+    .filter(([mm]) => inP(mm))
+    .reduce((a, [, v]) => a + v, 0);
+  // Receita da revenda de bens de permuta (inclui escambo), item 10.
+  const permRev = permutaRevenueByMonth(permToResale(permutas));
+  const receitaPermuta = Object.entries(permRev)
     .filter(([mm]) => inP(mm))
     .reduce((a, [, v]) => a + v, 0);
   const custoVar = medicoes
@@ -54,7 +63,11 @@ async function projectInputs(
     if (!d.categoriaDre || !inP(d.competencia)) continue;
     byCat[d.categoriaDre] = (byCat[d.categoriaDre] || 0) + Number(d.valor);
   }
-  return { receita: receitaProj + (byCat["Receita"] || 0), custoVar, byCat };
+  return {
+    receita: receitaProj + receitaPermuta + (byCat["Receita"] || 0),
+    custoVar,
+    byCat,
+  };
 }
 
 export default async function DREPage({

@@ -43,8 +43,15 @@ export async function addPermuta(formData: FormData) {
     dataVenda: (formData.get("dataVenda") as string) || null,
     valorVenda: (formData.get("valorVenda") as string) || "0",
     tipoPermuta: (formData.get("tipoPermuta") as string) || null,
+    formaVenda: (formData.get("formaVenda") as string) || null,
+    parcelas: formData.get("parcelas") ? Number(formData.get("parcelas")) : null,
+    periodicidade: (formData.get("periodicidade") as string) || null,
+    dataPrimParcela: (formData.get("dataPrimParcela") as string) || null,
     obs: (formData.get("obs") as string) || null,
   });
   revalidatePath("/permuta");
+  revalidatePath("/fluxocaixa");
+  revalidatePath("/dre");
+  revalidatePath("/caixa");
   redirect("/permuta");
 }

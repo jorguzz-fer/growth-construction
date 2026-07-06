@@ -1,7 +1,11 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
-import { calcProjection, reembursementsByMonth } from "./calc/projection";
+import {
+  calcProjection,
+  reembursementsByMonth,
+  type CalcPermutaResale,
+} from "./calc/projection";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -106,6 +110,18 @@ export function permToCalc(rows: PermutaRow[]): CalcPermuta[] {
     estimado: Number(p.estimado ?? 0),
     status: p.status ?? "",
     valorVenda: Number(p.valorVenda ?? 0),
+  }));
+}
+
+/** Mapeia permutas → dados de revenda para os cálculos de caixa/DRE (item 10). */
+export function permToResale(rows: PermutaRow[]): CalcPermutaResale[] {
+  return rows.map((p) => ({
+    valorVenda: Number(p.valorVenda ?? 0),
+    dataVenda: p.dataVenda ?? "",
+    formaVenda: p.formaVenda ?? "",
+    parcelas: Number(p.parcelas ?? 0),
+    periodicidade: p.periodicidade ?? "mensal",
+    dataPrimParcela: p.dataPrimParcela ?? "",
   }));
 }
 

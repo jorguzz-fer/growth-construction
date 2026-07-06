@@ -4,13 +4,16 @@ import {
   getBankAccounts,
   getCash,
   getInccRows,
+  getPermutas,
   getReembolsos,
   getUnits,
+  permToResale,
   reembToCalc,
   toCalcUnit,
 } from "@/lib/queries";
 import {
   calcProjection,
+  permutaCashByMonth,
   reembursementsByMonth,
   type MonthlyProjection,
 } from "@/lib/calc";
@@ -273,10 +276,11 @@ async function Previstas({
 }: {
   ctx: NonNullable<Awaited<ReturnType<typeof getActiveContext>>>;
 }) {
-  const [unitRows, reembRows, incc] = await Promise.all([
+  const [unitRows, reembRows, incc, permutas] = await Promise.all([
     getUnits(ctx.version.id),
     getReembolsos(ctx.version.id),
     getInccRows(ctx.project.id),
+    getPermutas(ctx.version.id),
   ]);
   const monthly: MonthlyProjection = {};
   for (const r of unitRows) {
@@ -284,13 +288,22 @@ async function Previstas({
     for (const [mm, v] of Object.entries(p)) monthly[mm] = (monthly[mm] || 0) + v;
   }
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  const all = new Set([...Object.keys(monthly), ...Object.keys(reemb)]);
+  const permCash = permutaCashByMonth(permToResale(permutas));
+  const all = new Set([
+    ...Object.keys(monthly),
+    ...Object.keys(reemb),
+    ...Object.keys(permCash),
+  ]);
   const now = new Date();
   const cur = now.getFullYear() * 12 + now.getMonth();
   const rows = [...all]
     .map((mm) => {
       const [m, y] = mm.split("/").map(Number);
-      return { mm, ord: y * 12 + (m - 1), total: (monthly[mm] || 0) + (reemb[mm] || 0) };
+      return {
+        mm,
+        ord: y * 12 + (m - 1),
+        total: (monthly[mm] || 0) + (reemb[mm] || 0) + (permCash[mm] || 0),
+      };
     })
     .filter((r) => r.total > 0 && r.ord >= cur)
     .sort((a, b) => a.ord - b.ord)

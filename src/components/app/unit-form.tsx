@@ -111,6 +111,7 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
               <option>Disponivel</option>
               <option>Reservado</option>
               <option>Vendido</option>
+              <option>Permutado</option>
             </Select>
           </Field>
           <Field label="m²">

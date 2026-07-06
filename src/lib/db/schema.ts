@@ -146,6 +146,7 @@ export const unitStatusEnum = pgEnum("unit_status", [
   "Disponivel",
   "Reservado",
   "Vendido",
+  "Permutado",
 ]);
 
 export const stakeholderTypeEnum = pgEnum("stakeholder_type", ["PJ", "PF"]);
@@ -264,6 +265,14 @@ export const permutas = pgTable("permuta", {
   dataVenda: text("data_venda"),
   valorVenda: numeric("valor_venda", { precision: 15, scale: 2 }),
   tipoPermuta: text("tipo_permuta"),
+  /** revenda do bem recebido: "avista" | "parcelada" | "escambo". */
+  formaVenda: text("forma_venda"),
+  /** nº de parcelas (revenda parcelada). */
+  parcelas: integer("parcelas"),
+  /** periodicidade das parcelas: "mensal" | "semestral" | "anual". */
+  periodicidade: text("periodicidade"),
+  /** vencimento da 1ª parcela "MM/DD/YYYY". */
+  dataPrimParcela: text("data_prim_parcela"),
   obs: text("obs"),
 });
 

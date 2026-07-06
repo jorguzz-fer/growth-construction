@@ -4,8 +4,11 @@ import {
   getDespesas,
   getInccRows,
   getMonthlyRevenue,
+  getPermutas,
+  permToResale,
   sortMonthKey,
 } from "@/lib/queries";
+import { permutaCashByMonth } from "@/lib/calc";
 import { brl0, brlk, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,12 +35,19 @@ export default async function FluxoCaixaPage({
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [entradas, despesas, incc, contas] = await Promise.all([
+  const [entradas, despesas, incc, contas, permutas] = await Promise.all([
     getMonthlyRevenue(ctx.version.id, ctx.project.id),
     getDespesas(ctx.version.id),
     getInccRows(ctx.project.id),
     getBankAccounts(ctx.tenant.id),
+    getPermutas(ctx.version.id),
   ]);
+
+  // Recebimentos da revenda de bens recebidos em permuta (item 10).
+  const permCash = permutaCashByMonth(permToResale(permutas));
+  for (const [mm, v] of Object.entries(permCash)) {
+    entradas[mm] = (entradas[mm] || 0) + v;
+  }
 
   const saidas: Record<string, number> = {};
   for (const d of despesas) {
