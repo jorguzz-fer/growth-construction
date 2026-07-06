@@ -7,9 +7,11 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { RoleSelect } from "@/components/app/role-select";
+import { MemberActions } from "@/components/app/member-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,10 @@ export default async function UsuariosPage() {
   if (!ctx) return null;
 
   const members = await getMembers(ctx.tenant.id);
-  const podeGerir = can(ctx.perms, "usuarios", "criar");
+  const podeCriar = can(ctx.perms, "usuarios", "criar");
+  const podeEditar = can(ctx.perms, "usuarios", "editar");
+  const podeExcluir = can(ctx.perms, "usuarios", "excluir");
+  const temAcoes = podeEditar || podeExcluir;
 
   return (
     <>
@@ -35,12 +40,15 @@ export default async function UsuariosPage() {
         subtitle={`${members.length} membros · seu papel: ${ctx.role}`}
       />
 
-      {podeGerir && (
+      {podeCriar && (
         <Card className="mb-6">
           <CardContent className="p-5">
+            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
+              Novo usuário
+            </h2>
             <form
               action={inviteMember}
-              className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+              className="grid grid-cols-2 gap-3 sm:grid-cols-5"
             >
               <div>
                 <Label>Nome</Label>
@@ -59,12 +67,24 @@ export default async function UsuariosPage() {
                   <option value="engenheiro">engenheiro</option>
                 </Select>
               </div>
+              <div>
+                <Label>Senha inicial (opcional)</Label>
+                <PasswordInput
+                  name="password"
+                  placeholder="mín. 8"
+                  autoComplete="new-password"
+                />
+              </div>
               <div className="flex items-end">
                 <Button type="submit" className="w-full">
-                  Convidar
+                  Adicionar
                 </Button>
               </div>
             </form>
+            <p className="mt-2 text-xs text-[var(--color-ink3)]">
+              Sem senha inicial, o usuário fica com acesso pendente até você
+              definir uma senha na tabela abaixo.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -75,6 +95,8 @@ export default async function UsuariosPage() {
             <TH>Nome</TH>
             <TH>E-mail</TH>
             <TH>Papel</TH>
+            <TH>Acesso</TH>
+            {temAcoes && <TH>Ações</TH>}
           </tr>
         </THead>
         <tbody>
@@ -87,18 +109,40 @@ export default async function UsuariosPage() {
                 {m.email ?? "—"}
               </TD>
               <TD>
-                {podeGerir ? (
+                {podeEditar ? (
                   <RoleSelect userId={m.userId} role={m.role as Role} />
                 ) : (
                   <Badge tone={roleTone[m.role] ?? "neutral"}>{m.role}</Badge>
                 )}
               </TD>
+              <TD>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Badge tone={m.hasPassword ? "success" : "warning"}>
+                    {m.hasPassword ? "ativo" : "sem senha"}
+                  </Badge>
+                  {m.mfaEnabled && <Badge tone="info">MFA</Badge>}
+                  {m.userId === ctx.userId && (
+                    <Badge tone="neutral">você</Badge>
+                  )}
+                </div>
+              </TD>
+              {temAcoes && (
+                <TD>
+                  <MemberActions
+                    userId={m.userId}
+                    name={m.name}
+                    isSelf={m.userId === ctx.userId}
+                    canEdit={podeEditar}
+                    canDelete={podeExcluir}
+                  />
+                </TD>
+              )}
             </TR>
           ))}
         </tbody>
       </Table>
 
-      {podeGerir && (
+      {podeCriar && (
         <p className="mb-2 mt-6 text-sm text-[var(--color-ink3)]">
           Para permissões granulares por tela e ação, use{" "}
           <Link href="/acessos" className="text-[var(--color-accent2)] hover:underline">
@@ -108,7 +152,7 @@ export default async function UsuariosPage() {
         </p>
       )}
 
-      {!can(ctx.perms, "usuarios", "editar") && (
+      {!podeEditar && (
         <p className="mt-4 text-sm text-[var(--color-warning)]">
           Você está em modo somente-leitura nesta tela.
         </p>
