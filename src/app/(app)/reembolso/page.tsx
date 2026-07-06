@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
 import { getReembolsos } from "@/lib/queries";
 import { can } from "@/lib/permissions";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -79,7 +79,7 @@ export default async function ReembolsoPage() {
             rows.map((r) => (
               <TR key={r.id}>
                 <TD className="font-[family-name:var(--font-mono)]">
-                  {r.data ?? "—"}
+                  {dateBR(r.data)}
                 </TD>
                 <TD>{r.origem ?? "—"}</TD>
                 <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
