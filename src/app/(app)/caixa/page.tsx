@@ -15,8 +15,9 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
-import { brl0, dateBR } from "@/lib/utils";
+import { brl0, dateBR, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -46,18 +47,22 @@ const parseData = (d: string | null): Date | null => {
 export default async function CaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
 
-  const [cash, contas] = await Promise.all([
+  const [cashAll, contas] = await Promise.all([
     getCash(ctx.version.id),
     getBankAccounts(ctx.tenant.id),
   ]);
+  // Filtro de período (item 3): entradas/saídas dentro do intervalo.
+  const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
   const saldoTotal = contas.reduce((a, c) => a + Number(c.saldo), 0);
   const conciliados = cash.filter((c) => c.rec).length;
@@ -66,7 +71,7 @@ export default async function CaixaPage({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const cashByDay = new Map<number, { entradas: number; saidas: number }>();
-  for (const c of cash) {
+  for (const c of cashAll) {
     const dt = parseData(c.data);
     if (!dt) continue;
     dt.setHours(0, 0, 0, 0);
@@ -94,9 +99,12 @@ export default async function CaixaPage({
         title="Controle de Caixa"
         subtitle="Lançamentos reais + conciliação · janela móvel de 7 dias"
         actions={
-          <Badge tone={pluggyCfg() ? "success" : "neutral"}>
-            Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
-          </Badge>
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            <Badge tone={pluggyCfg() ? "success" : "neutral"}>
+              Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
+            </Badge>
+          </div>
         }
       />
 

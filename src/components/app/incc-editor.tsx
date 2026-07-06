@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useEffect, useMemo, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { InccRow } from "@/lib/calc";
 import { updateInccMonth, projectFutureIncc } from "@/lib/actions/incc";
@@ -10,6 +10,11 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 const CONFIRM_MSG =
   "Confirma a alteração deste índice? Esta alteração impactará os cálculos futuros.";
+
+const ordOf = (mes: string) => {
+  const [m, y] = mes.split("/").map(Number);
+  return y * 12 + (m - 1);
+};
 
 export function InccEditor({
   projectId,
@@ -22,6 +27,24 @@ export function InccEditor({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const autoRan = useRef(false);
+
+  // Projeção automática: se existem meses futuros ainda não projetados, gera a
+  // projeção por média móvel automaticamente ao abrir a tela (item 2).
+  const needsProjection = useMemo(() => {
+    const now = new Date();
+    const curOrd = now.getFullYear() * 12 + now.getMonth();
+    return initial.some((r) => ordOf(r.m) > curOrd && !r.projected);
+  }, [initial]);
+
+  useEffect(() => {
+    if (!canEdit || !needsProjection || autoRan.current) return;
+    autoRan.current = true;
+    start(async () => {
+      await projectFutureIncc(projectId);
+      router.refresh();
+    });
+  }, [canEdit, needsProjection, projectId, router]);
 
   const commit = (row: InccRow, raw: string, input: HTMLInputElement) => {
     const value = raw.trim() === "" ? 0 : Number(raw);
@@ -55,7 +78,7 @@ export function InccEditor({
               })
             }
           >
-            {pending ? "Processando…" : "Projetar meses futuros (média 12m)"}
+            {pending ? "Processando…" : "Recalcular projeção (média 12m)"}
           </Button>
         )}
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-ink3)]">

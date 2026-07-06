@@ -6,11 +6,12 @@ import {
   getMonthlyRevenue,
   sortMonthKey,
 } from "@/lib/queries";
-import { brl0, brlk } from "@/lib/utils";
+import { brl0, brlk, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ProjecaoYearSelect } from "@/components/app/projecao-controls";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ function vencMonth(d: string | null): string | null {
 export default async function FluxoCaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -62,8 +63,14 @@ export default async function FluxoCaixaPage({
       });
   }
   const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
   const selectedYear = Math.min(Math.max(1, Number(sp.ano) || 1), Math.max(1, years.length));
-  const yearMonths = years[selectedYear - 1]?.months ?? [];
+  // Com período informado, o intervalo de datas tem prioridade sobre o Ano N.
+  const yearMonths = hasRange
+    ? axis.filter((mm) => monthInRange(mm, de, ate))
+    : years[selectedYear - 1]?.months ?? [];
 
   // Saldo acumulado corre desde o saldo inicial ao longo de todo o horizonte.
   let acumulado = saldoInicial;
@@ -88,9 +95,12 @@ export default async function FluxoCaixaPage({
         title="Fluxo de Caixa Mensal"
         subtitle="Por data de vencimento/pagamento · saldo acumulado"
         actions={
-          years.length > 1 ? (
-            <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />
-          ) : undefined
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            {!hasRange && years.length > 1 && (
+              <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />
+            )}
+          </div>
         }
       />
 

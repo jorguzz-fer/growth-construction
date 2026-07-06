@@ -65,6 +65,59 @@ export function fromISODate(iso: string | null | undefined): string {
   return `${mo}/${d}/${y}`;
 }
 
+/** "MM/DD/YYYY" → número YYYYMMDD (comparável); null se inválido. */
+export function ymd(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const p = s.trim().split("/");
+  if (p.length !== 3) return null;
+  const [mo, d, y] = p.map(Number);
+  if (!y || !mo || !d) return null;
+  return y * 10000 + mo * 100 + d;
+}
+
+/** "MM/YYYY" → número YYYYMM (comparável); null se inválido. */
+export function ym(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const p = s.trim().split("/");
+  if (p.length === 2) {
+    const [mo, y] = p.map(Number);
+    return y && mo ? y * 100 + mo : null;
+  }
+  if (p.length === 3) {
+    const [mo, , y] = p.map(Number);
+    return y && mo ? y * 100 + mo : null;
+  }
+  return null;
+}
+
+/** Verdadeiro se a DATA "MM/DD/YYYY" está no intervalo [de, ate] (inclusive). */
+export function dateInRange(
+  data: string | null | undefined,
+  de: string,
+  ate: string,
+): boolean {
+  const v = ymd(data);
+  const lo = ymd(de);
+  const hi = ymd(ate);
+  if (lo != null && (v == null || v < lo)) return false;
+  if (hi != null && (v == null || v > hi)) return false;
+  return true;
+}
+
+/** Verdadeiro se o MÊS "MM/YYYY" está no intervalo [de, ate] (por competência). */
+export function monthInRange(
+  mes: string | null | undefined,
+  de: string,
+  ate: string,
+): boolean {
+  const v = ym(mes);
+  const lo = ym(de);
+  const hi = ym(ate);
+  if (lo != null && (v == null || v < lo)) return false;
+  if (hi != null && (v == null || v > hi)) return false;
+  return true;
+}
+
 /**
  * Número de série da data no padrão de planilha — INT(Data): dias desde
  * 1899-12-30 (mesma convenção do Excel/Sheets). Aceita "MM/DD/YYYY" (formato

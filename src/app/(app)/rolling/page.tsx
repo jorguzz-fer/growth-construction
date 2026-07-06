@@ -17,7 +17,9 @@ import {
   type MonthlyProjection,
   type ProjectionSource,
 } from "@/lib/calc";
+import { dateBR, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import {
   RollingSimulator,
   type DriverItem,
@@ -43,7 +45,7 @@ function toMonth(d: string | null): string | null {
 export default async function RollingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periodo?: string }>;
+  searchParams: Promise<{ periodo?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -96,12 +98,19 @@ export default async function RollingPage({
   }
 
   const sp = await searchParams;
-  const periodo = sp.periodo ?? "acum";
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+  const periodo = hasRange ? "acum" : sp.periodo ?? "acum";
   const periodMonths =
-    periodo !== "acum"
+    !hasRange && periodo !== "acum"
       ? new Set(years.find((y) => y.value === periodo)?.months ?? [])
       : null;
-  const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
+  // Intervalo de datas (item 3) tem prioridade sobre a seleção de Ano.
+  const inP = (mm: string | null) =>
+    hasRange
+      ? monthInRange(mm, de, ate)
+      : !periodMonths || (mm != null && periodMonths.has(mm));
   const sumOver = (map: MonthlyProjection) =>
     Object.entries(map).reduce((a, [mm, v]) => a + (inP(mm) ? v : 0), 0);
 
@@ -178,8 +187,9 @@ export default async function RollingPage({
     return v > 0 && inP(toMonth(c.data)) ? a + v : a;
   }, 0);
 
-  const periodLabel =
-    periodMonths && years.find((y) => y.value === periodo)
+  const periodLabel = hasRange
+    ? `${dateBR(de) !== "—" ? dateBR(de) : "início"} – ${dateBR(ate) !== "—" ? dateBR(ate) : "fim"}`
+    : periodMonths && years.find((y) => y.value === periodo)
       ? years.find((y) => y.value === periodo)!.label
       : "Acumulado (todo o horizonte)";
 
@@ -189,6 +199,7 @@ export default async function RollingPage({
         eyebrow={ctx.version.label}
         title="Rolling Forecast"
         subtitle={`Simulador driver-based · ${periodLabel} · variações não alteram os dados reais`}
+        actions={<DateRangeFilter de={de} ate={ate} />}
       />
       <RollingSimulator
         receitaSources={receitaSources}

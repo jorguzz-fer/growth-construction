@@ -13,11 +13,12 @@ import {
   type MonthlyProjection,
   type ProjectionSource,
 } from "@/lib/calc";
-import { brl0 } from "@/lib/utils";
+import { brl0, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConsolidadoControls } from "@/components/app/consolidado-controls";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -42,13 +43,16 @@ const sumOver = (map: MonthlyProjection, months: string[]) =>
 export default async function ConsolidadoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; ano?: string }>;
+  searchParams: Promise<{ view?: string; ano?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
   const sp = await searchParams;
   const view: View = VIEWS.some((v) => v.key === sp.view) ? (sp.view as View) : "mensal";
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
 
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(ctx.version.id),
@@ -70,14 +74,18 @@ export default async function ConsolidadoPage({
   }
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 
-  // Horizonte (48 meses INCC + extras) e janelas de ano.
-  const axis = Array.from(
+  // Horizonte (48 meses INCC + extras) e janelas de ano. Com período informado
+  // (item 3), o eixo é restrito ao intervalo [de, ate].
+  const fullAxis = Array.from(
     new Set([
       ...incc.map((r) => r.m),
       ...PROJECTION_SOURCES.flatMap((s) => Object.keys(sources[s])),
       ...Object.keys(reembMonth),
     ]),
   ).sort(sortMonth);
+  const axis = hasRange
+    ? fullAxis.filter((m) => monthInRange(m, de, ate))
+    : fullAxis;
 
   const yearWindows: { value: number; months: string[]; label: string }[] = [];
   for (let i = 0; i < axis.length; i += 12) {
@@ -91,7 +99,7 @@ export default async function ConsolidadoPage({
   }
   const wantedAno = Number(sp.ano) || 1;
   const ano = Math.min(Math.max(1, wantedAno), Math.max(1, yearWindows.length));
-  const yearMonths = yearWindows[ano - 1]?.months ?? [];
+  const yearMonths = hasRange ? axis : yearWindows[ano - 1]?.months ?? [];
 
   // Colunas conforme a periodicidade.
   const columns: { label: string; months: string[] }[] = [];
@@ -129,13 +137,18 @@ export default async function ConsolidadoPage({
         title="Consolidado"
         subtitle="Reembolso incluído no TOTAL"
         actions={
-          <ConsolidadoControls
-            views={VIEWS}
-            view={view}
-            years={yearWindows.map((y) => ({ value: y.value, label: y.label }))}
-            ano={ano}
-            anoDisabled={view === "anual"}
-          />
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            {!hasRange && (
+              <ConsolidadoControls
+                views={VIEWS}
+                view={view}
+                years={yearWindows.map((y) => ({ value: y.value, label: y.label }))}
+                ano={ano}
+                anoDisabled={view === "anual"}
+              />
+            )}
+          </div>
         }
       />
 

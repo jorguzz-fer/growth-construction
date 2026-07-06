@@ -11,7 +11,7 @@ import {
   reembursementsByMonth,
   type MonthlyProjection,
 } from "@/lib/calc";
-import { brl0 } from "@/lib/utils";
+import { brl0, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -21,6 +21,7 @@ import {
   ProjecaoExport,
   type ExportMatrix,
 } from "@/components/app/projecao-controls";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
 export default async function ProjecaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -73,9 +74,14 @@ export default async function ProjecaoPage({
     });
   }
   const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
   const wantedAno = Number(sp.ano) || 1;
   const selectedYear = Math.min(Math.max(1, wantedAno), Math.max(1, years.length));
-  const yearMonths = years[selectedYear - 1]?.months ?? [];
+  const yearMonths = hasRange
+    ? axis.filter((m) => monthInRange(m, de, ate))
+    : years[selectedYear - 1]?.months ?? [];
 
   const vendidas = unitRows.filter((u) => u.status === "Vendido").length;
   const grand = (p: MonthlyProjection) => Object.values(p).reduce((a, b) => a + b, 0);
@@ -106,8 +112,9 @@ export default async function ProjecaoPage({
         title="Projeção de Receitas"
         subtitle={`Versão: ${ctx.version.label} · ${vendidas} unidades vendidas`}
         actions={
-          <div className="flex items-center gap-2">
-            {years.length > 1 && (
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            {!hasRange && years.length > 1 && (
               <ProjecaoYearSelect years={years} selected={selectedYear} />
             )}
             <ProjecaoExport matrix={exportMatrix} filename={`projecao-${ctx.version.key}.csv`} />
