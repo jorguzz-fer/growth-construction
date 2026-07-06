@@ -18,6 +18,8 @@ export interface ActiveContext {
   version: Version;
   /** usuário "logado" (enquanto não há Auth.js ativo, o owner do tenant). */
   userId: string | null;
+  /** e-mail do usuário logado (usado no gate de super-admin da plataforma). */
+  userEmail: string | null;
   role: Role;
   /** permissões efetivas por tela × ação (role + overrides do membership). */
   perms: PermMatrix;
@@ -97,6 +99,7 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     versions,
     version,
     userId: user.id,
+    userEmail: user.email,
     role,
     perms: effectivePermissions(role, membership.permissions ?? null),
   };
