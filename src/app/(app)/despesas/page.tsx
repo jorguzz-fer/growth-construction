@@ -6,9 +6,11 @@ import {
   getStakeholders,
   getBankAccounts,
   getDocuments,
+  getAtualVersion,
 } from "@/lib/queries";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
+import { ProjectPicker } from "@/components/app/project-picker";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
@@ -36,7 +38,7 @@ const TABS: { key: Tab; label: string }[] = [
 export default async function DespesasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; proj?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -49,8 +51,14 @@ export default async function DespesasPage({
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
+  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); a lista e o
+  // lançamento operam sobre a versão Atual do projeto selecionado.
+  const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
+  const version = await getAtualVersion(ctx.tenant.id, project.id);
+  const versionId = version?.id ?? ctx.version.id;
+
   const [despesas, fornecedores, contas, bancos] = await Promise.all([
-    getDespesas(ctx.version.id),
+    getDespesas(versionId),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
@@ -82,9 +90,15 @@ export default async function DespesasPage({
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
+        eyebrow={`${project.name} · Atual`}
         title="Lançamentos de Despesas"
         subtitle={`${despesas.length} lançamentos · total ${brl0(total)}`}
+        actions={
+          <ProjectPicker
+            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            selected={project.id}
+          />
+        }
       />
 
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
@@ -107,6 +121,8 @@ export default async function DespesasPage({
         <>
           {canEdit && (
             <DespesaForm
+              projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+              projetoId={project.id}
               fornecedores={fornecedores.map((f) => ({
                 id: f.id,
                 nome: f.nome,
@@ -146,7 +162,7 @@ export default async function DespesasPage({
 
       {tab === "parcelas" && (
         <ParcelasList
-          rows={(await getParcelasByVersion(ctx.version.id)).map((p) => ({
+          rows={(await getParcelasByVersion(versionId)).map((p) => ({
             id: p.id,
             numeroParcela: p.numeroParcela,
             despesaNumDoc: p.despesaNumDoc,

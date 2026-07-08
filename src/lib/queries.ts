@@ -77,6 +77,20 @@ export async function getUnit(
   return row;
 }
 
+/** Unidade por id no escopo do tenant, com o projeto da sua versão. */
+export async function getUnitWithProject(
+  tenantId: string,
+  unitId: string,
+): Promise<(UnitRow & { projectId: string }) | undefined> {
+  const [row] = await db
+    .select({ u: schema.units, projectId: schema.versions.projectId })
+    .from(schema.units)
+    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
+    .where(and(eq(schema.units.id, unitId), eq(schema.units.tenantId, tenantId)))
+    .limit(1);
+  return row ? { ...row.u, projectId: row.projectId } : undefined;
+}
+
 export async function getReembolsos(
   versionId: string,
 ): Promise<ReembolsoRow[]> {
@@ -180,6 +194,26 @@ export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]
     .select()
     .from(schema.budgetLines)
     .where(eq(schema.budgetLines.versionId, versionId));
+}
+
+/**
+ * Versão "Atual" (detalhada) de um projeto, no escopo do tenant. Como não há
+ * mais "versão ativa", os lançamentos de despesas/receitas sempre gravam aqui.
+ */
+export async function getAtualVersion(tenantId: string, projectId: string) {
+  const [v] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.projectId, projectId),
+        eq(schema.versions.kind, "atual"),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt))
+    .limit(1);
+  return v ?? null;
 }
 
 /** kind da versão (para decidir entre lançamento detalhado × simplificado). */

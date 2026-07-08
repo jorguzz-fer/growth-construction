@@ -3,12 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useState, useTransition } from "react";
-import type { Project, Version } from "@/lib/context";
-import { setActiveVersion } from "@/lib/actions/context";
-import { duplicateVersion } from "@/lib/actions/versions";
+import { useState } from "react";
 import { can, type PermMatrix } from "@/lib/permissions";
-import { ProjectSwitcher } from "@/components/app/project-switcher";
 
 interface NavItem {
   href: string;
@@ -22,10 +18,6 @@ interface NavSection {
 
 export interface SidebarProps {
   tenantName: string;
-  project: Project;
-  projects: Project[];
-  version: Version;
-  versions: Version[];
   userName: string;
   userRole: string;
   perms: PermMatrix;
@@ -34,17 +26,12 @@ export interface SidebarProps {
 
 export function Sidebar({
   tenantName,
-  project,
-  projects,
-  version,
-  versions,
   userName,
   userRole,
   perms,
   badges,
 }: SidebarProps) {
   const pathname = usePathname();
-  const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
@@ -53,7 +40,8 @@ export function Sidebar({
       title: "Módulo Receitas",
       items: [
         { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
-        { href: "/lancamento", label: "Lançamento Budget/Forecast" },
+        { href: "/budget", label: "Lançamento Budget" },
+        { href: "/forecast", label: "Lançamento Forecast" },
         { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
@@ -160,95 +148,6 @@ export function Sidebar({
           <span className="text-[10px] text-white/40">✎</span>
         </div>
       </Link>
-
-      {/* Seletor de projeto / unidade */}
-      <div className="border-b border-white/10 px-4 py-2.5">
-        <div className="mb-1 font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
-          Projeto / Unidade
-        </div>
-        <ProjectSwitcher
-          projects={projects}
-          activeId={project.id}
-          canCreate={can(perms, "projeto", "criar")}
-          canDelete={can(perms, "projeto", "excluir")}
-        />
-      </div>
-
-      {/* Seletor de versão */}
-      <div className="border-b border-white/10 px-4 py-2.5">
-        <div className="font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
-          Versão ativa
-        </div>
-        <div className="mt-1.5 flex flex-col gap-1">
-          {versions.map((v) => {
-            const active = v.id === version.id;
-            return (
-              <div key={v.id} className="flex items-center gap-1">
-                <button
-                  disabled={pending}
-                  onClick={() => startTransition(() => setActiveVersion(v.id))}
-                  className={`flex flex-1 items-center gap-2 rounded-[8px] px-2 py-1.5 text-left text-[12px] transition-colors ${
-                    active
-                      ? "bg-[var(--color-accent2)]/20 text-white"
-                      : "text-white/50 hover:bg-white/5 hover:text-white/85"
-                  }`}
-                >
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: v.color }}
-                  />
-                  {v.label}
-                </button>
-                {can(perms, "versao", "ver") && (
-                  <Link
-                    href={`/versao?v=${v.id}`}
-                    onClick={close}
-                    title="Configurar / importar dados desta versão"
-                    className="shrink-0 rounded-[6px] px-1.5 py-1 text-[11px] text-white/30 transition-colors hover:bg-white/10 hover:text-white/80"
-                  >
-                    ✎
-                  </Link>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {versions.length < 6 && (
-          <button
-            disabled={pending}
-            onClick={() => {
-              const label = window.prompt(
-                "Nome da nova versão:",
-                `Cópia de ${version.label}`,
-              );
-              if (label)
-                startTransition(() => duplicateVersion(version.id, label));
-            }}
-            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-dashed border-white/15 px-2 py-1.5 text-[11px] text-white/40 transition-colors hover:border-white/30 hover:text-white/70 disabled:opacity-50"
-          >
-            + Nova versão (duplicar atual)
-          </button>
-        )}
-        <div className="mt-1 font-[family-name:var(--font-mono)] text-[9.5px] text-white/20">
-          {versions.length}/6 versões
-        </div>
-        {can(perms, "versao", "ver") && (
-          <>
-            <a
-              href={`/versao/template?v=${version.id}`}
-              className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
-            >
-              <span aria-hidden>📗</span> Baixar planilha modelo
-            </a>
-            <a
-              href={`/versao/export?v=${version.id}`}
-              className="mt-1 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
-            >
-              <span aria-hidden>📤</span> Exportar dados desta versão
-            </a>
-          </>
-        )}
-      </div>
 
       <nav className="flex-1 py-1">
         {sections.map((sec) => (

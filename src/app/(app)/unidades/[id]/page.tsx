@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getActiveContext } from "@/lib/context";
-import { getUnit } from "@/lib/queries";
+import { getUnitWithProject } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { UnitForm } from "@/components/app/unit-form";
 import { emptyPlan } from "@/lib/calc";
@@ -15,15 +15,18 @@ export default async function EditarUnidadePage({
   const ctx = await getActiveContext();
   if (!ctx) return null;
   const { id } = await params;
-  const row = await getUnit(ctx.version.id, id);
+  const row = await getUnitWithProject(ctx.tenant.id, id);
   if (!row) notFound();
+  const project = ctx.projects.find((p) => p.id === row.projectId) ?? ctx.projects[0];
 
   return (
     <>
-      <PageHeader eyebrow={ctx.version.label} title={`Editar ${row.code}`} />
+      <PageHeader eyebrow={`${project.name} · Atual`} title={`Editar ${row.code}`} />
       <UnitForm
+        projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         initial={{
           id: row.id,
+          projetoId: row.projectId,
           code: row.code,
           bloco: row.bloco ?? "",
           tipo: row.tipo ?? "",

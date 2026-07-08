@@ -10,7 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { gerarParcelas } from "@/lib/calc";
 import type { CategoriaDRE } from "@/lib/calc/constants";
-import { getChartAccounts, getStakeholders } from "@/lib/queries";
+import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
 import {
   AI_ACCEPTED_MIME,
   extractDespesaFromDocument,
@@ -99,7 +99,12 @@ async function numDocExists(
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
-  if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  // Sem "projeto ativo": a despesa é associada ao projeto escolhido no
+  // formulário e gravada na versão Atual daquele projeto.
+  const projectId = (formData.get("projectId") as string) || ctx.project.id;
+  const version = await getAtualVersion(ctx.tenant.id, projectId);
+  if (!version) throw new Error("Projeto sem versão Atual.");
+  if (version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
 
   // Número gerado automaticamente (atômico no banco). Só owner/admin podem
   // informar um número manual — com checagem de duplicidade.
@@ -117,7 +122,7 @@ export async function addDespesa(formData: FormData) {
   const [row] = await db
     .insert(schema.despesas)
     .values({
-      versionId: ctx.version.id,
+      versionId: version.id,
       tenantId: ctx.tenant.id,
       numDoc,
       fornecedorId: s("fornecedorId"),

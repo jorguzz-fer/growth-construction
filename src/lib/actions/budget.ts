@@ -29,17 +29,55 @@ export interface BudgetCell {
   valor: number;
 }
 
-function ensureBudgetTarget(
-  ctx: NonNullable<Awaited<ReturnType<typeof getActiveContext>>>,
-  versionId: string,
-) {
-  const v = ctx.versions.find((x) => x.id === versionId);
+type Ctx = NonNullable<Awaited<ReturnType<typeof getActiveContext>>>;
+
+/**
+ * Carrega a versão-alvo do lançamento simplificado direto do banco (por id,
+ * no escopo do tenant) — as telas de Budget/Forecast são por projeto e não
+ * dependem mais de um "projeto ativo". Valida tipo, permissão e trava.
+ */
+async function loadBudgetTarget(ctx: Ctx, versionId: string) {
+  const [v] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.id, versionId),
+        eq(schema.versions.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
   if (!v) throw new Error("Versão inválida.");
   if (!isBudgetVersion(v.kind)) {
     throw new Error("Lançamento simplificado é só para Budget/Forecast.");
   }
+  // Permissão pela tela correspondente ao tipo da versão (budget/forecast).
+  if (!can(ctx.perms, v.kind, "editar")) throw new Error("Sem permissão.");
   if (v.locked) throw new Error("Versão congelada.");
   return v;
+}
+
+/** Versão de um dado tipo no mesmo projeto da versão-alvo. */
+async function siblingVersion(projectId: string, kind: string) {
+  const [v] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.projectId, projectId),
+        eq(schema.versions.kind, kind as typeof schema.versions.$inferSelect.kind),
+      ),
+    )
+    .limit(1);
+  return v ?? null;
+}
+
+/** Revalida as duas telas de lançamento simplificado e os reports afetados. */
+function revalidateLancamento() {
+  revalidatePath("/budget");
+  revalidatePath("/forecast");
+  revalidatePath("/dre");
+  revalidatePath("/fluxocaixa");
 }
 
 /** Substitui todas as linhas de um tipo (receita/despesa) da versão. */
@@ -80,10 +118,8 @@ export async function saveBudgetLines(
   cells: BudgetCell[],
 ) {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "lancamento", "editar")) {
-    throw new Error("Sem permissão.");
-  }
-  ensureBudgetTarget(ctx, versionId);
+  if (!ctx) throw new Error("Sem permissão.");
+  await loadBudgetTarget(ctx, versionId);
   await replaceLines(ctx.tenant.id, versionId, kind, cells);
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -93,17 +129,15 @@ export async function saveBudgetLines(
     entityId: versionId,
     meta: { kind, count: cells.length },
   });
-  revalidatePath("/lancamento");
-  revalidatePath("/dre");
-  revalidatePath("/fluxocaixa");
+  revalidateLancamento();
 }
 
 /** Copia os lançamentos do Budget do projeto para a versão Forecast. */
 export async function importFromBudget(forecastVersionId: string) {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "lancamento", "editar")) throw new Error("Sem permissão.");
-  ensureBudgetTarget(ctx, forecastVersionId);
-  const budget = ctx.versions.find((v) => v.kind === "budget");
+  if (!ctx) throw new Error("Sem permissão.");
+  const target = await loadBudgetTarget(ctx, forecastVersionId);
+  const budget = await siblingVersion(target.projectId, "budget");
   if (!budget) throw new Error("Este projeto não tem versão Budget.");
 
   const lines = await db
@@ -133,7 +167,7 @@ export async function importFromBudget(forecastVersionId: string) {
     entityId: forecastVersionId,
     meta: { from: budget.id, count: lines.length },
   });
-  revalidatePath("/lancamento");
+  revalidateLancamento();
 }
 
 const numCell = (v: unknown): number => {
@@ -151,9 +185,9 @@ const numCell = (v: unknown): number => {
  */
 export async function importBudgetXlsx(formData: FormData) {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "lancamento", "editar")) throw new Error("Sem permissão.");
+  if (!ctx) throw new Error("Sem permissão.");
   const versionId = (formData.get("versionId") as string) || "";
-  ensureBudgetTarget(ctx, versionId);
+  await loadBudgetTarget(ctx, versionId);
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione uma planilha.");
 
@@ -204,23 +238,21 @@ export async function importBudgetXlsx(formData: FormData) {
     entityId: versionId,
     meta: { receita: recCells.length, despesa: despCells.length },
   });
-  revalidatePath("/lancamento");
-  revalidatePath("/dre");
-  revalidatePath("/fluxocaixa");
+  revalidateLancamento();
 }
 
 /** Deriva os lançamentos simplificados a partir da versão "atual" (detalhada). */
 export async function replicateFromAtual(targetVersionId: string) {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "lancamento", "editar")) throw new Error("Sem permissão.");
-  ensureBudgetTarget(ctx, targetVersionId);
-  const atual = ctx.versions.find((v) => v.kind === "atual") ?? ctx.versions.find((v) => v.isDefault);
+  if (!ctx) throw new Error("Sem permissão.");
+  const target = await loadBudgetTarget(ctx, targetVersionId);
+  const atual = await siblingVersion(target.projectId, "atual");
   if (!atual) throw new Error("Não encontrei a versão Atual.");
 
   const [units, reembRows, incc, despesas] = await Promise.all([
     getUnits(atual.id),
     getReembolsos(atual.id),
-    getInccRows(ctx.project.id),
+    getInccRows(target.projectId),
     getDespesas(atual.id),
   ]);
 
@@ -265,5 +297,5 @@ export async function replicateFromAtual(targetVersionId: string) {
     entityId: targetVersionId,
     meta: { receita: receitaCells.length, despesa: despMap.size },
   });
-  revalidatePath("/lancamento");
+  revalidateLancamento();
 }

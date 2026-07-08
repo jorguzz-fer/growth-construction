@@ -96,10 +96,6 @@ export default async function AppLayout({
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         tenantName={ctx.tenant.name}
-        project={ctx.project}
-        projects={ctx.projects}
-        version={ctx.version}
-        versions={ctx.versions}
         userName={userName}
         userRole={ctx.role}
         perms={ctx.perms}
