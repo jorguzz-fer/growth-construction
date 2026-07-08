@@ -16,13 +16,54 @@ import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
+import type { Version } from "@/lib/context";
 
 export const dynamic = "force-dynamic";
+
+/** Indicadores gerais (valores contratados) de uma versão. */
+async function versionIndicadores(
+  version: Version,
+): Promise<{ label: string; value: number }[]> {
+  const [unitRows, permRows, reembRows] = await Promise.all([
+    getUnits(version.id),
+    getPermutas(version.id),
+    getReembolsos(version.id),
+  ]);
+  const totals = calcTotals(
+    unitRows.map(toCalcUnit),
+    permToCalc(permRows),
+    reembToCalc(reembRows),
+  );
+  const permByTipo = (match: string) =>
+    permRows
+      .filter((p) => (p.tipoPermuta ?? "").toLowerCase().includes(match))
+      .reduce((a, p) => a + Number(p.estimado ?? 0), 0);
+  return [
+    { label: "VGV Total (tabela de preços)", value: totals.vgv },
+    { label: "AS + S1 + S2 + S3 (Sinais)", value: totals.sinais },
+    { label: "Mensais (c/INCC p.5+)", value: totals.mens },
+    { label: "Semestrais (c/INCC p.5+)", value: totals.sem },
+    { label: "Anuais (c/INCC p.5+)", value: totals.anu },
+    { label: "FGTS", value: totals.fgts },
+    { label: "Subsídio estimado", value: totals.sub },
+    { label: "Permuta Recebido (estimado)", value: totals.permRec },
+    { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
+    { label: "Permuta por Materiais", value: permByTipo("material") },
+    { label: "Permuta por Serviços de Terceiros", value: permByTipo("servi") },
+    { label: "Reembolso (aba própria)", value: totals.reemb },
+  ];
+}
 
 export default async function ResumoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; vs?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -32,11 +73,51 @@ export default async function ResumoPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const perVersion = await Promise.all(compareVersions.map(versionIndicadores));
+    const labels = perVersion[0].map((i) => i.label);
+    const rows: CompareRow[] = labels.map((label, ri) => ({
+      label,
+      values: perVersion.map((ind) => ind[ri]?.value ?? 0),
+    }));
+    return (
+      <>
+        <PageHeader
+          title="Resumo Executivo"
+          subtitle="Comparativo de versões · indicadores gerais (valores contratados)"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Indicador"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const version = compareVersions[0];
   const [unitRows, permRows, reembRows, revenue] = await Promise.all([
-    getUnits(ctx.version.id),
-    getPermutas(ctx.version.id),
-    getReembolsos(ctx.version.id),
-    getMonthlyRevenue(ctx.version.id, ctx.project.id),
+    getUnits(version.id),
+    getPermutas(version.id),
+    getReembolsos(version.id),
+    getMonthlyRevenue(version.id, ctx.project.id),
   ]);
 
   // Recebimentos previstos no período (item 3): receita mensal + revenda de
@@ -83,10 +164,15 @@ export default async function ResumoPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · Versão ${ctx.version.label}`}
+        eyebrow={`${ctx.project.name} · Versão ${version.label}`}
         title="Resumo Executivo"
         subtitle="Indicadores gerais calculados dinamicamente"
-        actions={<DateRangeFilter de={de} ate={ate} />}
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            {versionSelect}
+          </div>
+        }
       />
 
       {hasRange && (

@@ -19,7 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { BarChart, DoughnutChart, CHART_COLORS } from "@/components/app/charts";
-import { DashboardVersions } from "@/components/app/dashboard-versions";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
@@ -140,7 +140,7 @@ function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ v?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ vs?: string; de?: string; ate?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -148,7 +148,7 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
-  const wanted = (sp.v ?? "").split(",").filter(Boolean);
+  const wanted = (sp.vs ?? "").split(",").filter(Boolean);
   const validWanted = ctx.versions.filter((v) => wanted.includes(v.id)).slice(0, 3);
   const selected = validWanted.length > 0 ? validWanted : ctx.versions.slice(0, 3);
 
@@ -210,12 +210,15 @@ export default async function DashboardPage({
         eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
         title="Dashboard"
         subtitle="Visão geral do projeto — independente da versão ativa"
-        actions={<DateRangeFilter de={de} ate={ate} />}
-      />
-
-      <DashboardVersions
-        versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
-        selected={selected.map((v) => v.id)}
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            <VersionMultiSelect
+              versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+              selected={selected.map((v) => v.id)}
+            />
+          </div>
+        }
       />
 
       {/* KPIs por versão */}

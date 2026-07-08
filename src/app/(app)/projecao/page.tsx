@@ -2,6 +2,7 @@ import { getActiveContext } from "@/lib/context";
 import {
   getInccRows,
   getReembolsos,
+  getRevenueBySource,
   getUnits,
   reembToCalc,
   toCalcUnit,
@@ -9,6 +10,7 @@ import {
 import {
   calcProjection,
   reembursementsByMonth,
+  PROJECTION_SOURCES,
   type MonthlyProjection,
 } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
@@ -22,6 +24,12 @@ import {
   type ExportMatrix,
 } from "@/components/app/projecao-controls";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,14 +44,77 @@ const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
 export default async function ProjecaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
+  const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const inFilter = (m: string) => !hasRange || monthInRange(m, de, ate);
+    const perVersion = await Promise.all(
+      compareVersions.map((v) => getRevenueBySource(v.id, ctx.project.id)),
+    );
+    const sumFiltered = (map: MonthlyProjection) =>
+      Object.entries(map)
+        .filter(([m]) => inFilter(m))
+        .reduce((a, [, v]) => a + v, 0);
+    const rows: CompareRow[] = [
+      ...PROJECTION_SOURCES.map((s) => ({
+        label: s,
+        values: perVersion.map((rv) => sumFiltered(rv.sources[s])),
+      })),
+      { label: "Reembolso", values: perVersion.map((rv) => sumFiltered(rv.reemb)) },
+      {
+        label: "TOTAL",
+        emphasis: "final" as const,
+        values: perVersion.map(
+          (rv) =>
+            PROJECTION_SOURCES.reduce((a, s) => a + sumFiltered(rv.sources[s]), 0) +
+            sumFiltered(rv.reemb),
+        ),
+      },
+    ];
+    return (
+      <>
+        <PageHeader
+          title="Projeção de Receitas"
+          subtitle="Comparativo de versões · receita total projetada por fonte"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Fonte"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const version = compareVersions[0];
   const [unitRows, reembRows, incc] = await Promise.all([
-    getUnits(ctx.version.id),
-    getReembolsos(ctx.version.id),
+    getUnits(version.id),
+    getReembolsos(version.id),
     getInccRows(ctx.project.id),
   ]);
 
@@ -73,10 +144,6 @@ export default async function ProjecaoPage({
       label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
     });
   }
-  const sp = await searchParams;
-  const de = sp.de ?? "";
-  const ate = sp.ate ?? "";
-  const hasRange = !!(de || ate);
   const wantedAno = Number(sp.ano) || 1;
   const selectedYear = Math.min(Math.max(1, wantedAno), Math.max(1, years.length));
   const yearMonths = hasRange
@@ -110,14 +177,15 @@ export default async function ProjecaoPage({
     <>
       <PageHeader
         title="Projeção de Receitas"
-        subtitle={`Versão: ${ctx.version.label} · ${vendidas} unidades vendidas`}
+        subtitle={`Versão: ${version.label} · ${vendidas} unidades vendidas`}
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <DateRangeFilter de={de} ate={ate} />
             {!hasRange && years.length > 1 && (
               <ProjecaoYearSelect years={years} selected={selectedYear} />
             )}
-            <ProjecaoExport matrix={exportMatrix} filename={`projecao-${ctx.version.key}.csv`} />
+            <ProjecaoExport matrix={exportMatrix} filename={`projecao-${version.key}.csv`} />
+            {versionSelect}
           </div>
         }
       />

@@ -27,6 +27,12 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConciliarToggle } from "@/components/app/conciliar-toggle";
 import { ImportExtratoButton } from "@/components/app/import-extrato";
 import { CaixaEntryForm } from "@/components/app/caixa-entry-form";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +56,7 @@ const parseData = (d: string | null): Date | null => {
 export default async function CaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ tab?: string; de?: string; ate?: string; vs?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -60,8 +66,65 @@ export default async function CaixaPage({
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
 
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const perVersion = await Promise.all(
+      compareVersions.map(async (v) => {
+        const rows = await getCash(v.id);
+        const filtered = de || ate ? rows.filter((c) => dateInRange(c.data, de, ate)) : rows;
+        let entradas = 0;
+        let saidas = 0;
+        for (const c of filtered) {
+          const val = Number(c.valor);
+          if (val >= 0) entradas += val;
+          else saidas += -val;
+        }
+        return { entradas, saidas };
+      }),
+    );
+    const rows: CompareRow[] = [
+      { label: "Entradas (caixa)", values: perVersion.map((p) => p.entradas) },
+      { label: "(−) Saídas (caixa)", values: perVersion.map((p) => p.saidas) },
+      {
+        label: "= Saldo líquido do período",
+        emphasis: "final",
+        values: perVersion.map((p) => p.entradas - p.saidas),
+      },
+    ];
+    return (
+      <>
+        <PageHeader
+          title="Controle de Caixa"
+          subtitle="Comparativo de versões · movimentação real de caixa no período"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Indicador"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const version = compareVersions[0];
   const [cashAll, contas] = await Promise.all([
-    getCash(ctx.version.id),
+    getCash(version.id),
     getBankAccounts(ctx.tenant.id),
   ]);
   // Filtro de período (item 3): entradas/saídas dentro do intervalo.
@@ -107,6 +170,7 @@ export default async function CaixaPage({
             <Badge tone={pluggyCfg() ? "success" : "neutral"}>
               Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
             </Badge>
+            {versionSelect}
           </div>
         }
       />
@@ -226,7 +290,7 @@ export default async function CaixaPage({
 
       {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} />}
       {tab === "conciliacao" && <Conciliacao cash={cash} conciliados={conciliados} />}
-      {tab === "previstas" && <Previstas ctx={ctx} />}
+      {tab === "previstas" && <Previstas versionId={version.id} projectId={ctx.project.id} />}
     </>
   );
 }
@@ -285,15 +349,17 @@ function Conciliacao({
 }
 
 async function Previstas({
-  ctx,
+  versionId,
+  projectId,
 }: {
-  ctx: NonNullable<Awaited<ReturnType<typeof getActiveContext>>>;
+  versionId: string;
+  projectId: string;
 }) {
   const [unitRows, reembRows, incc, permutas] = await Promise.all([
-    getUnits(ctx.version.id),
-    getReembolsos(ctx.version.id),
-    getInccRows(ctx.project.id),
-    getPermutas(ctx.version.id),
+    getUnits(versionId),
+    getReembolsos(versionId),
+    getInccRows(projectId),
+    getPermutas(versionId),
   ]);
   const monthly: MonthlyProjection = {};
   for (const r of unitRows) {

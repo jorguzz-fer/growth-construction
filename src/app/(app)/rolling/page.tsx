@@ -3,9 +3,11 @@ import {
   getCash,
   getChartAccounts,
   getDespesas,
+  getExpenseRows,
   getInccRows,
   getMedicoes,
   getReembolsos,
+  getRevenueBySource,
   getUnits,
   reembToCalc,
   toCalcUnit,
@@ -24,6 +26,12 @@ import {
   RollingSimulator,
   type DriverItem,
 } from "@/components/app/rolling-simulator";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
 
 export const dynamic = "force-dynamic";
 
@@ -45,19 +53,99 @@ function toMonth(d: string | null): string | null {
 export default async function RollingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periodo?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ periodo?: string; de?: string; ate?: string; vs?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
+  const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const inFilter = (mm: string | null) => !hasRange || monthInRange(mm, de, ate);
+    const perVersion = await Promise.all(
+      compareVersions.map(async (v) => {
+        const [rev, expenses, meds, cashRows] = await Promise.all([
+          getRevenueBySource(v.id, ctx.project.id),
+          getExpenseRows(v.id),
+          getMedicoes(v.id),
+          getCash(v.id),
+        ]);
+        const sumMap = (map: MonthlyProjection) =>
+          Object.entries(map)
+            .filter(([m]) => inFilter(m))
+            .reduce((a, [, val]) => a + val, 0);
+        const receita =
+          PROJECTION_SOURCES.reduce((a, s) => a + sumMap(rev.sources[s]), 0) +
+          sumMap(rev.reemb);
+        const despesasTot = expenses
+          .filter((e) => inFilter(e.competencia))
+          .reduce((a, e) => a + e.valor, 0);
+        const custoVarTot = meds
+          .filter((m) => inFilter(m.competencia))
+          .reduce((a, m) => a + Number(m.valor), 0);
+        const realizadoTot = cashRows.reduce((a, c) => {
+          const val = Number(c.valor);
+          return val > 0 && inFilter(toMonth(c.data)) ? a + val : a;
+        }, 0);
+        return { receita, despesasTot, custoVarTot, realizadoTot };
+      }),
+    );
+    const rows: CompareRow[] = [
+      { label: "Receita projetada", values: perVersion.map((p) => p.receita) },
+      { label: "(−) Custo Variável (medição)", values: perVersion.map((p) => p.custoVarTot) },
+      { label: "(−) Despesas (lançamentos)", values: perVersion.map((p) => p.despesasTot) },
+      {
+        label: "= Resultado projetado",
+        emphasis: "final",
+        values: perVersion.map((p) => p.receita - p.custoVarTot - p.despesasTot),
+      },
+      { label: "Realizado (entradas de caixa)", emphasis: "sub", values: perVersion.map((p) => p.realizadoTot) },
+    ];
+    return (
+      <>
+        <PageHeader
+          eyebrow="Comparativo de versões"
+          title="Rolling Forecast"
+          subtitle="Resultado projetado por versão · o simulador driver-based fica disponível ao selecionar uma única versão"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Indicador"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const version = compareVersions[0];
   const [unitRows, reembRows, incc, despesas, medicoes, cash, chart] =
     await Promise.all([
-      getUnits(ctx.version.id),
-      getReembolsos(ctx.version.id),
+      getUnits(version.id),
+      getReembolsos(version.id),
       getInccRows(ctx.project.id),
-      getDespesas(ctx.version.id),
-      getMedicoes(ctx.version.id),
-      getCash(ctx.version.id),
+      getDespesas(version.id),
+      getMedicoes(version.id),
+      getCash(version.id),
       getChartAccounts(ctx.tenant.id),
     ]);
 
@@ -97,10 +185,6 @@ export default async function RollingPage({
       });
   }
 
-  const sp = await searchParams;
-  const de = sp.de ?? "";
-  const ate = sp.ate ?? "";
-  const hasRange = !!(de || ate);
   const periodo = hasRange ? "acum" : sp.periodo ?? "acum";
   const periodMonths =
     !hasRange && periodo !== "acum"
@@ -196,10 +280,15 @@ export default async function RollingPage({
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
+        eyebrow={version.label}
         title="Rolling Forecast"
         subtitle={`Simulador driver-based · ${periodLabel} · variações não alteram os dados reais`}
-        actions={<DateRangeFilter de={de} ate={ate} />}
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangeFilter de={de} ate={ate} />
+            {versionSelect}
+          </div>
+        }
       />
       <RollingSimulator
         receitaSources={receitaSources}

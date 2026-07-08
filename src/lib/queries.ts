@@ -3,8 +3,11 @@ import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
   calcProjection,
+  calcProjectionBySource,
   reembursementsByMonth,
+  PROJECTION_SOURCES,
   type CalcPermutaResale,
+  type ProjectionSource,
 } from "./calc/projection";
 import type {
   CalcPermuta,
@@ -342,6 +345,71 @@ export async function getMonthlyRevenue(
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
   return out;
+}
+
+export interface RevenueBySource {
+  sources: Record<ProjectionSource, MonthlyProjection>;
+  reemb: MonthlyProjection;
+}
+
+function emptyBySource(): Record<ProjectionSource, MonthlyProjection> {
+  return Object.fromEntries(
+    PROJECTION_SOURCES.map((s) => [s, {} as MonthlyProjection]),
+  ) as Record<ProjectionSource, MonthlyProjection>;
+}
+
+/**
+ * Receita projetada por fonte × mês de uma versão. Para Budget/Forecast usa o
+ * lançamento simplificado (budget_line, receita, rowKey = fonte); para a versão
+ * detalhada usa unidades (calcProjectionBySource) + reembolsos.
+ */
+export async function getRevenueBySource(
+  versionId: string,
+  projectId: string,
+): Promise<RevenueBySource> {
+  const sources = emptyBySource();
+  const reemb: MonthlyProjection = {};
+  const kind = await getVersionKind(versionId);
+
+  if (kind === "budget" || kind === "forecast") {
+    const lines = await db
+      .select({
+        rowKey: schema.budgetLines.rowKey,
+        mes: schema.budgetLines.mes,
+        valor: schema.budgetLines.valor,
+      })
+      .from(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "receita"),
+        ),
+      );
+    for (const l of lines) {
+      if (l.rowKey === "Reembolso") {
+        reemb[l.mes] = (reemb[l.mes] || 0) + Number(l.valor);
+      } else if ((PROJECTION_SOURCES as readonly string[]).includes(l.rowKey)) {
+        const s = l.rowKey as ProjectionSource;
+        sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
+      }
+    }
+    return { sources, reemb };
+  }
+
+  const [unitRows, reembRows, incc] = await Promise.all([
+    getUnits(versionId),
+    getReembolsos(versionId),
+    getInccRows(projectId),
+  ]);
+  for (const u of unitRows) {
+    const bs = calcProjectionBySource(toCalcUnit(u), incc);
+    for (const s of PROJECTION_SOURCES)
+      for (const [mm, v] of Object.entries(bs[s]))
+        sources[s][mm] = (sources[s][mm] || 0) + v;
+  }
+  const rb = reembursementsByMonth(reembToCalc(reembRows));
+  for (const [mm, v] of Object.entries(rb)) reemb[mm] = (reemb[mm] || 0) + v;
+  return { sources, reemb };
 }
 
 /** Ordena chaves "MM/YYYY" cronologicamente. */

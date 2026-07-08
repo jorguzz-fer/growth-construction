@@ -19,6 +19,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ProjecaoYearSelect } from "@/components/app/projecao-controls";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
+import type { Version } from "@/lib/context";
 
 export const dynamic = "force-dynamic";
 
@@ -31,21 +38,16 @@ function vencMonth(d: string | null): string | null {
   return null;
 }
 
-export default async function FluxoCaixaPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string }>;
-}) {
-  const ctx = await getActiveContext();
-  if (!ctx) return null;
-
-  const [entradas, despesas, incc, contas, permutas, parcelas] = await Promise.all([
-    getMonthlyRevenue(ctx.version.id, ctx.project.id),
-    getDespesas(ctx.version.id),
-    getInccRows(ctx.project.id),
-    getBankAccounts(ctx.tenant.id),
-    getPermutas(ctx.version.id),
-    getParcelasByVersion(ctx.version.id),
+/** Mapas de entradas e saídas mensais de uma versão (budget-aware). */
+async function flowMaps(
+  version: Version,
+  projectId: string,
+): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
+  const [entradas, despesas, permutas, parcelas] = await Promise.all([
+    getMonthlyRevenue(version.id, projectId),
+    getDespesas(version.id),
+    getPermutas(version.id),
+    getParcelasByVersion(version.id),
   ]);
 
   // Recebimentos da revenda de bens recebidos em permuta (item 10).
@@ -55,9 +57,9 @@ export default async function FluxoCaixaPage({
   }
 
   const saidas: Record<string, number> = {};
-  if (isBudgetVersion(ctx.version.kind)) {
+  if (isBudgetVersion(version.kind)) {
     // Budget/Forecast: saídas do lançamento simplificado (por competência).
-    const expenses = await getExpenseRows(ctx.version.id);
+    const expenses = await getExpenseRows(version.id);
     for (const e of expenses) {
       const mm = vencMonth(e.competencia);
       if (mm) saidas[mm] = (saidas[mm] || 0) + e.valor;
@@ -66,7 +68,7 @@ export default async function FluxoCaixaPage({
     // Versão detalhada: despesas pagas por terceiro NÃO geram saída na
     // competência — a saída ocorre só na restituição (Fase 4).
     const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
-      await getRestituicoesPendentesByVersion(ctx.version.id);
+      await getRestituicoesPendentesByVersion(version.id);
     const excluir = new Set(terceiroIds);
     const comParcela = new Set(parcelas.map((p) => p.despesaId));
     for (const p of parcelas) {
@@ -83,6 +85,78 @@ export default async function FluxoCaixaPage({
       saidas[mm] = (saidas[mm] || 0) + v;
     }
   }
+  return { entradas, saidas };
+}
+
+export default async function FluxoCaixaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string }>;
+}) {
+  const ctx = await getActiveContext();
+  if (!ctx) return null;
+
+  const sp = await searchParams;
+  const de = sp.de ?? "";
+  const ate = sp.ate ?? "";
+  const hasRange = !!(de || ate);
+
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const inFilter = (mm: string) => !hasRange || monthInRange(mm, de, ate);
+    const perVersion = await Promise.all(
+      compareVersions.map((v) => flowMaps(v, ctx.project.id)),
+    );
+    const sumMap = (map: Record<string, number>) =>
+      Object.entries(map)
+        .filter(([m]) => inFilter(m))
+        .reduce((a, [, val]) => a + val, 0);
+    const rows: CompareRow[] = [
+      { label: "Entradas", values: perVersion.map((p) => sumMap(p.entradas)) },
+      { label: "(−) Saídas", values: perVersion.map((p) => sumMap(p.saidas)) },
+      {
+        label: "= Saldo do período",
+        emphasis: "final",
+        values: perVersion.map((p) => sumMap(p.entradas) - sumMap(p.saidas)),
+      },
+    ];
+    return (
+      <>
+        <PageHeader
+          title="Fluxo de Caixa Mensal"
+          subtitle="Comparativo de versões · entradas, saídas e saldo do período"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Indicador"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const version = compareVersions[0];
+  const [{ entradas, saidas }, incc, contas] = await Promise.all([
+    flowMaps(version, ctx.project.id),
+    getInccRows(ctx.project.id),
+    getBankAccounts(ctx.tenant.id),
+  ]);
 
   // Saldo inicial = soma dos saldos das contas correntes.
   const saldoInicial = contas.reduce((a, c) => a + Number(c.saldo), 0);
@@ -101,10 +175,6 @@ export default async function FluxoCaixaPage({
         label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
       });
   }
-  const sp = await searchParams;
-  const de = sp.de ?? "";
-  const ate = sp.ate ?? "";
-  const hasRange = !!(de || ate);
   const selectedYear = Math.min(Math.max(1, Number(sp.ano) || 1), Math.max(1, years.length));
   // Com período informado, o intervalo de datas tem prioridade sobre o Ano N.
   const yearMonths = hasRange
@@ -139,6 +209,7 @@ export default async function FluxoCaixaPage({
             {!hasRange && years.length > 1 && (
               <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />
             )}
+            {versionSelect}
           </div>
         }
       />
