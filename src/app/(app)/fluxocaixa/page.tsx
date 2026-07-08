@@ -10,6 +10,7 @@ import {
   sortMonthKey,
 } from "@/lib/queries";
 import { permutaCashByMonth } from "@/lib/calc";
+import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
 import { brl0, brlk, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,19 +52,29 @@ export default async function FluxoCaixaPage({
     entradas[mm] = (entradas[mm] || 0) + v;
   }
 
+  // Despesas pagas por terceiro NÃO geram saída na competência — a saída da
+  // empresa ocorre só na restituição (prevista/realizada). Fase 4.
+  const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
+    await getRestituicoesPendentesByVersion(ctx.version.id);
+  const excluir = new Set(terceiroIds);
+
   // Saídas: despesas COM parcelas entram pelas parcelas (por vencimento);
   // despesas SEM parcelas entram pelo vencimento da própria despesa.
   const saidas: Record<string, number> = {};
   const comParcela = new Set(parcelas.map((p) => p.despesaId));
   for (const p of parcelas) {
-    if (p.status === "Cancelado") continue;
+    if (p.status === "Cancelado" || excluir.has(p.despesaId)) continue;
     const mm = vencMonth(p.vencimento);
     if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
   }
   for (const d of despesas) {
-    if (comParcela.has(d.id)) continue;
+    if (comParcela.has(d.id) || excluir.has(d.id)) continue;
     const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
     if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
+  }
+  // Restituições pendentes: saída projetada no mês previsto de restituição.
+  for (const [mm, v] of Object.entries(restPrevistas)) {
+    saidas[mm] = (saidas[mm] || 0) + v;
   }
 
   // Saldo inicial = soma dos saldos das contas correntes.
