@@ -1,10 +1,6 @@
 import { getActiveContext } from "@/lib/context";
 import { getBudgetLines, getMedicoes } from "@/lib/queries";
-import {
-  PLANO_CONTAS,
-  PCT_REF_CEF,
-  CUSTO_EDIFICACOES_REF,
-} from "@/lib/calc/constants";
+import { PLANO_CONTAS, PCT_REF_CEF } from "@/lib/calc/constants";
 import { brl0, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { PrintButton } from "@/components/app/print-button";
@@ -42,13 +38,14 @@ export default async function MedicaoPage({
   ]);
 
   // Orçado por grupo de obra (prefixo antes do primeiro ponto do rowKey/CEF).
+  // Vem exclusivamente do lançamento do Budget: se o grupo estiver zerado no
+  // Budget, o orçado aqui também é zero (sem estimativa de referência).
   const orcadoPorGrupo = new Map<string, number>();
   for (const l of budgetLines) {
     if (l.kind !== "despesa" || !inRange(l.mes)) continue;
     const grp = (l.rowKey ?? "").split(".")[0];
     orcadoPorGrupo.set(grp, (orcadoPorGrupo.get(grp) || 0) + Number(l.valor));
   }
-  const hasBudget = orcadoPorGrupo.size > 0;
 
   // Realizado por grupo de obra a partir das medições lançadas (versão Atual).
   const realizadoPorGrupo = new Map<string, number>();
@@ -61,11 +58,8 @@ export default async function MedicaoPage({
   }
 
   const rows = PLANO_CONTAS.obra.map((g, i) => {
-    // Se o Budget ainda não tem lançamentos, mantém o orçado de referência CEF
-    // (percentuais × custo de edificações) para não exibir relatório vazio.
-    const orcado = hasBudget
-      ? orcadoPorGrupo.get(g.id) || 0
-      : (CUSTO_EDIFICACOES_REF * PCT_REF_CEF[i]) / 100;
+    // Orçado estritamente do Budget: grupo sem lançamento no Budget → zero.
+    const orcado = orcadoPorGrupo.get(g.id) || 0;
     const realizado = realizadoPorGrupo.get(g.id) || 0;
     const pctFisico = orcado > 0 ? Math.min((realizado / orcado) * 100, 100) : 0;
     return { g, pctRef: PCT_REF_CEF[i], orcado, realizado, pctFisico };
@@ -79,11 +73,7 @@ export default async function MedicaoPage({
       <PageHeader
         eyebrow={`${ctx.project.name} · Orçado ${budgetV?.label ?? "Budget"} · Realizado ${atualV.label}`}
         title="Medição de Obra — Relatório CEF"
-        subtitle={
-          hasBudget
-            ? "Orçado: lançamento do Budget · Realizado: lançamento de medição (versão Atual)"
-            : `Orçado de referência CEF (Budget sem lançamentos) · custo de edificações ${brl0(CUSTO_EDIFICACOES_REF)}`
-        }
+        subtitle="Orçado: lançamento do Budget · Realizado: lançamento de medição (versão Atual)"
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <DateRangeFilter de={de} ate={ate} />
