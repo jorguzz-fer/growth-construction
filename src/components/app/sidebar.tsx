@@ -235,12 +235,20 @@ export function Sidebar({
           {versions.length}/6 versões
         </div>
         {can(perms, "versao", "ver") && (
-          <a
-            href="/versao/template"
-            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
-          >
-            <span aria-hidden>📗</span> Baixar planilha modelo
-          </a>
+          <>
+            <a
+              href={`/versao/template?v=${version.id}`}
+              className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
+            >
+              <span aria-hidden>📗</span> Baixar planilha modelo
+            </a>
+            <a
+              href={`/versao/export?v=${version.id}`}
+              className="mt-1 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
+            >
+              <span aria-hidden>📤</span> Exportar dados desta versão
+            </a>
+          </>
         )}
       </div>
 

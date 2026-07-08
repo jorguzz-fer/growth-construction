@@ -154,8 +154,21 @@ export default async function VersaoPage({
                 href={`/versao/template?v=${v.id}`}
                 className={buttonVariants({ className: "w-full" })}
               >
-                ⬇ Baixar planilha modelo (.xlsx)
+                ⬇ Baixar planilha modelo (em branco)
               </a>
+              <a
+                href={`/versao/export?v=${v.id}`}
+                className={buttonVariants({
+                  variant: "outline",
+                  className: "mt-2 w-full",
+                })}
+              >
+                ⬇ Exportar dados preenchidos desta versão (.xlsx)
+              </a>
+              <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+                A exportação usa o mesmo formato do modelo — pode editar e
+                reimportar, ou usar de backup/base para uma nova versão.
+              </p>
             </CardContent>
           </Card>
 
