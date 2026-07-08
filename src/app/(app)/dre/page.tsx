@@ -10,6 +10,7 @@ import {
   permToResale,
 } from "@/lib/queries";
 import { permutaRevenueByMonth } from "@/lib/calc";
+import { getEncargosByVersion } from "@/lib/actions/pagamentos";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,11 +40,12 @@ async function projectInputs(
 ): Promise<Inputs> {
   const vid = await defaultVersionId(project.id);
   if (!vid) return { receita: 0, custoVar: 0, byCat: {} };
-  const [revenue, medicoes, despesas, permutas] = await Promise.all([
+  const [revenue, medicoes, despesas, permutas, encargosMes] = await Promise.all([
     getMonthlyRevenue(vid, project.id),
     getMedicoes(vid),
     getDespesas(vid),
     getPermutas(vid),
+    getEncargosByVersion(vid),
   ]);
   const inP = (mm: string | null) => !periodMonths || (mm != null && periodMonths.has(mm));
 
@@ -63,6 +65,11 @@ async function projectInputs(
     if (!d.categoriaDre || !inP(d.competencia)) continue;
     byCat[d.categoriaDre] = (byCat[d.categoriaDre] || 0) + Number(d.valor);
   }
+  // Encargos financeiros (multa/juros/outros − desconto) por data de pagamento.
+  const encargos = Object.entries(encargosMes)
+    .filter(([mm]) => inP(mm))
+    .reduce((a, [, v]) => a + v, 0);
+  byCat["Despesas Financeiras"] = (byCat["Despesas Financeiras"] || 0) + encargos;
   return {
     receita: receitaProj + receitaPermuta + (byCat["Receita"] || 0),
     custoVar,
@@ -125,10 +132,11 @@ export default async function DREPage({
   const RET = cat("Retiradas");
   const INV = cat("Investimento");
   const EMP = cat("Empréstimos");
+  const DFIN = cat("Despesas Financeiras"); // juros/multas separados
 
   const MC = R - CV - CF; // Margem de Contribuição
   const EBITDA = MC - (DF + DV + RET);
-  const RF = EBITDA - INV - EMP; // Resultado Final
+  const RF = EBITDA - INV - EMP - DFIN; // Resultado Final
 
   const pct = (v: number) => (R > 0 ? (v / R) * 100 : 0);
   const rows: { label: string; value: number; kind: "item" | "sub" | "final" }[] = [
@@ -142,6 +150,7 @@ export default async function DREPage({
     { label: "= EBITDA", value: EBITDA, kind: "sub" },
     { label: "(−) Investimentos", value: INV, kind: "item" },
     { label: "(−) Empréstimos", value: EMP, kind: "item" },
+    { label: "(−) Despesas Financeiras (juros/multas)", value: DFIN, kind: "item" },
     { label: "= Resultado Final", value: RF, kind: "final" },
   ];
 

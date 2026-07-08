@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { gerarParcelas, distribuirValor, addDaysBR } from "./parcelas";
+import {
+  gerarParcelas,
+  distribuirValor,
+  addDaysBR,
+  composePagamento,
+  isAtrasado,
+} from "./parcelas";
 
 describe("distribuirValor (arredondamento)", () => {
   it("soma exatamente o total, jogando a diferença na última", () => {
@@ -59,5 +65,38 @@ describe("gerarParcelas", () => {
     });
     expect(p.map((x) => x.vencimento)).toEqual(["01/10/2026", "02/10/2026", "03/10/2026"]);
     expect(p.reduce((a, x) => a + x.valor, 0)).toBeCloseTo(300, 2);
+  });
+});
+
+describe("composePagamento (Fase 3)", () => {
+  it("pagamento no vencimento (sem encargos)", () => {
+    expect(composePagamento({ valorOriginal: 1000 })).toEqual({
+      valorTotalPago: 1000,
+      encargos: 0,
+    });
+  });
+  it("atrasado com multa + juros", () => {
+    const r = composePagamento({ valorOriginal: 1000, multa: 20, juros: 33.33 });
+    expect(r.valorTotalPago).toBeCloseTo(1053.33, 2);
+    expect(r.encargos).toBeCloseTo(53.33, 2);
+  });
+  it("com desconto (encargos negativos = ganho financeiro)", () => {
+    const r = composePagamento({ valorOriginal: 1000, desconto: 50 });
+    expect(r.valorTotalPago).toBe(950);
+    expect(r.encargos).toBe(-50);
+  });
+  it("pagamento parcial (valor original informado menor)", () => {
+    const r = composePagamento({ valorOriginal: 400, juros: 10 });
+    expect(r.valorTotalPago).toBe(410);
+  });
+});
+
+describe("isAtrasado", () => {
+  it("detecta atraso", () => {
+    expect(isAtrasado("01/10/2026", "01/15/2026")).toBe(true);
+  });
+  it("em dia não é atraso", () => {
+    expect(isAtrasado("01/10/2026", "01/10/2026")).toBe(false);
+    expect(isAtrasado("01/10/2026", "01/05/2026")).toBe(false);
   });
 });

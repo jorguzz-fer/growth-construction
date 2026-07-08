@@ -170,6 +170,7 @@ export const dreCategoryEnum = pgEnum("dre_category", [
   "Retiradas",
   "Investimento",
   "Empréstimos",
+  "Despesas Financeiras",
 ]);
 
 // ──────────────────────── Projetos & versões ────────────────────────
@@ -434,6 +435,39 @@ export const despesaParcelas = pgTable(
   },
   (t) => [unique("despesa_parcela_uq").on(t.despesaId, t.numeroParcela)],
 );
+
+/**
+ * Registro de pagamento de uma parcela/despesa (Fase 3). Guarda a composição
+ * (valor original, desconto, multa, juros, outros) e o total efetivamente pago.
+ * Suporta pagamento parcial (vários registros por parcela).
+ */
+export const pagamentos = pgTable("pagamento", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  parcelaId: uuid("parcela_id").references(() => despesaParcelas.id, {
+    onDelete: "cascade",
+  }),
+  despesaId: uuid("despesa_id").references(() => despesas.id, {
+    onDelete: "cascade",
+  }),
+  valorOriginal: numeric("valor_original", { precision: 15, scale: 2 }).notNull().default("0"),
+  desconto: numeric("desconto", { precision: 15, scale: 2 }).notNull().default("0"),
+  multa: numeric("multa", { precision: 15, scale: 2 }).notNull().default("0"),
+  juros: numeric("juros", { precision: 15, scale: 2 }).notNull().default("0"),
+  outrosAcrescimos: numeric("outros_acrescimos", { precision: 15, scale: 2 }).notNull().default("0"),
+  valorTotalPago: numeric("valor_total_pago", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataPagamento: text("data_pagamento"),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+    onDelete: "set null",
+  }),
+  /** categoria DRE dos encargos (juros/multa). */
+  categoriaEncargos: text("categoria_encargos").notNull().default("Despesas Financeiras"),
+  obs: text("obs"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
 
 /** Documento anexado (NF/contrato) — armazenado no Cloudflare R2. Fase 3. §11 */
 export const documents = pgTable("document", {

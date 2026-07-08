@@ -118,3 +118,38 @@ export function mesDaData(mdY: string): string | null {
   const d = parseDate(mdY);
   return d ? monthKey(d.mo, d.yr) : null;
 }
+
+/** Número comparável YYYYMMDD de "MM/DD/YYYY" (ou null). */
+function ymdNum(mdY: string): number | null {
+  const d = parseDate(mdY);
+  return d ? d.yr * 10000 + d.mo * 100 + d.d : null;
+}
+
+/**
+ * Composição de um pagamento (Fase 3):
+ * total pago = valor original − desconto + multa + juros + outros acréscimos.
+ * Os encargos (multa + juros + outros − desconto) vão para a categoria
+ * financeira, separados do valor original.
+ */
+export function composePagamento(p: {
+  valorOriginal: number;
+  desconto?: number;
+  multa?: number;
+  juros?: number;
+  outrosAcrescimos?: number;
+}): { valorTotalPago: number; encargos: number } {
+  const desconto = p.desconto || 0;
+  const multa = p.multa || 0;
+  const juros = p.juros || 0;
+  const outros = p.outrosAcrescimos || 0;
+  const valorTotalPago = round2(p.valorOriginal - desconto + multa + juros + outros);
+  const encargos = round2(multa + juros + outros - desconto);
+  return { valorTotalPago, encargos };
+}
+
+/** Pagamento em atraso? (data do pagamento após o vencimento). */
+export function isAtrasado(vencimento: string, dataPagamento: string): boolean {
+  const v = ymdNum(vencimento);
+  const p = ymdNum(dataPagamento);
+  return v != null && p != null && p > v;
+}

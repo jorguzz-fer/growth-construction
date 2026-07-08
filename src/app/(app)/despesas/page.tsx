@@ -20,13 +20,16 @@ import { Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
+import { ParcelasList } from "@/components/app/parcelas-list";
+import { getParcelasByVersion } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "apagar" | "repositorio";
+type Tab = "lancamentos" | "apagar" | "parcelas" | "repositorio";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
   { key: "apagar", label: "A Pagar" },
+  { key: "parcelas", label: "Parcelas" },
   { key: "repositorio", label: "Repositório" },
 ];
 
@@ -138,6 +141,22 @@ export default async function DespesasPage({
           canExcluir={false}
           canEditNumero={false}
           {...refProps}
+        />
+      )}
+
+      {tab === "parcelas" && (
+        <ParcelasList
+          rows={(await getParcelasByVersion(ctx.version.id)).map((p) => ({
+            id: p.id,
+            numeroParcela: p.numeroParcela,
+            despesaNumDoc: p.despesaNumDoc,
+            vencimento: p.vencimento,
+            valorOriginal: Number(p.valorOriginal),
+            valorPago: Number(p.valorPago),
+            status: p.status,
+          }))}
+          bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
+          canEditar={canEditar}
         />
       )}
 
