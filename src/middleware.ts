@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
  * checagem de presença do cookie de sessão (redirect de UX); a validação real
  * do usuário/perfil acontece no servidor via getActiveContext().
  */
-const PUBLIC_PATHS = ["/", "/login"];
+const PUBLIC_PATHS = ["/", "/login", "/plataforma/login"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -25,8 +25,12 @@ export function middleware(req: NextRequest) {
 
   if (!hasSession) {
     const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("callbackUrl", pathname);
+    // O backoffice tem entrada própria; usuários do tenant vão ao /login.
+    url.pathname = pathname.startsWith("/plataforma")
+      ? "/plataforma/login"
+      : "/login";
+    if (!pathname.startsWith("/plataforma"))
+      url.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(url);
   }
 
