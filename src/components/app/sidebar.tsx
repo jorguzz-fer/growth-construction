@@ -53,6 +53,7 @@ export function Sidebar({
       title: "Módulo Receitas",
       items: [
         { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
+        { href: "/lancamento", label: "Lançamento Budget/Forecast" },
         { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
@@ -64,6 +65,7 @@ export function Sidebar({
       title: "Módulo Despesas",
       items: [
         { href: "/despesas", label: "Despesas / Lançamentos" },
+        { href: "/restituicoes", label: "Restituições" },
         { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
         { href: "/contas", label: "Contas Correntes" },
@@ -88,6 +90,7 @@ export function Sidebar({
       title: "Config",
       items: [
         { href: "/projeto", label: "Projetos" },
+        { href: "/numeracao", label: "Numeração de Despesas" },
         { href: "/empresa", label: "Empresa" },
         { href: "/usuarios", label: "Usuários & Acessos" },
         { href: "/acessos", label: "Gestão de Acessos" },
@@ -230,12 +233,20 @@ export function Sidebar({
           {versions.length}/6 versões
         </div>
         {can(perms, "versao", "ver") && (
-          <a
-            href="/versao/template"
-            className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
-          >
-            <span aria-hidden>📗</span> Baixar planilha modelo
-          </a>
+          <>
+            <a
+              href={`/versao/template?v=${version.id}`}
+              className="mt-1.5 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
+            >
+              <span aria-hidden>📗</span> Baixar planilha modelo
+            </a>
+            <a
+              href={`/versao/export?v=${version.id}`}
+              className="mt-1 flex w-full items-center gap-1.5 rounded-[8px] border border-white/10 px-2 py-1.5 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/80"
+            >
+              <span aria-hidden>📤</span> Exportar dados desta versão
+            </a>
+          </>
         )}
       </div>
 

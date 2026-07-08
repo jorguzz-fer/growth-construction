@@ -23,14 +23,20 @@ export function brl0(value: number): string {
   }).format(value);
 }
 
-/** BRL compacto em milhares/milhões (ex.: R$ 46,8 mi). */
+/**
+ * BRL compacto em milhares/milhões (ex.: R$ 46,8 mi). Implementação
+ * determinística (sem Intl compact) para evitar divergência de formatação
+ * entre servidor (Node/ICU) e navegador — que causava hydration mismatch
+ * (ex.: "R$ 0,0" vs "R$ 0").
+ */
 export function brlk(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  const fix1 = (v: number) => (Math.round(v * 10) / 10).toFixed(1).replace(".", ",");
+  if (abs >= 1e9) return `${sign}R$ ${fix1(abs / 1e9)} bi`;
+  if (abs >= 1e6) return `${sign}R$ ${fix1(abs / 1e6)} mi`;
+  if (abs >= 1e3) return `${sign}R$ ${fix1(abs / 1e3)} mil`;
+  return `${sign}R$ ${Math.round(abs)}`;
 }
 
 // ─────────────────────────────── datas ──────────────────────────────────

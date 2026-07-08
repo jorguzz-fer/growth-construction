@@ -20,13 +20,16 @@ import { Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
+import { ParcelasList } from "@/components/app/parcelas-list";
+import { getParcelasByVersion } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "apagar" | "repositorio";
+type Tab = "lancamentos" | "apagar" | "parcelas" | "repositorio";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
   { key: "apagar", label: "A Pagar" },
+  { key: "parcelas", label: "Parcelas" },
   { key: "repositorio", label: "Repositório" },
 ];
 
@@ -42,6 +45,7 @@ export default async function DespesasPage({
   const canEdit = can(ctx.perms, "despesas", "criar");
   const canEditar = can(ctx.perms, "despesas", "editar");
   const canExcluir = can(ctx.perms, "despesas", "excluir");
+  const canEditNumero = ctx.role === "owner" || ctx.role === "admin";
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
@@ -113,12 +117,14 @@ export default async function DespesasPage({
               categorias={CATEGORIAS_DRE}
               aiConfigured={aiConfigured}
               r2Configured={r2Configured}
+              canEditNumero={canEditNumero}
             />
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}
             canEditar={canEditar}
             canExcluir={canExcluir}
+            canEditNumero={canEditNumero}
             {...refProps}
           />
         </>
@@ -133,7 +139,24 @@ export default async function DespesasPage({
           venc
           canEditar={false}
           canExcluir={false}
+          canEditNumero={false}
           {...refProps}
+        />
+      )}
+
+      {tab === "parcelas" && (
+        <ParcelasList
+          rows={(await getParcelasByVersion(ctx.version.id)).map((p) => ({
+            id: p.id,
+            numeroParcela: p.numeroParcela,
+            despesaNumDoc: p.despesaNumDoc,
+            vencimento: p.vencimento,
+            valorOriginal: Number(p.valorOriginal),
+            valorPago: Number(p.valorPago),
+            status: p.status,
+          }))}
+          bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
+          canEditar={canEditar}
         />
       )}
 

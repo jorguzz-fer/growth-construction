@@ -36,6 +36,7 @@ export const SCREENS: Screen[] = [
   { id: "rolling", label: "Rolling Forecast", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
+  { id: "lancamento", label: "Lançamento Budget/Forecast", modulo: "Receitas" },
   { id: "clientes", label: "Clientes (Compradores)", modulo: "Receitas" },
   { id: "medicaolanc", label: "Lançamento de Medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
@@ -43,6 +44,7 @@ export const SCREENS: Screen[] = [
   { id: "permuta", label: "Inventário de Permuta", modulo: "Receitas" },
   { id: "parametros", label: "Parâmetros / INCC", modulo: "Receitas" },
   { id: "despesas", label: "Lançamentos de Despesas", modulo: "Despesas" },
+  { id: "restituicoes", label: "Restituições (pago por terceiro)", modulo: "Despesas" },
   { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
   { id: "planocontas", label: "Plano de Contas", modulo: "Despesas" },
   { id: "contas", label: "Contas Correntes", modulo: "Despesas" },
@@ -52,6 +54,7 @@ export const SCREENS: Screen[] = [
   { id: "contabilidade", label: "Acesso Contabilidade", modulo: "Config" },
   { id: "empresa", label: "Empresa", modulo: "Config" },
   { id: "projeto", label: "Projetos", modulo: "Config" },
+  { id: "numeracao", label: "Numeração de Despesas", modulo: "Config" },
   { id: "versao", label: "Configuração da Versão", modulo: "Config" },
 ];
 

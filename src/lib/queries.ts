@@ -3,8 +3,11 @@ import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
   calcProjection,
+  calcProjectionBySource,
   reembursementsByMonth,
+  PROJECTION_SOURCES,
   type CalcPermutaResale,
+  type ProjectionSource,
 } from "./calc/projection";
 import type {
   CalcPermuta,
@@ -169,6 +172,101 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
+
+/** Lançamentos simplificados (Budget/Forecast) de uma versão. */
+export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]> {
+  return db
+    .select()
+    .from(schema.budgetLines)
+    .where(eq(schema.budgetLines.versionId, versionId));
+}
+
+/** kind da versão (para decidir entre lançamento detalhado × simplificado). */
+export async function getVersionKind(versionId: string): Promise<string | null> {
+  const [v] = await db
+    .select({ kind: schema.versions.kind })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, versionId))
+    .limit(1);
+  return v?.kind ?? null;
+}
+
+export interface ExpenseRow {
+  contaCef: string | null;
+  categoriaDre: string | null;
+  competencia: string | null;
+  valor: number;
+}
+
+/**
+ * Despesas normalizadas para os relatórios (DRE/Fluxo). Para Budget/Forecast
+ * vêm do lançamento simplificado (budget_line, despesa); para a detalhada, das
+ * despesas reais.
+ */
+export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
+  const kind = await getVersionKind(versionId);
+  if (kind === "budget" || kind === "forecast") {
+    const lines = await db
+      .select()
+      .from(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "despesa"),
+        ),
+      );
+    return lines.map((l) => ({
+      contaCef: l.rowKey,
+      categoriaDre: l.dreCategory,
+      competencia: l.mes,
+      valor: Number(l.valor),
+    }));
+  }
+  const d = await getDespesas(versionId);
+  return d.map((x) => ({
+    contaCef: x.contaCef,
+    categoriaDre: x.categoriaDre,
+    competencia: x.competencia,
+    valor: Number(x.valor),
+  }));
+}
+
+export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;
+
+/** Parcelas de contas a pagar de uma versão (join com despesa). Fase 2. */
+export async function getParcelasByVersion(
+  versionId: string,
+): Promise<(ParcelaRow & { despesaNumDoc: string | null; contaCef: string | null; categoriaDre: string | null })[]> {
+  const rows = await db
+    .select({
+      p: schema.despesaParcelas,
+      numDoc: schema.despesas.numDoc,
+      contaCef: schema.despesas.contaCef,
+      categoriaDre: schema.despesas.categoriaDre,
+    })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .where(eq(schema.despesas.versionId, versionId));
+  return rows.map((r) => ({
+    ...r.p,
+    despesaNumDoc: r.numDoc,
+    contaCef: r.contaCef,
+    categoriaDre: r.categoriaDre,
+  }));
+}
+
+/** Parcelas de uma despesa específica. */
+export async function getParcelasByDespesa(
+  despesaId: string,
+): Promise<ParcelaRow[]> {
+  return db
+    .select()
+    .from(schema.despesaParcelas)
+    .where(eq(schema.despesaParcelas.despesaId, despesaId))
+    .orderBy(asc(schema.despesaParcelas.numeroParcela));
+}
+
 export type DocumentRow = typeof schema.documents.$inferSelect;
 
 export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
@@ -210,13 +308,30 @@ export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
 }
 
 /**
- * Receita projetada mês a mês de uma versão (unidades + reembolsos), pronta
- * para os relatórios. Reutiliza calcProjection + reembursementsByMonth.
+ * Receita projetada mês a mês de uma versão. Para Budget/Forecast usa o
+ * lançamento simplificado (budget_line, receita); para a versão detalhada usa
+ * unidades + reembolsos (calcProjection).
  */
 export async function getMonthlyRevenue(
   versionId: string,
   projectId: string,
 ): Promise<MonthlyProjection> {
+  const kind = await getVersionKind(versionId);
+  if (kind === "budget" || kind === "forecast") {
+    const lines = await db
+      .select({ mes: schema.budgetLines.mes, valor: schema.budgetLines.valor })
+      .from(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "receita"),
+        ),
+      );
+    const out: MonthlyProjection = {};
+    for (const l of lines) out[l.mes] = (out[l.mes] || 0) + Number(l.valor);
+    return out;
+  }
+
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(versionId),
     getReembolsos(versionId),
@@ -230,6 +345,71 @@ export async function getMonthlyRevenue(
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
   return out;
+}
+
+export interface RevenueBySource {
+  sources: Record<ProjectionSource, MonthlyProjection>;
+  reemb: MonthlyProjection;
+}
+
+function emptyBySource(): Record<ProjectionSource, MonthlyProjection> {
+  return Object.fromEntries(
+    PROJECTION_SOURCES.map((s) => [s, {} as MonthlyProjection]),
+  ) as Record<ProjectionSource, MonthlyProjection>;
+}
+
+/**
+ * Receita projetada por fonte × mês de uma versão. Para Budget/Forecast usa o
+ * lançamento simplificado (budget_line, receita, rowKey = fonte); para a versão
+ * detalhada usa unidades (calcProjectionBySource) + reembolsos.
+ */
+export async function getRevenueBySource(
+  versionId: string,
+  projectId: string,
+): Promise<RevenueBySource> {
+  const sources = emptyBySource();
+  const reemb: MonthlyProjection = {};
+  const kind = await getVersionKind(versionId);
+
+  if (kind === "budget" || kind === "forecast") {
+    const lines = await db
+      .select({
+        rowKey: schema.budgetLines.rowKey,
+        mes: schema.budgetLines.mes,
+        valor: schema.budgetLines.valor,
+      })
+      .from(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "receita"),
+        ),
+      );
+    for (const l of lines) {
+      if (l.rowKey === "Reembolso") {
+        reemb[l.mes] = (reemb[l.mes] || 0) + Number(l.valor);
+      } else if ((PROJECTION_SOURCES as readonly string[]).includes(l.rowKey)) {
+        const s = l.rowKey as ProjectionSource;
+        sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
+      }
+    }
+    return { sources, reemb };
+  }
+
+  const [unitRows, reembRows, incc] = await Promise.all([
+    getUnits(versionId),
+    getReembolsos(versionId),
+    getInccRows(projectId),
+  ]);
+  for (const u of unitRows) {
+    const bs = calcProjectionBySource(toCalcUnit(u), incc);
+    for (const s of PROJECTION_SOURCES)
+      for (const [mm, v] of Object.entries(bs[s]))
+        sources[s][mm] = (sources[s][mm] || 0) + v;
+  }
+  const rb = reembursementsByMonth(reembToCalc(reembRows));
+  for (const [mm, v] of Object.entries(rb)) reemb[mm] = (reemb[mm] || 0) + v;
+  return { sources, reemb };
 }
 
 /** Ordena chaves "MM/YYYY" cronologicamente. */

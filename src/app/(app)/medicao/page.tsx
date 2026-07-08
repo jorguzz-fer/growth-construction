@@ -1,11 +1,7 @@
 import { getActiveContext } from "@/lib/context";
-import { getDespesas } from "@/lib/queries";
-import {
-  PLANO_CONTAS,
-  PCT_REF_CEF,
-  CUSTO_EDIFICACOES_REF,
-} from "@/lib/calc/constants";
-import { brl0, monthInRange, dateInRange } from "@/lib/utils";
+import { getBudgetLines, getMedicoes } from "@/lib/queries";
+import { PLANO_CONTAS, PCT_REF_CEF } from "@/lib/calc/constants";
+import { brl0, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { PrintButton } from "@/components/app/print-button";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
@@ -25,28 +21,45 @@ export default async function MedicaoPage({
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
+  const inRange = (mm: string | null) => !hasRange || monthInRange(mm, de, ate);
 
-  const despesasAll = await getDespesas(ctx.version.id);
-  // Filtro de período (item 3): por competência (ou vencimento) da despesa.
-  const despesas = hasRange
-    ? despesasAll.filter(
-        (d) => monthInRange(d.competencia, de, ate) || dateInRange(d.vencimento, de, ate),
-      )
-    : despesasAll;
+  // Fontes dos dados:
+  //  - Orçado  → lançamento simplificado da versão Budget (despesas por grupo CEF).
+  //  - Realizado → lançamento de medição da versão Atual (medições por grupo).
+  const budgetV = ctx.versions.find((v) => v.kind === "budget");
+  const atualV =
+    ctx.versions.find((v) => v.kind === "atual") ??
+    ctx.versions.find((v) => v.isDefault) ??
+    ctx.version;
 
-  // Realizado por grupo de obra (prefixo antes do primeiro ponto da conta CEF).
+  const [budgetLines, medicoes] = await Promise.all([
+    budgetV ? getBudgetLines(budgetV.id) : Promise.resolve([]),
+    getMedicoes(atualV.id),
+  ]);
+
+  // Orçado por grupo de obra (prefixo antes do primeiro ponto do rowKey/CEF).
+  // Vem exclusivamente do lançamento do Budget: se o grupo estiver zerado no
+  // Budget, o orçado aqui também é zero (sem estimativa de referência).
+  const orcadoPorGrupo = new Map<string, number>();
+  for (const l of budgetLines) {
+    if (l.kind !== "despesa" || !inRange(l.mes)) continue;
+    const grp = (l.rowKey ?? "").split(".")[0];
+    orcadoPorGrupo.set(grp, (orcadoPorGrupo.get(grp) || 0) + Number(l.valor));
+  }
+
+  // Realizado por grupo de obra a partir das medições lançadas (versão Atual).
   const realizadoPorGrupo = new Map<string, number>();
-  for (const d of despesas) {
-    if (!d.contaCef) continue;
-    const grp = d.contaCef.split(".")[0];
+  for (const m of medicoes) {
+    if (!inRange(m.competencia)) continue;
     realizadoPorGrupo.set(
-      grp,
-      (realizadoPorGrupo.get(grp) || 0) + Number(d.valor),
+      m.grupoCode,
+      (realizadoPorGrupo.get(m.grupoCode) || 0) + Number(m.valor),
     );
   }
 
   const rows = PLANO_CONTAS.obra.map((g, i) => {
-    const orcado = (CUSTO_EDIFICACOES_REF * PCT_REF_CEF[i]) / 100;
+    // Orçado estritamente do Budget: grupo sem lançamento no Budget → zero.
+    const orcado = orcadoPorGrupo.get(g.id) || 0;
     const realizado = realizadoPorGrupo.get(g.id) || 0;
     const pctFisico = orcado > 0 ? Math.min((realizado / orcado) * 100, 100) : 0;
     return { g, pctRef: PCT_REF_CEF[i], orcado, realizado, pctFisico };
@@ -58,9 +71,9 @@ export default async function MedicaoPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · ${ctx.version.label}`}
+        eyebrow={`${ctx.project.name} · Orçado ${budgetV?.label ?? "Budget"} · Realizado ${atualV.label}`}
         title="Medição de Obra — Relatório CEF"
-        subtitle={`Evolução físico-financeira por grupo · custo de edificações ${brl0(CUSTO_EDIFICACOES_REF)}`}
+        subtitle="Orçado: lançamento do Budget · Realizado: lançamento de medição (versão Atual)"
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <DateRangeFilter de={de} ate={ate} />
@@ -92,7 +105,7 @@ export default async function MedicaoPage({
                 {r.pctRef.toFixed(2)}%
               </TD>
               <TD className="text-right font-[family-name:var(--font-mono)]">
-                {brl0(r.orcado)}
+                {r.orcado > 0 ? brl0(r.orcado) : "—"}
               </TD>
               <TD className="text-right font-[family-name:var(--font-mono)]">
                 {r.realizado > 0 ? brl0(r.realizado) : "—"}
@@ -121,9 +134,12 @@ export default async function MedicaoPage({
       </Table>
 
       <p className="mt-4 text-xs text-[var(--color-ink3)]">
-        Valores orçados calculados pelos percentuais de referência CEF sobre o
-        custo total de edificações. Use <strong>Imprimir Relatório</strong> para
-        gerar a versão formatada (FRE / Cronograma CEF).
+        <strong>Orçado</strong> importado do lançamento simplificado da versão{" "}
+        <strong>Budget</strong> (despesas por grupo do plano de contas).{" "}
+        <strong>Realizado</strong> importado do{" "}
+        <strong>Lançamento de Medição</strong> da versão <strong>Atual</strong>.
+        Use <strong>Imprimir Relatório</strong> para gerar a versão formatada
+        (FRE / Cronograma CEF).
       </p>
     </>
   );

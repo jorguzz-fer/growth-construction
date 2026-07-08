@@ -4,6 +4,7 @@ import {
   timestamp,
   primaryKey,
   integer,
+  bigint,
   pgEnum,
   uuid,
   numeric,
@@ -169,6 +170,7 @@ export const dreCategoryEnum = pgEnum("dre_category", [
   "Retiradas",
   "Investimento",
   "Empréstimos",
+  "Despesas Financeiras",
 ]);
 
 // ──────────────────────── Projetos & versões ────────────────────────
@@ -380,6 +382,143 @@ export const despesas = pgTable("despesa", {
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   status: text("status"),
   obs: text("obs"),
+  // ── Fase 2: forma e condição de pagamento ──
+  formaPagamento: text("forma_pagamento"),
+  formaPagamentoDesc: text("forma_pagamento_desc"),
+  condicaoPagamento: text("condicao_pagamento"),
+  qtdParcelas: integer("qtd_parcelas"),
+  dataEmissao: text("data_emissao"),
+  // boleto
+  boletoLinhaDigitavel: text("boleto_linha_digitavel"),
+  boletoCodigoBarras: text("boleto_codigo_barras"),
+  boletoBanco: text("boleto_banco"),
+  // cheque
+  chequeNumero: text("cheque_numero"),
+  chequeBanco: text("cheque_banco"),
+  chequeAg: text("cheque_ag"),
+  chequeConta: text("cheque_conta"),
+  chequeEmitente: text("cheque_emitente"),
+  chequeDataEmissao: text("cheque_data_emissao"),
+  chequeDataCompensacao: text("cheque_data_compensacao"),
+  chequeStatus: text("cheque_status"),
+  /** Fase 4: despesa paga por terceiro (não gera saída de caixa na competência). */
+  pagoPorTerceiro: boolean("pago_por_terceiro").notNull().default(false),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Despesa paga por terceiro com restituição posterior (Fase 4). A despesa é
+ * reconhecida 1× na DRE (competência); esta tabela registra a OBRIGAÇÃO da
+ * empresa com quem desembolsou. A saída de caixa ocorre só nas restituições.
+ */
+export const despesaTerceiros = pgTable("despesa_terceiro", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  despesaId: uuid("despesa_id")
+    .notNull()
+    .references(() => despesas.id, { onDelete: "cascade" }),
+  /** quem desembolsou o dinheiro (consultora/sócio/funcionário/empresa). */
+  pagadorTerceiroId: uuid("pagador_terceiro_id").references(() => stakeholders.id, {
+    onDelete: "set null",
+  }),
+  /** empresa/projeto responsável pela obrigação. */
+  empresaResponsavelId: uuid("empresa_responsavel_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  valorTotal: numeric("valor_total", { precision: 15, scale: 2 }).notNull().default("0"),
+  valorRestituido: numeric("valor_restituido", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataPagamentoOriginal: text("data_pagamento_original"),
+  dataPrevistaRestituicao: text("data_prevista_restituicao"),
+  /** Aguardando restituição | Parcialmente restituído | Restituído | Cancelado */
+  status: text("status").notNull().default("Aguardando restituição"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Restituição (parcial ou integral) de uma despesa paga por terceiro. Fase 4. */
+export const restituicoes = pgTable("restituicao", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  despesaTerceiroId: uuid("despesa_terceiro_id")
+    .notNull()
+    .references(() => despesaTerceiros.id, { onDelete: "cascade" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataRestituicao: text("data_restituicao"),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+    onDelete: "set null",
+  }),
+  comprovante: text("comprovante"),
+  obs: text("obs"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Parcela de uma despesa (conta a pagar). Fase 2. */
+export const despesaParcelas = pgTable(
+  "despesa_parcela",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    despesaId: uuid("despesa_id")
+      .notNull()
+      .references(() => despesas.id, { onDelete: "cascade" }),
+    numeroParcela: integer("numero_parcela").notNull(),
+    vencimento: text("vencimento"),
+    valorOriginal: numeric("valor_original", { precision: 15, scale: 2 }).notNull().default("0"),
+    valorPago: numeric("valor_pago", { precision: 15, scale: 2 }).notNull().default("0"),
+    multa: numeric("multa", { precision: 15, scale: 2 }).notNull().default("0"),
+    juros: numeric("juros", { precision: 15, scale: 2 }).notNull().default("0"),
+    desconto: numeric("desconto", { precision: 15, scale: 2 }).notNull().default("0"),
+    outrosAcrescimos: numeric("outros_acrescimos", { precision: 15, scale: 2 }).notNull().default("0"),
+    dataPagamento: text("data_pagamento"),
+    formaPagamento: text("forma_pagamento"),
+    bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+      onDelete: "set null",
+    }),
+    /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado */
+    status: text("status").notNull().default("Pendente"),
+    obs: text("obs"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [unique("despesa_parcela_uq").on(t.despesaId, t.numeroParcela)],
+);
+
+/**
+ * Registro de pagamento de uma parcela/despesa (Fase 3). Guarda a composição
+ * (valor original, desconto, multa, juros, outros) e o total efetivamente pago.
+ * Suporta pagamento parcial (vários registros por parcela).
+ */
+export const pagamentos = pgTable("pagamento", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  parcelaId: uuid("parcela_id").references(() => despesaParcelas.id, {
+    onDelete: "cascade",
+  }),
+  despesaId: uuid("despesa_id").references(() => despesas.id, {
+    onDelete: "cascade",
+  }),
+  valorOriginal: numeric("valor_original", { precision: 15, scale: 2 }).notNull().default("0"),
+  desconto: numeric("desconto", { precision: 15, scale: 2 }).notNull().default("0"),
+  multa: numeric("multa", { precision: 15, scale: 2 }).notNull().default("0"),
+  juros: numeric("juros", { precision: 15, scale: 2 }).notNull().default("0"),
+  outrosAcrescimos: numeric("outros_acrescimos", { precision: 15, scale: 2 }).notNull().default("0"),
+  valorTotalPago: numeric("valor_total_pago", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataPagamento: text("data_pagamento"),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+    onDelete: "set null",
+  }),
+  /** categoria DRE dos encargos (juros/multa). */
+  categoriaEncargos: text("categoria_encargos").notNull().default("Despesas Financeiras"),
+  obs: text("obs"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -543,3 +682,62 @@ export const auditLog = pgTable("audit_log", {
   meta: jsonb("meta"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
+
+// ─────────────────────── Numeração de documentos ─────────────────────────
+
+/**
+ * Sequência numérica configurável por tenant/entidade (ex.: numeração das
+ * Despesas). O próximo número é reservado de forma atômica no banco
+ * (UPDATE ... RETURNING dentro de transação), evitando duplicidade sob
+ * concorrência. `nextNumber` é semeado a partir do maior número já existente.
+ */
+export const numberSequences = pgTable(
+  "number_sequence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** entidade numerada, ex.: "despesa". */
+    entity: text("entity").notNull().default("despesa"),
+    prefix: text("prefix").notNull().default("PED"),
+    usePrefix: boolean("use_prefix").notNull().default(true),
+    digits: integer("digits").notNull().default(6),
+    nextNumber: bigint("next_number", { mode: "number" }).notNull().default(1),
+    active: boolean("active").notNull().default(true),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [unique("number_sequence_tenant_entity_uq").on(t.tenantId, t.entity)],
+);
+
+// ───────────────── Lançamento simplificado (Budget/Forecast) ─────────────
+
+/**
+ * Lançamento simplificado mensal das versões Budget/Forecast. Uma linha por
+ * (versão, tipo, chave da linha, mês). Receita: chave = fonte consolidada
+ * (Mensais, Semestrais, …, Reembolso). Despesa: chave = grupo do plano de
+ * contas (CEF), associado a uma categoria da DRE. A versão "atual" continua
+ * usando o lançamento detalhado (unidades/despesas).
+ */
+export const budgetLines = pgTable(
+  "budget_line",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    /** "receita" | "despesa" */
+    kind: text("kind").notNull(),
+    /** fonte de receita OU código do grupo CEF (despesa). */
+    rowKey: text("row_key").notNull(),
+    /** categoria DRE associada (para despesa; "Receita" para receita). */
+    dreCategory: text("dre_category"),
+    /** "MM/YYYY". */
+    mes: text("mes").notNull(),
+    valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  },
+  (t) => [unique("budget_line_uq").on(t.versionId, t.kind, t.rowKey, t.mes)],
+);

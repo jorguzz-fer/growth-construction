@@ -95,3 +95,62 @@ describe("growth-template", () => {
     expect(p.despesas[0]).toMatchObject({ contaCef: "1.1", competencia: "01/2025", valor: 125000 });
   });
 });
+
+import { buildExportBuffer, type ExportData } from "./growth-template";
+import { emptyPlan } from "@/lib/calc/plan";
+import { PLANO_CONTAS } from "@/lib/calc/constants";
+
+describe("buildExportBuffer (round-trip export → import)", () => {
+  it("exporta dados preenchidos e reimporta recuperando-os", () => {
+    const plan = emptyPlan();
+    plan.usarAS = true;
+    plan.AS = { val: 20000, venc: "01/10/2026", n: 1, usarS1: false };
+    const codigo = PLANO_CONTAS.obra[0].sub[0].id;
+
+    const data: ExportData = {
+      incc: [
+        { m: "01/2026", mo: 0.5, ac: 0.5 },
+        { m: "02/2026", mo: 0.4, ac: 0.9 },
+      ],
+      units: [
+        {
+          code: "BLA 401", bloco: "A", tipo: "2Q", m2: 60, andar: 4,
+          valor: 500000, status: "Vendido", mesVenda: "01/05/2026", plan,
+        },
+      ],
+      reembolsos: [
+        { data: "02/10/2026", origem: "Origem X", valor: 5000, pct: "", obs: "", serial: null },
+      ],
+      permutas: [
+        {
+          unitCode: "BLA 402", cliente: "Fulano", dataRecebimento: "01/10/2026",
+          tipo: "Imóvel", descricao: "Apto", estimado: 100000, status: "Disponivel",
+          dataVenda: "", valorVenda: 0, tipoPermuta: "", obs: "",
+        },
+      ],
+      despesas: [{ contaCef: codigo, competencia: "03/2026", valor: 12345 }],
+    };
+
+    const buf = buildExportBuffer(data);
+    const parsed = parseWorkbook(buf);
+
+    expect(parsed.units).toHaveLength(1);
+    expect(parsed.units[0].code).toBe("BLA 401");
+    expect(parsed.units[0].valor).toBe(500000);
+    expect(parsed.units[0].status).toBe("Vendido");
+    expect(parsed.units[0].plan.AS.val).toBe(20000);
+    expect(parsed.units[0].plan.usarAS).toBe(true);
+
+    expect(parsed.reembolsos).toHaveLength(1);
+    expect(parsed.reembolsos[0].valor).toBe(5000);
+
+    expect(parsed.permutas).toHaveLength(1);
+    expect(parsed.permutas[0].estimado).toBe(100000);
+
+    // despesa recuperada no mês correto (03/2026)
+    const d = parsed.despesas.find((x) => x.contaCef === codigo);
+    expect(d).toBeTruthy();
+    expect(d!.valor).toBe(12345);
+    expect(d!.competencia).toBe("03/2026");
+  });
+});

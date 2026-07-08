@@ -7,6 +7,8 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
+import { reserveDespesaNumber } from "@/lib/db/numbering";
+import { gerarParcelas } from "@/lib/calc";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders } from "@/lib/queries";
 import {
@@ -76,45 +78,112 @@ export async function addBankAccount(formData: FormData) {
   revalidatePath("/fornecedores");
 }
 
-/** Próximo nº de documento interno do tenant (BMV-{ano}-NNNNNN). */
-async function nextDocNumber(tenantId: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const prefix = `BMV-${year}-`;
+/** owner/admin podem definir/alterar o número da despesa manualmente. */
+function canEditNumero(role: string): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Verifica se um número de documento já existe no tenant (evita duplicidade). */
+async function numDocExists(
+  tenantId: string,
+  numDoc: string,
+  exceptId?: string,
+): Promise<boolean> {
   const rows = await db
-    .select({ n: schema.despesas.numDoc })
+    .select({ id: schema.despesas.id })
     .from(schema.despesas)
-    .where(eq(schema.despesas.tenantId, tenantId));
-  let max = 0;
-  for (const r of rows) {
-    const m = r.n?.match(new RegExp(`^${prefix}(\\d+)$`));
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return `${prefix}${String(max + 1).padStart(6, "0")}`;
+    .where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.numDoc, numDoc)));
+  return rows.some((r) => r.id !== exceptId);
 }
 
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
   if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
-  const numDoc =
-    ((formData.get("numDoc") as string) || "").trim() ||
-    (await nextDocNumber(ctx.tenant.id));
+
+  // Número gerado automaticamente (atômico no banco). Só owner/admin podem
+  // informar um número manual — com checagem de duplicidade.
+  const provided = ((formData.get("numDoc") as string) || "").trim();
+  let numDoc: string;
+  if (provided && canEditNumero(ctx.role)) {
+    if (await numDocExists(ctx.tenant.id, provided)) {
+      throw new Error(`O número "${provided}" já existe.`);
+    }
+    numDoc = provided;
+  } else {
+    numDoc = await reserveDespesaNumber(ctx.tenant.id);
+  }
+  const s = (k: string) => (formData.get(k) as string) || null;
   const [row] = await db
     .insert(schema.despesas)
     .values({
       versionId: ctx.version.id,
       tenantId: ctx.tenant.id,
       numDoc,
-      fornecedorId: (formData.get("fornecedorId") as string) || null,
-      bancoId: (formData.get("bancoId") as string) || null,
-      contaCef: (formData.get("contaCef") as string) || null,
+      fornecedorId: s("fornecedorId"),
+      bancoId: s("bancoId"),
+      contaCef: s("contaCef"),
       categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
-      competencia: (formData.get("competencia") as string) || null,
-      vencimento: (formData.get("vencimento") as string) || null,
+      competencia: s("competencia"),
+      vencimento: s("vencimento"),
       valor: (formData.get("valor") as string) || "0",
-      status: (formData.get("status") as string) || "A pagar",
+      status: s("status") || "A pagar",
+      // Fase 2 — forma/condição de pagamento
+      formaPagamento: s("formaPagamento"),
+      formaPagamentoDesc: s("formaPagamentoDesc"),
+      condicaoPagamento: s("condicaoPagamento"),
+      qtdParcelas: formData.get("qtdParcelas") ? Number(formData.get("qtdParcelas")) : null,
+      dataEmissao: s("dataEmissao"),
+      boletoLinhaDigitavel: s("boletoLinhaDigitavel"),
+      boletoCodigoBarras: s("boletoCodigoBarras"),
+      boletoBanco: s("boletoBanco"),
+      chequeNumero: s("chequeNumero"),
+      chequeBanco: s("chequeBanco"),
+      chequeAg: s("chequeAg"),
+      chequeConta: s("chequeConta"),
+      chequeEmitente: s("chequeEmitente"),
+      chequeDataEmissao: s("chequeDataEmissao"),
+      chequeDataCompensacao: s("chequeDataCompensacao"),
+      chequeStatus: s("chequeStatus"),
     })
     .returning();
+
+  // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
+  // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
+  const parcelasJson = formData.get("parcelasJson") as string | null;
+  const valorTotal = Number(row.valor);
+  const condicao = row.condicaoPagamento;
+  let parcelas: { vencimento: string | null; valor: number }[] = [];
+  if (parcelasJson) {
+    try {
+      const arr = JSON.parse(parcelasJson) as { vencimento: string; valor: number }[];
+      parcelas = arr
+        .filter((p) => Number(p.valor) > 0)
+        .map((p) => ({ vencimento: p.vencimento || null, valor: Number(p.valor) }));
+    } catch {
+      parcelas = [];
+    }
+  } else if (condicao) {
+    parcelas = gerarParcelas({
+      valorTotal,
+      condicao,
+      dataBase: row.vencimento || row.dataEmissao || row.competencia || "",
+      qtd: row.qtdParcelas ?? undefined,
+    }).map((p) => ({ vencimento: p.vencimento, valor: p.valor }));
+  }
+  if (parcelas.length > 0) {
+    await db.insert(schema.despesaParcelas).values(
+      parcelas.map((p, i) => ({
+        tenantId: ctx.tenant.id,
+        despesaId: row.id,
+        numeroParcela: i + 1,
+        vencimento: p.vencimento,
+        valorOriginal: String(p.valor),
+        formaPagamento: row.formaPagamento,
+        status: "Pendente",
+      })),
+    );
+  }
 
   // Documento anexado (opcional): armazena no R2 e vincula à despesa criada.
   const file = formData.get("file") as File | null;
@@ -181,7 +250,19 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.contaCef !== undefined) set.contaCef = patch.contaCef || null;
   if (patch.categoriaDre !== undefined)
     set.categoriaDre = (patch.categoriaDre || null) as CategoriaDRE | null;
-  if (patch.numDoc !== undefined) set.numDoc = patch.numDoc?.trim() || null;
+  // Número da despesa: só owner/admin pode alterar, e sem duplicar.
+  if (patch.numDoc !== undefined) {
+    const novo = patch.numDoc?.trim() || null;
+    if (novo !== existing.numDoc) {
+      if (!canEditNumero(ctx.role)) {
+        throw new Error("Apenas administradores podem alterar o número da despesa.");
+      }
+      if (novo && (await numDocExists(ctx.tenant.id, novo, id))) {
+        throw new Error(`O número "${novo}" já existe.`);
+      }
+      set.numDoc = novo;
+    }
+  }
   if (patch.competencia !== undefined) set.competencia = patch.competencia || null;
   if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
   if (patch.valor !== undefined) set.valor = patch.valor.trim() || "0";

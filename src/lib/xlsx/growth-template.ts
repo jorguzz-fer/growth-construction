@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { PLANO_CONTAS } from "@/lib/calc/constants";
 import { emptyPlan } from "@/lib/calc/plan";
+import { calcUnitTotal } from "@/lib/calc/projection";
 import type { InccRow, PaymentPlan, UnitStatus } from "@/lib/calc/types";
 
 /**
@@ -78,6 +79,130 @@ export function buildTemplateBuffer(incc: InccRow[]): Buffer {
   const despRows: (string | number)[][] = [DESP_HEADERS];
   for (const g of [...PLANO_CONTAS.obra, ...PLANO_CONTAS.complementar]) {
     for (const s of g.sub) despRows.push([g.nome, s.nome, ...Array(48).fill("")]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(despRows), SHEETS.despesas);
+
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+// ──────────────────────── exportação (dados preenchidos) ────────────────────
+
+export interface ExportUnit {
+  code: string;
+  bloco: string | null;
+  tipo: string | null;
+  m2: number | null;
+  andar: number | null;
+  valor: number;
+  status: string;
+  mesVenda: string | null;
+  plan: PaymentPlan;
+}
+export interface ExportData {
+  incc: InccRow[];
+  units: ExportUnit[];
+  reembolsos: ParsedReembolso[];
+  permutas: ParsedPermuta[];
+  despesas: { contaCef: string; competencia: string; valor: number }[];
+}
+
+const simNao = (b: boolean) => (b ? "Sim" : "Nao");
+
+/** Converte uma unidade + plano para a linha de Dados_de_Venda (na ordem dos headers). */
+function unitToRow(u: ExportUnit): (string | number)[] {
+  const p = u.plan;
+  const total = calcUnitTotal({
+    code: u.code,
+    status: u.status as UnitStatus,
+    valor: u.valor,
+    ...p,
+  });
+  return [
+    u.code, u.bloco ?? "", u.tipo ?? "", u.m2 ?? "", u.andar ?? "", u.valor, u.status,
+    u.mesVenda ?? "", simNao(p.usarAS),
+    p.AS.val, p.AS.venc, p.AS.n, simNao(p.AS.usarS1),
+    p.S1.val, p.S1.venc, p.S1.n, simNao(p.S1.usarS2),
+    p.S2.val, p.S2.venc, p.S2.n, simNao(p.S2.usarS3),
+    p.S3.val, p.S3.venc, p.S3.n, simNao(p.S3.usarMens),
+    p.Mensais.val, p.Mensais.venc, p.Mensais.n, simNao(p.Mensais.usarSem),
+    p.Semestrais.val, p.Semestrais.venc, p.Semestrais.n, simNao(p.Semestrais.usarAnu),
+    p.Anuais.val, p.Anuais.venc, p.Anuais.n, simNao(p.Anuais.usarFGTS),
+    p.FGTS.val, p.FGTS.dataPrev, simNao(p.FGTS.usarSub),
+    p.Subsidio.val, p.Subsidio.dataPrev, p.Subsidio.statusSub, simNao(p.Subsidio.usarPer),
+    p.Permuta.desc, p.Permuta.val, p.Permuta.dataPrev, simNao(p.Permuta.usarFinanc),
+    p.Banco.valFinanc, p.Banco.dataEntrada, p.Banco.dataPrimParc, p.Banco.statusFinanc,
+    total, total - u.valor,
+  ];
+}
+
+/**
+ * Gera o workbook no MESMO formato do modelo, porém PREENCHIDO com os dados de
+ * uma versão (unidades, reembolsos, permutas, despesas, INCC). Reimportável.
+ */
+export function buildExportBuffer(data: ExportData): Buffer {
+  const wb = XLSX.utils.book_new();
+  const baseYear = data.incc[0]
+    ? parseInt(data.incc[0].m.split("/")[1], 10)
+    : new Date().getFullYear();
+
+  // Parametros / INCC
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([PARAM_HEADERS, ...data.incc.map((r) => [r.m, r.mo, r.ac, ""])]),
+    SHEETS.parametros,
+  );
+
+  // Dados_de_Venda
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([UNIT_HEADERS, ...data.units.map(unitToRow)]),
+    SHEETS.vendas,
+  );
+
+  // Reembolso
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      REEMB_HEADERS,
+      ...data.reembolsos.map((r) => [r.data, r.origem, r.valor, r.pct, r.obs, r.serial ?? ""]),
+    ]),
+    SHEETS.reembolso,
+  );
+
+  // Permuta
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      PERM_HEADERS,
+      ...data.permutas.map((p, i) => [
+        i + 1, p.unitCode, p.cliente, p.dataRecebimento, p.tipo, p.descricao,
+        p.estimado, p.status, p.dataVenda, p.valorVenda, p.tipoPermuta, p.obs,
+      ]),
+    ]),
+    SHEETS.permuta,
+  );
+
+  // Despesas_CEF (matriz subitem × 48 meses preenchida)
+  const despRows: (string | number)[][] = [DESP_HEADERS];
+  const codeToRow = new Map<string, (string | number)[]>();
+  for (const g of [...PLANO_CONTAS.obra, ...PLANO_CONTAS.complementar]) {
+    for (const s of g.sub) {
+      const row: (string | number)[] = [g.nome, s.nome, ...Array(48).fill("")];
+      despRows.push(row);
+      codeToRow.set(s.id, row);
+    }
+  }
+  for (const d of data.despesas) {
+    const row = codeToRow.get(d.contaCef);
+    if (!row) continue;
+    const parts = d.competencia.split("/");
+    if (parts.length !== 2) continue;
+    const mm = Number(parts[0]);
+    const yyyy = Number(parts[1]);
+    const col = (yyyy - baseYear) * 12 + (mm - 1);
+    if (col < 0 || col >= 48) continue;
+    const idx = 2 + col;
+    row[idx] = (Number(row[idx]) || 0) + d.valor;
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(despRows), SHEETS.despesas);
 

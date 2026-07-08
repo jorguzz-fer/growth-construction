@@ -1,24 +1,18 @@
 import { getActiveContext } from "@/lib/context";
-import {
-  getInccRows,
-  getReembolsos,
-  getUnits,
-  reembToCalc,
-  toCalcUnit,
-} from "@/lib/queries";
-import {
-  calcProjectionBySource,
-  reembursementsByMonth,
-  PROJECTION_SOURCES,
-  type MonthlyProjection,
-  type ProjectionSource,
-} from "@/lib/calc";
+import { getInccRows, getRevenueBySource } from "@/lib/queries";
+import { PROJECTION_SOURCES, type MonthlyProjection } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConsolidadoControls } from "@/components/app/consolidado-controls";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import {
+  VersionCompareTable,
+  type CompareRow,
+} from "@/components/app/version-compare";
+import { resolveCompareVersions } from "@/lib/report-versions";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +37,7 @@ const sumOver = (map: MonthlyProjection, months: string[]) =>
 export default async function ConsolidadoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; ano?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ view?: string; ano?: string; de?: string; ate?: string; vs?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -54,25 +48,74 @@ export default async function ConsolidadoPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  const [unitRows, reembRows, incc] = await Promise.all([
-    getUnits(ctx.version.id),
-    getReembolsos(ctx.version.id),
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const multi = compareVersions.length > 1;
+
+  const versionSelect = (
+    <VersionMultiSelect
+      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      selected={compareVersions.map((v) => v.id)}
+    />
+  );
+
+  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
+  if (multi) {
+    const inFilter = (m: string) => !hasRange || monthInRange(m, de, ate);
+    const perVersion = await Promise.all(
+      compareVersions.map((v) => getRevenueBySource(v.id, ctx.project.id)),
+    );
+    const sumFiltered = (map: MonthlyProjection) =>
+      Object.entries(map)
+        .filter(([m]) => inFilter(m))
+        .reduce((a, [, v]) => a + v, 0);
+
+    const rows: CompareRow[] = [
+      ...PROJECTION_SOURCES.map((s) => ({
+        label: s,
+        values: perVersion.map((rv) => sumFiltered(rv.sources[s])),
+      })),
+      {
+        label: "Reembolso",
+        values: perVersion.map((rv) => sumFiltered(rv.reemb)),
+      },
+      {
+        label: "TOTAL",
+        emphasis: "final" as const,
+        values: perVersion.map(
+          (rv) =>
+            PROJECTION_SOURCES.reduce((a, s) => a + sumFiltered(rv.sources[s]), 0) +
+            sumFiltered(rv.reemb),
+        ),
+      },
+    ];
+
+    return (
+      <>
+        <PageHeader
+          title="Consolidado"
+          subtitle="Comparativo de versões · total por fonte (Reembolso incluído no TOTAL)"
+          actions={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangeFilter de={de} ate={ate} />
+              {versionSelect}
+            </div>
+          }
+        />
+        <VersionCompareTable
+          firstColLabel="Fonte"
+          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
+          rows={rows}
+        />
+      </>
+    );
+  }
+
+  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
+  const selected = compareVersions[0];
+  const [{ sources, reemb: reembMonth }, incc] = await Promise.all([
+    getRevenueBySource(selected.id, ctx.project.id),
     getInccRows(ctx.project.id),
   ]);
-
-  // Agrega a projeção por fonte, somando todas as unidades.
-  const sources = Object.fromEntries(
-    PROJECTION_SOURCES.map((s) => [s, {} as MonthlyProjection]),
-  ) as Record<ProjectionSource, MonthlyProjection>;
-  for (const u of unitRows) {
-    const bs = calcProjectionBySource(toCalcUnit(u), incc);
-    for (const s of PROJECTION_SOURCES) {
-      for (const [mm, v] of Object.entries(bs[s])) {
-        sources[s][mm] = (sources[s][mm] || 0) + v;
-      }
-    }
-  }
-  const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 
   // Horizonte (48 meses INCC + extras) e janelas de ano. Com período informado
   // (item 3), o eixo é restrito ao intervalo [de, ate].
@@ -148,59 +191,62 @@ export default async function ConsolidadoPage({
                 anoDisabled={view === "anual"}
               />
             )}
+            {versionSelect}
           </div>
         }
       />
 
       <Card>
         <CardContent className="p-5">
-          <Table>
-            <THead>
-              <tr>
-                <TH>Fonte</TH>
-                {columns.map((c) => (
-                  <TH key={c.label} className="text-right">
-                    {c.label}
-                  </TH>
+          <div className="overflow-x-auto">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Fonte</TH>
+                  {columns.map((c) => (
+                    <TH key={c.label} className="text-right">
+                      {c.label}
+                    </TH>
+                  ))}
+                  <TH className="text-right">Total</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {rows.map((r) => (
+                  <TR key={r.label}>
+                    <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
+                      {r.label}
+                    </TD>
+                    {r.values.map((v, i) => (
+                      <TD
+                        key={i}
+                        className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]"
+                      >
+                        {fmt(v)}
+                      </TD>
+                    ))}
+                    <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                      {fmt(r.total)}
+                    </TD>
+                  </TR>
                 ))}
-                <TH className="text-right">Total</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {rows.map((r) => (
-                <TR key={r.label}>
-                  <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
-                    {r.label}
-                  </TD>
-                  {r.values.map((v, i) => (
+                <TR>
+                  <TD className="font-semibold text-[var(--color-ink)]">TOTAL</TD>
+                  {totalRow.values.map((v, i) => (
                     <TD
                       key={i}
-                      className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]"
+                      className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-ink)]"
                     >
                       {fmt(v)}
                     </TD>
                   ))}
-                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                    {fmt(r.total)}
+                  <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
+                    {fmt(totalRow.total)}
                   </TD>
                 </TR>
-              ))}
-              <TR>
-                <TD className="font-semibold text-[var(--color-ink)]">TOTAL</TD>
-                {totalRow.values.map((v, i) => (
-                  <TD
-                    key={i}
-                    className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-ink)]"
-                  >
-                    {fmt(v)}
-                  </TD>
-                ))}
-                <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
-                  {fmt(totalRow.total)}
-                </TD>
-              </TR>
-            </tbody>
-          </Table>
+              </tbody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </>
