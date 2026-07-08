@@ -7,6 +7,7 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
+import { reserveDespesaNumber } from "@/lib/db/numbering";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders } from "@/lib/queries";
 import {
@@ -76,29 +77,41 @@ export async function addBankAccount(formData: FormData) {
   revalidatePath("/fornecedores");
 }
 
-/** Próximo nº de documento interno do tenant (BMV-{ano}-NNNNNN). */
-async function nextDocNumber(tenantId: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const prefix = `BMV-${year}-`;
+/** owner/admin podem definir/alterar o número da despesa manualmente. */
+function canEditNumero(role: string): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Verifica se um número de documento já existe no tenant (evita duplicidade). */
+async function numDocExists(
+  tenantId: string,
+  numDoc: string,
+  exceptId?: string,
+): Promise<boolean> {
   const rows = await db
-    .select({ n: schema.despesas.numDoc })
+    .select({ id: schema.despesas.id })
     .from(schema.despesas)
-    .where(eq(schema.despesas.tenantId, tenantId));
-  let max = 0;
-  for (const r of rows) {
-    const m = r.n?.match(new RegExp(`^${prefix}(\\d+)$`));
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return `${prefix}${String(max + 1).padStart(6, "0")}`;
+    .where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.numDoc, numDoc)));
+  return rows.some((r) => r.id !== exceptId);
 }
 
 export async function addDespesa(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
   if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
-  const numDoc =
-    ((formData.get("numDoc") as string) || "").trim() ||
-    (await nextDocNumber(ctx.tenant.id));
+
+  // Número gerado automaticamente (atômico no banco). Só owner/admin podem
+  // informar um número manual — com checagem de duplicidade.
+  const provided = ((formData.get("numDoc") as string) || "").trim();
+  let numDoc: string;
+  if (provided && canEditNumero(ctx.role)) {
+    if (await numDocExists(ctx.tenant.id, provided)) {
+      throw new Error(`O número "${provided}" já existe.`);
+    }
+    numDoc = provided;
+  } else {
+    numDoc = await reserveDespesaNumber(ctx.tenant.id);
+  }
   const [row] = await db
     .insert(schema.despesas)
     .values({
@@ -181,7 +194,19 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.contaCef !== undefined) set.contaCef = patch.contaCef || null;
   if (patch.categoriaDre !== undefined)
     set.categoriaDre = (patch.categoriaDre || null) as CategoriaDRE | null;
-  if (patch.numDoc !== undefined) set.numDoc = patch.numDoc?.trim() || null;
+  // Número da despesa: só owner/admin pode alterar, e sem duplicar.
+  if (patch.numDoc !== undefined) {
+    const novo = patch.numDoc?.trim() || null;
+    if (novo !== existing.numDoc) {
+      if (!canEditNumero(ctx.role)) {
+        throw new Error("Apenas administradores podem alterar o número da despesa.");
+      }
+      if (novo && (await numDocExists(ctx.tenant.id, novo, id))) {
+        throw new Error(`O número "${novo}" já existe.`);
+      }
+      set.numDoc = novo;
+    }
+  }
   if (patch.competencia !== undefined) set.competencia = patch.competencia || null;
   if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
   if (patch.valor !== undefined) set.valor = patch.valor.trim() || "0";

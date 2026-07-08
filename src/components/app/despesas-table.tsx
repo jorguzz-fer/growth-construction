@@ -39,11 +39,13 @@ export function DespesasTable({
   venc,
   canEditar,
   canExcluir,
+  canEditNumero = false,
 }: {
   rows: DespesaDTO[];
   venc?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
+  canEditNumero?: boolean;
 } & Ref) {
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const showActions = canEditar || canExcluir;
@@ -76,6 +78,7 @@ export function DespesasTable({
             venc={venc}
             canEditar={canEditar}
             canExcluir={canExcluir}
+            canEditNumero={canEditNumero}
           />
         ))}
         {rows.length === 0 && (
@@ -99,12 +102,14 @@ function Row({
   venc,
   canEditar,
   canExcluir,
+  canEditNumero = false,
 }: {
   d: DespesaDTO;
   fornById: Map<string, string>;
   venc?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
+  canEditNumero?: boolean;
 } & Ref) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -199,11 +204,17 @@ function Row({
           )}
         </TD>
         <TD>
-          <Input
-            value={f.numDoc}
-            onChange={(e) => setF((s) => ({ ...s, numDoc: e.target.value }))}
-            className="h-8 w-28 text-xs"
-          />
+          {canEditNumero ? (
+            <Input
+              value={f.numDoc}
+              onChange={(e) => setF((s) => ({ ...s, numDoc: e.target.value }))}
+              className="h-8 w-28 text-xs"
+            />
+          ) : (
+            <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+              {f.numDoc || "—"}
+            </span>
+          )}
         </TD>
         <TD>
           <Select

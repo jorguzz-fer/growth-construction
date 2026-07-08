@@ -40,6 +40,7 @@ export function DespesaForm({
   categorias,
   aiConfigured,
   r2Configured,
+  canEditNumero = false,
 }: {
   fornecedores: Fornecedor[];
   contas: Conta[];
@@ -47,6 +48,7 @@ export function DespesaForm({
   categorias: readonly string[];
   aiConfigured: boolean;
   r2Configured: boolean;
+  canEditNumero?: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -261,14 +263,21 @@ export function DespesaForm({
               ))}
             </Select>
           </div>
-          <div>
-            <Label>Nº Documento</Label>
-            <Input
-              value={numDoc}
-              onChange={(e) => setNumDoc(e.target.value)}
-              placeholder="auto (BMV-…)"
-            />
-          </div>
+          {canEditNumero ? (
+            <div>
+              <Label>Nº Documento (opcional)</Label>
+              <Input
+                value={numDoc}
+                onChange={(e) => setNumDoc(e.target.value)}
+                placeholder="vazio = automático"
+              />
+            </div>
+          ) : (
+            <div>
+              <Label>Nº Documento</Label>
+              <Input value="Gerado automaticamente" disabled readOnly />
+            </div>
+          )}
           <div>
             <Label>Competência</Label>
             <MonthField value={competencia} onChange={setCompetencia} />

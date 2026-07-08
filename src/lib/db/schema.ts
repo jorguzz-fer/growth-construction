@@ -4,6 +4,7 @@ import {
   timestamp,
   primaryKey,
   integer,
+  bigint,
   pgEnum,
   uuid,
   numeric,
@@ -543,3 +544,30 @@ export const auditLog = pgTable("audit_log", {
   meta: jsonb("meta"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
+
+// ─────────────────────── Numeração de documentos ─────────────────────────
+
+/**
+ * Sequência numérica configurável por tenant/entidade (ex.: numeração das
+ * Despesas). O próximo número é reservado de forma atômica no banco
+ * (UPDATE ... RETURNING dentro de transação), evitando duplicidade sob
+ * concorrência. `nextNumber` é semeado a partir do maior número já existente.
+ */
+export const numberSequences = pgTable(
+  "number_sequence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** entidade numerada, ex.: "despesa". */
+    entity: text("entity").notNull().default("despesa"),
+    prefix: text("prefix").notNull().default("PED"),
+    usePrefix: boolean("use_prefix").notNull().default(true),
+    digits: integer("digits").notNull().default(6),
+    nextNumber: bigint("next_number", { mode: "number" }).notNull().default(1),
+    active: boolean("active").notNull().default(true),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [unique("number_sequence_tenant_entity_uq").on(t.tenantId, t.entity)],
+);

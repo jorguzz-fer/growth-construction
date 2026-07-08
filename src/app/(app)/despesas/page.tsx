@@ -42,6 +42,7 @@ export default async function DespesasPage({
   const canEdit = can(ctx.perms, "despesas", "criar");
   const canEditar = can(ctx.perms, "despesas", "editar");
   const canExcluir = can(ctx.perms, "despesas", "excluir");
+  const canEditNumero = ctx.role === "owner" || ctx.role === "admin";
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
@@ -113,12 +114,14 @@ export default async function DespesasPage({
               categorias={CATEGORIAS_DRE}
               aiConfigured={aiConfigured}
               r2Configured={r2Configured}
+              canEditNumero={canEditNumero}
             />
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}
             canEditar={canEditar}
             canExcluir={canExcluir}
+            canEditNumero={canEditNumero}
             {...refProps}
           />
         </>
@@ -133,6 +136,7 @@ export default async function DespesasPage({
           venc
           canEditar={false}
           canExcluir={false}
+          canEditNumero={false}
           {...refProps}
         />
       )}
