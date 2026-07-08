@@ -709,3 +709,35 @@ export const numberSequences = pgTable(
   },
   (t) => [unique("number_sequence_tenant_entity_uq").on(t.tenantId, t.entity)],
 );
+
+// ───────────────── Lançamento simplificado (Budget/Forecast) ─────────────
+
+/**
+ * Lançamento simplificado mensal das versões Budget/Forecast. Uma linha por
+ * (versão, tipo, chave da linha, mês). Receita: chave = fonte consolidada
+ * (Mensais, Semestrais, …, Reembolso). Despesa: chave = grupo do plano de
+ * contas (CEF), associado a uma categoria da DRE. A versão "atual" continua
+ * usando o lançamento detalhado (unidades/despesas).
+ */
+export const budgetLines = pgTable(
+  "budget_line",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    /** "receita" | "despesa" */
+    kind: text("kind").notNull(),
+    /** fonte de receita OU código do grupo CEF (despesa). */
+    rowKey: text("row_key").notNull(),
+    /** categoria DRE associada (para despesa; "Receita" para receita). */
+    dreCategory: text("dre_category"),
+    /** "MM/YYYY". */
+    mes: text("mes").notNull(),
+    valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  },
+  (t) => [unique("budget_line_uq").on(t.versionId, t.kind, t.rowKey, t.mes)],
+);

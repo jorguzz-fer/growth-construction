@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext, type Project } from "@/lib/context";
 import {
-  getDespesas,
+  getExpenseRows,
   getInccRows,
   getMedicoes,
   getMonthlyRevenue,
@@ -43,7 +43,7 @@ async function projectInputs(
   const [revenue, medicoes, despesas, permutas, encargosMes] = await Promise.all([
     getMonthlyRevenue(vid, project.id),
     getMedicoes(vid),
-    getDespesas(vid),
+    getExpenseRows(vid),
     getPermutas(vid),
     getEncargosByVersion(vid),
   ]);
@@ -57,14 +57,16 @@ async function projectInputs(
   const receitaPermuta = Object.entries(permRev)
     .filter(([mm]) => inP(mm))
     .reduce((a, [, v]) => a + v, 0);
-  const custoVar = medicoes
-    .filter((m) => inP(m.competencia))
-    .reduce((a, m) => a + Number(m.valor), 0);
   const byCat: Record<string, number> = {};
   for (const d of despesas) {
     if (!d.categoriaDre || !inP(d.competencia)) continue;
     byCat[d.categoriaDre] = (byCat[d.categoriaDre] || 0) + Number(d.valor);
   }
+  // Custo Variável: medição (detalhada) + linhas de "Custo Variável" do
+  // lançamento simplificado (Budget/Forecast).
+  const custoVar =
+    medicoes.filter((m) => inP(m.competencia)).reduce((a, m) => a + Number(m.valor), 0) +
+    (byCat["Custo Variável"] || 0);
   // Encargos financeiros (multa/juros/outros − desconto) por data de pagamento.
   const encargos = Object.entries(encargosMes)
     .filter(([mm]) => inP(mm))

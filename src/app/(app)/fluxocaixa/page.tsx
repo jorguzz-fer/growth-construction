@@ -3,6 +3,7 @@ import {
   getBankAccounts,
   getDespesas,
   getInccRows,
+  getExpenseRows,
   getMonthlyRevenue,
   getParcelasByVersion,
   getPermutas,
@@ -10,6 +11,7 @@ import {
   sortMonthKey,
 } from "@/lib/queries";
 import { permutaCashByMonth } from "@/lib/calc";
+import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
 import { brl0, brlk, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -52,29 +54,34 @@ export default async function FluxoCaixaPage({
     entradas[mm] = (entradas[mm] || 0) + v;
   }
 
-  // Despesas pagas por terceiro NÃO geram saída na competência — a saída da
-  // empresa ocorre só na restituição (prevista/realizada). Fase 4.
-  const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
-    await getRestituicoesPendentesByVersion(ctx.version.id);
-  const excluir = new Set(terceiroIds);
-
-  // Saídas: despesas COM parcelas entram pelas parcelas (por vencimento);
-  // despesas SEM parcelas entram pelo vencimento da própria despesa.
   const saidas: Record<string, number> = {};
-  const comParcela = new Set(parcelas.map((p) => p.despesaId));
-  for (const p of parcelas) {
-    if (p.status === "Cancelado" || excluir.has(p.despesaId)) continue;
-    const mm = vencMonth(p.vencimento);
-    if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
-  }
-  for (const d of despesas) {
-    if (comParcela.has(d.id) || excluir.has(d.id)) continue;
-    const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
-    if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
-  }
-  // Restituições pendentes: saída projetada no mês previsto de restituição.
-  for (const [mm, v] of Object.entries(restPrevistas)) {
-    saidas[mm] = (saidas[mm] || 0) + v;
+  if (isBudgetVersion(ctx.version.kind)) {
+    // Budget/Forecast: saídas do lançamento simplificado (por competência).
+    const expenses = await getExpenseRows(ctx.version.id);
+    for (const e of expenses) {
+      const mm = vencMonth(e.competencia);
+      if (mm) saidas[mm] = (saidas[mm] || 0) + e.valor;
+    }
+  } else {
+    // Versão detalhada: despesas pagas por terceiro NÃO geram saída na
+    // competência — a saída ocorre só na restituição (Fase 4).
+    const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
+      await getRestituicoesPendentesByVersion(ctx.version.id);
+    const excluir = new Set(terceiroIds);
+    const comParcela = new Set(parcelas.map((p) => p.despesaId));
+    for (const p of parcelas) {
+      if (p.status === "Cancelado" || excluir.has(p.despesaId)) continue;
+      const mm = vencMonth(p.vencimento);
+      if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
+    }
+    for (const d of despesas) {
+      if (comParcela.has(d.id) || excluir.has(d.id)) continue;
+      const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
+      if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
+    }
+    for (const [mm, v] of Object.entries(restPrevistas)) {
+      saidas[mm] = (saidas[mm] || 0) + v;
+    }
   }
 
   // Saldo inicial = soma dos saldos das contas correntes.
