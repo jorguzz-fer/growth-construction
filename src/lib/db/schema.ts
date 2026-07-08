@@ -381,8 +381,59 @@ export const despesas = pgTable("despesa", {
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   status: text("status"),
   obs: text("obs"),
+  // ── Fase 2: forma e condição de pagamento ──
+  formaPagamento: text("forma_pagamento"),
+  formaPagamentoDesc: text("forma_pagamento_desc"),
+  condicaoPagamento: text("condicao_pagamento"),
+  qtdParcelas: integer("qtd_parcelas"),
+  dataEmissao: text("data_emissao"),
+  // boleto
+  boletoLinhaDigitavel: text("boleto_linha_digitavel"),
+  boletoCodigoBarras: text("boleto_codigo_barras"),
+  boletoBanco: text("boleto_banco"),
+  // cheque
+  chequeNumero: text("cheque_numero"),
+  chequeBanco: text("cheque_banco"),
+  chequeAg: text("cheque_ag"),
+  chequeConta: text("cheque_conta"),
+  chequeEmitente: text("cheque_emitente"),
+  chequeDataEmissao: text("cheque_data_emissao"),
+  chequeDataCompensacao: text("cheque_data_compensacao"),
+  chequeStatus: text("cheque_status"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
+
+/** Parcela de uma despesa (conta a pagar). Fase 2. */
+export const despesaParcelas = pgTable(
+  "despesa_parcela",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    despesaId: uuid("despesa_id")
+      .notNull()
+      .references(() => despesas.id, { onDelete: "cascade" }),
+    numeroParcela: integer("numero_parcela").notNull(),
+    vencimento: text("vencimento"),
+    valorOriginal: numeric("valor_original", { precision: 15, scale: 2 }).notNull().default("0"),
+    valorPago: numeric("valor_pago", { precision: 15, scale: 2 }).notNull().default("0"),
+    multa: numeric("multa", { precision: 15, scale: 2 }).notNull().default("0"),
+    juros: numeric("juros", { precision: 15, scale: 2 }).notNull().default("0"),
+    desconto: numeric("desconto", { precision: 15, scale: 2 }).notNull().default("0"),
+    outrosAcrescimos: numeric("outros_acrescimos", { precision: 15, scale: 2 }).notNull().default("0"),
+    dataPagamento: text("data_pagamento"),
+    formaPagamento: text("forma_pagamento"),
+    bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+      onDelete: "set null",
+    }),
+    /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado */
+    status: text("status").notNull().default("Pendente"),
+    obs: text("obs"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [unique("despesa_parcela_uq").on(t.despesaId, t.numeroParcela)],
+);
 
 /** Documento anexado (NF/contrato) — armazenado no Cloudflare R2. Fase 3. §11 */
 export const documents = pgTable("document", {

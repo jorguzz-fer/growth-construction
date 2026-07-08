@@ -92,6 +92,13 @@
       "when": 1783469177709,
       "tag": "0012_condemned_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783469652127,
+      "tag": "0013_daily_tag",
+      "breakpoints": true
     }
   ]
 }

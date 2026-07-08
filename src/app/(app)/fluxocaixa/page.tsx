@@ -4,6 +4,7 @@ import {
   getDespesas,
   getInccRows,
   getMonthlyRevenue,
+  getParcelasByVersion,
   getPermutas,
   permToResale,
   sortMonthKey,
@@ -35,12 +36,13 @@ export default async function FluxoCaixaPage({
   const ctx = await getActiveContext();
   if (!ctx) return null;
 
-  const [entradas, despesas, incc, contas, permutas] = await Promise.all([
+  const [entradas, despesas, incc, contas, permutas, parcelas] = await Promise.all([
     getMonthlyRevenue(ctx.version.id, ctx.project.id),
     getDespesas(ctx.version.id),
     getInccRows(ctx.project.id),
     getBankAccounts(ctx.tenant.id),
     getPermutas(ctx.version.id),
+    getParcelasByVersion(ctx.version.id),
   ]);
 
   // Recebimentos da revenda de bens recebidos em permuta (item 10).
@@ -49,8 +51,17 @@ export default async function FluxoCaixaPage({
     entradas[mm] = (entradas[mm] || 0) + v;
   }
 
+  // Saídas: despesas COM parcelas entram pelas parcelas (por vencimento);
+  // despesas SEM parcelas entram pelo vencimento da própria despesa.
   const saidas: Record<string, number> = {};
+  const comParcela = new Set(parcelas.map((p) => p.despesaId));
+  for (const p of parcelas) {
+    if (p.status === "Cancelado") continue;
+    const mm = vencMonth(p.vencimento);
+    if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
+  }
   for (const d of despesas) {
+    if (comParcela.has(d.id)) continue;
     const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
     if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
   }

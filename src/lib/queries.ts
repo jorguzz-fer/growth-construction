@@ -169,6 +169,41 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;
+
+/** Parcelas de contas a pagar de uma versão (join com despesa). Fase 2. */
+export async function getParcelasByVersion(
+  versionId: string,
+): Promise<(ParcelaRow & { despesaNumDoc: string | null; contaCef: string | null; categoriaDre: string | null })[]> {
+  const rows = await db
+    .select({
+      p: schema.despesaParcelas,
+      numDoc: schema.despesas.numDoc,
+      contaCef: schema.despesas.contaCef,
+      categoriaDre: schema.despesas.categoriaDre,
+    })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .where(eq(schema.despesas.versionId, versionId));
+  return rows.map((r) => ({
+    ...r.p,
+    despesaNumDoc: r.numDoc,
+    contaCef: r.contaCef,
+    categoriaDre: r.categoriaDre,
+  }));
+}
+
+/** Parcelas de uma despesa específica. */
+export async function getParcelasByDespesa(
+  despesaId: string,
+): Promise<ParcelaRow[]> {
+  return db
+    .select()
+    .from(schema.despesaParcelas)
+    .where(eq(schema.despesaParcelas.despesaId, despesaId))
+    .orderBy(asc(schema.despesaParcelas.numeroParcela));
+}
+
 export type DocumentRow = typeof schema.documents.$inferSelect;
 
 export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {

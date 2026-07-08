@@ -7,6 +7,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { DateField, MonthField } from "@/components/ui/date-field";
+import {
+  gerarParcelas,
+  FORMAS_PAGAMENTO,
+  CONDICOES_PAGAMENTO,
+} from "@/lib/calc";
 
 interface Fornecedor {
   id: string;
@@ -67,6 +72,36 @@ export function DespesaForm({
   const [valor, setValor] = useState("");
   const [status, setStatus] = useState("A pagar");
   const [file, setFile] = useState<File | null>(null);
+
+  // Fase 2 — forma/condição de pagamento e parcelas
+  const [formaPagamento, setFormaPagamento] = useState("");
+  const [formaDesc, setFormaDesc] = useState("");
+  const [condicao, setCondicao] = useState("");
+  const [qtdPers, setQtdPers] = useState("2");
+  const [parcelas, setParcelas] = useState<{ vencimento: string; valor: string }[]>([]);
+  const [bo, setBo] = useState({ linha: "", barras: "", banco: "" });
+  const [ch, setCh] = useState({
+    numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "",
+  });
+
+  const regerarParcelas = () => {
+    const total = Number(valor) || 0;
+    if (!condicao || total <= 0) {
+      setParcelas([]);
+      return;
+    }
+    const base = vencimento || competencia || "";
+    const ger = gerarParcelas({
+      valorTotal: total,
+      condicao,
+      dataBase: base,
+      qtd: condicao === "personalizado" ? Number(qtdPers) || 1 : undefined,
+    });
+    setParcelas(ger.map((p) => ({ vencimento: p.vencimento, valor: String(p.valor) })));
+  };
+
+  const somaParcelas = parcelas.reduce((a, p) => a + (Number(p.valor) || 0), 0);
+  const totalOk = Math.abs(somaParcelas - (Number(valor) || 0)) < 0.01;
 
   const contaCodes = useMemo(() => new Set(contas.map((c) => c.code)), [contas]);
 
@@ -152,6 +187,27 @@ export function DespesaForm({
     fd.set("vencimento", vencimento);
     fd.set("valor", valor || "0");
     fd.set("status", status);
+    // Fase 2 — forma/condição de pagamento e parcelas
+    if (formaPagamento) fd.set("formaPagamento", formaPagamento);
+    if (formaPagamento === "Outro" && formaDesc) fd.set("formaPagamentoDesc", formaDesc);
+    if (condicao) fd.set("condicaoPagamento", condicao);
+    if (condicao === "personalizado") fd.set("qtdParcelas", qtdPers);
+    if (parcelas.length > 0) fd.set("parcelasJson", JSON.stringify(parcelas));
+    if (formaPagamento === "Boleto") {
+      fd.set("boletoLinhaDigitavel", bo.linha);
+      fd.set("boletoCodigoBarras", bo.barras);
+      fd.set("boletoBanco", bo.banco);
+    }
+    if (formaPagamento === "Cheque") {
+      fd.set("chequeNumero", ch.numero);
+      fd.set("chequeBanco", ch.banco);
+      fd.set("chequeAg", ch.ag);
+      fd.set("chequeConta", ch.conta);
+      fd.set("chequeEmitente", ch.emitente);
+      fd.set("chequeDataEmissao", ch.emissao);
+      fd.set("chequeDataCompensacao", ch.compensacao);
+      fd.set("chequeStatus", ch.status);
+    }
     if (file) fd.set("file", file);
     startSaving(async () => {
       try {
@@ -166,6 +222,12 @@ export function DespesaForm({
         setVencimento("");
         setValor("");
         setStatus("A pagar");
+        setFormaPagamento("");
+        setFormaDesc("");
+        setCondicao("");
+        setParcelas([]);
+        setBo({ linha: "", barras: "", banco: "" });
+        setCh({ numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "" });
         setFile(null);
         if (fileRef.current) fileRef.current.value = "";
         setNotice(null);
@@ -303,8 +365,127 @@ export function DespesaForm({
               <option>Pago</option>
             </Select>
           </div>
-          <div className="flex items-end">
-            <Button type="button" className="w-full" disabled={busy} onClick={salvar}>
+          {/* Pagamento & parcelamento (Fase 2) */}
+          <div className="col-span-2 space-y-3 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4">
+            <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">
+              Pagamento & parcelamento
+            </h3>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <Label>Forma de pagamento</Label>
+                <Select
+                  value={formaPagamento}
+                  onChange={(e) => setFormaPagamento(e.target.value)}
+                >
+                  <option value="">—</option>
+                  {FORMAS_PAGAMENTO.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {formaPagamento === "Outro" && (
+                <div>
+                  <Label>Descrição da forma</Label>
+                  <Input value={formaDesc} onChange={(e) => setFormaDesc(e.target.value)} />
+                </div>
+              )}
+              <div>
+                <Label>Condição</Label>
+                <Select value={condicao} onChange={(e) => setCondicao(e.target.value)}>
+                  <option value="">—</option>
+                  {CONDICOES_PAGAMENTO.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {condicao === "personalizado" && (
+                <div>
+                  <Label>Nº de parcelas</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={qtdPers}
+                    onChange={(e) => setQtdPers(e.target.value)}
+                  />
+                </div>
+              )}
+              {condicao && (
+                <div className="flex items-end">
+                  <Button type="button" variant="outline" onClick={regerarParcelas}>
+                    Gerar parcelas
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Campos de boleto */}
+            {formaPagamento === "Boleto" && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Input placeholder="Linha digitável" value={bo.linha} onChange={(e) => setBo({ ...bo, linha: e.target.value })} />
+                <Input placeholder="Código de barras" value={bo.barras} onChange={(e) => setBo({ ...bo, barras: e.target.value })} />
+                <Input placeholder="Banco emissor" value={bo.banco} onChange={(e) => setBo({ ...bo, banco: e.target.value })} />
+              </div>
+            )}
+            {/* Campos de cheque */}
+            {formaPagamento === "Cheque" && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Input placeholder="Nº do cheque" value={ch.numero} onChange={(e) => setCh({ ...ch, numero: e.target.value })} />
+                <Input placeholder="Banco" value={ch.banco} onChange={(e) => setCh({ ...ch, banco: e.target.value })} />
+                <Input placeholder="Agência" value={ch.ag} onChange={(e) => setCh({ ...ch, ag: e.target.value })} />
+                <Input placeholder="Conta" value={ch.conta} onChange={(e) => setCh({ ...ch, conta: e.target.value })} />
+                <Input placeholder="Emitente" value={ch.emitente} onChange={(e) => setCh({ ...ch, emitente: e.target.value })} />
+                <div><DateField value={ch.emissao} onChange={(v) => setCh({ ...ch, emissao: v })} /></div>
+                <div><DateField value={ch.compensacao} onChange={(v) => setCh({ ...ch, compensacao: v })} /></div>
+                <Input placeholder="Status do cheque" value={ch.status} onChange={(e) => setCh({ ...ch, status: e.target.value })} />
+              </div>
+            )}
+
+            {/* Parcelas editáveis */}
+            {parcelas.length > 0 && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-[40px_1fr_1fr] gap-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  <div>#</div>
+                  <div>Vencimento</div>
+                  <div>Valor</div>
+                </div>
+                {parcelas.map((p, i) => (
+                  <div key={i} className="grid grid-cols-[40px_1fr_1fr] items-center gap-2">
+                    <div className="text-[13px] text-[var(--color-ink3)]">{i + 1}</div>
+                    <DateField
+                      value={p.vencimento}
+                      onChange={(v) =>
+                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, vencimento: v } : x)))
+                      }
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={p.valor}
+                      onChange={(e) =>
+                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))
+                      }
+                    />
+                  </div>
+                ))}
+                <div className={`text-[12px] ${totalOk ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+                  Soma das parcelas: {somaParcelas.toFixed(2)} / total {(Number(valor) || 0).toFixed(2)}
+                  {totalOk ? " ✓" : " — ajuste para bater com o total"}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="col-span-2 flex items-end sm:col-span-4">
+            <Button
+              type="button"
+              className="w-full sm:w-auto"
+              disabled={busy || (parcelas.length > 0 && !totalOk)}
+              onClick={salvar}
+            >
               {saving ? "Lançando…" : "Lançar despesa"}
             </Button>
           </div>
