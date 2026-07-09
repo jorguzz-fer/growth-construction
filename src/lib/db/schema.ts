@@ -810,3 +810,45 @@ export const carryOvers = pgTable("carry_over", {
   toDia: text("to_dia").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
+
+/** Item de estoque (produto/material) cadastrado no tenant. */
+export const stockItems = pgTable("stock_item", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  sku: text("sku"),
+  nome: text("nome").notNull(),
+  /** unidade de medida (un, kg, m, m2, m3, sc, …). */
+  unidade: text("unidade").notNull().default("un"),
+  categoria: text("categoria"),
+  custoUnit: numeric("custo_unit", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** estoque mínimo para alerta. */
+  minimo: numeric("minimo", { precision: 15, scale: 3 }).notNull().default("0"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Movimentação de estoque: entrada ou saída, associada a uma obra. */
+export const stockMovements = pgTable("stock_movement", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id")
+    .notNull()
+    .references(() => stockItems.id, { onDelete: "cascade" }),
+  /** obra à qual a movimentação está associada (NULL = geral/almoxarifado). */
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  /** "entrada" | "saida" */
+  tipo: text("tipo").notNull(),
+  quantidade: numeric("quantidade", { precision: 15, scale: 3 }).notNull().default("0"),
+  custoUnit: numeric("custo_unit", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** data da movimentação, "MM/DD/YYYY". */
+  data: text("data"),
+  doc: text("doc"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});

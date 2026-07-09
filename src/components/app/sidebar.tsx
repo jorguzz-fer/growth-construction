@@ -62,6 +62,10 @@ export function Sidebar({
       ],
     },
     {
+      title: "Módulo Estoque",
+      items: [{ href: "/estoque", label: "Controle de Estoques" }],
+    },
+    {
       title: "Reports & Dashboards",
       items: [
         { href: "/dashboard", label: "Dashboard" },

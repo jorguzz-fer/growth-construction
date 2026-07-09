@@ -330,6 +330,47 @@ export async function getDailyClosings(tenantId: string): Promise<DailyClosingRo
   }));
 }
 
+export type StockItemRow = typeof schema.stockItems.$inferSelect;
+export type StockMovementRow = typeof schema.stockMovements.$inferSelect & {
+  itemNome: string;
+  unidade: string;
+  projectName: string | null;
+  clienteNome: string | null;
+};
+
+export async function getStockItems(tenantId: string): Promise<StockItemRow[]> {
+  return db
+    .select()
+    .from(schema.stockItems)
+    .where(eq(schema.stockItems.tenantId, tenantId))
+    .orderBy(asc(schema.stockItems.nome));
+}
+
+/** Movimentações de estoque do tenant, com item, obra e cliente. */
+export async function getStockMovements(tenantId: string): Promise<StockMovementRow[]> {
+  const rows = await db
+    .select({
+      m: schema.stockMovements,
+      itemNome: schema.stockItems.nome,
+      unidade: schema.stockItems.unidade,
+      projectName: schema.projects.name,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.stockMovements)
+    .innerJoin(schema.stockItems, eq(schema.stockMovements.itemId, schema.stockItems.id))
+    .leftJoin(schema.projects, eq(schema.stockMovements.projectId, schema.projects.id))
+    .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
+    .where(eq(schema.stockMovements.tenantId, tenantId))
+    .orderBy(desc(schema.stockMovements.createdAt));
+  return rows.map((r) => ({
+    ...r.m,
+    itemNome: r.itemNome,
+    unidade: r.unidade,
+    projectName: r.projectName,
+    clienteNome: r.clienteNome,
+  }));
+}
+
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
 /** Lançamentos simplificados (Budget/Forecast) de uma versão. */
