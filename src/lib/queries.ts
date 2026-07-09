@@ -9,6 +9,7 @@ import {
   type CalcPermutaResale,
   type ProjectionSource,
 } from "./calc/projection";
+import { expandUnitReceivables } from "./calc/receivables";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -246,6 +247,89 @@ export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]>
   }));
 }
 
+export interface ReceivableRow {
+  refId: string;
+  dia: string; // "MM/DD/YYYY"
+  valor: number;
+  descricao: string;
+  unitCode: string;
+  projectId: string;
+  projectName: string;
+  clienteNome: string | null;
+  status: string;
+}
+
+/**
+ * Recebíveis previstos do tenant: expande os planos de pagamento das unidades
+ * vendidas (versão Atual de cada obra) em recebíveis datados, com projeto e
+ * cliente comprador. Base do painel "Receitas a Receber do Dia".
+ */
+export async function getReceivables(tenantId: string): Promise<ReceivableRow[]> {
+  const rows = await db
+    .select({
+      u: schema.units,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.units)
+    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(
+      schema.clientes,
+      and(
+        eq(schema.clientes.unitCode, schema.units.code),
+        eq(schema.clientes.tenantId, tenantId),
+      ),
+    )
+    .where(and(eq(schema.units.tenantId, tenantId), eq(schema.versions.kind, "atual")));
+
+  const out: ReceivableRow[] = [];
+  for (const r of rows) {
+    const recs = expandUnitReceivables(r.u.paymentPlan, r.u.status);
+    for (let i = 0; i < recs.length; i++) {
+      const rec = recs[i];
+      out.push({
+        refId: `${r.u.id}:${i}`,
+        dia: rec.dia,
+        valor: rec.valor,
+        descricao: `${r.u.code} — ${rec.label}`,
+        unitCode: r.u.code,
+        projectId: r.projectId,
+        projectName: r.projectName,
+        clienteNome: r.clienteNome,
+        status: "A receber",
+      });
+    }
+  }
+  return out;
+}
+
+export type DailyClosingRow = typeof schema.dailyClosings.$inferSelect & {
+  projectName: string | null;
+  clienteNome: string | null;
+};
+
+/** Fechamentos diários (Balanço do Dia) do tenant, mais recentes primeiro. */
+export async function getDailyClosings(tenantId: string): Promise<DailyClosingRow[]> {
+  const rows = await db
+    .select({
+      c: schema.dailyClosings,
+      projectName: schema.projects.name,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.dailyClosings)
+    .leftJoin(schema.projects, eq(schema.dailyClosings.projectId, schema.projects.id))
+    .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
+    .where(eq(schema.dailyClosings.tenantId, tenantId))
+    .orderBy(desc(schema.dailyClosings.closedAt));
+  return rows.map((r) => ({
+    ...r.c,
+    projectName: r.projectName,
+    clienteNome: r.clienteNome,
+  }));
+}
+
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
 /** Lançamentos simplificados (Budget/Forecast) de uma versão. */
@@ -379,6 +463,17 @@ export async function getCash(versionId: string): Promise<CashRow[]> {
     .from(schema.cashEntries)
     .where(eq(schema.cashEntries.versionId, versionId))
     .orderBy(asc(schema.cashEntries.data));
+}
+
+/** Lançamentos de caixa de todas as versões Atual do tenant (caixa real). */
+export async function getCashByTenant(tenantId: string): Promise<CashRow[]> {
+  const rows = await db
+    .select({ c: schema.cashEntries })
+    .from(schema.cashEntries)
+    .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
+    .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.versions.kind, "atual")))
+    .orderBy(asc(schema.cashEntries.data));
+  return rows.map((r) => r.c);
 }
 
 export type ClienteRow = typeof schema.clientes.$inferSelect;

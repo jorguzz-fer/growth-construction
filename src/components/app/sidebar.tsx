@@ -68,6 +68,8 @@ export function Sidebar({
         { href: "/projecao", label: "Projeção de Receitas" },
         { href: "/consolidado", label: "Consolidado" },
         { href: "/caixa", label: "Caixa" },
+        { href: "/fechamento", label: "Fechamento de Caixa" },
+        { href: "/balancodia", label: "Balanço do Dia" },
         { href: "/dre", label: "DRE" },
         { href: "/fluxocaixa", label: "Fluxo de Caixa" },
         { href: "/medicao", label: "Medição de Obra" },

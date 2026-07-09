@@ -30,6 +30,8 @@ export const SCREENS: Screen[] = [
   { id: "projecao", label: "Projeção de Receitas", modulo: "Reports" },
   { id: "consolidado", label: "Consolidado", modulo: "Reports" },
   { id: "caixa", label: "Controle de Caixa", modulo: "Reports" },
+  { id: "fechamento", label: "Fechamento de Caixa", modulo: "Reports" },
+  { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
   { id: "medicao", label: "Medição de Obra", modulo: "Reports" },

@@ -127,6 +127,13 @@
       "when": 1783614898213,
       "tag": "0017_projeto_datas_cliente_unit_tipo",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783640364409,
+      "tag": "0018_fechamento_balanco_carryover",
+      "breakpoints": true
     }
   ]
 }

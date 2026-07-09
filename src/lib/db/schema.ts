@@ -757,3 +757,56 @@ export const budgetLines = pgTable(
   },
   (t) => [unique("budget_line_uq").on(t.versionId, t.kind, t.rowKey, t.mes)],
 );
+
+/**
+ * Fechamento operacional diário (Balanço do Dia). Persiste o resultado do
+ * fechamento de caixa de um dia (por obra ou consolidado).
+ */
+export const dailyClosings = pgTable("daily_closing", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** obra do fechamento; NULL = consolidado (todas as obras). */
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  /** dia do fechamento, "MM/DD/YYYY". */
+  dia: text("dia").notNull(),
+  saldoInicial: numeric("saldo_inicial", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalEntradas: numeric("total_entradas", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalSaidas: numeric("total_saidas", { precision: 15, scale: 2 }).notNull().default("0"),
+  saldoFinal: numeric("saldo_final", { precision: 15, scale: 2 }).notNull().default("0"),
+  divergencias: numeric("divergencias", { precision: 15, scale: 2 }).notNull().default("0"),
+  responsavelId: text("responsavel_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  responsavelNome: text("responsavel_nome"),
+  obs: text("obs"),
+  closedAt: timestamp("closed_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Histórico de transferências de pendências entre fechamentos (auditoria).
+ * Cada conta a pagar/receber não liquidada no fechamento é registrada como
+ * transferida para o dia seguinte.
+ */
+export const carryOvers = pgTable("carry_over", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  closingId: uuid("closing_id").references(() => dailyClosings.id, {
+    onDelete: "cascade",
+  }),
+  /** "pagar" | "receber" */
+  tipo: text("tipo").notNull(),
+  /** id da despesa ou chave do recebível. */
+  refId: text("ref_id"),
+  descricao: text("descricao"),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  vencimento: text("vencimento"),
+  fromDia: text("from_dia").notNull(),
+  toDia: text("to_dia").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
