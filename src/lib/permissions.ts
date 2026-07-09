@@ -45,6 +45,7 @@ export const SCREENS: Screen[] = [
   { id: "permuta", label: "Inventário de Permuta", modulo: "Receitas" },
   { id: "parametros", label: "Parâmetros / INCC", modulo: "Receitas" },
   { id: "despesas", label: "Lançamentos de Despesas", modulo: "Despesas" },
+  { id: "contaspagar", label: "Contas a Pagar", modulo: "Despesas" },
   { id: "restituicoes", label: "Restituições (pago por terceiro)", modulo: "Despesas" },
   { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
   { id: "planocontas", label: "Plano de Contas", modulo: "Despesas" },

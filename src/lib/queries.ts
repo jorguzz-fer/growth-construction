@@ -186,6 +186,66 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export interface ContaPagarRow {
+  id: string;
+  numDoc: string | null;
+  fornecedorNome: string | null;
+  descricao: string | null;
+  categoriaDre: string | null;
+  contaCef: string | null;
+  valor: number;
+  vencimento: string | null;
+  competencia: string | null;
+  dataPagamento: string | null;
+  formaPagamento: string | null;
+  status: string | null;
+  projectId: string;
+  projectName: string;
+  clienteId: string | null;
+  clienteNome: string | null;
+}
+
+/**
+ * Contas a pagar do tenant: todas as despesas lançadas, com fornecedor,
+ * projeto (obra) e cliente da obra. Base do módulo Contas a Pagar e do
+ * painel esquerdo do Fechamento de Caixa.
+ */
+export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]> {
+  const rows = await db
+    .select({
+      d: schema.despesas,
+      fornecedorNome: schema.stakeholders.nome,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      clienteId: schema.projects.clienteId,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
+    .where(eq(schema.despesas.tenantId, tenantId));
+  return rows.map((r) => ({
+    id: r.d.id,
+    numDoc: r.d.numDoc,
+    fornecedorNome: r.fornecedorNome,
+    descricao: r.d.obs ?? r.d.numDoc,
+    categoriaDre: r.d.categoriaDre,
+    contaCef: r.d.contaCef,
+    valor: Number(r.d.valor),
+    vencimento: r.d.vencimento,
+    competencia: r.d.competencia,
+    dataPagamento: r.d.dataCaixa,
+    formaPagamento: r.d.formaPagamento,
+    status: r.d.status,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    clienteId: r.clienteId,
+    clienteNome: r.clienteNome,
+  }));
+}
+
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
 /** Lançamentos simplificados (Budget/Forecast) de uma versão. */

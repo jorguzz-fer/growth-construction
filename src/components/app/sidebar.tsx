@@ -53,6 +53,7 @@ export function Sidebar({
       title: "Módulo Despesas",
       items: [
         { href: "/despesas", label: "Despesas / Lançamentos" },
+        { href: "/contaspagar", label: "Contas a Pagar" },
         { href: "/restituicoes", label: "Restituições" },
         { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
