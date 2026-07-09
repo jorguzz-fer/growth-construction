@@ -27,6 +27,7 @@ export default async function EditarUnidadePage({
         initial={{
           id: row.id,
           projetoId: row.projectId,
+          itemType: row.itemType,
           code: row.code,
           bloco: row.bloco ?? "",
           tipo: row.tipo ?? "",

@@ -163,6 +163,11 @@ export default async function UnidadesPage({
                     >
                       {row.code}
                     </Link>
+                    {row.itemType === "condominio" && (
+                      <Badge tone="accent" className="ml-2">
+                        Condomínio
+                      </Badge>
+                    )}
                   </TD>
                   <TD>{row.tipo ?? "—"}</TD>
                   <TD className="text-right font-[family-name:var(--font-mono)]">

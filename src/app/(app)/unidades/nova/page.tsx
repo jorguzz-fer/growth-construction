@@ -26,6 +26,7 @@ export default async function NovaUnidadePage({
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         initial={{
           projetoId: project.id,
+          itemType: "unidade",
           code: "",
           bloco: "",
           tipo: "",

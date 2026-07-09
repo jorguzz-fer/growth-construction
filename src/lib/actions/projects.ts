@@ -36,6 +36,16 @@ function normDuration(value: number | null | undefined): number | null {
 const normStatus = (s: unknown): ProjectStatus =>
   s === "Em andamento" ? "Em andamento" : "Planejamento";
 
+/** Normaliza um id de cliente vindo do formulário (vazio = próprio). */
+const normClienteId = (v: string | null | undefined): string | null => {
+  const s = (v ?? "").trim();
+  return s ? s : null;
+};
+const normDate = (v: string | null | undefined): string | null => {
+  const s = (v ?? "").trim();
+  return s ? s : null;
+};
+
 /**
  * Cria um projeto (empreendimento) ou uma unidade/escritório (centro de custo)
  * com nome e duração e já provisiona as três versões padrão
@@ -47,7 +57,13 @@ const normStatus = (s: unknown): ProjectStatus =>
 export async function createProject(
   name: string,
   durationMonths: number | null,
-  opts?: { kind?: ProjectKind; status?: ProjectStatus },
+  opts?: {
+    kind?: ProjectKind;
+    status?: ProjectStatus;
+    startDate?: string | null;
+    endDate?: string | null;
+    clienteId?: string | null;
+  },
 ) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "projeto", "criar")) {
@@ -65,7 +81,16 @@ export async function createProject(
   const projectId = await db.transaction(async (tx) => {
     const [project] = await tx
       .insert(schema.projects)
-      .values({ tenantId, name: clean, kind, status, durationMonths: duration })
+      .values({
+        tenantId,
+        name: clean,
+        kind,
+        status,
+        durationMonths: duration,
+        startDate: kind === "office" ? null : normDate(opts?.startDate),
+        endDate: kind === "office" ? null : normDate(opts?.endDate),
+        clienteId: kind === "office" ? null : normClienteId(opts?.clienteId),
+      })
       .returning();
 
     await tx
@@ -109,6 +134,9 @@ export async function updateProject(
     name?: string;
     durationMonths?: number | null;
     status?: ProjectStatus;
+    startDate?: string | null;
+    endDate?: string | null;
+    clienteId?: string | null;
   },
 ) {
   const ctx = await getActiveContext();
@@ -119,10 +147,16 @@ export async function updateProject(
     name?: string;
     durationMonths?: number | null;
     status?: ProjectStatus;
+    startDate?: string | null;
+    endDate?: string | null;
+    clienteId?: string | null;
   } = {};
   if (patch.name !== undefined && patch.name.trim()) set.name = patch.name.trim();
   if (patch.durationMonths !== undefined) set.durationMonths = normDuration(patch.durationMonths);
   if (patch.status !== undefined) set.status = normStatus(patch.status);
+  if (patch.startDate !== undefined) set.startDate = normDate(patch.startDate);
+  if (patch.endDate !== undefined) set.endDate = normDate(patch.endDate);
+  if (patch.clienteId !== undefined) set.clienteId = normClienteId(patch.clienteId);
   if (Object.keys(set).length === 0) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));

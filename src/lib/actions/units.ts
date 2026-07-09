@@ -15,6 +15,8 @@ export interface SaveUnitInput {
   id?: string;
   /** projeto ao qual a unidade/venda pertence (grava na versão Atual dele). */
   projectId?: string;
+  /** item comercializável: unidade individual ou condomínio inteiro. */
+  itemType?: "unidade" | "condominio";
   code: string;
   bloco?: string;
   tipo?: string;
@@ -40,6 +42,7 @@ export async function saveUnit(input: SaveUnitInput) {
   const values = {
     versionId: version.id,
     tenantId: ctx.tenant.id,
+    itemType: input.itemType === "condominio" ? ("condominio" as const) : ("unidade" as const),
     code: input.code.trim() || "SEM CÓDIGO",
     bloco: input.bloco || null,
     tipo: input.tipo || null,

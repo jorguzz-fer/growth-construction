@@ -11,6 +11,7 @@ import {
   boolean,
   jsonb,
   unique,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 import type { PaymentPlan } from "@/lib/calc/types";
@@ -150,6 +151,9 @@ export const unitStatusEnum = pgEnum("unit_status", [
   "Permutado",
 ]);
 
+/** Tipo do item comercializável: unidade individual ou condomínio inteiro. */
+export const unitItemTypeEnum = pgEnum("unit_item_type", ["unidade", "condominio"]);
+
 export const stakeholderTypeEnum = pgEnum("stakeholder_type", ["PJ", "PF"]);
 
 export const bankAccountTypeEnum = pgEnum("bank_account_type", [
@@ -186,6 +190,16 @@ export const projects = pgTable("project", {
   status: projectStatusEnum("status").notNull().default("Planejamento"),
   /** Duração planejada do empreendimento, em meses. */
   durationMonths: integer("duration_months"),
+  /** Datas de início e fim da obra ("MM/DD/YYYY", como no restante do app). */
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  /**
+   * Cliente da obra (lista fechada). NULL = empreendimento próprio da
+   * construtora/incorporadora (tenant), que comercializará as unidades.
+   */
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -240,6 +254,8 @@ export const units = pgTable("unit", {
   /** VGV da unidade. */
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   status: unitStatusEnum("status").notNull().default("Disponivel"),
+  /** Item comercializável: unidade individual (default) ou condomínio inteiro. */
+  itemType: unitItemTypeEnum("item_type").notNull().default("unidade"),
   /** "MM/DD/YYYY" como no protótipo. */
   mesVenda: text("mes_venda"),
   paymentPlan: jsonb("payment_plan").$type<PaymentPlan>(),

@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 export interface UnitFormValue {
   id?: string;
   projetoId: string;
+  itemType: "unidade" | "condominio";
   code: string;
   bloco: string;
   tipo: string;
@@ -70,6 +71,7 @@ export function UnitForm({
     const input: SaveUnitInput = {
       id: v.id,
       projectId: v.projetoId,
+      itemType: v.itemType,
       code: v.code,
       bloco: v.bloco,
       tipo: v.tipo,
@@ -112,6 +114,17 @@ export function UnitForm({
                   {p.nome}
                 </option>
               ))}
+            </Select>
+          </Field>
+          <Field label="Tipo de cadastro">
+            <Select
+              value={v.itemType}
+              onChange={(e) =>
+                setV({ ...v, itemType: e.target.value as "unidade" | "condominio" })
+              }
+            >
+              <option value="unidade">Unidade</option>
+              <option value="condominio">Condomínio</option>
             </Select>
           </Field>
           <Field label="Código">
