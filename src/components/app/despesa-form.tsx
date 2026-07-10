@@ -13,6 +13,10 @@ import {
   CONDICOES_PAGAMENTO,
 } from "@/lib/calc";
 
+interface Projeto {
+  id: string;
+  nome: string;
+}
 interface Fornecedor {
   id: string;
   nome: string;
@@ -39,6 +43,8 @@ const norm = (s: string) =>
 const digits = (s: string) => s.replace(/\D+/g, "");
 
 export function DespesaForm({
+  projetos,
+  projetoId,
   fornecedores,
   contas,
   bancos,
@@ -47,6 +53,8 @@ export function DespesaForm({
   r2Configured,
   canEditNumero = false,
 }: {
+  projetos: Projeto[];
+  projetoId: string;
   fornecedores: Fornecedor[];
   contas: Conta[];
   bancos: Banco[];
@@ -62,6 +70,7 @@ export function DespesaForm({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [projeto, setProjeto] = useState(projetoId);
   const [fornecedorId, setFornecedorId] = useState("");
   const [contaCef, setContaCef] = useState("");
   const [categoriaDre, setCategoriaDre] = useState(categorias[0] ?? "Custo Variável");
@@ -178,6 +187,7 @@ export function DespesaForm({
   function salvar() {
     setError(null);
     const fd = new FormData();
+    fd.set("projectId", projeto);
     fd.set("fornecedorId", fornecedorId);
     fd.set("contaCef", contaCef);
     fd.set("categoriaDre", categoriaDre);
@@ -282,6 +292,16 @@ export function DespesaForm({
 
         {/* Campos da despesa */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="sm:col-span-2">
+            <Label>Projeto</Label>
+            <Select value={projeto} onChange={(e) => setProjeto(e.target.value)}>
+              {projetos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="sm:col-span-2">
             <Label>Fornecedor</Label>
             <Select value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>

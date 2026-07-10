@@ -85,9 +85,11 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     .where(eq(schema.versions.projectId, project.id))
     .orderBy(asc(schema.versions.createdAt));
 
-  const wantedVersion = ck.get(ACTIVE_VERSION_COOKIE)?.value;
+  // A versão de trabalho é sempre a "Atual" (não é mais selecionável na
+  // sidebar). Budget e Forecast existem apenas nas telas dedicadas de
+  // lançamento e na comparação dos relatórios.
   const version =
-    versions.find((v) => v.id === wantedVersion) ??
+    versions.find((v) => v.kind === "atual") ??
     versions.find((v) => v.isDefault) ??
     versions[0];
 

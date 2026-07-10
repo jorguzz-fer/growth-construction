@@ -1,36 +1,66 @@
-import { getActiveContext } from "@/lib/context";
-import { can } from "@/lib/permissions";
+import { and, asc, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import type { ActiveContext } from "@/lib/context";
 import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
-import { RECEITA_ROWS, defaultDreCategory, isBudgetVersion } from "@/lib/budget/config";
+import { RECEITA_ROWS, defaultDreCategory } from "@/lib/budget/config";
+import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
-import { AccessDenied } from "@/components/app/access-denied";
 import { Card, CardContent } from "@/components/ui/card";
+import { ProjectPicker } from "@/components/app/project-picker";
 import { BudgetMatrix, type MatrixRow } from "@/components/app/budget-matrix";
 
-export const dynamic = "force-dynamic";
+/**
+ * Tela de lançamento simplificado (Budget ou Forecast) por projeto. Não usa
+ * "projeto/versão ativos": o projeto é escolhido no seletor (?proj=) e a
+ * versão é a do tipo `kind` daquele projeto.
+ */
+export async function LancamentoScreen({
+  ctx,
+  kind,
+  proj,
+}: {
+  ctx: ActiveContext;
+  kind: "budget" | "forecast";
+  proj?: string;
+}) {
+  const title =
+    kind === "budget" ? "Lançamento Budget" : "Lançamento Forecast";
 
-export default async function LancamentoPage() {
-  const ctx = await getActiveContext();
-  if (!ctx) return null;
-  if (!can(ctx.perms, "lancamento", "ver")) return <AccessDenied />;
+  const project = ctx.projects.find((p) => p.id === proj) ?? ctx.projects[0];
+  const projectPicker = (
+    <ProjectPicker
+      projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+      selected={project.id}
+    />
+  );
 
-  const version = ctx.version;
-  if (!isBudgetVersion(version.kind)) {
+  // Versão do tipo pedido, no projeto selecionado.
+  const [version] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.projectId, project.id),
+        eq(schema.versions.kind, kind),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt))
+    .limit(1);
+
+  if (!version) {
     return (
       <>
         <PageHeader
-          eyebrow={version.label}
-          title="Lançamento Simplificado"
-          subtitle="Disponível para as versões Budget e Forecast."
+          eyebrow={project.name}
+          title={title}
+          subtitle="Lançamento simplificado mensal (receitas e despesas)."
+          actions={projectPicker}
         />
         <Card>
           <CardContent className="p-6 text-[13px] text-[var(--color-ink2)]">
-            A versão ativa (<strong>{version.label}</strong>) é a{" "}
-            <strong>Atual</strong> e usa o lançamento detalhado (Unidades /
-            Despesas). Selecione uma versão <strong>Budget</strong> ou{" "}
-            <strong>Forecast</strong> na barra lateral para usar o lançamento
-            simplificado mensal.
+            Este projeto não possui versão{" "}
+            <strong>{kind === "budget" ? "Budget" : "Forecast"}</strong>.
           </CardContent>
         </Card>
       </>
@@ -40,7 +70,7 @@ export default async function LancamentoPage() {
   const [chart, lines, incc] = await Promise.all([
     getChartAccounts(ctx.tenant.id),
     getBudgetLines(version.id),
-    getInccRows(ctx.project.id),
+    getInccRows(project.id),
   ]);
 
   const months = incc.map((r) => r.m);
@@ -51,7 +81,6 @@ export default async function LancamentoPage() {
     dreCategory: "Receita",
   }));
 
-  // Grupos do plano de contas (CEF + complementar), distintos por código.
   const grupos = new Map<string, MatrixRow>();
   for (const r of chart) {
     if (!grupos.has(r.groupCode))
@@ -65,7 +94,6 @@ export default async function LancamentoPage() {
     a.rowKey.localeCompare(b.rowKey, undefined, { numeric: true }),
   );
 
-  // Valores atuais + categorias salvas.
   const initial = {
     receita: {} as Record<string, Record<string, number>>,
     despesa: {} as Record<string, Record<string, number>>,
@@ -80,21 +108,22 @@ export default async function LancamentoPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · ${version.label}`}
-        title="Lançamento Simplificado (Budget/Forecast)"
+        eyebrow={`${project.name} · ${version.label}`}
+        title={title}
         subtitle="Receitas por fonte consolidada e despesas por grupo do plano de contas — valores mensais."
+        actions={projectPicker}
       />
       <BudgetMatrix
         versionId={version.id}
         versionLabel={version.label}
-        isForecast={version.kind === "forecast"}
+        isForecast={kind === "forecast"}
         months={months}
         receitaRows={receitaRows}
         despesaRows={despesaRows}
         dreCategories={CATEGORIAS_DRE.filter((c) => c !== "Receita")}
         initial={initial}
         initialDespCat={initialDespCat}
-        canEdit={can(ctx.perms, "lancamento", "editar") && !version.locked}
+        canEdit={can(ctx.perms, kind, "editar") && !version.locked}
       />
     </>
   );

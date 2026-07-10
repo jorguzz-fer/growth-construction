@@ -1,4 +1,6 @@
 import * as XLSX from "xlsx";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
@@ -9,19 +11,29 @@ export const dynamic = "force-dynamic";
 /** Exporta o lançamento simplificado (Receitas + Despesas) de uma versão em .xlsx. */
 export async function GET(req: Request) {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "lancamento", "ver")) {
-    return new Response("Não autorizado", { status: 403 });
-  }
+  if (!ctx) return new Response("Não autorizado", { status: 403 });
+
   const wantedId = new URL(req.url).searchParams.get("v");
-  const version = ctx.versions.find((v) => v.id === wantedId) ?? ctx.version;
-  if (!isBudgetVersion(version.kind)) {
+  const [version] = wantedId
+    ? await db
+        .select()
+        .from(schema.versions)
+        .where(
+          and(eq(schema.versions.id, wantedId), eq(schema.versions.tenantId, ctx.tenant.id)),
+        )
+        .limit(1)
+    : [];
+  if (!version || !isBudgetVersion(version.kind)) {
     return new Response("Somente Budget/Forecast", { status: 400 });
+  }
+  if (!can(ctx.perms, version.kind, "ver")) {
+    return new Response("Não autorizado", { status: 403 });
   }
 
   const [chart, lines, incc] = await Promise.all([
     getChartAccounts(ctx.tenant.id),
     getBudgetLines(version.id),
-    getInccRows(ctx.project.id),
+    getInccRows(version.projectId),
   ]);
   const months = incc.map((r) => r.m);
 

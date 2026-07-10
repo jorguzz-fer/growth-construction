@@ -159,6 +159,10 @@ export default async function CaixaPage({
     return { d, ...mov, saldoDia, acumulado, rel };
   });
 
+  // Resumo do dia (hoje): entradas, saídas e saldo do dia.
+  const movHoje = cashByDay.get(today.getTime()) ?? { entradas: 0, saidas: 0 };
+  const saldoHoje = movHoje.entradas - movHoje.saidas;
+
   return (
     <>
       <PageHeader
@@ -174,6 +178,44 @@ export default async function CaixaPage({
           </div>
         }
       />
+
+      {/* Resumo do dia (hoje) */}
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+              Entradas do dia
+            </p>
+            <p className="mt-1 text-xl font-semibold text-[var(--color-success)]">
+              {brl0(movHoje.entradas)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+              Saídas do dia
+            </p>
+            <p className="mt-1 text-xl font-semibold text-[var(--color-danger)]">
+              {brl0(movHoje.saidas)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+              Saldo do dia
+            </p>
+            <p
+              className={`mt-1 text-xl font-semibold ${
+                saldoHoje < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-accent)]"
+              }`}
+            >
+              {brl0(saldoHoje)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Saldo das contas correntes */}
       <Card className="mb-6">

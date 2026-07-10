@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 
 export interface UnitFormValue {
   id?: string;
+  projetoId: string;
+  itemType: "unidade" | "condominio";
   code: string;
   bloco: string;
   tipo: string;
@@ -26,7 +28,13 @@ export interface UnitFormValue {
 
 const n = (v: string) => (v === "" ? 0 : Number(v));
 
-export function UnitForm({ initial }: { initial: UnitFormValue }) {
+export function UnitForm({
+  initial,
+  projetos,
+}: {
+  initial: UnitFormValue;
+  projetos: { id: string; nome: string }[];
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +70,8 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
     setError(null);
     const input: SaveUnitInput = {
       id: v.id,
+      projectId: v.projetoId,
+      itemType: v.itemType,
       code: v.code,
       bloco: v.bloco,
       tipo: v.tipo,
@@ -94,6 +104,29 @@ export function UnitForm({ initial }: { initial: UnitFormValue }) {
       {/* Dados básicos */}
       <Card>
         <CardContent className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
+          <Field label="Projeto">
+            <Select
+              value={v.projetoId}
+              onChange={(e) => setV({ ...v, projetoId: e.target.value })}
+            >
+              {projetos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Tipo de cadastro">
+            <Select
+              value={v.itemType}
+              onChange={(e) =>
+                setV({ ...v, itemType: e.target.value as "unidade" | "condominio" })
+              }
+            >
+              <option value="unidade">Unidade</option>
+              <option value="condominio">Condomínio</option>
+            </Select>
+          </Field>
           <Field label="Código">
             <Input value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })} />
           </Field>

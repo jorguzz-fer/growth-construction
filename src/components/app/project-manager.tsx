@@ -11,6 +11,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 
 interface Perms {
@@ -18,17 +19,51 @@ interface Perms {
   editar: boolean;
   excluir: boolean;
 }
+export interface ClienteOpt {
+  id: string;
+  nome: string;
+}
 
 type Status = "Em andamento" | "Planejamento";
+
+/** Dropdown de Cliente: "próprio" (tenant) + clientes cadastrados. */
+function ClienteSelect({
+  clientes,
+  tenantName,
+  value,
+  onChange,
+  disabled,
+}: {
+  clientes: ClienteOpt[];
+  tenantName: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+      <option value="">Empreendimento próprio — {tenantName}</option>
+      {clientes.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.nome}
+        </option>
+      ))}
+    </Select>
+  );
+}
 
 export function ProjectManager({
   projects,
   activeId,
   perms,
+  clientes,
+  tenantName,
 }: {
   projects: Project[];
   activeId: string;
   perms: Perms;
+  clientes: ClienteOpt[];
+  tenantName: string;
 }) {
   const empreendimentos = projects.filter((p) => p.kind !== "office");
   const escritorios = projects.filter((p) => p.kind === "office");
@@ -41,7 +76,9 @@ export function ProjectManager({
         <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
           Projetos — empreendimentos imobiliários
         </h2>
-        {perms.criar && <NewProjectForm />}
+        {perms.criar && (
+          <NewProjectForm clientes={clientes} tenantName={tenantName} />
+        )}
         {empreendimentos.map((p) => (
           <ProjectRow
             key={p.id}
@@ -49,6 +86,8 @@ export function ProjectManager({
             active={p.id === activeId}
             canDelete={canDelete}
             canEdit={perms.editar}
+            clientes={clientes}
+            tenantName={tenantName}
           />
         ))}
       </section>
@@ -82,10 +121,19 @@ export function ProjectManager({
   );
 }
 
-function NewProjectForm() {
+function NewProjectForm({
+  clientes,
+  tenantName,
+}: {
+  clientes: ClienteOpt[];
+  tenantName: string;
+}) {
   const [name, setName] = useState("");
   const [duration, setDuration] = useState("");
   const [status, setStatus] = useState<Status>("Planejamento");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [clienteId, setClienteId] = useState("");
   const [pending, start] = useTransition();
 
   const submit = () => {
@@ -93,10 +141,19 @@ function NewProjectForm() {
     if (!clean) return;
     const months = duration.trim() ? Number(duration) : null;
     start(async () => {
-      await createProject(clean, months, { kind: "proj", status });
+      await createProject(clean, months, {
+        kind: "proj",
+        status,
+        startDate,
+        endDate,
+        clienteId,
+      });
       setName("");
       setDuration("");
       setStatus("Planejamento");
+      setStartDate("");
+      setEndDate("");
+      setClienteId("");
     });
   };
 
@@ -106,9 +163,9 @@ function NewProjectForm() {
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
           Novo projeto
         </h3>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <Label>Nome do projeto</Label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <Label>Nome da obra</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -116,7 +173,7 @@ function NewProjectForm() {
               disabled={pending}
             />
           </div>
-          <div className="sm:w-40">
+          <div>
             <Label>Duração (meses)</Label>
             <Input
               type="number"
@@ -127,7 +184,15 @@ function NewProjectForm() {
               disabled={pending}
             />
           </div>
-          <div className="sm:w-44">
+          <div>
+            <Label>Data de início</Label>
+            <DateField value={startDate} onChange={setStartDate} />
+          </div>
+          <div>
+            <Label>Data de fim</Label>
+            <DateField value={endDate} onChange={setEndDate} />
+          </div>
+          <div>
             <Label>Status</Label>
             <Select
               value={status}
@@ -138,9 +203,21 @@ function NewProjectForm() {
               <option value="Em andamento">Em andamento</option>
             </Select>
           </div>
-          <Button onClick={submit} disabled={pending || !name.trim()}>
-            Adicionar
-          </Button>
+          <div className="sm:col-span-2">
+            <Label>Cliente</Label>
+            <ClienteSelect
+              clientes={clientes}
+              tenantName={tenantName}
+              value={clienteId}
+              onChange={setClienteId}
+              disabled={pending}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button onClick={submit} disabled={pending || !name.trim()} className="w-full">
+              Adicionar
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -244,24 +321,34 @@ function ProjectRow({
   active,
   canEdit,
   canDelete,
+  clientes,
+  tenantName,
 }: {
   project: Project;
   active: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  clientes: ClienteOpt[];
+  tenantName: string;
 }) {
   const [name, setName] = useState(project.name);
   const [duration, setDuration] = useState(
     project.durationMonths != null ? String(project.durationMonths) : "",
   );
   const [status, setStatus] = useState<Status>(project.status as Status);
+  const [startDate, setStartDate] = useState(project.startDate ?? "");
+  const [endDate, setEndDate] = useState(project.endDate ?? "");
+  const [clienteId, setClienteId] = useState(project.clienteId ?? "");
   const [pending, start] = useTransition();
 
   const dirty =
     name.trim() !== project.name ||
     status !== project.status ||
     (duration.trim() ? Number(duration) : null) !==
-      (project.durationMonths ?? null);
+      (project.durationMonths ?? null) ||
+    startDate !== (project.startDate ?? "") ||
+    endDate !== (project.endDate ?? "") ||
+    clienteId !== (project.clienteId ?? "");
 
   const save = () =>
     start(() =>
@@ -269,22 +356,25 @@ function ProjectRow({
         name,
         durationMonths: duration.trim() ? Number(duration) : null,
         status,
+        startDate,
+        endDate,
+        clienteId,
       }),
     );
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <Label>Nome do projeto</Label>
+      <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <Label>Nome da obra</Label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={!canEdit || pending}
           />
         </div>
-        <div className="sm:w-28">
-          <Label>Duração</Label>
+        <div>
+          <Label>Duração (meses)</Label>
           <Input
             type="number"
             min={1}
@@ -293,7 +383,15 @@ function ProjectRow({
             disabled={!canEdit || pending}
           />
         </div>
-        <div className="sm:w-40">
+        <div>
+          <Label>Data de início</Label>
+          <DateField value={startDate} onChange={setStartDate} />
+        </div>
+        <div>
+          <Label>Data de fim</Label>
+          <DateField value={endDate} onChange={setEndDate} />
+        </div>
+        <div>
           <Label>Status</Label>
           <Select
             value={status}
@@ -303,6 +401,16 @@ function ProjectRow({
             <option value="Planejamento">Planejamento</option>
             <option value="Em andamento">Em andamento</option>
           </Select>
+        </div>
+        <div className="sm:col-span-2">
+          <Label>Cliente</Label>
+          <ClienteSelect
+            clientes={clientes}
+            tenantName={tenantName}
+            value={clienteId}
+            onChange={setClienteId}
+            disabled={!canEdit || pending}
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2 pb-1.5">
           <SelectActive id={project.id} active={active} pending={pending} start={start} />

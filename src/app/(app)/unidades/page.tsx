@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
-import { getUnits, toCalcUnit } from "@/lib/queries";
+import { getUnits, getAtualVersion, toCalcUnit } from "@/lib/queries";
 import { calcUnitTotal } from "@/lib/calc";
 import { can } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { ProjectPicker } from "@/components/app/project-picker";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -26,7 +27,7 @@ function vgvMi(value: number): string {
 export default async function UnidadesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; proj?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -34,7 +35,9 @@ export default async function UnidadesPage({
   const sp = await searchParams;
   const filter = STATUS_FILTERS.find((s) => s === sp.status);
 
-  const allRows = await getUnits(ctx.version.id);
+  const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
+  const version = await getAtualVersion(ctx.tenant.id, project.id);
+  const allRows = await getUnits(version?.id ?? ctx.version.id);
   const rows = filter ? allRows.filter((r) => r.status === filter) : allRows;
 
   const vgv = allRows.reduce((a, r) => a + Number(r.valor), 0);
@@ -70,14 +73,24 @@ export default async function UnidadesPage({
   return (
     <>
       <PageHeader
+        eyebrow={`${project.name} · Atual`}
         title="Unidades do Empreendimento"
         subtitle={subtitle}
         actions={
-          canEdit ? (
-            <Link href="/unidades/nova" className={buttonVariants({ size: "sm" })}>
-              Nova Unidade
-            </Link>
-          ) : undefined
+          <div className="flex flex-wrap items-end gap-3">
+            <ProjectPicker
+              projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+              selected={project.id}
+            />
+            {canEdit && (
+              <Link
+                href={`/unidades/nova?proj=${project.id}`}
+                className={buttonVariants({ size: "sm" })}
+              >
+                Nova Unidade
+              </Link>
+            )}
+          </div>
         }
       />
 
@@ -88,7 +101,11 @@ export default async function UnidadesPage({
           return (
             <Link
               key={t.label}
-              href={t.key ? `/unidades?status=${t.key}` : "/unidades"}
+              href={
+                t.key
+                  ? `/unidades?proj=${project.id}&status=${t.key}`
+                  : `/unidades?proj=${project.id}`
+              }
               className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
                 active
                   ? "bg-[var(--color-accent)] text-white"
@@ -146,6 +163,11 @@ export default async function UnidadesPage({
                     >
                       {row.code}
                     </Link>
+                    {row.itemType === "condominio" && (
+                      <Badge tone="accent" className="ml-2">
+                        Condomínio
+                      </Badge>
+                    )}
                   </TD>
                   <TD>{row.tipo ?? "—"}</TD>
                   <TD className="text-right font-[family-name:var(--font-mono)]">

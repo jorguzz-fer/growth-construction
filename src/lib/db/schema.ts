@@ -11,6 +11,7 @@ import {
   boolean,
   jsonb,
   unique,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 import type { PaymentPlan } from "@/lib/calc/types";
@@ -150,6 +151,9 @@ export const unitStatusEnum = pgEnum("unit_status", [
   "Permutado",
 ]);
 
+/** Tipo do item comercializável: unidade individual ou condomínio inteiro. */
+export const unitItemTypeEnum = pgEnum("unit_item_type", ["unidade", "condominio"]);
+
 export const stakeholderTypeEnum = pgEnum("stakeholder_type", ["PJ", "PF"]);
 
 export const bankAccountTypeEnum = pgEnum("bank_account_type", [
@@ -186,6 +190,16 @@ export const projects = pgTable("project", {
   status: projectStatusEnum("status").notNull().default("Planejamento"),
   /** Duração planejada do empreendimento, em meses. */
   durationMonths: integer("duration_months"),
+  /** Datas de início e fim da obra ("MM/DD/YYYY", como no restante do app). */
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  /**
+   * Cliente da obra (lista fechada). NULL = empreendimento próprio da
+   * construtora/incorporadora (tenant), que comercializará as unidades.
+   */
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -240,6 +254,8 @@ export const units = pgTable("unit", {
   /** VGV da unidade. */
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   status: unitStatusEnum("status").notNull().default("Disponivel"),
+  /** Item comercializável: unidade individual (default) ou condomínio inteiro. */
+  itemType: unitItemTypeEnum("item_type").notNull().default("unidade"),
   /** "MM/DD/YYYY" como no protótipo. */
   mesVenda: text("mes_venda"),
   paymentPlan: jsonb("payment_plan").$type<PaymentPlan>(),
@@ -741,3 +757,98 @@ export const budgetLines = pgTable(
   },
   (t) => [unique("budget_line_uq").on(t.versionId, t.kind, t.rowKey, t.mes)],
 );
+
+/**
+ * Fechamento operacional diário (Balanço do Dia). Persiste o resultado do
+ * fechamento de caixa de um dia (por obra ou consolidado).
+ */
+export const dailyClosings = pgTable("daily_closing", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** obra do fechamento; NULL = consolidado (todas as obras). */
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  /** dia do fechamento, "MM/DD/YYYY". */
+  dia: text("dia").notNull(),
+  saldoInicial: numeric("saldo_inicial", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalEntradas: numeric("total_entradas", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalSaidas: numeric("total_saidas", { precision: 15, scale: 2 }).notNull().default("0"),
+  saldoFinal: numeric("saldo_final", { precision: 15, scale: 2 }).notNull().default("0"),
+  divergencias: numeric("divergencias", { precision: 15, scale: 2 }).notNull().default("0"),
+  responsavelId: text("responsavel_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  responsavelNome: text("responsavel_nome"),
+  obs: text("obs"),
+  closedAt: timestamp("closed_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Histórico de transferências de pendências entre fechamentos (auditoria).
+ * Cada conta a pagar/receber não liquidada no fechamento é registrada como
+ * transferida para o dia seguinte.
+ */
+export const carryOvers = pgTable("carry_over", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  closingId: uuid("closing_id").references(() => dailyClosings.id, {
+    onDelete: "cascade",
+  }),
+  /** "pagar" | "receber" */
+  tipo: text("tipo").notNull(),
+  /** id da despesa ou chave do recebível. */
+  refId: text("ref_id"),
+  descricao: text("descricao"),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  vencimento: text("vencimento"),
+  fromDia: text("from_dia").notNull(),
+  toDia: text("to_dia").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Item de estoque (produto/material) cadastrado no tenant. */
+export const stockItems = pgTable("stock_item", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  sku: text("sku"),
+  nome: text("nome").notNull(),
+  /** unidade de medida (un, kg, m, m2, m3, sc, …). */
+  unidade: text("unidade").notNull().default("un"),
+  categoria: text("categoria"),
+  custoUnit: numeric("custo_unit", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** estoque mínimo para alerta. */
+  minimo: numeric("minimo", { precision: 15, scale: 3 }).notNull().default("0"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Movimentação de estoque: entrada ou saída, associada a uma obra. */
+export const stockMovements = pgTable("stock_movement", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id")
+    .notNull()
+    .references(() => stockItems.id, { onDelete: "cascade" }),
+  /** obra à qual a movimentação está associada (NULL = geral/almoxarifado). */
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  /** "entrada" | "saida" */
+  tipo: text("tipo").notNull(),
+  quantidade: numeric("quantidade", { precision: 15, scale: 3 }).notNull().default("0"),
+  custoUnit: numeric("custo_unit", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** data da movimentação, "MM/DD/YYYY". */
+  data: text("data"),
+  doc: text("doc"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
