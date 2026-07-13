@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Manual prático de operação do Growth Tools Construction — onboarding, passo a passo por módulo, com download em PDF.">
+<title>Manual de Operação — Growth Tools Construction</title>
+<style>
+  :root {
+    --ground: #faf8f4;
+    --surface: #ffffff;
+    --surface-2: #f3efe8;
+    --ink: #1c1f24;
+    --ink-2: #3d4249;
+    --muted: #6f7178;
+    --hair: #e4ddd1;
+    --hair-strong: #d3cabb;
+    --accent: #15645a;      /* petróleo/teal — cor principal */
+    --accent-2: #0f4b43;
+    --accent-soft: #e5efec;
+    --warm: #b26a2c;        /* ocre — dicas práticas */
+    --warm-soft: #f6ecdf;
+    --danger: #a8322b;
+    --danger-soft: #f6e4e2;
+    --info: #2b5a8a;
+    --info-soft: #e5ecf4;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --maxw: 46rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #15181b;
+      --surface: #1c2024;
+      --surface-2: #23282d;
+      --ink: #ece8e1;
+      --ink-2: #c3c0b9;
+      --muted: #8f9298;
+      --hair: #2e343a;
+      --hair-strong: #3b424a;
+      --accent: #4fb3a3;
+      --accent-2: #6ec6b7;
+      --accent-soft: #17332e;
+      --warm: #d29a5b;
+      --warm-soft: #322517;
+      --danger: #e07a70;
+      --danger-soft: #331d1b;
+      --info: #7aa8d6;
+      --info-soft: #1a2836;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #faf8f4; --surface: #ffffff; --surface-2: #f3efe8;
+    --ink: #1c1f24; --ink-2: #3d4249; --muted: #6f7178;
+    --hair: #e4ddd1; --hair-strong: #d3cabb;
+    --accent: #15645a; --accent-2: #0f4b43; --accent-soft: #e5efec;
+    --warm: #b26a2c; --warm-soft: #f6ecdf;
+    --danger: #a8322b; --danger-soft: #f6e4e2;
+    --info: #2b5a8a; --info-soft: #e5ecf4;
+  }
+  :root[data-theme="dark"] {
+    --ground: #15181b; --surface: #1c2024; --surface-2: #23282d;
+    --ink: #ece8e1; --ink-2: #c3c0b9; --muted: #8f9298;
+    --hair: #2e343a; --hair-strong: #3b424a;
+    --accent: #4fb3a3; --accent-2: #6ec6b7; --accent-soft: #17332e;
+    --warm: #d29a5b; --warm-soft: #322517;
+    --danger: #e07a70; --danger-soft: #331d1b;
+    --info: #7aa8d6; --info-soft: #1a2836;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+  }
+
+  /* ---------- Shell ---------- */
+  .shell { display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 60rem) {
+    .shell { grid-template-columns: 17rem minmax(0, 1fr); align-items: start; }
+  }
+
+  /* ---------- Índice lateral ---------- */
+  .toc {
+    background: var(--surface);
+    border-right: 1px solid var(--hair);
+  }
+  @media (min-width: 60rem) {
+    .toc {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      padding: 2rem 1.4rem 2rem 1.8rem;
+    }
+  }
+  @media (max-width: 59.99rem) {
+    .toc { padding: 1.4rem 1.4rem; border-right: none; border-bottom: 1px solid var(--hair); }
+  }
+  .brand { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .2rem; }
+  .brand .mark {
+    font-family: var(--mono); font-size: .62rem; letter-spacing: .16em;
+    text-transform: uppercase; color: #fff; background: var(--accent);
+    padding: .2rem .4rem; border-radius: .25rem;
+  }
+  .brand .name { font-family: var(--serif); font-size: 1.05rem; font-weight: 600; }
+  .toc .sub { font-family: var(--mono); font-size: .58rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 1.4rem; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: ch; }
+  .toc li { margin: 0; }
+  .toc a.ch {
+    display: flex; gap: .6rem; align-items: baseline;
+    padding: .32rem .5rem; margin: .05rem 0; border-radius: .35rem;
+    color: var(--ink-2); text-decoration: none; font-size: .855rem;
+    border-left: 2px solid transparent; transition: background .15s, color .15s;
+  }
+  .toc a.ch::before {
+    counter-increment: ch; content: counter(ch, decimal-leading-zero);
+    font-family: var(--mono); font-size: .68rem; color: var(--muted);
+    min-width: 1.5rem;
+  }
+  .toc a.ch:hover { background: var(--surface-2); color: var(--ink); }
+  .toc a.ch.active {
+    background: var(--accent-soft); color: var(--accent-2);
+    border-left-color: var(--accent); font-weight: 600;
+  }
+  .toc a.ch.active::before { color: var(--accent); }
+  .toc .aux { margin-top: 1.3rem; padding-top: 1rem; border-top: 1px solid var(--hair); }
+  .toc .aux a {
+    display: block; padding: .3rem .5rem; border-radius: .35rem;
+    color: var(--muted); text-decoration: none; font-size: .8rem;
+  }
+  .toc .aux a:hover { background: var(--surface-2); color: var(--ink); }
+
+  /* ---------- Conteúdo ---------- */
+  main { padding: 0; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 3.2rem 1.6rem 4rem; }
+
+  .cover { margin-bottom: 3.4rem; }
+  .cover .eyebrow {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: .9rem;
+  }
+  .cover h1 {
+    font-family: var(--serif); font-weight: 600; letter-spacing: -.01em;
+    font-size: clamp(2rem, 5vw, 3rem); line-height: 1.08; text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+  .cover .lede { font-size: 1.08rem; color: var(--ink-2); max-width: 40rem; margin: 0; }
+  .cover .meta {
+    display: flex; flex-wrap: wrap; gap: 1.4rem; margin-top: 1.8rem;
+    padding-top: 1.4rem; border-top: 1px solid var(--hair);
+    font-family: var(--mono); font-size: .7rem; color: var(--muted);
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .cover .meta b { color: var(--ink); font-weight: 600; }
+
+  section.chapter { scroll-margin-top: 1.5rem; padding-top: 2.6rem; }
+  section.chapter + section.chapter { border-top: 1px solid var(--hair); }
+  .chapter > .num {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: .5rem;
+  }
+  .chapter > h2 {
+    font-family: var(--serif); font-weight: 600; letter-spacing: -.01em;
+    font-size: clamp(1.5rem, 3.4vw, 2rem); line-height: 1.15; text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+  .chapter h3 {
+    font-family: var(--sans); font-weight: 700; font-size: 1.02rem;
+    margin: 2rem 0 .5rem; color: var(--ink);
+  }
+  .chapter h4 {
+    font-family: var(--mono); font-weight: 600; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    margin: 1.4rem 0 .4rem;
+  }
+  p { margin: 0 0 .9rem; }
+  a.inline { color: var(--accent-2); text-decoration: underline; text-decoration-color: var(--hair-strong); text-underline-offset: 2px; }
+  strong { font-weight: 650; color: var(--ink); }
+  .path {
+    font-family: var(--mono); font-size: .82em; background: var(--surface-2);
+    border: 1px solid var(--hair); border-radius: .3rem; padding: .04rem .34rem;
+    color: var(--accent-2); white-space: nowrap;
+  }
+
+  /* Passos numerados */
+  ol.steps { counter-reset: step; list-style: none; margin: 1rem 0 1.2rem; padding: 0; }
+  ol.steps > li {
+    counter-increment: step; position: relative; padding: .1rem 0 .1rem 2.4rem;
+    margin: 0 0 .7rem; min-height: 1.6rem;
+  }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: .02rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-family: var(--mono); font-size: .78rem; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ul.plain { margin: .6rem 0 1rem; padding-left: 1.1rem; }
+  ul.plain li { margin: 0 0 .38rem; }
+  ul.plain li::marker { color: var(--accent); }
+
+  /* Callouts */
+  .call {
+    display: grid; grid-template-columns: auto 1fr; gap: .3rem 0;
+    border-radius: .5rem; padding: .85rem 1rem .85rem .95rem;
+    margin: 1.1rem 0; border: 1px solid var(--hair);
+    background: var(--surface); font-size: .92rem;
+  }
+  .call .tag {
+    grid-column: 1 / -1; font-family: var(--mono); font-size: .64rem;
+    letter-spacing: .12em; text-transform: uppercase; font-weight: 700;
+    margin-bottom: .15rem;
+  }
+  .call p:last-child { margin-bottom: 0; }
+  .call.tip { background: var(--warm-soft); border-color: color-mix(in srgb, var(--warm) 30%, transparent); }
+  .call.tip .tag { color: var(--warm); }
+  .call.warn { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+  .call.warn .tag { color: var(--danger); }
+  .call.req { background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+  .call.req .tag { color: var(--info); }
+
+  /* Tabela de perfis */
+  .tablewrap { overflow-x: auto; margin: 1rem 0 1.2rem; border: 1px solid var(--hair); border-radius: .5rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+  th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  thead th {
+    background: var(--surface-2); font-family: var(--mono); font-size: .66rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td b { color: var(--ink); }
+
+  /* Grid de módulos (cards) */
+  .modgrid { display: grid; gap: .7rem; grid-template-columns: 1fr; margin: 1rem 0 1.2rem; }
+  @media (min-width: 34rem) { .modgrid { grid-template-columns: 1fr 1fr; } }
+  .modcard {
+    border: 1px solid var(--hair); border-radius: .5rem; padding: .8rem .9rem;
+    background: var(--surface);
+  }
+  .modcard .h { font-weight: 650; font-size: .92rem; margin-bottom: .15rem; }
+  .modcard .p { font-size: .82rem; color: var(--muted); margin: 0; }
+  .modcard .loc { font-family: var(--mono); font-size: .68rem; color: var(--accent-2); margin-top: .35rem; }
+
+  /* Checklist */
+  ul.check { list-style: none; margin: 1rem 0; padding: 0; }
+  ul.check li {
+    position: relative; padding: .1rem 0 .1rem 1.9rem; margin: 0 0 .5rem; font-size: .92rem;
+  }
+  ul.check li::before {
+    content: "▢"; position: absolute; left: .1rem; top: 0; color: var(--accent);
+    font-size: 1.05rem; line-height: 1.4;
+  }
+
+  /* Download / PDF */
+  .download {
+    margin-top: 3.4rem; padding: 2rem 1.6rem; border-radius: .8rem;
+    background: linear-gradient(150deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff; text-align: center;
+  }
+  .download h2 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 .5rem; color: #fff; }
+  .download p { color: rgba(255,255,255,.85); max-width: 34rem; margin: 0 auto 1.3rem; font-size: .95rem; }
+  .btn-pdf {
+    display: inline-flex; align-items: center; gap: .55rem; cursor: pointer;
+    background: #fff; color: var(--accent-2); border: none; border-radius: .5rem;
+    font-family: var(--sans); font-weight: 650; font-size: .98rem;
+    padding: .8rem 1.5rem; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    transition: transform .12s, box-shadow .12s;
+  }
+  .btn-pdf:hover { transform: translateY(-1px); box-shadow: 0 9px 26px rgba(0,0,0,.24); }
+  .btn-pdf:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  .download small { display: block; margin-top: 1rem; color: rgba(255,255,255,.7); font-size: .78rem; }
+
+  footer.doc { text-align: center; color: var(--muted); font-size: .78rem; padding: 2.4rem 1.6rem; font-family: var(--mono); letter-spacing: .04em; }
+
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .3rem; }
+
+  /* ---------- Impressão / PDF ---------- */
+  @media print {
+    :root { --ground:#fff; --surface:#fff; --surface-2:#f3f3f3; --ink:#000; --ink-2:#1a1a1a; --muted:#555; --hair:#ccc; }
+    .toc, .download, .theme-toggle, footer.doc { display: none !important; }
+    .shell { display: block; }
+    .wrap { max-width: none; padding: 0 1.2cm; }
+    body { font-size: 11pt; line-height: 1.45; }
+    section.chapter { break-inside: auto; page-break-inside: auto; padding-top: 1.2rem; }
+    section.chapter > h2 { break-after: avoid; }
+    h3, h4 { break-after: avoid; }
+    .call, .modcard, table, ol.steps > li { break-inside: avoid; }
+    .cover { margin-bottom: 1.6rem; }
+    a.inline, a.path { color: #000; }
+    .call.tip, .call.warn, .call.req { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+
+  .theme-toggle {
+    position: fixed; top: .9rem; right: .9rem; z-index: 60;
+    background: var(--surface); border: 1px solid var(--hair); color: var(--ink-2);
+    border-radius: .5rem; padding: .4rem .6rem; cursor: pointer; font-size: .95rem; line-height: 1;
+  }
+  .theme-toggle:hover { background: var(--surface-2); }
+</style>
+</head>
+<body>
+
+
+<button class="theme-toggle" id="themeToggle" aria-label="Alternar tema" title="Alternar tema claro/escuro">◐</button>
+
+<div class="shell">
+  <!-- ÍNDICE -->
+  <nav class="toc" aria-label="Índice do manual">
+    <div class="brand">
+      <span class="mark">GT</span>
+      <span class="name">Growth Tools</span>
+    </div>
+    <p class="sub">Construction · Manual de Operação</p>
+    <ol id="tocList">
+      <li><a class="ch" href="#c1">Visão geral do sistema</a></li>
+      <li><a class="ch" href="#c2">Primeiro acesso</a></li>
+      <li><a class="ch" href="#c3">Perfis de acesso e permissões</a></li>
+      <li><a class="ch" href="#c4">Configuração inicial — a base</a></li>
+      <li><a class="ch" href="#c5">Cadastros de apoio</a></li>
+      <li><a class="ch" href="#c6">Módulo Receitas</a></li>
+      <li><a class="ch" href="#c7">Módulo Despesas</a></li>
+      <li><a class="ch" href="#c8">Módulo Estoque</a></li>
+      <li><a class="ch" href="#c9">Operação diária do Caixa</a></li>
+      <li><a class="ch" href="#c10">Versões: Budget, Forecast e Atual</a></li>
+      <li><a class="ch" href="#c11">Relatórios e Dashboards</a></li>
+      <li><a class="ch" href="#c12">Rotina recomendada — checklist</a></li>
+      <li><a class="ch" href="#c13">Glossário</a></li>
+    </ol>
+    <div class="aux">
+      <a href="#baixar">⬇ Baixar em PDF</a>
+    </div>
+  </nav>
+
+  <!-- CONTEÚDO -->
+  <main>
+    <div class="wrap">
+      <header class="cover">
+        <div class="eyebrow">Apoio de onboarding · versão de operação</div>
+        <h1>Manual prático para operar o Growth Tools Construction</h1>
+        <p class="lede">Um guia passo a passo, do primeiro acesso ao fechamento do dia, organizado na mesma ordem em que você vai configurar e usar o sistema. Cada capítulo diz <em>onde clicar</em>, <em>o que preencher</em> e <em>por que importa</em>.</p>
+        <div class="meta">
+          <span>Público: <b>novos operadores</b></span>
+          <span>Domínio: <b>FP&A · Construção</b></span>
+          <span>13 capítulos + glossário</span>
+        </div>
+      </header>
+
+      <!-- 1 -->
+      <section class="chapter" id="c1">
+        <div class="num">Capítulo 1</div>
+        <h2>Visão geral do sistema</h2>
+        <p>O Growth Tools Construction é uma plataforma de planejamento e controle financeiro (FP&amp;A) para incorporação e construção civil. Ele reúne, num só lugar, o <strong>orçamento</strong> de cada obra, o <strong>lançamento do realizado</strong>, o <strong>controle de caixa</strong> e os <strong>relatórios gerenciais</strong> (DRE, Fluxo de Caixa, Consolidado).</p>
+
+        <h3>Como o sistema é organizado</h3>
+        <p>A navegação fica na barra lateral esquerda, dividida em cinco blocos. Você só enxerga os itens que seu perfil tem permissão de ver.</p>
+        <div class="modgrid">
+          <div class="modcard"><div class="h">Módulo Receitas</div><p class="p">Vendas de unidades, orçamento e projeção de entradas, clientes compradores, reembolsos e permutas.</p></div>
+          <div class="modcard"><div class="h">Módulo Despesas</div><p class="p">Lançamento de despesas, contas a pagar, medição de obra, fornecedores, contas correntes e plano de contas.</p></div>
+          <div class="modcard"><div class="h">Módulo Estoque</div><p class="p">Controle de itens e movimentações de estoque da obra.</p></div>
+          <div class="modcard"><div class="h">Reports &amp; Dashboards</div><p class="p">DRE, Fluxo de Caixa, Consolidado, Projeção, Caixa, Fechamento, Balanço do Dia, Rolling e Resumo Executivo.</p></div>
+          <div class="modcard"><div class="h">Config</div><p class="p">Projetos, empresa, usuários e acessos, numeração, log de auditoria e acesso da contabilidade.</p></div>
+        </div>
+
+        <h3>Três conceitos que atravessam tudo</h3>
+        <ul class="plain">
+          <li><strong>Projeto</strong> — cada obra/empreendimento (ou a própria empresa, quando o custo é da matriz/filial). Quase todo lançamento é vinculado a um projeto.</li>
+          <li><strong>Versão</strong> — cada projeto tem três versões de números: <strong>Budget</strong> (orçado), <strong>Forecast</strong> (revisão) e <strong>Atual</strong> (realizado). Você trabalha o dia a dia sempre na versão Atual.</li>
+          <li><strong>Plano de contas</strong> — a lista de grupos que classifica cada despesa e alimenta o DRE.</li>
+        </ul>
+        <div class="call req">
+          <span class="tag">Pré-requisito</span>
+          <p>Não é preciso decorar nada agora. O Capítulo 4 monta essa base na ordem certa — este capítulo é só o mapa.</p>
+        </div>
+      </section>
+
+      <!-- 2 -->
+      <section class="chapter" id="c2">
+        <div class="num">Capítulo 2</div>
+        <h2>Primeiro acesso</h2>
+        <ol class="steps">
+          <li>Abra o endereço do sistema no navegador. Você cai na tela de <strong>login</strong>.</li>
+          <li>Informe seu <strong>e-mail</strong> e <strong>senha</strong> (enviados pelo administrador da sua empresa) e confirme.</li>
+          <li>Ao entrar, o nome da sua empresa aparece no topo da barra lateral. É por ele que o sistema sabe quais dados mostrar.</li>
+          <li>No rodapé da barra lateral estão seu nome e perfil. Clique ali para abrir <span class="path">Perfil</span> e ajustar seus dados; use <strong>Sair</strong> para encerrar a sessão.</li>
+        </ol>
+        <div class="call tip">
+          <span class="tag">Dica prática</span>
+          <p>No celular, a barra lateral vira um menu “≡” no topo. Todas as telas funcionam em tela pequena, mas relatórios largos (DRE, Fluxo) ficam melhores no computador.</p>
+        </div>
+        <div class="call warn">
+          <span class="tag">Atenção</span>
+          <p>Se você não vê algum menu citado neste manual, provavelmente é <strong>permissão</strong> — seu perfil não tem acesso àquela tela. Fale com o administrador (veja o Capítulo 3).</p>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section class="chapter" id="c3">
+        <div class="num">Capítulo 3</div>
+        <h2>Perfis de acesso e permissões</h2>
+        <p>Cada usuário tem um <strong>perfil</strong> que define, por padrão, o que ele pode ver e editar. O administrador pode ainda ajustar permissões tela a tela por pessoa.</p>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr><th>Perfil</th><th>Enxerga</th><th>Uso típico</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>Owner / Admin</b></td><td>Tudo, inclusive Config e acessos.</td><td>Sócios, controladoria, quem administra o sistema.</td></tr>
+              <tr><td><b>Membro</b></td><td>Todos os módulos operacionais (Receitas, Despesas, Estoque, Reports). Não vê Config.</td><td>Equipe financeira/operacional do dia a dia.</td></tr>
+              <tr><td><b>Engenheiro</b></td><td>Apenas <span class="path">Lançamento de Medição</span>.</td><td>Engenheiro de obra que reporta a medição do realizado.</td></tr>
+              <tr><td><b>Contador</b></td><td>Somente leitura de um subconjunto (relatórios e bases contábeis).</td><td>Escritório de contabilidade externo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Onde o administrador gerencia isso</h3>
+        <ul class="plain">
+          <li><span class="path">Usuários &amp; Acessos</span> — convida pessoas e define o perfil de cada uma.</li>
+          <li><span class="path">Gestão de Acessos</span> — ajusta permissões finas (Ver / Editar) por tela e por membro.</li>
+          <li><span class="path">Acesso Contabilidade</span> — libera a visão de leitura para a contabilidade externa.</li>
+          <li><span class="path">Log de Auditoria</span> — registra quem fez o quê, para rastreabilidade.</li>
+        </ul>
+      </section>
+
+      <!-- 4 -->
+      <section class="chapter" id="c4">
+        <div class="num">Capítulo 4</div>
+        <h2>Configuração inicial — a base</h2>
+        <p>Faça esta sequência <strong>uma vez</strong>, na ordem abaixo. Ela cria o esqueleto sobre o qual todos os lançamentos vão se apoiar.</p>
+
+        <h3>4.1 · Empresa</h3>
+        <p>Em <span class="path">Empresa</span>, confira nome, dados e logotipo. É a identidade que aparece nos relatórios.</p>
+
+        <h3>4.2 · Projetos</h3>
+        <p>Em <span class="path">Projetos</span>, cadastre cada obra. Ao criar um projeto, informe:</p>
+        <ul class="plain">
+          <li><strong>Nome</strong> do empreendimento;</li>
+          <li><strong>Data de início</strong> e <strong>data de fim</strong> previstas;</li>
+          <li><strong>Cliente</strong> — escolha da lista cadastrada, ou marque <strong>“Empreendimento próprio”</strong> quando a obra é da própria incorporadora.</li>
+        </ul>
+        <div class="call req">
+          <span class="tag">Importante</span>
+          <p>Ao criar um projeto, o sistema já gera automaticamente as três versões dele — <strong>Budget</strong>, <strong>Forecast</strong> e <strong>Atual</strong> — e a tabela de <strong>INCC</strong>. Você não precisa criá-las à mão.</p>
+        </div>
+
+        <h3>4.3 · Plano de Contas</h3>
+        <p>Em <span class="path">Plano de Contas</span>, revise os grupos de despesa. Cada grupo tem uma <strong>categoria de DRE</strong> (Custo Variável, Custo Fixo, Despesa Fixa, etc.).</p>
+        <div class="call warn">
+          <span class="tag">Atenção</span>
+          <p>Grupos que representam <strong>custo direto de obra (CEF)</strong> só podem ser vinculados a um projeto — nunca a filial/matriz. O sistema bloqueia essa combinação nos lançamentos de despesa.</p>
+        </div>
+
+        <h3>4.4 · Contas Correntes</h3>
+        <p>Em <span class="path">Contas Correntes</span>, cadastre as contas bancárias. Os saldos alimentam o Caixa e o saldo acumulado. Podem ser manuais ou automáticos (Open Finance).</p>
+
+        <h3>4.5 · Numeração e Parâmetros</h3>
+        <ul class="plain">
+          <li><span class="path">Numeração de Despesas</span> — define a sequência automática dos lançamentos.</li>
+          <li><span class="path">Parâmetros / INCC</span> — mantém os índices de correção (INCC) que corrigem as parcelas de venda ao longo do tempo.</li>
+        </ul>
+      </section>
+
+      <!-- 5 -->
+      <section class="chapter" id="c5">
+        <div class="num">Capítulo 5</div>
+        <h2>Cadastros de apoio</h2>
+        <p>Antes de lançar movimento, popule os cadastros que os lançamentos vão referenciar.</p>
+        <div class="modgrid">
+          <div class="modcard"><div class="h">Clientes (Compradores)</div><p class="p">Quem compra as unidades. Vira lista fechada usada em Projetos e Vendas.</p><div class="loc">Receitas › Clientes</div></div>
+          <div class="modcard"><div class="h">Fornecedores</div><p class="p">Empresas e prestadores pagos nas despesas e contas a pagar.</p><div class="loc">Despesas › Fornecedores</div></div>
+          <div class="modcard"><div class="h">Unidades / Vendas</div><p class="p">As unidades do empreendimento e suas condições de venda (sinal, parcelas, etc.).</p><div class="loc">Receitas › Unidades / Vendas</div></div>
+          <div class="modcard"><div class="h">Plano de Contas</div><p class="p">Grupos que classificam as despesas — a espinha dorsal do DRE.</p><div class="loc">Despesas › Plano de Contas</div></div>
+        </div>
+        <div class="call tip">
+          <span class="tag">Dica prática</span>
+          <p>Cadastre <strong>clientes e fornecedores primeiro</strong>. Depois eles aparecem prontos nos menus suspensos de projetos, vendas e despesas — sem retrabalho.</p>
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section class="chapter" id="c6">
+        <div class="num">Capítulo 6</div>
+        <h2>Módulo Receitas</h2>
+        <p>Aqui você planeja e registra tudo o que entra: vendas de unidades, orçamento de receita, reembolsos e permutas.</p>
+
+        <h3>6.1 · Unidades / Vendas</h3>
+        <p>Em <span class="path">Unidades / Vendas</span>, cadastre cada unidade e sua condição de venda. O sistema projeta automaticamente as entradas futuras (corrigidas pelo INCC) que alimentam a Projeção de Receitas e o Fluxo de Caixa.</p>
+
+        <h3>6.2 · Lançamento Budget e Forecast</h3>
+        <p>As telas <span class="path">Lançamento Budget</span> e <span class="path">Lançamento Forecast</span> têm a mesma estrutura, para cada uma das versões:</p>
+        <ul class="plain">
+          <li><strong>Receitas por projeto</strong> — uma matriz de <em>projetos × meses</em>. Cada projeto cadastrado já vira uma linha automática (o nome vem do cadastro), mais a linha <strong>“Outras Receitas”</strong>. Digite o valor previsto mês a mês.</li>
+          <li><strong>Despesas por linha</strong> — você <strong>cria cada linha</strong> e faz o “de-para”: escolhe o grupo do plano de contas e vincula a um <strong>projeto</strong> ou a <strong>filial/matriz</strong>. Depois preenche os valores por mês.</li>
+        </ul>
+        <div class="call tip">
+          <span class="tag">Dica prática</span>
+          <p>As duas telas têm <strong>exportar</strong> e <strong>importar</strong> planilha (Excel). Exporte o modelo, preencha fora do sistema e reimporte — os cabeçalhos de mês e os números em formato brasileiro são reconhecidos automaticamente.</p>
+        </div>
+        <div class="call warn">
+          <span class="tag">Atenção</span>
+          <p>Nas despesas, grupos de <strong>custo direto de obra (CEF)</strong> não oferecem a opção “filial/matriz” — só projeto. É proposital, para não misturar custo de obra com custo administrativo.</p>
+        </div>
+
+        <h3>6.3 · Simulador</h3>
+        <p>O <span class="path">Simulador</span> permite testar cenários de venda e condições de pagamento sem alterar os dados oficiais.</p>
+
+        <h3>6.4 · Reembolso e Permuta</h3>
+        <ul class="plain">
+          <li><span class="path">Reembolso</span> — entradas por devolução/reembolso. O número no menu indica itens pendentes.</li>
+          <li><span class="path">Permuta</span> — bens recebidos em troca (e sua eventual revenda). A receita de revenda entra no DRE e no Fluxo.</li>
+        </ul>
+      </section>
+
+      <!-- 7 -->
+      <section class="chapter" id="c7">
+        <div class="num">Capítulo 7</div>
+        <h2>Módulo Despesas</h2>
+
+        <h3>7.1 · Despesas / Lançamentos</h3>
+        <p>Em <span class="path">Despesas / Lançamentos</span> você registra cada gasto realizado. Ao lançar, informe o <strong>projeto</strong>, o <strong>grupo do plano de contas</strong>, o <strong>fornecedor</strong>, o valor e a competência. É esse lançamento que abastece o realizado do DRE (versão Atual).</p>
+
+        <h3>7.2 · Contas a Pagar</h3>
+        <p>Em <span class="path">Contas a Pagar</span> ficam as despesas com vencimento futuro. Pendências não quitadas são <strong>carregadas automaticamente</strong> para o período seguinte, para não se perderem.</p>
+
+        <h3>7.3 · Lançamento de Medição</h3>
+        <p>Em <span class="path">Lançamento de Medição</span>, o engenheiro reporta o <strong>realizado da obra</strong> por grupo. Este é o número que o DRE usa como <strong>Custo Variável</strong> da versão Atual.</p>
+        <div class="call req">
+          <span class="tag">Como as peças se conectam</span>
+          <p>No relatório <strong>Medição de Obra</strong>: a coluna <strong>Orçado</strong> vem do <strong>Budget</strong>; a coluna <strong>Realizado</strong> vem do <strong>Lançamento de Medição</strong> (versão Atual). Se um grupo está zerado no Budget, o Orçado aparece zerado — é o esperado.</p>
+        </div>
+
+        <h3>7.4 · Restituições e Fornecedores</h3>
+        <ul class="plain">
+          <li><span class="path">Restituições</span> — devoluções de valores pagos.</li>
+          <li><span class="path">Fornecedores</span> — cadastro usado em todos os lançamentos de despesa.</li>
+        </ul>
+      </section>
+
+      <!-- 8 -->
+      <section class="chapter" id="c8">
+        <div class="num">Capítulo 8</div>
+        <h2>Módulo Estoque</h2>
+        <p>Em <span class="path">Controle de Estoques</span> você mantém os <strong>itens</strong> (materiais) e suas <strong>movimentações</strong> (entradas e saídas), com vínculo ao projeto. Serve para acompanhar consumo de material de obra e apoiar a conferência do custo.</p>
+        <ol class="steps">
+          <li>Cadastre os itens de estoque com unidade e, se quiser, valor de referência.</li>
+          <li>Registre as movimentações de entrada (compra) e saída (consumo na obra), indicando o projeto.</li>
+          <li>Acompanhe o saldo por item diretamente na tela.</li>
+        </ol>
+      </section>
+
+      <!-- 9 -->
+      <section class="chapter" id="c9">
+        <div class="num">Capítulo 9</div>
+        <h2>Operação diária do Caixa</h2>
+        <p>O bloco de caixa é a rotina de todo dia. São três telas complementares.</p>
+
+        <h3>9.1 · Caixa</h3>
+        <p>Em <span class="path">Caixa</span> você vê, no topo, o <strong>resumo do dia</strong> (entradas, saídas e saldo) e o <strong>saldo das contas correntes</strong>. Abaixo, uma <strong>faixa de dias</strong> mostra os últimos dias realizados, hoje e a projeção — <strong>role para a direita para visualizar até uma semana à frente</strong>, com saldo do dia e saldo acumulado em cada card.</p>
+        <h4>Abas dentro do Caixa</h4>
+        <ul class="plain">
+          <li><strong>Lançamentos</strong> — registre entradas/saídas e importe o extrato bancário.</li>
+          <li><strong>Conciliação</strong> — marque como conciliado o que casou com o extrato; divergências ficam sinalizadas.</li>
+          <li><strong>Previstas</strong> — entradas futuras projetadas a partir das vendas.</li>
+        </ul>
+        <div class="call tip">
+          <span class="tag">Dica prática</span>
+          <p>Com o <strong>Open Finance</strong> ativo, o extrato é importado automaticamente e o sistema tenta conciliar sozinho. O selo no topo mostra se está “ativo” ou “não configurado”.</p>
+        </div>
+
+        <h3>9.2 · Fechamento de Caixa</h3>
+        <p>Em <span class="path">Fechamento de Caixa</span>, um painel duplo confronta o previsto com o realizado do dia, para você fechar o caixa com segurança.</p>
+
+        <h3>9.3 · Balanço do Dia</h3>
+        <p>Em <span class="path">Balanço do Dia</span>, veja a foto consolidada do dia — total de entradas, saídas e posição de caixa.</p>
+      </section>
+
+      <!-- 10 -->
+      <section class="chapter" id="c10">
+        <div class="num">Capítulo 10</div>
+        <h2>Versões: Budget, Forecast e Atual</h2>
+        <p>Entender as três versões é o que destrava o uso avançado dos relatórios.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Versão</th><th>O que representa</th><th>Onde se lança</th></tr></thead>
+            <tbody>
+              <tr><td><b>Budget</b></td><td>Orçamento original da obra.</td><td><span class="path">Lançamento Budget</span></td></tr>
+              <tr><td><b>Forecast</b></td><td>Revisão do orçamento ao longo do tempo.</td><td><span class="path">Lançamento Forecast</span></td></tr>
+              <tr><td><b>Atual</b></td><td>O realizado — sua operação do dia a dia.</td><td>Despesas, Medição, Caixa, Vendas…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="call req">
+          <span class="tag">Regra de ouro</span>
+          <p>No dia a dia você trabalha sempre na versão <strong>Atual</strong>. Budget e Forecast têm telas próprias e dedicadas. O DRE puxa o <strong>custo variável</strong> da medição realizada (Atual); as versões Budget e Forecast vêm das suas respectivas seções.</p>
+        </div>
+        <p>Nos relatórios, você pode <strong>selecionar de 1 a 3 versões</strong> ao mesmo tempo para comparar lado a lado (ex.: Budget × Forecast × Atual).</p>
+      </section>
+
+      <!-- 11 -->
+      <section class="chapter" id="c11">
+        <div class="num">Capítulo 11</div>
+        <h2>Relatórios e Dashboards</h2>
+        <p>Todos os relatórios respeitam o <strong>projeto</strong> e as <strong>versões</strong> selecionadas, e a maioria permite filtrar por período.</p>
+        <div class="modgrid">
+          <div class="modcard"><div class="h">Dashboard</div><p class="p">Visão executiva com os principais indicadores.</p></div>
+          <div class="modcard"><div class="h">DRE</div><p class="p">Demonstração de resultado em cascata. Compare até 3 versões e alterne entre <b>Consolidado</b> e <b>Mensal</b> (uma coluna por mês + Total).</p></div>
+          <div class="modcard"><div class="h">Fluxo de Caixa</div><p class="p">Entradas e saídas projetadas ao longo dos meses.</p></div>
+          <div class="modcard"><div class="h">Projeção de Receitas</div><p class="p">Entradas futuras a partir das vendas, corrigidas por INCC.</p></div>
+          <div class="modcard"><div class="h">Consolidado</div><p class="p">Números somados de toda a empresa (matriz + filiais + projetos).</p></div>
+          <div class="modcard"><div class="h">Medição de Obra</div><p class="p">Orçado (Budget) × Realizado (medição) por grupo.</p></div>
+          <div class="modcard"><div class="h">Rolling Forecast</div><p class="p">Projeção contínua que “rola” mês a mês.</p></div>
+          <div class="modcard"><div class="h">Resumo Executivo</div><p class="p">Síntese para apresentação à diretoria.</p></div>
+        </div>
+        <div class="call tip">
+          <span class="tag">Dica prática</span>
+          <p>No <strong>DRE Mensal</strong>, use o seletor “Consolidado / Mensal”. A visão mensal abre uma coluna por mês (role para a direita) e uma coluna <strong>Total</strong> ao final, que sempre bate com o Consolidado do período.</p>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section class="chapter" id="c12">
+        <div class="num">Capítulo 12</div>
+        <h2>Rotina recomendada — checklist</h2>
+        <h3>Ao configurar pela primeira vez</h3>
+        <ul class="check">
+          <li>Conferir dados e logo da <b>Empresa</b>.</li>
+          <li>Cadastrar <b>Clientes</b> e <b>Fornecedores</b>.</li>
+          <li>Criar os <b>Projetos</b> (datas + cliente ou “próprio”).</li>
+          <li>Revisar o <b>Plano de Contas</b> e as categorias de DRE.</li>
+          <li>Cadastrar as <b>Contas Correntes</b> e saldos iniciais.</li>
+          <li>Ajustar <b>Numeração</b> e <b>Parâmetros / INCC</b>.</li>
+          <li>Convidar usuários em <b>Usuários &amp; Acessos</b> e definir perfis.</li>
+          <li>Lançar o <b>Budget</b> de receitas e despesas de cada projeto.</li>
+        </ul>
+        <h3>Rotina do dia a dia</h3>
+        <ul class="check">
+          <li>Registrar <b>despesas</b> e <b>contas a pagar</b> do dia.</li>
+          <li>Lançar entradas/saídas e importar o <b>extrato</b> no Caixa.</li>
+          <li><b>Conciliar</b> os movimentos e resolver divergências.</li>
+          <li>Fazer o <b>Fechamento de Caixa</b> e conferir o <b>Balanço do Dia</b>.</li>
+        </ul>
+        <h3>Rotina periódica (mensal)</h3>
+        <ul class="check">
+          <li>Engenheiro lança a <b>Medição</b> do realizado.</li>
+          <li>Revisar o <b>Forecast</b> à luz do realizado.</li>
+          <li>Analisar <b>DRE</b>, <b>Fluxo de Caixa</b> e <b>Consolidado</b> (comparando versões).</li>
+          <li>Gerar o <b>Resumo Executivo</b> para a diretoria.</li>
+        </ul>
+      </section>
+
+      <!-- 13 -->
+      <section class="chapter" id="c13">
+        <div class="num">Capítulo 13</div>
+        <h2>Glossário</h2>
+        <div class="tablewrap">
+          <table>
+            <tbody>
+              <tr><td><b>Budget</b></td><td>Orçamento original planejado da obra.</td></tr>
+              <tr><td><b>Forecast</b></td><td>Revisão do orçamento ao longo do tempo.</td></tr>
+              <tr><td><b>Atual</b></td><td>Versão do realizado — o que de fato aconteceu.</td></tr>
+              <tr><td><b>DRE</b></td><td>Demonstração do Resultado do Exercício, em cascata (Receita → Custos → Margem → EBITDA → Resultado).</td></tr>
+              <tr><td><b>Custo Variável</b></td><td>Custo direto de obra; no DRE Atual vem da <b>medição</b>.</td></tr>
+              <tr><td><b>CEF</b></td><td>Grupos de custo direto de obra — só se vinculam a projeto, nunca a filial/matriz.</td></tr>
+              <tr><td><b>INCC</b></td><td>Índice que corrige as parcelas de venda ao longo do tempo.</td></tr>
+              <tr><td><b>Medição</b></td><td>Reporte do realizado da obra por grupo, feito pelo engenheiro.</td></tr>
+              <tr><td><b>Conciliação</b></td><td>Casar cada movimento de caixa com o extrato bancário.</td></tr>
+              <tr><td><b>Carry-over</b></td><td>Pendência não quitada que passa automaticamente para o período seguinte.</td></tr>
+              <tr><td><b>Open Finance</b></td><td>Integração bancária que importa o extrato automaticamente.</td></tr>
+              <tr><td><b>Permuta</b></td><td>Bem recebido em troca; sua revenda vira receita.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- DOWNLOAD -->
+      <section class="download" id="baixar">
+        <h2>Baixar este manual em PDF</h2>
+        <p>Gere uma versão em PDF para imprimir, arquivar ou enviar a novos colaboradores. O índice lateral e este bloco são removidos automaticamente na versão impressa.</p>
+        <button class="btn-pdf" id="pdfBtn" type="button">⬇ Baixar / imprimir em PDF</button>
+        <small>Abre a janela de impressão do navegador — escolha “Salvar como PDF” em Destino.</small>
+      </section>
+
+      <footer class="doc">Growth Tools Construction · Manual de Operação · apoio de onboarding</footer>
+    </div>
+  </main>
+</div>
+
+<script>
+  // Botão PDF → impressão do navegador (Salvar como PDF)
+  document.getElementById("pdfBtn").addEventListener("click", function () {
+    window.print();
+  });
+
+  // Alternar tema claro/escuro
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("themeToggle");
+    btn.addEventListener("click", function () {
+      var cur = root.getAttribute("data-theme");
+      if (!cur) {
+        cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      root.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    });
+  })();
+
+  // Destaque do capítulo ativo no índice
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".toc a.ch"));
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var sections = Array.prototype.slice.call(document.querySelectorAll("section.chapter"));
+    if (!("IntersectionObserver" in window)) return;
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (l) { l.classList.remove("active"); });
+          var a = byId[e.target.id];
+          if (a) a.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
+    sections.forEach(function (s) { obs.observe(s); });
+  })();
+</script>
+
+</body>
+</html>
