@@ -103,7 +103,11 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
       try {
         await fn();
         setMsg(ok);
-        router.refresh();
+        // Import/replicação substituem todos os dados no servidor. O estado da
+        // matriz é inicializado das props só na montagem, então um
+        // router.refresh() não reflete os novos valores — recarrega a página
+        // (preservando ?proj=) para reidratar a matriz com os dados importados.
+        window.location.reload();
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Falha na operação.");
       }
