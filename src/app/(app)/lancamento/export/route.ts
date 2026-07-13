@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
-import { RECEITA_ROWS, defaultDreCategory, isBudgetVersion } from "@/lib/budget/config";
+import { RECEITA_ROWS, RECEITA_ROW_KEY, defaultDreCategory, isBudgetVersion } from "@/lib/budget/config";
 
 export const dynamic = "force-dynamic";
 
@@ -37,21 +37,29 @@ export async function GET(req: Request) {
   ]);
   const months = incc.map((r) => r.m);
 
-  // valores: kind → rowKey → mes
+  // valores: kind → rowKey → mes. Receita é consolidada numa única linha.
   const val: Record<string, Record<string, Record<string, number>>> = { receita: {}, despesa: {} };
   const cat: Record<string, string> = {};
   for (const l of lines) {
-    ((val[l.kind] ??= {})[l.rowKey] ??= {})[l.mes] = Number(l.valor);
-    if (l.kind === "despesa" && l.dreCategory) cat[l.rowKey] = l.dreCategory;
+    if (l.kind === "receita") {
+      const bag = ((val.receita[RECEITA_ROW_KEY] ??= {}) as Record<string, number>);
+      bag[l.mes] = (bag[l.mes] || 0) + Number(l.valor);
+    } else {
+      ((val.despesa[l.rowKey] ??= {}) as Record<string, number>)[l.mes] = Number(l.valor);
+      if (l.dreCategory) cat[l.rowKey] = l.dreCategory;
+    }
   }
 
+  const only = new URL(req.url).searchParams.get("only");
   const wb = XLSX.utils.book_new();
 
-  // Receitas
-  const recRows: (string | number)[][] = [["Fonte", ...months]];
-  for (const k of RECEITA_ROWS)
-    recRows.push([k, ...months.map((m) => val.receita?.[k]?.[m] ?? "")]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recRows), "Receitas");
+  // Receitas (omitidas quando only=despesa — a receita é consolidada por projeto)
+  if (only !== "despesa") {
+    const recRows: (string | number)[][] = [["Fonte", ...months]];
+    for (const k of RECEITA_ROWS)
+      recRows.push([k, ...months.map((m) => val.receita?.[k]?.[m] ?? "")]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recRows), "Receitas");
+  }
 
   // Despesas
   const grupos = new Map<string, { label: string; kind: "cef" | "complementar" }>();

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -10,6 +10,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -577,6 +578,198 @@ export async function getMonthlyRevenue(
   return out;
 }
 
+export interface ReceitaProjetoRow {
+  projectId: string;
+  projectName: string;
+  /** versão do tipo pedido (budget/forecast) do projeto; null se não existir. */
+  versionId: string | null;
+  /** receita consolidada por mês ("MM/YYYY" → valor). */
+  values: Record<string, number>;
+}
+export interface ReceitaByProject {
+  months: string[];
+  rows: ReceitaProjetoRow[];
+}
+
+/**
+ * Receita do Budget/Forecast consolidada como matriz projetos × meses: uma
+ * linha por projeto (empreendimento). Cada projeto criado vira uma nova linha.
+ */
+export async function getReceitaByProject(
+  tenantId: string,
+  kind: "budget" | "forecast",
+): Promise<ReceitaByProject> {
+  const [projs, vers, incc] = await Promise.all([
+    db
+      .select()
+      .from(schema.projects)
+      .where(and(eq(schema.projects.tenantId, tenantId), eq(schema.projects.kind, "proj")))
+      .orderBy(asc(schema.projects.createdAt)),
+    db
+      .select()
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.kind, kind))),
+    db
+      .select({ mes: schema.inccRates.mes })
+      .from(schema.inccRates)
+      .where(eq(schema.inccRates.tenantId, tenantId)),
+  ]);
+
+  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
+  const verByProj = new Map(vers.map((v) => [v.projectId, v.id]));
+  const versionIds = vers.map((v) => v.id);
+
+  const lines = versionIds.length
+    ? await db
+        .select()
+        .from(schema.budgetLines)
+        .where(
+          and(
+            inArray(schema.budgetLines.versionId, versionIds),
+            eq(schema.budgetLines.kind, "receita"),
+          ),
+        )
+    : [];
+  // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
+  const receitaByVer = new Map<string, Record<string, number>>();
+  const outrasByVer = new Map<string, Record<string, number>>();
+  for (const l of lines) {
+    const map = l.rowKey === OUTRAS_RECEITAS_KEY ? outrasByVer : receitaByVer;
+    const bag = map.get(l.versionId) ?? {};
+    bag[l.mes] = (bag[l.mes] || 0) + Number(l.valor);
+    map.set(l.versionId, bag);
+  }
+
+  const rows: ReceitaProjetoRow[] = projs.map((p) => {
+    const vId = verByProj.get(p.id) ?? null;
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      versionId: vId,
+      values: vId ? receitaByVer.get(vId) ?? {} : {},
+    };
+  });
+
+  // "Outras Receitas": guardada na versão do projeto mais antigo (âncora).
+  const anchorVid = rows.find((r) => r.versionId)?.versionId ?? null;
+  rows.push({
+    projectId: OUTRAS_RECEITAS_PID,
+    projectName: OUTRAS_RECEITAS_KEY,
+    versionId: anchorVid,
+    values: anchorVid ? outrasByVer.get(anchorVid) ?? {} : {},
+  });
+
+  return { months, rows };
+}
+
+export interface DespesaLinha {
+  projectId: string;
+  projectName: string;
+  grupoCode: string;
+  grupoLabel: string;
+  dreCategory: string;
+  values: Record<string, number>;
+}
+export interface DespesaLinhasData {
+  months: string[];
+  /** projetos + filiais/unidades para o "de-para" (office = filial/matriz). */
+  projetos: { id: string; nome: string; office: boolean }[];
+  /** grupos do plano de contas; cef = custo direto de obra (só p/ projetos). */
+  grupos: { code: string; label: string; dreCategory: string; cef: boolean }[];
+  lines: DespesaLinha[];
+}
+
+/**
+ * Despesas do Budget/Forecast como linhas criadas pelo usuário: cada linha é
+ * um grupo do plano de contas vinculado a um projeto/filial. Retorna também as
+ * opções de projeto e de grupo, além das linhas já lançadas.
+ */
+export async function getDespesaLinhas(
+  tenantId: string,
+  kind: "budget" | "forecast",
+): Promise<DespesaLinhasData> {
+  const [projs, vers, chart, incc] = await Promise.all([
+    db
+      .select()
+      .from(schema.projects)
+      .where(eq(schema.projects.tenantId, tenantId))
+      .orderBy(asc(schema.projects.createdAt)),
+    db
+      .select()
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.kind, kind))),
+    getChartAccounts(tenantId),
+    db.select({ mes: schema.inccRates.mes }).from(schema.inccRates).where(eq(schema.inccRates.tenantId, tenantId)),
+  ]);
+
+  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
+  const projById = new Map(projs.map((p) => [p.id, p.name]));
+  const verById = new Map(vers.map((v) => [v.id, v.projectId]));
+
+  const grupoMap = new Map<
+    string,
+    { code: string; label: string; dreCategory: string; cef: boolean }
+  >();
+  for (const r of chart) {
+    if (!grupoMap.has(r.groupCode))
+      grupoMap.set(r.groupCode, {
+        code: r.groupCode,
+        label: `${r.groupCode} · ${r.groupName}`,
+        dreCategory: r.kind === "cef" ? "Custo Variável" : "Despesa Fixa",
+        cef: r.kind === "cef",
+      });
+  }
+  const grupos = [...grupoMap.values()].sort((a, b) =>
+    a.code.localeCompare(b.code, undefined, { numeric: true }),
+  );
+  const grupoLabel = (code: string) => grupoMap.get(code)?.label ?? code;
+
+  const versionIds = vers.map((v) => v.id);
+  const bl = versionIds.length
+    ? await db
+        .select()
+        .from(schema.budgetLines)
+        .where(
+          and(
+            inArray(schema.budgetLines.versionId, versionIds),
+            eq(schema.budgetLines.kind, "despesa"),
+          ),
+        )
+    : [];
+
+  const lineMap = new Map<string, DespesaLinha>();
+  for (const l of bl) {
+    const projectId = verById.get(l.versionId);
+    if (!projectId) continue;
+    const key = `${projectId}|${l.rowKey}`;
+    let line = lineMap.get(key);
+    if (!line) {
+      line = {
+        projectId,
+        projectName: projById.get(projectId) ?? "",
+        grupoCode: l.rowKey,
+        grupoLabel: grupoLabel(l.rowKey),
+        dreCategory: l.dreCategory ?? grupoMap.get(l.rowKey)?.dreCategory ?? "Despesa Fixa",
+        values: {},
+      };
+      lineMap.set(key, line);
+    }
+    line.values[l.mes] = (line.values[l.mes] || 0) + Number(l.valor);
+    if (l.dreCategory) line.dreCategory = l.dreCategory;
+  }
+
+  return {
+    months,
+    projetos: projs.map((p) => ({
+      id: p.id,
+      nome: p.kind === "office" ? `${p.name} · Filial/Matriz` : p.name,
+      office: p.kind === "office",
+    })),
+    grupos,
+    lines: [...lineMap.values()],
+  };
+}
+
 export interface RevenueBySource {
   sources: Record<ProjectionSource, MonthlyProjection>;
   reemb: MonthlyProjection;
@@ -620,6 +813,12 @@ export async function getRevenueBySource(
         reemb[l.mes] = (reemb[l.mes] || 0) + Number(l.valor);
       } else if ((PROJECTION_SOURCES as readonly string[]).includes(l.rowKey)) {
         const s = l.rowKey as ProjectionSource;
+        sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
+      } else {
+        // Receita lançada por projeto (linha única "Receita") ou qualquer chave
+        // não mapeada: agrega na fonte primária para preservar o total nos
+        // relatórios "por fonte" (Consolidado/Projeção).
+        const s = PROJECTION_SOURCES[0] as ProjectionSource;
         sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
       }
     }

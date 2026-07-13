@@ -1,7 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -20,7 +20,12 @@ import {
   reembursementsByMonth,
   PROJECTION_SOURCES,
 } from "@/lib/calc";
-import { isBudgetVersion } from "@/lib/budget/config";
+import {
+  isBudgetVersion,
+  RECEITA_ROW_KEY,
+  OUTRAS_RECEITAS_KEY,
+  OUTRAS_RECEITAS_PID,
+} from "@/lib/budget/config";
 
 export interface BudgetCell {
   rowKey: string;
@@ -128,6 +133,106 @@ export async function saveBudgetLines(
     entity: "budget_line",
     entityId: versionId,
     meta: { kind, count: cells.length },
+  });
+  revalidateLancamento();
+}
+
+export interface ReceitaProjetoCell {
+  projectId: string;
+  mes: string;
+  valor: number;
+}
+
+/** Substitui apenas as linhas de receita de uma rowKey específica da versão. */
+async function replaceReceitaRowKey(
+  tenantId: string,
+  versionId: string,
+  rowKey: string,
+  monthValues: { mes: string; valor: number }[],
+) {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "receita"),
+          eq(schema.budgetLines.rowKey, rowKey),
+        ),
+      );
+    const rows = monthValues
+      .filter((c) => c.mes && Number(c.valor) !== 0)
+      .map((c) => ({
+        tenantId,
+        versionId,
+        kind: "receita",
+        rowKey,
+        dreCategory: "Receita",
+        mes: c.mes,
+        valor: String(Number(c.valor)),
+      }));
+    if (rows.length) await tx.insert(schema.budgetLines).values(rows);
+  });
+}
+
+/** Versão do tipo pedido do projeto mais antigo (âncora para "Outras Receitas"). */
+async function anchorVersion(tenantId: string, kind: string) {
+  const [p] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.tenantId, tenantId), eq(schema.projects.kind, "proj")))
+    .orderBy(asc(schema.projects.createdAt))
+    .limit(1);
+  return p ? siblingVersion(p.id, kind) : null;
+}
+
+/**
+ * Salva a receita do Budget/Forecast consolidada por projeto (matriz projetos
+ * × meses). Cada célula grava na versão do respectivo projeto, na linha única
+ * "Receita". A linha "Outras Receitas" (projectId sentinela) grava na versão
+ * âncora sob a rowKey "Outras Receitas".
+ */
+export async function saveBudgetReceita(
+  kind: "budget" | "forecast",
+  cells: ReceitaProjetoCell[],
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
+
+  const byProject = new Map<string, ReceitaProjetoCell[]>();
+  for (const c of cells) {
+    if (!c.projectId || !c.mes) continue;
+    const arr = byProject.get(c.projectId) ?? [];
+    arr.push(c);
+    byProject.set(c.projectId, arr);
+  }
+  // Garante que a linha "Outras Receitas" seja processada mesmo se ficou vazia
+  // (para permitir zerar), desde que exista âncora.
+  if (!byProject.has(OUTRAS_RECEITAS_PID)) byProject.set(OUTRAS_RECEITAS_PID, []);
+
+  let saved = 0;
+  for (const [projectId, pcells] of byProject) {
+    const isOutras = projectId === OUTRAS_RECEITAS_PID;
+    const v = isOutras
+      ? await anchorVersion(ctx.tenant.id, kind)
+      : await siblingVersion(projectId, kind);
+    if (!v || v.tenantId !== ctx.tenant.id || v.locked) continue;
+    await replaceReceitaRowKey(
+      ctx.tenant.id,
+      v.id,
+      isOutras ? OUTRAS_RECEITAS_KEY : RECEITA_ROW_KEY,
+      pcells.map((c) => ({ mes: c.mes, valor: Number(c.valor) })),
+    );
+    saved++;
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "budget.saveReceita",
+    entity: "budget_line",
+    entityId: kind,
+    meta: { grupos: saved },
   });
   revalidateLancamento();
 }
@@ -273,8 +378,10 @@ export async function importBudgetXlsx(formData: FormData) {
     }
   }
 
-  await replaceLines(ctx.tenant.id, versionId, "receita", recCells);
-  await replaceLines(ctx.tenant.id, versionId, "despesa", despCells);
+  // Só substitui um tipo se a aba correspondente existir na planilha — evita
+  // apagar a receita (agora consolidada por projeto) ao importar só despesas.
+  if (recRows.length) await replaceLines(ctx.tenant.id, versionId, "receita", recCells);
+  if (despRows.length) await replaceLines(ctx.tenant.id, versionId, "despesa", despCells);
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
@@ -282,6 +389,99 @@ export async function importBudgetXlsx(formData: FormData) {
     entity: "budget_line",
     entityId: versionId,
     meta: { receita: recCells.length, despesa: despCells.length },
+  });
+  revalidateLancamento();
+}
+
+export interface DespesaLinhaInput {
+  projectId: string;
+  grupoCode: string;
+  dreCategory: string;
+  /** true se o grupo é custo direto de obra (CEF) — não pode ser filial/matriz. */
+  cef: boolean;
+  values: { mes: string; valor: number }[];
+}
+
+/**
+ * Salva as despesas do Budget/Forecast como linhas (grupo do plano de contas ×
+ * projeto/filial). Substitui todas as despesas das versões editáveis do tenant
+ * pelas linhas enviadas (trata inclusões, edições e remoções). Grupos CEF
+ * (custo direto de obra) só podem ser vinculados a projetos (obras).
+ */
+export async function saveBudgetDespesaLinhas(
+  kind: "budget" | "forecast",
+  lines: DespesaLinhaInput[],
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
+
+  const [vers, projs] = await Promise.all([
+    db
+      .select()
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, ctx.tenant.id), eq(schema.versions.kind, kind))),
+    db
+      .select({ id: schema.projects.id, kind: schema.projects.kind })
+      .from(schema.projects)
+      .where(eq(schema.projects.tenantId, ctx.tenant.id)),
+  ]);
+  const officeIds = new Set(projs.filter((p) => p.kind === "office").map((p) => p.id));
+  const verByProj = new Map(vers.filter((v) => !v.locked).map((v) => [v.projectId, v.id]));
+  const editableVerIds = [...verByProj.values()];
+
+  // Dedup por (versão, grupo, mês) somando — respeita a unique do budget_line.
+  const agg = new Map<string, { versionId: string; rowKey: string; dreCategory: string | null; mes: string; valor: number }>();
+  for (const line of lines) {
+    if (!line.projectId || !line.grupoCode) continue;
+    // CEF (custo direto de obra) não pode ser lançado em filial/matriz.
+    if (line.cef && officeIds.has(line.projectId)) continue;
+    const versionId = verByProj.get(line.projectId);
+    if (!versionId) continue;
+    for (const c of line.values) {
+      if (!c.mes || Number(c.valor) === 0) continue;
+      const key = `${versionId}|${line.grupoCode}|${c.mes}`;
+      const cur = agg.get(key);
+      if (cur) cur.valor += Number(c.valor);
+      else
+        agg.set(key, {
+          versionId,
+          rowKey: line.grupoCode,
+          dreCategory: line.dreCategory || null,
+          mes: c.mes,
+          valor: Number(c.valor),
+        });
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (editableVerIds.length)
+      await tx
+        .delete(schema.budgetLines)
+        .where(
+          and(
+            inArray(schema.budgetLines.versionId, editableVerIds),
+            eq(schema.budgetLines.kind, "despesa"),
+          ),
+        );
+    const rows = [...agg.values()].map((r) => ({
+      tenantId: ctx.tenant.id,
+      versionId: r.versionId,
+      kind: "despesa",
+      rowKey: r.rowKey,
+      dreCategory: r.dreCategory,
+      mes: r.mes,
+      valor: String(r.valor),
+    }));
+    if (rows.length) await tx.insert(schema.budgetLines).values(rows);
+  });
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "budget.saveDespesaLinhas",
+    entity: "budget_line",
+    entityId: kind,
+    meta: { linhas: agg.size },
   });
   revalidateLancamento();
 }
@@ -301,23 +501,21 @@ export async function replicateFromAtual(targetVersionId: string) {
     getDespesas(atual.id),
   ]);
 
-  // Receita por fonte × mês.
-  const receitaCells: BudgetCell[] = [];
-  const bySource = Object.fromEntries(
-    PROJECTION_SOURCES.map((s) => [s, {} as Record<string, number>]),
-  ) as Record<string, Record<string, number>>;
+  // Receita consolidada por projeto (linha única "Receita") × mês: soma todas
+  // as fontes projetadas das unidades + reembolsos.
+  const receitaByMonth: Record<string, number> = {};
   for (const u of units) {
     const bs = calcProjectionBySource(toCalcUnit(u), incc);
     for (const s of PROJECTION_SOURCES)
       for (const [mm, v] of Object.entries(bs[s]))
-        bySource[s][mm] = (bySource[s][mm] || 0) + v;
+        receitaByMonth[mm] = (receitaByMonth[mm] || 0) + v;
   }
-  for (const s of PROJECTION_SOURCES)
-    for (const [mes, valor] of Object.entries(bySource[s]))
-      receitaCells.push({ rowKey: s, dreCategory: "Receita", mes, valor });
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  for (const [mes, valor] of Object.entries(reemb))
-    receitaCells.push({ rowKey: "Reembolso", dreCategory: "Receita", mes, valor });
+  for (const [mm, v] of Object.entries(reemb))
+    receitaByMonth[mm] = (receitaByMonth[mm] || 0) + v;
+  const receitaCells: BudgetCell[] = Object.entries(receitaByMonth).map(
+    ([mes, valor]) => ({ rowKey: RECEITA_ROW_KEY, dreCategory: "Receita", mes, valor }),
+  );
 
   // Despesa por grupo CEF × mês (com a categoria DRE já lançada).
   const despMap = new Map<string, BudgetCell>();

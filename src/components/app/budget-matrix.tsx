@@ -34,6 +34,8 @@ export interface BudgetMatrixProps {
   };
   initialDespCat: Record<string, string>; // rowKey → categoria DRE salva
   canEdit: boolean;
+  /** Mostra só a aba Despesas (a receita agora é consolidada por projeto). */
+  despesaOnly?: boolean;
 }
 
 type Tab = "receita" | "despesa";
@@ -41,7 +43,7 @@ type Tab = "receita" | "despesa";
 export function BudgetMatrix(props: BudgetMatrixProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [tab, setTab] = useState<Tab>("receita");
+  const [tab, setTab] = useState<Tab>(props.despesaOnly ? "despesa" : "receita");
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -158,7 +160,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
             </Button>
           )}
           <a
-            href={`/lancamento/export?v=${props.versionId}`}
+            href={`/lancamento/export?v=${props.versionId}${props.despesaOnly ? "&only=despesa" : ""}`}
             className="rounded-[8px] border border-[var(--color-accent2)]/20 px-3 py-1.5 text-[13px] text-[var(--color-ink2)] hover:bg-[var(--color-surface2)]"
           >
             ⬇ Exportar planilha
@@ -195,7 +197,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
         </div>
       )}
 
-      <div className="flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
+      <div className={`flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1 ${props.despesaOnly ? "hidden" : ""}`}>
         {(["receita", "despesa"] as Tab[]).map((t) => (
           <button
             key={t}
