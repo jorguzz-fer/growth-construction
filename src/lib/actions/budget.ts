@@ -173,10 +173,51 @@ export async function importFromBudget(forecastVersionId: string) {
 const numCell = (v: unknown): number => {
   if (v == null || v === "") return 0;
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  const raw = String(v).trim();
-  const br = /,\d{1,2}$/.test(raw) ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, "");
-  const n = Number(br);
+  let raw = String(v).trim().replace(/[R$\s]/g, "");
+  if (!raw) return 0;
+  if (/,\d{1,2}$/.test(raw)) {
+    // Decimal brasileiro: "1.500.000,50" → "1500000.50".
+    raw = raw.replace(/\./g, "").replace(",", ".");
+  } else {
+    // Remove separadores de milhar (vírgula) e, se sobrarem múltiplos pontos
+    // (milhar em pt-BR "1.500.000"), remove-os também.
+    raw = raw.replace(/,/g, "");
+    if ((raw.match(/\./g) || []).length > 1) raw = raw.replace(/\./g, "");
+  }
+  const n = Number(raw);
   return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Normaliza um cabeçalho de mês para "MM/YYYY". Editores de planilha
+ * (Excel/LibreOffice/Sheets) costumam converter "05/2025" em data — então o
+ * cabeçalho pode voltar como Date, número de série ou string em vários
+ * formatos. Sem isso, a chave do mês não bate e os valores "somem".
+ */
+const monthKey = (cell: unknown): string => {
+  if (cell == null || cell === "") return "";
+  if (cell instanceof Date) {
+    return `${String(cell.getMonth() + 1).padStart(2, "0")}/${cell.getFullYear()}`;
+  }
+  if (typeof cell === "number") {
+    const d = XLSX.SSF?.parse_date_code?.(cell);
+    if (d && d.y) return `${String(d.m).padStart(2, "0")}/${d.y}`;
+    return String(cell);
+  }
+  const s = String(cell).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{4})$/); // MM/YYYY
+  if (m) return `${m[1].padStart(2, "0")}/${m[2]}`;
+  m = s.match(/^(\d{4})-(\d{1,2})/); // YYYY-MM(-DD)
+  if (m) return `${m[2].padStart(2, "0")}/${m[1]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // MM/DD/YYYY (data) → mês/ano
+  if (m) return `${m[1].padStart(2, "0")}/${m[3]}`;
+  return s;
+};
+
+/** Código do grupo a partir do rótulo "1 · Serviços…" (ou "1 Serviços…"). */
+const groupCode = (label: string): string => {
+  const before = label.split(/\s*·\s*/)[0].trim();
+  return before.split(/\s+/)[0].trim();
 };
 
 /**
@@ -191,21 +232,24 @@ export async function importBudgetXlsx(formData: FormData) {
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione uma planilha.");
 
-  const wb = XLSX.read(await file.arrayBuffer(), { type: "buffer" });
+  // cellDates: converte células de data para Date (cabeçalhos de mês que o
+  // editor transformou em data voltam como Date e são normalizados abaixo).
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "buffer", cellDates: true });
   const readSheet = (name: string) => {
     const ws = wb.Sheets[name];
     if (!ws) return [] as unknown[][];
-    return XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }).filter((r) => r.length);
+    return XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true }).filter((r) => r.length);
   };
 
   const recCells: BudgetCell[] = [];
   const recRows = readSheet("Receitas");
   if (recRows.length) {
-    const months = (recRows[0] as unknown[]).slice(1).map(String);
+    const months = (recRows[0] as unknown[]).slice(1).map(monthKey);
     for (const row of recRows.slice(1)) {
       const rowKey = String((row as unknown[])[0] ?? "").trim();
       if (!rowKey) continue;
       months.forEach((mes, i) => {
+        if (!mes) return;
         const valor = numCell((row as unknown[])[i + 1]);
         if (valor !== 0) recCells.push({ rowKey, dreCategory: "Receita", mes, valor });
       });
@@ -215,13 +259,14 @@ export async function importBudgetXlsx(formData: FormData) {
   const despCells: BudgetCell[] = [];
   const despRows = readSheet("Despesas");
   if (despRows.length) {
-    const months = (despRows[0] as unknown[]).slice(2).map(String);
+    const months = (despRows[0] as unknown[]).slice(2).map(monthKey);
     for (const row of despRows.slice(1)) {
       const label = String((row as unknown[])[0] ?? "").trim();
-      const code = label.split(" · ")[0].trim();
+      const code = groupCode(label);
       const dre = String((row as unknown[])[1] ?? "").trim() || "Despesa Fixa";
       if (!code) continue;
       months.forEach((mes, i) => {
+        if (!mes) return;
         const valor = numCell((row as unknown[])[i + 2]);
         if (valor !== 0) despCells.push({ rowKey: code, dreCategory: dre, mes, valor });
       });
