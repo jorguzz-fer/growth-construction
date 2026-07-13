@@ -20,7 +20,7 @@ import {
   reembursementsByMonth,
   PROJECTION_SOURCES,
 } from "@/lib/calc";
-import { isBudgetVersion } from "@/lib/budget/config";
+import { isBudgetVersion, RECEITA_ROW_KEY } from "@/lib/budget/config";
 
 export interface BudgetCell {
   rowKey: string;
@@ -301,23 +301,21 @@ export async function replicateFromAtual(targetVersionId: string) {
     getDespesas(atual.id),
   ]);
 
-  // Receita por fonte × mês.
-  const receitaCells: BudgetCell[] = [];
-  const bySource = Object.fromEntries(
-    PROJECTION_SOURCES.map((s) => [s, {} as Record<string, number>]),
-  ) as Record<string, Record<string, number>>;
+  // Receita consolidada por projeto (linha única "Receita") × mês: soma todas
+  // as fontes projetadas das unidades + reembolsos.
+  const receitaByMonth: Record<string, number> = {};
   for (const u of units) {
     const bs = calcProjectionBySource(toCalcUnit(u), incc);
     for (const s of PROJECTION_SOURCES)
       for (const [mm, v] of Object.entries(bs[s]))
-        bySource[s][mm] = (bySource[s][mm] || 0) + v;
+        receitaByMonth[mm] = (receitaByMonth[mm] || 0) + v;
   }
-  for (const s of PROJECTION_SOURCES)
-    for (const [mes, valor] of Object.entries(bySource[s]))
-      receitaCells.push({ rowKey: s, dreCategory: "Receita", mes, valor });
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  for (const [mes, valor] of Object.entries(reemb))
-    receitaCells.push({ rowKey: "Reembolso", dreCategory: "Receita", mes, valor });
+  for (const [mm, v] of Object.entries(reemb))
+    receitaByMonth[mm] = (receitaByMonth[mm] || 0) + v;
+  const receitaCells: BudgetCell[] = Object.entries(receitaByMonth).map(
+    ([mes, valor]) => ({ rowKey: RECEITA_ROW_KEY, dreCategory: "Receita", mes, valor }),
+  );
 
   // Despesa por grupo CEF × mês (com a categoria DRE já lançada).
   const despMap = new Map<string, BudgetCell>();

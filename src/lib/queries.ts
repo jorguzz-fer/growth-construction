@@ -621,6 +621,12 @@ export async function getRevenueBySource(
       } else if ((PROJECTION_SOURCES as readonly string[]).includes(l.rowKey)) {
         const s = l.rowKey as ProjectionSource;
         sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
+      } else {
+        // Receita lançada por projeto (linha única "Receita") ou qualquer chave
+        // não mapeada: agrega na fonte primária para preservar o total nos
+        // relatórios "por fonte" (Consolidado/Projeção).
+        const s = PROJECTION_SOURCES[0] as ProjectionSource;
+        sources[s][l.mes] = (sources[s][l.mes] || 0) + Number(l.valor);
       }
     }
     return { sources, reemb };

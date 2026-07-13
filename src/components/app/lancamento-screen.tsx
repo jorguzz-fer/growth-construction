@@ -3,7 +3,7 @@ import { db, schema } from "@/lib/db";
 import type { ActiveContext } from "@/lib/context";
 import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
-import { RECEITA_ROWS, defaultDreCategory } from "@/lib/budget/config";
+import { RECEITA_ROW_KEY, defaultDreCategory } from "@/lib/budget/config";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -75,11 +75,10 @@ export async function LancamentoScreen({
 
   const months = incc.map((r) => r.m);
 
-  const receitaRows: MatrixRow[] = RECEITA_ROWS.map((k) => ({
-    rowKey: k,
-    label: k,
-    dreCategory: "Receita",
-  }));
+  // Receita agora é lançada por projeto: uma única linha consolidada.
+  const receitaRows: MatrixRow[] = [
+    { rowKey: RECEITA_ROW_KEY, label: `Receita — ${project.name}`, dreCategory: "Receita" },
+  ];
 
   const grupos = new Map<string, MatrixRow>();
   for (const r of chart) {
@@ -100,9 +99,15 @@ export async function LancamentoScreen({
   };
   const initialDespCat: Record<string, string> = {};
   for (const l of lines) {
-    const bag = l.kind === "receita" ? initial.receita : initial.despesa;
-    (bag[l.rowKey] ??= {})[l.mes] = Number(l.valor);
-    if (l.kind === "despesa" && l.dreCategory) initialDespCat[l.rowKey] = l.dreCategory;
+    if (l.kind === "receita") {
+      // Consolida qualquer receita (inclusive de dados antigos por fonte) na
+      // única linha "Receita" do projeto, somando por mês.
+      const bag = (initial.receita[RECEITA_ROW_KEY] ??= {});
+      bag[l.mes] = (bag[l.mes] || 0) + Number(l.valor);
+    } else {
+      (initial.despesa[l.rowKey] ??= {})[l.mes] = Number(l.valor);
+      if (l.dreCategory) initialDespCat[l.rowKey] = l.dreCategory;
+    }
   }
 
   return (
@@ -110,7 +115,7 @@ export async function LancamentoScreen({
       <PageHeader
         eyebrow={`${project.name} · ${version.label}`}
         title={title}
-        subtitle="Receitas por fonte consolidada e despesas por grupo do plano de contas — valores mensais."
+        subtitle="Receita consolidada do projeto e despesas por grupo do plano de contas — valores mensais."
         actions={projectPicker}
       />
       <BudgetMatrix

@@ -1,7 +1,12 @@
-import { PROJECTION_SOURCES } from "@/lib/calc";
+/**
+ * Chave única da linha de RECEITA do lançamento simplificado. A receita do
+ * Budget/Forecast passou a ser lançada por projeto (uma linha consolidada),
+ * e não mais quebrada por tipo de pagamento (Sinal, parcelas, etc.).
+ */
+export const RECEITA_ROW_KEY = "Receita";
 
-/** Linhas de RECEITA do lançamento simplificado (fontes consolidadas). */
-export const RECEITA_ROWS: string[] = [...PROJECTION_SOURCES, "Reembolso"];
+/** Linhas de RECEITA do lançamento simplificado (uma linha por projeto). */
+export const RECEITA_ROWS: string[] = [RECEITA_ROW_KEY];
 
 /** Uma linha do lançamento simplificado (chave + categoria DRE). */
 export interface BudgetRow {
