@@ -5,14 +5,9 @@ import { LancamentoScreen } from "@/components/app/lancamento-screen";
 
 export const dynamic = "force-dynamic";
 
-export default async function ForecastPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ proj?: string }>;
-}) {
+export default async function ForecastPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "forecast", "ver")) return <AccessDenied />;
-  const sp = await searchParams;
-  return <LancamentoScreen ctx={ctx} kind="forecast" proj={sp.proj} />;
+  return <LancamentoScreen ctx={ctx} kind="forecast" />;
 }

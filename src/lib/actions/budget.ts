@@ -1,7 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -389,6 +389,99 @@ export async function importBudgetXlsx(formData: FormData) {
     entity: "budget_line",
     entityId: versionId,
     meta: { receita: recCells.length, despesa: despCells.length },
+  });
+  revalidateLancamento();
+}
+
+export interface DespesaLinhaInput {
+  projectId: string;
+  grupoCode: string;
+  dreCategory: string;
+  /** true se o grupo é custo direto de obra (CEF) — não pode ser filial/matriz. */
+  cef: boolean;
+  values: { mes: string; valor: number }[];
+}
+
+/**
+ * Salva as despesas do Budget/Forecast como linhas (grupo do plano de contas ×
+ * projeto/filial). Substitui todas as despesas das versões editáveis do tenant
+ * pelas linhas enviadas (trata inclusões, edições e remoções). Grupos CEF
+ * (custo direto de obra) só podem ser vinculados a projetos (obras).
+ */
+export async function saveBudgetDespesaLinhas(
+  kind: "budget" | "forecast",
+  lines: DespesaLinhaInput[],
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
+
+  const [vers, projs] = await Promise.all([
+    db
+      .select()
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, ctx.tenant.id), eq(schema.versions.kind, kind))),
+    db
+      .select({ id: schema.projects.id, kind: schema.projects.kind })
+      .from(schema.projects)
+      .where(eq(schema.projects.tenantId, ctx.tenant.id)),
+  ]);
+  const officeIds = new Set(projs.filter((p) => p.kind === "office").map((p) => p.id));
+  const verByProj = new Map(vers.filter((v) => !v.locked).map((v) => [v.projectId, v.id]));
+  const editableVerIds = [...verByProj.values()];
+
+  // Dedup por (versão, grupo, mês) somando — respeita a unique do budget_line.
+  const agg = new Map<string, { versionId: string; rowKey: string; dreCategory: string | null; mes: string; valor: number }>();
+  for (const line of lines) {
+    if (!line.projectId || !line.grupoCode) continue;
+    // CEF (custo direto de obra) não pode ser lançado em filial/matriz.
+    if (line.cef && officeIds.has(line.projectId)) continue;
+    const versionId = verByProj.get(line.projectId);
+    if (!versionId) continue;
+    for (const c of line.values) {
+      if (!c.mes || Number(c.valor) === 0) continue;
+      const key = `${versionId}|${line.grupoCode}|${c.mes}`;
+      const cur = agg.get(key);
+      if (cur) cur.valor += Number(c.valor);
+      else
+        agg.set(key, {
+          versionId,
+          rowKey: line.grupoCode,
+          dreCategory: line.dreCategory || null,
+          mes: c.mes,
+          valor: Number(c.valor),
+        });
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (editableVerIds.length)
+      await tx
+        .delete(schema.budgetLines)
+        .where(
+          and(
+            inArray(schema.budgetLines.versionId, editableVerIds),
+            eq(schema.budgetLines.kind, "despesa"),
+          ),
+        );
+    const rows = [...agg.values()].map((r) => ({
+      tenantId: ctx.tenant.id,
+      versionId: r.versionId,
+      kind: "despesa",
+      rowKey: r.rowKey,
+      dreCategory: r.dreCategory,
+      mes: r.mes,
+      valor: String(r.valor),
+    }));
+    if (rows.length) await tx.insert(schema.budgetLines).values(rows);
+  });
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "budget.saveDespesaLinhas",
+    entity: "budget_line",
+    entityId: kind,
+    meta: { linhas: agg.size },
   });
   revalidateLancamento();
 }
