@@ -1,7 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -20,7 +20,12 @@ import {
   reembursementsByMonth,
   PROJECTION_SOURCES,
 } from "@/lib/calc";
-import { isBudgetVersion, RECEITA_ROW_KEY } from "@/lib/budget/config";
+import {
+  isBudgetVersion,
+  RECEITA_ROW_KEY,
+  OUTRAS_RECEITAS_KEY,
+  OUTRAS_RECEITAS_PID,
+} from "@/lib/budget/config";
 
 export interface BudgetCell {
   rowKey: string;
@@ -128,6 +133,106 @@ export async function saveBudgetLines(
     entity: "budget_line",
     entityId: versionId,
     meta: { kind, count: cells.length },
+  });
+  revalidateLancamento();
+}
+
+export interface ReceitaProjetoCell {
+  projectId: string;
+  mes: string;
+  valor: number;
+}
+
+/** Substitui apenas as linhas de receita de uma rowKey específica da versão. */
+async function replaceReceitaRowKey(
+  tenantId: string,
+  versionId: string,
+  rowKey: string,
+  monthValues: { mes: string; valor: number }[],
+) {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.versionId, versionId),
+          eq(schema.budgetLines.kind, "receita"),
+          eq(schema.budgetLines.rowKey, rowKey),
+        ),
+      );
+    const rows = monthValues
+      .filter((c) => c.mes && Number(c.valor) !== 0)
+      .map((c) => ({
+        tenantId,
+        versionId,
+        kind: "receita",
+        rowKey,
+        dreCategory: "Receita",
+        mes: c.mes,
+        valor: String(Number(c.valor)),
+      }));
+    if (rows.length) await tx.insert(schema.budgetLines).values(rows);
+  });
+}
+
+/** Versão do tipo pedido do projeto mais antigo (âncora para "Outras Receitas"). */
+async function anchorVersion(tenantId: string, kind: string) {
+  const [p] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.tenantId, tenantId), eq(schema.projects.kind, "proj")))
+    .orderBy(asc(schema.projects.createdAt))
+    .limit(1);
+  return p ? siblingVersion(p.id, kind) : null;
+}
+
+/**
+ * Salva a receita do Budget/Forecast consolidada por projeto (matriz projetos
+ * × meses). Cada célula grava na versão do respectivo projeto, na linha única
+ * "Receita". A linha "Outras Receitas" (projectId sentinela) grava na versão
+ * âncora sob a rowKey "Outras Receitas".
+ */
+export async function saveBudgetReceita(
+  kind: "budget" | "forecast",
+  cells: ReceitaProjetoCell[],
+) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
+
+  const byProject = new Map<string, ReceitaProjetoCell[]>();
+  for (const c of cells) {
+    if (!c.projectId || !c.mes) continue;
+    const arr = byProject.get(c.projectId) ?? [];
+    arr.push(c);
+    byProject.set(c.projectId, arr);
+  }
+  // Garante que a linha "Outras Receitas" seja processada mesmo se ficou vazia
+  // (para permitir zerar), desde que exista âncora.
+  if (!byProject.has(OUTRAS_RECEITAS_PID)) byProject.set(OUTRAS_RECEITAS_PID, []);
+
+  let saved = 0;
+  for (const [projectId, pcells] of byProject) {
+    const isOutras = projectId === OUTRAS_RECEITAS_PID;
+    const v = isOutras
+      ? await anchorVersion(ctx.tenant.id, kind)
+      : await siblingVersion(projectId, kind);
+    if (!v || v.tenantId !== ctx.tenant.id || v.locked) continue;
+    await replaceReceitaRowKey(
+      ctx.tenant.id,
+      v.id,
+      isOutras ? OUTRAS_RECEITAS_KEY : RECEITA_ROW_KEY,
+      pcells.map((c) => ({ mes: c.mes, valor: Number(c.valor) })),
+    );
+    saved++;
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "budget.saveReceita",
+    entity: "budget_line",
+    entityId: kind,
+    meta: { grupos: saved },
   });
   revalidateLancamento();
 }
@@ -273,8 +378,10 @@ export async function importBudgetXlsx(formData: FormData) {
     }
   }
 
-  await replaceLines(ctx.tenant.id, versionId, "receita", recCells);
-  await replaceLines(ctx.tenant.id, versionId, "despesa", despCells);
+  // Só substitui um tipo se a aba correspondente existir na planilha — evita
+  // apagar a receita (agora consolidada por projeto) ao importar só despesas.
+  if (recRows.length) await replaceLines(ctx.tenant.id, versionId, "receita", recCells);
+  if (despRows.length) await replaceLines(ctx.tenant.id, versionId, "despesa", despCells);
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,

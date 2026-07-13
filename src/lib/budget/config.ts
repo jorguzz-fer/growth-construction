@@ -5,6 +5,12 @@
  */
 export const RECEITA_ROW_KEY = "Receita";
 
+/** Linha extra de receita não atribuída a um projeto específico. */
+export const OUTRAS_RECEITAS_KEY = "Outras Receitas";
+
+/** Sentinela usada na matriz consolidada para a linha "Outras Receitas". */
+export const OUTRAS_RECEITAS_PID = "__outras__";
+
 /** Linhas de RECEITA do lançamento simplificado (uma linha por projeto). */
 export const RECEITA_ROWS: string[] = [RECEITA_ROW_KEY];
 

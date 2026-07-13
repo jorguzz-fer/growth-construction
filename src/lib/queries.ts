@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -10,6 +10,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -575,6 +576,90 @@ export async function getMonthlyRevenue(
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
   return out;
+}
+
+export interface ReceitaProjetoRow {
+  projectId: string;
+  projectName: string;
+  /** versão do tipo pedido (budget/forecast) do projeto; null se não existir. */
+  versionId: string | null;
+  /** receita consolidada por mês ("MM/YYYY" → valor). */
+  values: Record<string, number>;
+}
+export interface ReceitaByProject {
+  months: string[];
+  rows: ReceitaProjetoRow[];
+}
+
+/**
+ * Receita do Budget/Forecast consolidada como matriz projetos × meses: uma
+ * linha por projeto (empreendimento). Cada projeto criado vira uma nova linha.
+ */
+export async function getReceitaByProject(
+  tenantId: string,
+  kind: "budget" | "forecast",
+): Promise<ReceitaByProject> {
+  const [projs, vers, incc] = await Promise.all([
+    db
+      .select()
+      .from(schema.projects)
+      .where(and(eq(schema.projects.tenantId, tenantId), eq(schema.projects.kind, "proj")))
+      .orderBy(asc(schema.projects.createdAt)),
+    db
+      .select()
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.kind, kind))),
+    db
+      .select({ mes: schema.inccRates.mes })
+      .from(schema.inccRates)
+      .where(eq(schema.inccRates.tenantId, tenantId)),
+  ]);
+
+  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
+  const verByProj = new Map(vers.map((v) => [v.projectId, v.id]));
+  const versionIds = vers.map((v) => v.id);
+
+  const lines = versionIds.length
+    ? await db
+        .select()
+        .from(schema.budgetLines)
+        .where(
+          and(
+            inArray(schema.budgetLines.versionId, versionIds),
+            eq(schema.budgetLines.kind, "receita"),
+          ),
+        )
+    : [];
+  // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
+  const receitaByVer = new Map<string, Record<string, number>>();
+  const outrasByVer = new Map<string, Record<string, number>>();
+  for (const l of lines) {
+    const map = l.rowKey === OUTRAS_RECEITAS_KEY ? outrasByVer : receitaByVer;
+    const bag = map.get(l.versionId) ?? {};
+    bag[l.mes] = (bag[l.mes] || 0) + Number(l.valor);
+    map.set(l.versionId, bag);
+  }
+
+  const rows: ReceitaProjetoRow[] = projs.map((p) => {
+    const vId = verByProj.get(p.id) ?? null;
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      versionId: vId,
+      values: vId ? receitaByVer.get(vId) ?? {} : {},
+    };
+  });
+
+  // "Outras Receitas": guardada na versão do projeto mais antigo (âncora).
+  const anchorVid = rows.find((r) => r.versionId)?.versionId ?? null;
+  rows.push({
+    projectId: OUTRAS_RECEITAS_PID,
+    projectName: OUTRAS_RECEITAS_KEY,
+    versionId: anchorVid,
+    values: anchorVid ? outrasByVer.get(anchorVid) ?? {} : {},
+  });
+
+  return { months, rows };
 }
 
 export interface RevenueBySource {

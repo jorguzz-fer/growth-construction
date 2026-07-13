@@ -1,14 +1,20 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { ActiveContext } from "@/lib/context";
-import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
+import {
+  getChartAccounts,
+  getBudgetLines,
+  getInccRows,
+  getReceitaByProject,
+} from "@/lib/queries";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
-import { RECEITA_ROW_KEY, defaultDreCategory } from "@/lib/budget/config";
+import { defaultDreCategory } from "@/lib/budget/config";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { BudgetMatrix, type MatrixRow } from "@/components/app/budget-matrix";
+import { ReceitaProjetosMatrix } from "@/components/app/receita-projetos-matrix";
 
 /**
  * Tela de lançamento simplificado (Budget ou Forecast) por projeto. Não usa
@@ -67,18 +73,15 @@ export async function LancamentoScreen({
     );
   }
 
-  const [chart, lines, incc] = await Promise.all([
+  const [chart, lines, incc, receitaProjetos] = await Promise.all([
     getChartAccounts(ctx.tenant.id),
     getBudgetLines(version.id),
     getInccRows(project.id),
+    getReceitaByProject(ctx.tenant.id, kind),
   ]);
 
   const months = incc.map((r) => r.m);
-
-  // Receita agora é lançada por projeto: uma única linha consolidada.
-  const receitaRows: MatrixRow[] = [
-    { rowKey: RECEITA_ROW_KEY, label: `Receita — ${project.name}`, dreCategory: "Receita" },
-  ];
+  const canEditKind = can(ctx.perms, kind, "editar") && !version.locked;
 
   const grupos = new Map<string, MatrixRow>();
   for (const r of chart) {
@@ -93,18 +96,14 @@ export async function LancamentoScreen({
     a.rowKey.localeCompare(b.rowKey, undefined, { numeric: true }),
   );
 
+  // Despesa continua por projeto (versão selecionada): valores atuais por grupo.
   const initial = {
     receita: {} as Record<string, Record<string, number>>,
     despesa: {} as Record<string, Record<string, number>>,
   };
   const initialDespCat: Record<string, string> = {};
   for (const l of lines) {
-    if (l.kind === "receita") {
-      // Consolida qualquer receita (inclusive de dados antigos por fonte) na
-      // única linha "Receita" do projeto, somando por mês.
-      const bag = (initial.receita[RECEITA_ROW_KEY] ??= {});
-      bag[l.mes] = (bag[l.mes] || 0) + Number(l.valor);
-    } else {
+    if (l.kind === "despesa") {
       (initial.despesa[l.rowKey] ??= {})[l.mes] = Number(l.valor);
       if (l.dreCategory) initialDespCat[l.rowKey] = l.dreCategory;
     }
@@ -113,23 +112,48 @@ export async function LancamentoScreen({
   return (
     <>
       <PageHeader
-        eyebrow={`${project.name} · ${version.label}`}
+        eyebrow={project.name}
         title={title}
-        subtitle="Receita consolidada do projeto e despesas por grupo do plano de contas — valores mensais."
+        subtitle="Receita por projeto (consolidada) e despesas por grupo do plano de contas — valores mensais."
         actions={projectPicker}
       />
-      <BudgetMatrix
-        versionId={version.id}
-        versionLabel={version.label}
-        isForecast={kind === "forecast"}
-        months={months}
-        receitaRows={receitaRows}
-        despesaRows={despesaRows}
-        dreCategories={CATEGORIAS_DRE.filter((c) => c !== "Receita")}
-        initial={initial}
-        initialDespCat={initialDespCat}
-        canEdit={can(ctx.perms, kind, "editar") && !version.locked}
-      />
+
+      {/* Receita consolidada: uma linha por projeto (do cadastro) + Outras Receitas */}
+      <section className="mb-8 space-y-2">
+        <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+          Receitas por projeto
+        </h2>
+        <ReceitaProjetosMatrix
+          kind={kind}
+          months={receitaProjetos.months.length ? receitaProjetos.months : months}
+          rows={receitaProjetos.rows.map((r) => ({
+            projectId: r.projectId,
+            projectName: r.projectName,
+            values: r.values,
+          }))}
+          canEdit={canEditKind}
+        />
+      </section>
+
+      {/* Despesas do projeto selecionado (por grupo do plano de contas) */}
+      <section className="space-y-2">
+        <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+          Despesas — {project.name}
+        </h2>
+        <BudgetMatrix
+          versionId={version.id}
+          versionLabel={version.label}
+          isForecast={kind === "forecast"}
+          months={months}
+          receitaRows={[]}
+          despesaRows={despesaRows}
+          dreCategories={CATEGORIAS_DRE.filter((c) => c !== "Receita")}
+          initial={initial}
+          initialDespCat={initialDespCat}
+          canEdit={canEditKind}
+          despesaOnly
+        />
+      </section>
     </>
   );
 }

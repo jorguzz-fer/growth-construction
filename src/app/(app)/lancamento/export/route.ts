@@ -50,13 +50,16 @@ export async function GET(req: Request) {
     }
   }
 
+  const only = new URL(req.url).searchParams.get("only");
   const wb = XLSX.utils.book_new();
 
-  // Receitas
-  const recRows: (string | number)[][] = [["Fonte", ...months]];
-  for (const k of RECEITA_ROWS)
-    recRows.push([k, ...months.map((m) => val.receita?.[k]?.[m] ?? "")]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recRows), "Receitas");
+  // Receitas (omitidas quando only=despesa — a receita é consolidada por projeto)
+  if (only !== "despesa") {
+    const recRows: (string | number)[][] = [["Fonte", ...months]];
+    for (const k of RECEITA_ROWS)
+      recRows.push([k, ...months.map((m) => val.receita?.[k]?.[m] ?? "")]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recRows), "Receitas");
+  }
 
   // Despesas
   const grupos = new Map<string, { label: string; kind: "cef" | "complementar" }>();
