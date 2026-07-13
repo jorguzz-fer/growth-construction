@@ -133,7 +133,10 @@ export default async function CaixaPage({
   const saldoTotal = contas.reduce((a, c) => a + Number(c.saldo), 0);
   const conciliados = cash.filter((c) => c.rec).length;
 
-  // Janela móvel de 7 dias: 2 dias realizados, hoje, 4 de projeção.
+  // Janela de caixa: 2 dias realizados, hoje e 7 de projeção (uma semana à
+  // frente). A faixa rola horizontalmente para visualizar os dias futuros.
+  const DIAS_PASSADOS = 2;
+  const DIAS_FUTUROS = 7;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const cashByDay = new Map<number, { entradas: number; saidas: number }>();
@@ -149,9 +152,9 @@ export default async function CaixaPage({
     cashByDay.set(key, cur);
   }
   let acumulado = saldoTotal;
-  const dias = Array.from({ length: 7 }, (_, i) => {
+  const dias = Array.from({ length: DIAS_PASSADOS + 1 + DIAS_FUTUROS }, (_, i) => {
     const d = new Date(today);
-    d.setDate(d.getDate() - 2 + i);
+    d.setDate(d.getDate() - DIAS_PASSADOS + i);
     const mov = cashByDay.get(d.getTime()) ?? { entradas: 0, saidas: 0 };
     const saldoDia = mov.entradas - mov.saidas;
     acumulado += saldoDia;
@@ -167,7 +170,7 @@ export default async function CaixaPage({
     <>
       <PageHeader
         title="Controle de Caixa"
-        subtitle="Lançamentos reais + conciliação · janela móvel de 7 dias"
+        subtitle="Lançamentos reais + conciliação · role a faixa para ver até uma semana à frente"
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <DateRangeFilter de={de} ate={ate} />
@@ -267,12 +270,15 @@ export default async function CaixaPage({
         </CardContent>
       </Card>
 
-      {/* Janela de 7 dias */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      {/* Janela de caixa — role para a direita para ver a semana à frente */}
+      <div className="mb-6 -mx-1 overflow-x-auto pb-1">
+        <div className="flex gap-3 px-1">
         {dias.map((x, i) => (
           <Card
             key={i}
-            className={x.rel === "Hoje" ? "ring-2 ring-[var(--color-accent2)]" : undefined}
+            className={`w-40 shrink-0 ${
+              x.rel === "Hoje" ? "ring-2 ring-[var(--color-accent2)]" : ""
+            }`}
           >
             <CardContent className="p-4">
               <div
@@ -311,6 +317,7 @@ export default async function CaixaPage({
             </CardContent>
           </Card>
         ))}
+        </div>
       </div>
 
       {/* Abas */}
