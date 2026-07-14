@@ -52,15 +52,24 @@ export async function addStockMovement(formData: FormData) {
   const quantidade = num(formData.get("quantidade"));
   if (quantidade <= 0) throw new Error("Quantidade deve ser maior que zero.");
 
+  // Vínculos: só fazem sentido em entrada por compra (despesa) ou permuta.
+  const despesaId = tipo === "entrada" ? str(formData.get("despesaId")) : null;
+  const permutaId = tipo === "entrada" ? str(formData.get("permutaId")) : null;
+  const responsavel = str(formData.get("responsavel")) || ctx.userEmail || null;
+
   await db.insert(schema.stockMovements).values({
     tenantId: ctx.tenant.id,
     itemId,
     projectId: str(formData.get("projectId")),
     tipo,
+    origem: str(formData.get("origem")),
     quantidade: String(quantidade),
     custoUnit: String(num(formData.get("custoUnit"))),
     data: str(formData.get("data")),
     doc: str(formData.get("doc")),
+    despesaId,
+    permutaId,
+    responsavel,
     obs: str(formData.get("obs")),
   });
   await logAudit({
@@ -69,7 +78,7 @@ export async function addStockMovement(formData: FormData) {
     action: "estoque.mov.create",
     entity: "stock_movement",
     entityId: itemId,
-    meta: { tipo, quantidade },
+    meta: { tipo, quantidade, origem: str(formData.get("origem")) },
   });
   revalidatePath("/estoque");
 }

@@ -844,11 +844,27 @@ export const stockMovements = pgTable("stock_movement", {
   }),
   /** "entrada" | "saida" */
   tipo: text("tipo").notNull(),
+  /**
+   * Origem/motivo padronizado da movimentação. Entradas: Compra, Permuta,
+   * Devolução, Ajuste, Transferência. Saídas: Consumo na obra, Perda/Quebra,
+   * Devolução ao fornecedor, Transferência, Ajuste.
+   */
+  origem: text("origem"),
   quantidade: numeric("quantidade", { precision: 15, scale: 3 }).notNull().default("0"),
   custoUnit: numeric("custo_unit", { precision: 15, scale: 2 }).notNull().default("0"),
   /** data da movimentação, "MM/DD/YYYY". */
   data: text("data"),
   doc: text("doc"),
+  /** Vínculo opcional a uma despesa (entrada por compra). */
+  despesaId: uuid("despesa_id").references(() => despesas.id, {
+    onDelete: "set null",
+  }),
+  /** Vínculo opcional a uma permuta (entrada por permuta). */
+  permutaId: uuid("permuta_id").references(() => permutas.id, {
+    onDelete: "set null",
+  }),
+  /** Responsável pelo lançamento (quem deu entrada/baixa). */
+  responsavel: text("responsavel"),
   obs: text("obs"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });

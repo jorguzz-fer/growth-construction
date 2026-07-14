@@ -1,5 +1,10 @@
 import { getActiveContext } from "@/lib/context";
-import { getStockItems, getStockMovements } from "@/lib/queries";
+import {
+  getStockItems,
+  getStockMovements,
+  getDespesaOptions,
+  getPermutaOptions,
+} from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
@@ -12,9 +17,11 @@ export default async function EstoquePage() {
   if (!ctx) return null;
   if (!can(ctx.perms, "estoque", "ver")) return <AccessDenied />;
 
-  const [items, movements] = await Promise.all([
+  const [items, movements, despesas, permutas] = await Promise.all([
     getStockItems(ctx.tenant.id),
     getStockMovements(ctx.tenant.id),
+    getDespesaOptions(ctx.tenant.id),
+    getPermutaOptions(ctx.tenant.id),
   ]);
 
   // Saldo por item = entradas - saídas.
@@ -44,6 +51,7 @@ export default async function EstoquePage() {
     itemNome: m.itemNome,
     unidade: m.unidade,
     tipo: m.tipo as "entrada" | "saida",
+    origem: m.origem,
     quantidade: Number(m.quantidade),
     custoUnit: Number(m.custoUnit),
     data: m.data,
@@ -51,6 +59,9 @@ export default async function EstoquePage() {
     obs: m.obs,
     projectName: m.projectName,
     clienteNome: m.clienteNome,
+    responsavel: m.responsavel,
+    despesaNumDoc: m.despesaNumDoc,
+    permutaDescricao: m.permutaDescricao,
   }));
 
   return (
@@ -58,12 +69,20 @@ export default async function EstoquePage() {
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Controle de Estoques"
-        subtitle="Itens, entradas e saídas, saldo atual e histórico — movimentações associadas às obras."
+        subtitle="Almoxarifado da obra: dê entrada e baixa em poucos cliques, com saldo, mínimo e vínculo à despesa ou permuta de origem."
       />
       <EstoqueManager
         items={itemViews}
         movements={movViews}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+        despesas={despesas.map((d) => ({
+          id: d.id,
+          label: `${d.numDoc}${d.fornecedorNome ? ` · ${d.fornecedorNome}` : ""}`,
+        }))}
+        permutas={permutas.map((p) => ({
+          id: p.id,
+          label: `${p.descricao ?? "Permuta"}${p.cliente ? ` · ${p.cliente}` : ""}`,
+        }))}
         canEdit={can(ctx.perms, "estoque", "criar")}
         canExcluir={can(ctx.perms, "estoque", "excluir")}
       />
