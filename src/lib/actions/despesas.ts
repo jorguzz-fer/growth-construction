@@ -119,38 +119,38 @@ export async function addDespesa(formData: FormData) {
     numDoc = await reserveDespesaNumber(ctx.tenant.id);
   }
   const s = (k: string) => (formData.get(k) as string) || null;
+  const core = {
+    versionId: version.id,
+    tenantId: ctx.tenant.id,
+    fornecedorId: s("fornecedorId"),
+    bancoId: s("bancoId"),
+    contaCef: s("contaCef"),
+    categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
+    competencia: s("competencia"),
+    vencimento: s("vencimento"),
+    valor: (formData.get("valor") as string) || "0",
+    status: s("status") || "A pagar",
+    // Fase 2 — forma/condição de pagamento
+    formaPagamento: s("formaPagamento"),
+    formaPagamentoDesc: s("formaPagamentoDesc"),
+    condicaoPagamento: s("condicaoPagamento"),
+    qtdParcelas: formData.get("qtdParcelas") ? Number(formData.get("qtdParcelas")) : null,
+    dataEmissao: s("dataEmissao"),
+    boletoLinhaDigitavel: s("boletoLinhaDigitavel"),
+    boletoCodigoBarras: s("boletoCodigoBarras"),
+    boletoBanco: s("boletoBanco"),
+    chequeNumero: s("chequeNumero"),
+    chequeBanco: s("chequeBanco"),
+    chequeAg: s("chequeAg"),
+    chequeConta: s("chequeConta"),
+    chequeEmitente: s("chequeEmitente"),
+    chequeDataEmissao: s("chequeDataEmissao"),
+    chequeDataCompensacao: s("chequeDataCompensacao"),
+    chequeStatus: s("chequeStatus"),
+  };
   const [row] = await db
     .insert(schema.despesas)
-    .values({
-      versionId: version.id,
-      tenantId: ctx.tenant.id,
-      numDoc,
-      fornecedorId: s("fornecedorId"),
-      bancoId: s("bancoId"),
-      contaCef: s("contaCef"),
-      categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
-      competencia: s("competencia"),
-      vencimento: s("vencimento"),
-      valor: (formData.get("valor") as string) || "0",
-      status: s("status") || "A pagar",
-      // Fase 2 — forma/condição de pagamento
-      formaPagamento: s("formaPagamento"),
-      formaPagamentoDesc: s("formaPagamentoDesc"),
-      condicaoPagamento: s("condicaoPagamento"),
-      qtdParcelas: formData.get("qtdParcelas") ? Number(formData.get("qtdParcelas")) : null,
-      dataEmissao: s("dataEmissao"),
-      boletoLinhaDigitavel: s("boletoLinhaDigitavel"),
-      boletoCodigoBarras: s("boletoCodigoBarras"),
-      boletoBanco: s("boletoBanco"),
-      chequeNumero: s("chequeNumero"),
-      chequeBanco: s("chequeBanco"),
-      chequeAg: s("chequeAg"),
-      chequeConta: s("chequeConta"),
-      chequeEmitente: s("chequeEmitente"),
-      chequeDataEmissao: s("chequeDataEmissao"),
-      chequeDataCompensacao: s("chequeDataCompensacao"),
-      chequeStatus: s("chequeStatus"),
-    })
+    .values({ ...core, numDoc })
     .returning();
 
   // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
@@ -218,7 +218,57 @@ export async function addDespesa(formData: FormData) {
     entityId: row.id,
     meta: { valor: row.valor, contaCef: row.contaCef },
   });
+
+  // Despesa recorrente: replica o lançamento nos próximos meses (competência e
+  // vencimento avançam 1 mês a cada repetição). Cada réplica recebe seu próprio
+  // número automático; parcelas/anexo ficam só no lançamento original.
+  if (formData.get("recorrente")) {
+    const meses = Math.min(60, Math.max(2, Number(formData.get("recorrenciaMeses")) || 0));
+    for (let i = 1; i < meses; i++) {
+      const numDocRec = await reserveDespesaNumber(ctx.tenant.id);
+      await db.insert(schema.despesas).values({
+        ...core,
+        numDoc: numDocRec,
+        competencia: addMonthsCompetencia(core.competencia, i),
+        vencimento: addMonthsDate(core.vencimento, i),
+      });
+    }
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "despesa.recorrente",
+      entity: "despesa",
+      entityId: row.id,
+      meta: { meses, competencia: core.competencia },
+    });
+  }
+
   revalidatePath("/despesas");
+}
+
+/** Avança `add` meses numa competência "MM/YYYY". */
+function addMonthsCompetencia(mm: string | null, add: number): string | null {
+  if (!mm) return mm;
+  const m = mm.trim().match(/^(\d{1,2})\/(\d{4})$/);
+  if (!m) return mm;
+  const idx = Number(m[2]) * 12 + (Number(m[1]) - 1) + add;
+  const y = Math.floor(idx / 12);
+  const mo = (idx % 12) + 1;
+  return `${String(mo).padStart(2, "0")}/${y}`;
+}
+
+/** Avança `add` meses numa data interna "MM/DD/YYYY", limitando o dia ao mês. */
+function addMonthsDate(d: string | null, add: number): string | null {
+  if (!d) return d;
+  const m = d.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return d;
+  const day = Number(m[2]);
+  const idx = Number(m[3]) * 12 + (Number(m[1]) - 1) + add;
+  const y = Math.floor(idx / 12);
+  const mo = (idx % 12) + 1;
+  const lastDay = new Date(y, mo, 0).getDate();
+  const dd = Math.min(day, lastDay);
+  return `${String(mo).padStart(2, "0")}/${String(dd).padStart(2, "0")}/${y}`;
 }
 
 /** Campos editáveis de uma despesa já lançada. */

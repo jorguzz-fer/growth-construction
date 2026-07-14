@@ -6,6 +6,7 @@ import { addDespesa, extractDespesaFromDoc } from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { DateField, MonthField } from "@/components/ui/date-field";
 import {
   gerarParcelas,
@@ -81,6 +82,10 @@ export function DespesaForm({
   const [valor, setValor] = useState("");
   const [status, setStatus] = useState("A pagar");
   const [file, setFile] = useState<File | null>(null);
+
+  // Despesa recorrente: repete o mesmo lançamento nos próximos meses.
+  const [recorrente, setRecorrente] = useState(false);
+  const [recMeses, setRecMeses] = useState("12");
 
   // Fase 2 — forma/condição de pagamento e parcelas
   const [formaPagamento, setFormaPagamento] = useState("");
@@ -197,6 +202,10 @@ export function DespesaForm({
     fd.set("vencimento", vencimento);
     fd.set("valor", valor || "0");
     fd.set("status", status);
+    if (recorrente) {
+      fd.set("recorrente", "1");
+      fd.set("recorrenciaMeses", recMeses);
+    }
     // Fase 2 — forma/condição de pagamento e parcelas
     if (formaPagamento) fd.set("formaPagamento", formaPagamento);
     if (formaPagamento === "Outro" && formaDesc) fd.set("formaPagamentoDesc", formaDesc);
@@ -232,6 +241,8 @@ export function DespesaForm({
         setVencimento("");
         setValor("");
         setStatus("A pagar");
+        setRecorrente(false);
+        setRecMeses("12");
         setFormaPagamento("");
         setFormaDesc("");
         setCondicao("");
@@ -370,13 +381,7 @@ export function DespesaForm({
           </div>
           <div>
             <Label>Valor</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={valor}
-              onChange={(e) => setValor(e.target.value)}
-              placeholder="0"
-            />
+            <MoneyInput value={valor} onChange={setValor} />
           </div>
           <div>
             <Label>Status</Label>
@@ -384,6 +389,37 @@ export function DespesaForm({
               <option>A pagar</option>
               <option>Pago</option>
             </Select>
+          </div>
+          {/* Despesa recorrente — repete nos próximos meses */}
+          <div className="col-span-2 flex flex-wrap items-end gap-4 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--color-ink)]">
+              <input
+                type="checkbox"
+                checked={recorrente}
+                onChange={(e) => setRecorrente(e.target.checked)}
+                className="h-4 w-4 accent-[var(--color-accent2)]"
+              />
+              Despesa recorrente (repete nos próximos meses)
+            </label>
+            {recorrente && (
+              <div className="flex items-end gap-2">
+                <div>
+                  <Label>Repetir por (meses)</Label>
+                  <Input
+                    type="number"
+                    min={2}
+                    max={60}
+                    value={recMeses}
+                    onChange={(e) => setRecMeses(e.target.value)}
+                    className="w-28"
+                  />
+                </div>
+                <p className="pb-2 text-[11.5px] text-[var(--color-ink3)]">
+                  Serão criados {Math.max(1, Number(recMeses) || 1)} lançamentos mensais
+                  (competência e vencimento avançam 1 mês a cada um).
+                </p>
+              </div>
+            )}
           </div>
           {/* Pagamento & parcelamento (Fase 2) */}
           <div className="col-span-2 space-y-3 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4">
@@ -481,12 +517,10 @@ export function DespesaForm({
                         setParcelas((s) => s.map((x, j) => (j === i ? { ...x, vencimento: v } : x)))
                       }
                     />
-                    <Input
-                      type="number"
-                      step="0.01"
+                    <MoneyInput
                       value={p.valor}
-                      onChange={(e) =>
-                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))
+                      onChange={(v) =>
+                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, valor: v } : x)))
                       }
                     />
                   </div>

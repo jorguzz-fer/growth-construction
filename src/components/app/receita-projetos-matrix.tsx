@@ -7,6 +7,7 @@ import { saveBudgetReceita, type ReceitaProjetoCell } from "@/lib/actions/budget
 import { brl0 } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { MoneyInput } from "@/components/ui/money-input";
 
 export interface ReceitaProjetoRowView {
   projectId: string;
@@ -210,13 +211,12 @@ export function ReceitaProjetosMatrix({
                     </td>
                     {months.map((m) => (
                       <td key={m} className="px-1 py-1">
-                        <input
-                          type="number"
-                          step="0.01"
+                        <MoneyInput
                           disabled={!canEdit}
                           value={data[r.projectId]?.[m] ?? ""}
-                          onChange={(e) => setCell(r.projectId, m, e.target.value)}
-                          className="h-7 w-full rounded-[6px] border border-[var(--color-accent2)]/15 bg-white px-1.5 text-right text-[12px] disabled:opacity-60"
+                          onChange={(v) => setCell(r.projectId, m, v)}
+                          placeholder=""
+                          className="h-7 rounded-[6px] border-[var(--color-accent2)]/15 px-1.5 text-[12px]"
                         />
                       </td>
                     ))}

@@ -11,6 +11,7 @@ import { brl0 } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 
 export interface ProjetoOpt { id: string; nome: string; office: boolean }
 export interface GrupoOpt { code: string; label: string; dreCategory: string; cef: boolean }
@@ -252,7 +253,7 @@ export function DespesaLinhasEditor({
                     </td>
                     {months.map((m) => (
                       <td key={m} className="px-1 py-1">
-                        <input type="number" step="0.01" disabled={!canEdit} value={l.values[m] ?? ""} onChange={(e) => setVal(l.key, m, e.target.value)} className="h-7 w-full rounded-[6px] border border-[var(--color-accent2)]/15 bg-white px-1.5 text-right text-[12px] disabled:opacity-60" />
+                        <MoneyInput disabled={!canEdit} value={l.values[m] ?? ""} onChange={(v) => setVal(l.key, m, v)} placeholder="" className="h-7 rounded-[6px] border-[var(--color-accent2)]/15 px-1.5 text-[12px]" />
                       </td>
                     ))}
                     <td className="px-3 py-1.5 text-right font-[family-name:var(--font-mono)] text-[12px] font-semibold text-[var(--color-ink)]">{brl0(totalLinha(l))}</td>

@@ -44,14 +44,15 @@ export function FechamentoPanel({
 
   const diaISO = toISO(dia);
 
-  // Pendentes acumulados até o dia (implementa o carry-over visual): contas a
-  // pagar vencidas/não pagas e recebíveis previstos até a data.
+  // Somente o dia assinalado para fechamento: contas a pagar com vencimento no
+  // dia (ainda não pagas) e recebíveis previstos para o dia. As pendências não
+  // liquidadas são transferidas para o dia seguinte ao fechar (closeDia).
   const contasDia = useMemo(
     () =>
       contasPagar.filter((c) => {
         if (c.status === "Pago") return false;
         const iso = toISO(c.vencimento);
-        return !diaISO || (iso && iso <= diaISO);
+        return !!diaISO && iso === diaISO;
       }),
     [contasPagar, diaISO],
   );
@@ -59,7 +60,7 @@ export function FechamentoPanel({
     () =>
       receivables.filter((r) => {
         const iso = toISO(r.dia);
-        return !diaISO || (iso && iso <= diaISO);
+        return !!diaISO && iso === diaISO;
       }),
     [receivables, diaISO],
   );

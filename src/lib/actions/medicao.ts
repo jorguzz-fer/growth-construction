@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { getAtualVersion } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -17,7 +18,18 @@ export async function addMedicao(formData: FormData) {
   if (!ctx || !can(ctx.perms, "medicaolanc", "criar")) {
     throw new Error("Sem permissão para lançar medições.");
   }
-  if (ctx.version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  // Projeto sendo medido: resolve a versão Atual dele. Sem projeto explícito,
+  // usa a versão do contexto (compatibilidade).
+  const projectId = ((formData.get("projectId") as string) || "").trim();
+  let versionId = ctx.version.id;
+  let locked = ctx.version.locked;
+  if (projectId && projectId !== ctx.project.id) {
+    const v = await getAtualVersion(ctx.tenant.id, projectId);
+    if (!v) throw new Error("Projeto selecionado não possui versão Atual.");
+    versionId = v.id;
+    locked = v.locked;
+  }
+  if (locked) throw new Error("Versão congelada — lançamentos bloqueados.");
   const competencia = ((formData.get("competencia") as string) || "").trim();
   const grupo = ((formData.get("grupo") as string) || "").trim();
   const valor = (formData.get("valor") as string) || "0";
@@ -28,7 +40,7 @@ export async function addMedicao(formData: FormData) {
   const grupoName = rest.join("|") || grupoCode;
 
   await db.insert(schema.medicoes).values({
-    versionId: ctx.version.id,
+    versionId,
     tenantId: ctx.tenant.id,
     competencia,
     grupoCode: grupoCode.trim(),
@@ -41,7 +53,7 @@ export async function addMedicao(formData: FormData) {
     userId: ctx.userId,
     action: "medicao.create",
     entity: "medicao",
-    meta: { competencia, grupoCode: grupoCode.trim(), valor },
+    meta: { competencia, grupoCode: grupoCode.trim(), valor, projectId: projectId || ctx.project.id },
   });
   revalidatePath("/medicaolanc");
   revalidatePath("/dre");
@@ -62,7 +74,7 @@ export async function updateMedicao(
     .update(schema.medicoes)
     .set(set)
     .where(
-      and(eq(schema.medicoes.id, id), eq(schema.medicoes.versionId, ctx.version.id)),
+      and(eq(schema.medicoes.id, id), eq(schema.medicoes.tenantId, ctx.tenant.id)),
     );
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -82,7 +94,7 @@ export async function deleteMedicao(id: string) {
   await db
     .delete(schema.medicoes)
     .where(
-      and(eq(schema.medicoes.id, id), eq(schema.medicoes.versionId, ctx.version.id)),
+      and(eq(schema.medicoes.id, id), eq(schema.medicoes.tenantId, ctx.tenant.id)),
     );
   await logAudit({
     tenantId: ctx.tenant.id,
