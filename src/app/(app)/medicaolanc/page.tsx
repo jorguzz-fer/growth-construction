@@ -1,5 +1,5 @@
 import { getActiveContext } from "@/lib/context";
-import { getChartAccounts, getMedicoes } from "@/lib/queries";
+import { getAtualVersion, getChartAccounts, getMedicoes } from "@/lib/queries";
 import { addMedicao } from "@/lib/actions/medicao";
 import { can } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
@@ -9,15 +9,34 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { MonthField } from "@/components/ui/date-field";
 import { MedicaoTable } from "@/components/app/medicao-manager";
+import { ProjectPicker } from "@/components/app/project-picker";
 
 export const dynamic = "force-dynamic";
 
-export default async function MedicaoLancamentoPage() {
+export default async function MedicaoLancamentoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  const sp = await searchParams;
+
+  // Projetos de obra (kind "proj") — só eles têm medição/CEF.
+  const projetos = ctx.projects.filter((p) => p.kind === "proj");
+  const selectedProject =
+    projetos.find((p) => p.id === sp.proj) ??
+    (ctx.project.kind === "proj" ? ctx.project : projetos[0]) ??
+    ctx.project;
+
+  // Versão Atual do projeto medido (a medição alimenta o realizado da DRE).
+  const atual =
+    selectedProject.id === ctx.project.id && ctx.version.kind === "atual"
+      ? ctx.version
+      : (await getAtualVersion(ctx.tenant.id, selectedProject.id)) ?? ctx.version;
 
   const [rows, chart] = await Promise.all([
-    getMedicoes(ctx.version.id),
+    getMedicoes(atual.id),
     getChartAccounts(ctx.tenant.id),
   ]);
 
@@ -34,14 +53,22 @@ export default async function MedicaoLancamentoPage() {
   const canEditar = can(ctx.perms, "medicaolanc", "editar");
   const canExcluir = can(ctx.perms, "medicaolanc", "excluir");
   const total = rows.reduce((a, r) => a + Number(r.valor), 0);
-  const locked = ctx.version.locked;
+  const locked = atual.locked;
 
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · ${ctx.version.label}`}
+        eyebrow={`${selectedProject.name} · ${atual.label}`}
         title="Lançamento de Medição"
         subtitle={`${rows.length} lançamentos · total ${brl0(total)} — alimenta o Custo Variável da DRE`}
+        actions={
+          projetos.length > 1 ? (
+            <ProjectPicker
+              projects={projetos.map((p) => ({ id: p.id, label: p.name }))}
+              selected={selectedProject.id}
+            />
+          ) : undefined
+        }
       />
 
       {locked && (
@@ -54,6 +81,7 @@ export default async function MedicaoLancamentoPage() {
         <Card className="mb-6">
           <CardContent className="p-5">
             <form action={addMedicao} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+              <input type="hidden" name="projectId" value={selectedProject.id} />
               <div>
                 <Label>Competência</Label>
                 <MonthField name="competencia" required />

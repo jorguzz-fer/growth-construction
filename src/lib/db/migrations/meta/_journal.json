@@ -141,6 +141,13 @@
       "when": 1783641155996,
       "tag": "0019_estoque",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784026137320,
+      "tag": "0020_stock_movement_origem_vinculos",
+      "breakpoints": true
     }
   ]
 }

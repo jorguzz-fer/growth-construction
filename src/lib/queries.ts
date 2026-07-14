@@ -337,7 +337,64 @@ export type StockMovementRow = typeof schema.stockMovements.$inferSelect & {
   unidade: string;
   projectName: string | null;
   clienteNome: string | null;
+  despesaNumDoc: string | null;
+  permutaDescricao: string | null;
 };
+
+export interface DespesaOption {
+  id: string;
+  numDoc: string;
+  fornecedorNome: string | null;
+  valor: number;
+}
+/** Despesas do tenant para vincular a uma entrada de estoque (mais recentes primeiro). */
+export async function getDespesaOptions(tenantId: string): Promise<DespesaOption[]> {
+  const rows = await db
+    .select({
+      id: schema.despesas.id,
+      numDoc: schema.despesas.numDoc,
+      valor: schema.despesas.valor,
+      fornecedorNome: schema.stakeholders.nome,
+    })
+    .from(schema.despesas)
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(eq(schema.despesas.tenantId, tenantId))
+    .orderBy(desc(schema.despesas.createdAt))
+    .limit(500);
+  return rows.map((r) => ({
+    id: r.id,
+    numDoc: r.numDoc ?? "—",
+    fornecedorNome: r.fornecedorNome,
+    valor: Number(r.valor),
+  }));
+}
+
+export interface PermutaOption {
+  id: string;
+  descricao: string | null;
+  cliente: string | null;
+  estimado: number | null;
+}
+/** Permutas do tenant para vincular a uma entrada de estoque recebida via permuta. */
+export async function getPermutaOptions(tenantId: string): Promise<PermutaOption[]> {
+  const rows = await db
+    .select({
+      id: schema.permutas.id,
+      descricao: schema.permutas.descricao,
+      cliente: schema.permutas.cliente,
+      estimado: schema.permutas.estimado,
+    })
+    .from(schema.permutas)
+    .where(eq(schema.permutas.tenantId, tenantId))
+    .orderBy(desc(schema.permutas.id))
+    .limit(500);
+  return rows.map((r) => ({
+    id: r.id,
+    descricao: r.descricao,
+    cliente: r.cliente,
+    estimado: r.estimado === null ? null : Number(r.estimado),
+  }));
+}
 
 export async function getStockItems(tenantId: string): Promise<StockItemRow[]> {
   return db
@@ -356,11 +413,15 @@ export async function getStockMovements(tenantId: string): Promise<StockMovement
       unidade: schema.stockItems.unidade,
       projectName: schema.projects.name,
       clienteNome: schema.clientes.nomeCompleto,
+      despesaNumDoc: schema.despesas.numDoc,
+      permutaDescricao: schema.permutas.descricao,
     })
     .from(schema.stockMovements)
     .innerJoin(schema.stockItems, eq(schema.stockMovements.itemId, schema.stockItems.id))
     .leftJoin(schema.projects, eq(schema.stockMovements.projectId, schema.projects.id))
     .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
+    .leftJoin(schema.despesas, eq(schema.stockMovements.despesaId, schema.despesas.id))
+    .leftJoin(schema.permutas, eq(schema.stockMovements.permutaId, schema.permutas.id))
     .where(eq(schema.stockMovements.tenantId, tenantId))
     .orderBy(desc(schema.stockMovements.createdAt));
   return rows.map((r) => ({
@@ -369,6 +430,8 @@ export async function getStockMovements(tenantId: string): Promise<StockMovement
     unidade: r.unidade,
     projectName: r.projectName,
     clienteNome: r.clienteNome,
+    despesaNumDoc: r.despesaNumDoc,
+    permutaDescricao: r.permutaDescricao,
   }));
 }
 
