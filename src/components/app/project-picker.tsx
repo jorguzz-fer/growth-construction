@@ -16,9 +16,12 @@ export interface ProjectOpt {
 export function ProjectPicker({
   projects,
   selected,
+  allOption = false,
 }: {
   projects: ProjectOpt[];
   selected: string;
+  /** inclui a opção "Todos os projetos" (valor "all"). */
+  allOption?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -40,6 +43,7 @@ export function ProjectPicker({
         }}
         className="h-9 min-w-[220px]"
       >
+        {allOption && <option value="all">Todos os projetos / filiais</option>}
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}

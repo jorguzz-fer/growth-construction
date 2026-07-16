@@ -3,6 +3,7 @@ import { getActiveContext } from "@/lib/context";
 import {
   getChartAccounts,
   getDespesas,
+  getDespesasByTenant,
   getStakeholders,
   getBankAccounts,
   getDocuments,
@@ -51,18 +52,22 @@ export default async function DespesasPage({
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
-  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); a lista e o
-  // lançamento operam sobre a versão Atual do projeto selecionado.
+  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); "all" mostra
+  // a consulta consolidada (todos os projetos/filiais) com coluna Origem.
+  const isAll = sp.proj === "all";
   const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
   const version = await getAtualVersion(ctx.tenant.id, project.id);
   const versionId = version?.id ?? ctx.version.id;
 
-  const [despesas, fornecedores, contas, bancos] = await Promise.all([
-    getDespesas(versionId),
+  const [despesasRaw, fornecedores, contas, bancos] = await Promise.all([
+    isAll ? getDespesasByTenant(ctx.tenant.id) : getDespesas(versionId),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
   ]);
+  const despesas: Array<
+    Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
+  > = despesasRaw;
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
   const contasOrdenadas = [...contas].sort((a, b) =>
@@ -82,6 +87,7 @@ export default async function DespesasPage({
     formaPagamento: d.formaPagamento,
     obs: d.obs,
     cancelado: d.cancelado,
+    origem: d.origem ?? null,
   });
   const refProps = {
     fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome })),
@@ -93,13 +99,14 @@ export default async function DespesasPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${project.name} · Atual`}
+        eyebrow={isAll ? "Todos os projetos / filiais" : `${project.name} · Atual`}
         title="Lançamentos de Despesas"
         subtitle={`${despesas.length} lançamentos · total ${brl0(total)}`}
         actions={
           <ProjectPicker
             projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-            selected={project.id}
+            selected={isAll ? "all" : project.id}
+            allOption
           />
         }
       />
@@ -141,6 +148,7 @@ export default async function DespesasPage({
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}
+            showOrigem={isAll}
             canEditar={canEditar}
             canExcluir={canExcluir}
             canEditNumero={canEditNumero}

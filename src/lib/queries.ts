@@ -188,6 +188,47 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type DespesaComOrigem = DespesaRow & {
+  projectId: string;
+  projectName: string;
+  projectKind: string;
+  /** rótulo de origem: obra (projeto) ou "Filial/Matriz". */
+  origem: string;
+};
+
+/**
+ * Todas as despesas do tenant (todos os projetos/filiais), na versão Atual de
+ * cada projeto, com o rótulo de origem — base da consulta consolidada.
+ */
+export async function getDespesasByTenant(
+  tenantId: string,
+): Promise<DespesaComOrigem[]> {
+  const rows = await db
+    .select({
+      d: schema.despesas,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      projectKind: schema.projects.kind,
+    })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .where(
+      and(
+        eq(schema.despesas.tenantId, tenantId),
+        eq(schema.versions.kind, "atual"),
+      ),
+    )
+    .orderBy(asc(schema.despesas.competencia));
+  return rows.map((r) => ({
+    ...r.d,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    projectKind: r.projectKind,
+    origem: r.projectKind === "office" ? `Filial/Matriz · ${r.projectName}` : r.projectName,
+  }));
+}
+
 export interface ContaPagarRow {
   id: string;
   numDoc: string | null;

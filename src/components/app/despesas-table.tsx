@@ -30,6 +30,8 @@ export interface DespesaDTO {
   formaPagamento?: string | null;
   obs?: string | null;
   cancelado?: boolean;
+  /** rótulo de origem (obra/filial) — usado na consulta consolidada. */
+  origem?: string | null;
 }
 
 /** Status exibido: "Vencida" derivado da data; "Cancelada" tem prioridade. */
@@ -68,25 +70,28 @@ export function DespesasTable({
   bancos,
   categorias,
   venc,
+  showOrigem = false,
   canEditar,
   canExcluir,
   canEditNumero = false,
 }: {
   rows: DespesaDTO[];
   venc?: boolean;
+  showOrigem?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
   canEditNumero?: boolean;
 } & Ref) {
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const showActions = canEditar || canExcluir;
-  const cols = showActions ? 8 : 7;
+  const cols = (showActions ? 8 : 7) + (showOrigem ? 1 : 0);
 
   return (
     <Table>
       <THead>
         <tr>
           <TH>{venc ? "Vencimento" : "Competência"}</TH>
+          {showOrigem && <TH>Origem</TH>}
           <TH>Nº Doc</TH>
           <TH>Fornecedor</TH>
           <TH>Conta CEF</TH>
@@ -107,6 +112,7 @@ export function DespesasTable({
             bancos={bancos}
             categorias={categorias}
             venc={venc}
+            showOrigem={showOrigem}
             canEditar={canEditar}
             canExcluir={canExcluir}
             canEditNumero={canEditNumero}
@@ -132,12 +138,14 @@ function Row({
   bancos,
   categorias,
   venc,
+  showOrigem = false,
   canEditar,
   canExcluir,
   canEditNumero = false,
 }: {
   d: DespesaDTO;
   fornById: Map<string, string>;
+  showOrigem?: boolean;
   venc?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
@@ -291,6 +299,7 @@ function Row({
             />
           )}
         </TD>
+        {showOrigem && <TD className="text-[11px] text-[var(--color-ink3)]">{d.origem ?? "—"}</TD>}
         <TD>
           {canEditNumero ? (
             <Input
@@ -387,7 +396,7 @@ function Row({
   if (paying) {
     return (
       <TR>
-        <TD colSpan={showActions ? 8 : 7}>
+        <TD colSpan={(showActions ? 8 : 7) + (showOrigem ? 1 : 0)}>
           <div className="rounded-[8px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)] p-3">
             <div className="mb-2 text-[12px] font-semibold text-[var(--color-ink)]">
               Registrar pagamento — {d.numDoc ?? "despesa"} ({brl0(Number(d.valor))})
@@ -424,6 +433,11 @@ function Row({
       <TD className="font-[family-name:var(--font-mono)]">
         {dateBR(venc ? d.vencimento : d.competencia)}
       </TD>
+      {showOrigem && (
+        <TD className="whitespace-nowrap text-[12px] text-[var(--color-ink2)]">
+          {d.origem ?? "—"}
+        </TD>
+      )}
       <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
         {d.numDoc ?? "—"}
       </TD>
