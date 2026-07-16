@@ -13,11 +13,28 @@ const s = (fd: FormData, k: string) => {
   const v = (fd.get(k) as string) ?? "";
   return v.trim() ? v.trim() : null;
 };
+/** Máximo representável em numeric(15,2) — evita "numeric field overflow". */
+const NUMERIC_15_2_MAX = 9999999999999.99;
+/**
+ * Interpreta um valor monetário do formulário como número, tolerando os dois
+ * formatos que os campos podem enviar:
+ *  - BR ("1.000.000,00"): pontos são milhares, vírgula é o decimal;
+ *  - padrão de <input type="number"> ("1000000.00" / "1000000"): o ponto é o
+ *    decimal — NÃO pode ser removido (senão o valor é multiplicado por 100 a
+ *    cada save, chegando a estourar a coluna).
+ * O resultado é limitado ao teto de numeric(15,2) para nunca quebrar o INSERT.
+ */
 const num = (fd: FormData, k: string) => {
   const v = s(fd, k);
   if (v == null) return null;
-  const n = Number(v.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? String(n) : null;
+  let t = v.replace(/\s/g, "").replace(/r\$/gi, "");
+  // Se há vírgula, é formato BR: pontos = milhares, vírgula = decimal.
+  // Sem vírgula, o ponto já é o separador decimal (ou não há decimal).
+  t = t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  const clamped = Math.max(-NUMERIC_15_2_MAX, Math.min(NUMERIC_15_2_MAX, n));
+  return String(clamped);
 };
 const int = (fd: FormData, k: string) => {
   const v = s(fd, k);
