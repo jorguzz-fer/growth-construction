@@ -21,7 +21,7 @@ export default async function ContasPagarPage() {
         title="Contas a Pagar"
         subtitle="Obrigações de todas as obras — filtre por período, fornecedor, cliente, projeto, categoria e status."
       />
-      <ContasPagarTable rows={rows} />
+      <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} />
     </>
   );
 }

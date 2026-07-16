@@ -39,7 +39,7 @@ const TABS: { key: Tab; label: string }[] = [
 export default async function DespesasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; proj?: string }>;
+  searchParams: Promise<{ tab?: string; proj?: string; edit?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -149,6 +149,7 @@ export default async function DespesasPage({
           <DespesasTable
             rows={despesas.map(toDTO)}
             showOrigem={isAll}
+            editId={sp.edit}
             canEditar={canEditar}
             canExcluir={canExcluir}
             canEditNumero={canEditNumero}
@@ -160,13 +161,15 @@ export default async function DespesasPage({
       {tab === "apagar" && (
         <DespesasTable
           rows={despesas
-            .filter((d) => d.status !== "Pago")
+            .filter((d) => d.status !== "Pago" && !d.cancelado)
             .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))
             .map(toDTO)}
           venc
-          canEditar={false}
-          canExcluir={false}
-          canEditNumero={false}
+          editId={sp.edit}
+          showOrigem={isAll}
+          canEditar={canEditar}
+          canExcluir={canExcluir}
+          canEditNumero={canEditNumero}
           {...refProps}
         />
       )}

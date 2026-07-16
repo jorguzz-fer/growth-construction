@@ -25,10 +25,27 @@ export type PermutaRow = typeof schema.permutas.$inferSelect;
 
 /** Converte uma linha de unidade do banco para o tipo consumido pelos cálculos. */
 export function toCalcUnit(row: UnitRow): CalcUnit {
-  // Plano salvo no banco, ou a cascata desligada (unidade ainda sem venda).
-  const plan = row.paymentPlan ?? stripIdentity(emptyUnit(row.code));
+  // Mescla o plano salvo sobre um plano padrão COMPLETO. Assim, planos antigos
+  // ou parciais (com algum subobjeto ausente, ex.: sem "S2") não quebram os
+  // cálculos (dashboard, projeção, etc.) — os campos faltantes viram defaults.
+  const base = stripIdentity(emptyUnit(row.code)) as Record<string, unknown>;
+  const stored = (row.paymentPlan ?? {}) as Record<string, unknown>;
+  const plan: Record<string, unknown> = { ...base };
+  for (const k of Object.keys(base)) {
+    const b = base[k];
+    const s = stored[k];
+    if (b && typeof b === "object" && !Array.isArray(b)) {
+      plan[k] = s && typeof s === "object" ? { ...(b as object), ...(s as object) } : b;
+    } else if (s !== undefined) {
+      plan[k] = s;
+    }
+  }
+  // Preserva chaves extras do plano salvo (flags de nível superior, etc.).
+  for (const k of Object.keys(stored)) {
+    if (!(k in plan)) plan[k] = stored[k];
+  }
   return {
-    ...plan,
+    ...(plan as Omit<CalcUnit, "code" | "status" | "valor">),
     code: row.code,
     status: row.status,
     valor: Number(row.valor),
