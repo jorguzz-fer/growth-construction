@@ -224,7 +224,7 @@ async function Repositorio({
       {canEdit && r2 && (
         <Card className="mb-6">
           <CardContent className="p-5">
-            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <div>
                 <Label>Despesa (opcional)</Label>
                 <Select name="despesaId" defaultValue="">
@@ -237,7 +237,16 @@ async function Repositorio({
                 </Select>
               </div>
               <div>
-                <Label>Arquivo (NF/contrato, até 10 MB)</Label>
+                <Label>Tipo do documento</Label>
+                <Select name="tipo" defaultValue="">
+                  <option value="">—</option>
+                  {["Boleto", "Nota Fiscal", "Recibo", "Contrato", "Comprovante de pagamento", "Outros"].map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Arquivo (até 10 MB)</Label>
                 <input type="file" name="file" className="text-xs" required />
               </div>
               <div className="flex items-end">
@@ -257,7 +266,10 @@ async function Repositorio({
         <THead>
           <tr>
             <TH>Arquivo</TH>
+            <TH>Tipo</TH>
             <TH>Despesa vinculada</TH>
+            <TH>Enviado por</TH>
+            <TH>Enviado em</TH>
             <TH className="text-right">Tamanho</TH>
             <TH></TH>
           </tr>
@@ -266,10 +278,15 @@ async function Repositorio({
           {withUrls.map((d) => (
             <TR key={d.id}>
               <TD className="font-medium text-[var(--color-ink)]">{d.filename}</TD>
+              <TD className="text-[var(--color-ink2)]">{d.tipo ?? "—"}</TD>
               <TD>
                 {d.despesaId && despById.get(d.despesaId)
                   ? `${despById.get(d.despesaId)!.competencia ?? ""} · ${brl0(Number(despById.get(d.despesaId)!.valor))}`
                   : "—"}
+              </TD>
+              <TD className="text-[var(--color-ink3)]">{d.uploadedBy ?? "—"}</TD>
+              <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                {d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString("pt-BR") : "—"}
               </TD>
               <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
                 {d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—"}
@@ -285,7 +302,7 @@ async function Repositorio({
           ))}
           {withUrls.length === 0 && (
             <TR>
-              <TD colSpan={4} className="py-6 text-center text-[var(--color-ink3)]">
+              <TD colSpan={7} className="py-6 text-center text-[var(--color-ink3)]">
                 Nenhum documento.
               </TD>
             </TR>

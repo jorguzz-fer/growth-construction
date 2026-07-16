@@ -169,6 +169,13 @@
       "when": 1784202509828,
       "tag": "0023_project_terreno_valor_global",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784202722757,
+      "tag": "0024_document_tipo_uploader",
+      "breakpoints": true
     }
   ]
 }

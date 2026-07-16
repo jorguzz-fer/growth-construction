@@ -573,6 +573,10 @@ export const documents = pgTable("document", {
   filename: text("filename").notNull(),
   contentType: text("content_type"),
   size: integer("size"),
+  /** tipo do documento: Boleto, Nota Fiscal, Recibo, Contrato, Comprovante… */
+  tipo: text("tipo"),
+  /** quem realizou o upload (e-mail/id). */
+  uploadedBy: text("uploaded_by"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull().defaultNow(),
 });
 

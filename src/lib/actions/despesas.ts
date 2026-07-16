@@ -207,6 +207,7 @@ export async function addDespesa(formData: FormData) {
       filename: file.name,
       contentType: file.type || null,
       size: file.size,
+      uploadedBy: ctx.userEmail || ctx.userId || null,
     });
   }
 
@@ -563,13 +564,15 @@ export async function uploadDespesaDoc(formData: FormData) {
     filename: file.name,
     contentType: file.type || null,
     size: file.size,
+    tipo: ((formData.get("tipo") as string) || "").trim() || null,
+    uploadedBy: ctx.userEmail || ctx.userId || null,
   });
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "document.upload",
     entity: "document",
-    meta: { filename: file.name, despesaId },
+    meta: { filename: file.name, despesaId, tipo: (formData.get("tipo") as string) || null },
   });
   revalidatePath("/despesas");
 }
