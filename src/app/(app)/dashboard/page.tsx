@@ -14,7 +14,7 @@ import {
   toCalcUnit,
 } from "@/lib/queries";
 import { calcTotals, parseDate } from "@/lib/calc";
-import { brlk, brl0, monthInRange, dateInRange } from "@/lib/utils";
+import { brlk, brl0, monthInRange, dateInRange, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +33,11 @@ interface Summary {
   realizado: number;
   receitaProj: number;
   aReceber: number;
+  /** contas a pagar não pagas no período (só faz sentido na versão Atual). */
+  aPagar: number;
   monthly: Record<string, number>;
+  /** entradas realizadas (fechamentos de caixa) por mês "MM/YYYY". */
+  realizadoMonthly: Record<string, number>;
 }
 
 /** Indicadores agregados de uma versão (para os KPIs e o comparativo). */
@@ -59,16 +63,27 @@ async function versionSummary(
       )
     : revenueAll;
   const receitaProj = Object.values(revenue).reduce((a, b) => a + b, 0);
-  const realizado = cashRows
-    .filter((c) => Number(c.valor) > 0 && (!hasRange || dateInRange(c.data, de, ate)))
-    .reduce((a, c) => a + Number(c.valor), 0);
+  // Entradas realizadas (fechamentos de caixa) no período, por data e por mês.
+  const realizadoRows = cashRows.filter(
+    (c) => Number(c.valor) > 0 && (!hasRange || dateInRange(c.data, de, ate)),
+  );
+  const realizado = realizadoRows.reduce((a, c) => a + Number(c.valor), 0);
+  const realizadoMonthly: Record<string, number> = {};
+  for (const c of realizadoRows) {
+    const d = parseDate(c.data);
+    if (!d) continue;
+    const key = `${String(d.mo).padStart(2, "0")}/${d.yr}`;
+    realizadoMonthly[key] = (realizadoMonthly[key] || 0) + Number(c.valor);
+  }
   return {
     version,
     vgv: unitRows.reduce((a, u) => a + Number(u.valor), 0),
     realizado,
     receitaProj,
     aReceber: Math.max(0, receitaProj - realizado),
+    aPagar: 0,
     monthly: revenue,
+    realizadoMonthly,
   };
 }
 
@@ -102,18 +117,47 @@ export default async function DashboardPage({
     selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
   );
 
-  // Recebíveis REAIS do projeto (contas a receber das unidades vendidas). Budget
-  // e Forecast permanecem estritamente em suas seções; a versão "Atual — caixa
-  // real" reflete os recebíveis reais (não copia do budget/forecast).
+  // ── Versão "Atual — caixa real": dados reais ────────────────────────────
+  // Budget/Forecast permanecem estritamente em suas seções. A versão Atual
+  // reflete o caixa real do período: (a) fechamentos já realizados (entradas
+  // conciliadas), (b) recebíveis das unidades vendidas ainda não recebidos
+  // (entradas projetadas) e (c) despesas lançadas ainda não pagas (saídas
+  // projetadas / contas a pagar).
   const hasRangeDash = !!(de || ate);
   const realReceb = (await getReceivables(ctx.tenant.id)).filter(
     (r) => r.projectId === ctx.project.id && (!hasRangeDash || dateInRange(r.dia, de, ate)),
   );
   const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
+
+  // Contas a pagar (despesas não pagas) do projeto, com vencimento no período.
+  const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
+    (c) =>
+      c.projectId === ctx.project.id &&
+      c.status !== "Pago" &&
+      !!c.vencimento &&
+      (!hasRangeDash || dateInRange(c.vencimento, de, ate)),
+  );
+  const totalPagar = contasPagarProj.reduce((a, c) => a + c.valor, 0);
+
+  // Recebíveis por mês (entradas projetadas) — compõem o comparativo do Atual.
+  const recebByMonth: Record<string, number> = {};
+  for (const r of realReceb) {
+    const d = parseDate(r.dia);
+    if (!d) continue;
+    const key = `${String(d.mo).padStart(2, "0")}/${d.yr}`;
+    recebByMonth[key] = (recebByMonth[key] || 0) + r.valor;
+  }
   for (const s of summaries) {
-    if (s.version.kind === "atual") {
-      s.aReceber = Math.max(0, totalReceb - s.realizado);
+    if (s.version.kind !== "atual") continue;
+    // Comparativo mensal = entradas realizadas (fechamentos) + recebíveis projetados.
+    const monthly: Record<string, number> = { ...s.realizadoMonthly };
+    for (const [mm, v] of Object.entries(recebByMonth)) {
+      monthly[mm] = (monthly[mm] || 0) + v;
     }
+    s.monthly = monthly;
+    s.receitaProj = s.realizado + totalReceb;
+    s.aReceber = totalReceb; // recebíveis ainda não recebidos
+    s.aPagar = totalPagar; // despesas ainda não pagas
   }
 
   // Ano do comparativo: o que concentra mais receita projetada nas versões.
@@ -155,20 +199,15 @@ export default async function DashboardPage({
   const todayOrd = now.getFullYear() * 12 + now.getMonth();
 
   // Próximos vencimentos = recebíveis das unidades (entrada) + contas a pagar
-  // reais do projeto (saída), de qualquer versão detalhada. Assim o dashboard
-  // "caixa real" contabiliza as contas a pagar/receber já lançadas.
-  const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
-    (c) =>
-      c.projectId === ctx.project.id &&
-      c.status !== "Pago" &&
-      !!c.vencimento,
-  );
+  // reais do projeto (saída). Quando há período selecionado, mostra todos os
+  // vencimentos do intervalo; sem período, mostra os próximos (a partir de ~3
+  // meses atrás). Datas sempre no padrão brasileiro DD/MM/AAAA.
   const pagarVenc: Venc[] = contasPagarProj.map((c) => {
     const d = parseDate(c.vencimento as string);
     const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
     return {
       ord,
-      dateLabel: d ? `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}` : "—",
+      dateLabel: dateBR(c.vencimento),
       unitCode: c.fornecedorNome ?? c.numDoc ?? "Conta a pagar",
       label: c.descricao ?? c.numDoc ?? "Conta a pagar",
       value: c.valor,
@@ -182,7 +221,7 @@ export default async function DashboardPage({
     const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
     return {
       ord,
-      dateLabel: d ? `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}` : "—",
+      dateLabel: dateBR(r.dia),
       unitCode: r.unitCode,
       label: r.descricao,
       value: r.valor,
@@ -191,14 +230,20 @@ export default async function DashboardPage({
     };
   });
   const vencimentos = [...receberVenc, ...pagarVenc]
-    .filter((v) => v.ord >= todayOrd - 3)
+    .filter((v) => (hasRangeDash ? true : v.ord >= todayOrd - 3))
     .sort((a, b) => a.ord - b.ord)
-    .slice(0, 10);
+    .slice(0, hasRangeDash ? 60 : 10);
 
   const kpis = [
     { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
     { icon: "↗", label: "Realizado acum.", get: (s: Summary) => brlk(s.realizado) },
     { icon: "⏱", label: "A receber", get: (s: Summary) => brlk(s.aReceber) },
+    {
+      icon: "⬇",
+      label: "A pagar",
+      // Contas a pagar são exclusivas da versão Atual (caixa real).
+      get: (s: Summary) => (s.version.kind === "atual" ? brlk(s.aPagar) : "—"),
+    },
   ];
 
   return (
@@ -219,7 +264,7 @@ export default async function DashboardPage({
       />
 
       {/* KPIs por versão */}
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
           <Card key={k.label}>
             <CardContent className="p-5">
