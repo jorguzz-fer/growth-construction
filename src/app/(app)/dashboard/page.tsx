@@ -8,12 +8,12 @@ import {
   getPermutas,
   getReembolsos,
   getContasPagar,
+  getReceivables,
   permToCalc,
   reembToCalc,
   toCalcUnit,
-  type UnitRow,
 } from "@/lib/queries";
-import { addMonths, calcTotals, parseDate } from "@/lib/calc";
+import { calcTotals, parseDate } from "@/lib/calc";
 import { brlk, brl0, monthInRange, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,65 +83,6 @@ interface Venc {
   tipo: "receber" | "pagar";
 }
 
-/** Expande o plano de pagamento das unidades vendidas em vencimentos rotulados. */
-function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
-  const out: Venc[] = [];
-  for (const u of units) {
-    if (u.status !== "Vendido" || !u.paymentPlan) continue;
-    const p = u.paymentPlan;
-    const periodic: { venc: string; val: number; n: number; label: string; step: number }[] = [
-      { venc: p.AS.venc, val: p.AS.val, n: p.AS.n, label: "Ato", step: 1 },
-      { venc: p.S1.venc, val: p.S1.val, n: p.S1.n, label: "Sinal 1", step: 1 },
-      { venc: p.S2.venc, val: p.S2.val, n: p.S2.n, label: "Sinal 2", step: 1 },
-      { venc: p.S3.venc, val: p.S3.val, n: p.S3.n, label: "Sinal 3", step: 1 },
-      { venc: p.Mensais.venc, val: p.Mensais.val, n: p.Mensais.n, label: "Mensal", step: 1 },
-      { venc: p.Semestrais.venc, val: p.Semestrais.val, n: p.Semestrais.n, label: "Semestral", step: 6 },
-      { venc: p.Anuais.venc, val: p.Anuais.val, n: p.Anuais.n, label: "Anual", step: 12 },
-    ];
-    for (const s of periodic) {
-      const d = parseDate(s.venc);
-      const val = Number(s.val) || 0;
-      const n = Math.max(1, Number(s.n) || 1);
-      if (!d || val <= 0) continue;
-      for (let i = 0; i < n; i++) {
-        const a = addMonths(d.mo, d.yr, i * s.step);
-        const ord = a.yr * 12 + (a.mo - 1);
-        out.push({
-          ord,
-          dateLabel: `${String(d.d).padStart(2, "0")}/${String(a.mo).padStart(2, "0")}/${a.yr}`,
-          unitCode: u.code,
-          label: n > 1 ? `${s.label} #${i + 1}` : s.label,
-          value: val,
-          overdue: ord < todayOrd,
-          tipo: "receber",
-        });
-      }
-    }
-    const singles: { venc: string; val: number; label: string }[] = [
-      { venc: p.FGTS.dataPrev, val: p.FGTS.val, label: "FGTS" },
-      { venc: p.Subsidio.dataPrev, val: p.Subsidio.val, label: "Subsídio" },
-      { venc: p.Permuta.dataPrev, val: p.Permuta.val, label: "Permuta" },
-      { venc: p.Banco.dataPrimParc, val: p.Banco.valFinanc, label: "Financiamento" },
-    ];
-    for (const s of singles) {
-      const d = parseDate(s.venc);
-      const val = Number(s.val) || 0;
-      if (!d || val <= 0) continue;
-      const ord = d.yr * 12 + (d.mo - 1);
-      out.push({
-        ord,
-        dateLabel: `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}`,
-        unitCode: u.code,
-        label: s.label,
-        value: val,
-        overdue: ord < todayOrd,
-        tipo: "receber",
-      });
-    }
-  }
-  return out;
-}
-
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -160,6 +101,20 @@ export default async function DashboardPage({
   const summaries = await Promise.all(
     selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
   );
+
+  // Recebíveis REAIS do projeto (contas a receber das unidades vendidas). Budget
+  // e Forecast permanecem estritamente em suas seções; a versão "Atual — caixa
+  // real" reflete os recebíveis reais (não copia do budget/forecast).
+  const hasRangeDash = !!(de || ate);
+  const realReceb = (await getReceivables(ctx.tenant.id)).filter(
+    (r) => r.projectId === ctx.project.id && (!hasRangeDash || dateInRange(r.dia, de, ate)),
+  );
+  const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
+  for (const s of summaries) {
+    if (s.version.kind === "atual") {
+      s.aReceber = Math.max(0, totalReceb - s.realizado);
+    }
+  }
 
   // Ano do comparativo: o que concentra mais receita projetada nas versões.
   const yearTotals = new Map<number, number>();
@@ -221,10 +176,24 @@ export default async function DashboardPage({
       tipo: "pagar",
     };
   });
-  const vencimentos = [...expandVencimentos(primUnits, todayOrd), ...pagarVenc]
+  // Recebíveis reais (entrada) — independentes da versão, refletindo as vendas.
+  const receberVenc: Venc[] = realReceb.map((r) => {
+    const d = parseDate(r.dia);
+    const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
+    return {
+      ord,
+      dateLabel: d ? `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}` : "—",
+      unitCode: r.unitCode,
+      label: r.descricao,
+      value: r.valor,
+      overdue: ord < todayOrd,
+      tipo: "receber",
+    };
+  });
+  const vencimentos = [...receberVenc, ...pagarVenc]
     .filter((v) => v.ord >= todayOrd - 3)
     .sort((a, b) => a.ord - b.ord)
-    .slice(0, 8);
+    .slice(0, 10);
 
   const kpis = [
     { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
