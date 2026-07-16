@@ -331,6 +331,14 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.formaPagamento !== undefined) set.formaPagamento = patch.formaPagamento || null;
   if (Object.keys(set).length === 0) return;
 
+  // Auditoria campo a campo: valor anterior × novo.
+  const changes: Record<string, { de: unknown; para: unknown }> = {};
+  for (const k of Object.keys(set)) {
+    const antes = (existing as Record<string, unknown>)[k];
+    const depois = (set as Record<string, unknown>)[k];
+    if (antes !== depois) changes[k] = { de: antes ?? null, para: depois ?? null };
+  }
+
   await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -338,7 +346,7 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
     action: "despesa.update",
     entity: "despesa",
     entityId: id,
-    meta: set,
+    meta: { changes },
   });
   revalidatePath("/despesas");
 }

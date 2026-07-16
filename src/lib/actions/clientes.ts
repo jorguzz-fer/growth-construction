@@ -94,16 +94,32 @@ export async function updateCliente(formData: FormData) {
   }
   const id = formData.get("id") as string;
   if (!id) return;
+  const [antes] = await db
+    .select()
+    .from(schema.clientes)
+    .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
+    .limit(1);
+  const novo = readCliente(formData);
   await db
     .update(schema.clientes)
-    .set(readCliente(formData))
+    .set(novo)
     .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)));
+  // Auditoria campo a campo: valor anterior × novo.
+  const changes: Record<string, { de: unknown; para: unknown }> = {};
+  if (antes) {
+    for (const k of Object.keys(novo)) {
+      const de = (antes as Record<string, unknown>)[k];
+      const para = (novo as Record<string, unknown>)[k];
+      if (String(de ?? "") !== String(para ?? "")) changes[k] = { de: de ?? null, para: para ?? null };
+    }
+  }
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "cliente.update",
     entity: "cliente",
     entityId: id,
+    meta: { changes },
   });
   revalidatePath("/clientes");
   redirect("/clientes");
