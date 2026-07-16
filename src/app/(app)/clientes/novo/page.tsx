@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
-import { getUnits } from "@/lib/queries";
+import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { addCliente } from "@/lib/actions/clientes";
 import { PageHeader } from "@/components/app/page-header";
@@ -20,8 +20,7 @@ export default async function NovoClientePage() {
       </p>
     );
   }
-  const units = await getUnits(ctx.version.id);
-  const unitCodes = [...new Set(units.map((u) => u.code))].sort();
+  const unitCodes = await getUnitCodesByTenant(ctx.tenant.id);
 
   return (
     <>

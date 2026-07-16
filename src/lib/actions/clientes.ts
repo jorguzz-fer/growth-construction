@@ -67,14 +67,49 @@ function readCliente(fd: FormData) {
   };
 }
 
+/** Status de contrato que liberam a unidade (não bloqueiam novo vínculo). */
+const STATUS_LIBERA = ["Distratado", "Distrato", "Cancelado", "Cancelada"];
+
+/**
+ * Impede vincular uma unidade já vinculada a OUTRO cliente com contrato ativo
+ * (uma unidade vendida não pode ser vendida de novo). Retorna o nome do cliente
+ * conflitante, ou null se disponível.
+ */
+async function unidadeEmConflito(
+  tenantId: string,
+  unitCode: string | null,
+  exceptId?: string,
+): Promise<string | null> {
+  if (!unitCode) return null;
+  const rows = await db
+    .select({
+      id: schema.clientes.id,
+      nome: schema.clientes.nomeCompleto,
+      status: schema.clientes.statusContrato,
+    })
+    .from(schema.clientes)
+    .where(and(eq(schema.clientes.tenantId, tenantId), eq(schema.clientes.unitCode, unitCode)));
+  const conflito = rows.find(
+    (r) => r.id !== exceptId && !STATUS_LIBERA.includes((r.status ?? "").trim()),
+  );
+  return conflito?.nome ?? null;
+}
+
 export async function addCliente(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "clientes", "criar")) {
     throw new Error("Sem permissão para cadastrar clientes.");
   }
+  const dados = readCliente(formData);
+  const conflito = await unidadeEmConflito(ctx.tenant.id, dados.unitCode);
+  if (conflito) {
+    throw new Error(
+      `A unidade ${dados.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
+    );
+  }
   const [row] = await db
     .insert(schema.clientes)
-    .values({ tenantId: ctx.tenant.id, ...readCliente(formData) })
+    .values({ tenantId: ctx.tenant.id, ...dados })
     .returning();
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -101,6 +136,12 @@ export async function updateCliente(formData: FormData) {
     .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
     .limit(1);
   const novo = readCliente(formData);
+  const conflito = await unidadeEmConflito(ctx.tenant.id, novo.unitCode, id);
+  if (conflito) {
+    throw new Error(
+      `A unidade ${novo.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
+    );
+  }
   await db
     .update(schema.clientes)
     .set(novo)

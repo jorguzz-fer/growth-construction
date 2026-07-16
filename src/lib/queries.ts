@@ -65,6 +65,19 @@ export async function getUnits(versionId: string): Promise<UnitRow[]> {
     .orderBy(asc(schema.units.code));
 }
 
+/**
+ * Todas as unidades do tenant (versão Atual de cada projeto) — para os cadastros
+ * de cliente/contrato listarem unidades de qualquer projeto, não só do ativo.
+ */
+export async function getUnitCodesByTenant(tenantId: string): Promise<string[]> {
+  const rows = await db
+    .select({ code: schema.units.code })
+    .from(schema.units)
+    .where(eq(schema.units.tenantId, tenantId))
+    .orderBy(asc(schema.units.code));
+  return [...new Set(rows.map((r) => r.code))];
+}
+
 export async function getUnit(
   versionId: string,
   unitId: string,

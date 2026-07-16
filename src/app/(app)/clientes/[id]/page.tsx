@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
-import { getUnits } from "@/lib/queries";
+import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { updateCliente, deleteCliente, uploadClienteDoc } from "@/lib/actions/clientes";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
@@ -34,8 +34,12 @@ export default async function EditarClientePage({
 
   const canEditar = can(ctx.perms, "clientes", "editar");
   const canExcluir = can(ctx.perms, "clientes", "excluir");
-  const units = await getUnits(ctx.version.id);
-  const unitCodes = [...new Set(units.map((u) => u.code))].sort();
+  // Todas as unidades do tenant (não só do projeto do contexto). A unidade já
+  // vinculada a este cliente sempre aparece na lista, mesmo que vendida.
+  const unitCodesAll = await getUnitCodesByTenant(ctx.tenant.id);
+  const unitCodes = [
+    ...new Set([...(cliente.unitCode ? [cliente.unitCode] : []), ...unitCodesAll]),
+  ].sort();
 
   // Documentos de venda/contrato vinculados a este cliente (mais recentes primeiro).
   const r2 = isR2Configured();
