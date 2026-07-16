@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ContaPagarRow } from "@/lib/queries";
 import { brl0, dateBR } from "@/lib/utils";
@@ -43,7 +44,13 @@ function displayStatus(
   return status || "Em aberto";
 }
 
-export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
+export function ContasPagarTable({
+  rows,
+  canEditar = false,
+}: {
+  rows: ContaPagarRow[];
+  canEditar?: boolean;
+}) {
   const hoje = new Date();
   const hojeISO = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
   const [fornecedor, setFornecedor] = useState("");
@@ -161,6 +168,7 @@ export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
                   <TH>Pagamento</TH>
                   <TH>Forma</TH>
                   <TH>Status</TH>
+                  {canEditar && <TH className="text-right">Ações</TH>}
                 </tr>
               </THead>
               <tbody>
@@ -189,11 +197,21 @@ export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
                         return <Badge tone={statusTone(st)}>{st}</Badge>;
                       })()}
                     </TD>
+                    {canEditar && (
+                      <TD className="text-right">
+                        <Link
+                          href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
+                          className="text-sm text-[var(--color-accent2)] hover:underline"
+                        >
+                          Editar
+                        </Link>
+                      </TD>
+                    )}
                   </TR>
                 ))}
                 {filtered.length === 0 && (
                   <TR>
-                    <TD colSpan={10} className="py-8 text-center text-[var(--color-ink4)]">
+                    <TD colSpan={canEditar ? 11 : 10} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a pagar com os filtros aplicados.
                     </TD>
                   </TR>

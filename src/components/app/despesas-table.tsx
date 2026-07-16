@@ -71,6 +71,7 @@ export function DespesasTable({
   categorias,
   venc,
   showOrigem = false,
+  editId,
   canEditar,
   canExcluir,
   canEditNumero = false,
@@ -78,6 +79,8 @@ export function DespesasTable({
   rows: DespesaDTO[];
   venc?: boolean;
   showOrigem?: boolean;
+  /** id da despesa que deve abrir já em modo de edição (deep link ?edit=). */
+  editId?: string;
   canEditar: boolean;
   canExcluir: boolean;
   canEditNumero?: boolean;
@@ -113,6 +116,7 @@ export function DespesasTable({
             categorias={categorias}
             venc={venc}
             showOrigem={showOrigem}
+            openEdit={!!editId && d.id === editId}
             canEditar={canEditar}
             canExcluir={canExcluir}
             canEditNumero={canEditNumero}
@@ -139,6 +143,7 @@ function Row({
   categorias,
   venc,
   showOrigem = false,
+  openEdit = false,
   canEditar,
   canExcluir,
   canEditNumero = false,
@@ -146,13 +151,14 @@ function Row({
   d: DespesaDTO;
   fornById: Map<string, string>;
   showOrigem?: boolean;
+  openEdit?: boolean;
   venc?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
   canEditNumero?: boolean;
 } & Ref) {
   const router = useRouter();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(openEdit);
   const [paying, setPaying] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
