@@ -227,7 +227,12 @@ export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]>
     .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
     .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
     .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
-    .where(eq(schema.despesas.tenantId, tenantId));
+    .where(
+      and(
+        eq(schema.despesas.tenantId, tenantId),
+        eq(schema.despesas.cancelado, false),
+      ),
+    );
   return rows.map((r) => ({
     id: r.d.id,
     numDoc: r.d.numDoc,
@@ -507,12 +512,15 @@ export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
     }));
   }
   const d = await getDespesas(versionId);
-  return d.map((x) => ({
-    contaCef: x.contaCef,
-    categoriaDre: x.categoriaDre,
-    competencia: x.competencia,
-    valor: Number(x.valor),
-  }));
+  // Despesas canceladas (exclusão lógica) não compõem a DRE/relatórios.
+  return d
+    .filter((x) => !x.cancelado)
+    .map((x) => ({
+      contaCef: x.contaCef,
+      categoriaDre: x.categoriaDre,
+      competencia: x.competencia,
+      valor: Number(x.valor),
+    }));
 }
 
 export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;

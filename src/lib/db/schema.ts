@@ -419,6 +419,11 @@ export const despesas = pgTable("despesa", {
   chequeStatus: text("cheque_status"),
   /** Fase 4: despesa paga por terceiro (não gera saída de caixa na competência). */
   pagoPorTerceiro: boolean("pago_por_terceiro").notNull().default(false),
+  /** Cancelamento lógico: mantém histórico, sai de saldos/relatórios. */
+  cancelado: boolean("cancelado").notNull().default(false),
+  canceladoEm: text("cancelado_em"),
+  canceladoPor: text("cancelado_por"),
+  motivoCancelamento: text("motivo_cancelamento"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

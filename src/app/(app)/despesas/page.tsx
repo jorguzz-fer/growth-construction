@@ -79,6 +79,9 @@ export default async function DespesasPage({
     vencimento: d.vencimento,
     valor: String(d.valor),
     status: d.status,
+    formaPagamento: d.formaPagamento,
+    obs: d.obs,
+    cancelado: d.cancelado,
   });
   const refProps = {
     fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome })),

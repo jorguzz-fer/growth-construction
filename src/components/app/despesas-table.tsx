@@ -2,11 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateDespesa, deleteDespesa } from "@/lib/actions/despesas";
+import {
+  updateDespesa,
+  deleteDespesa,
+  cancelarDespesa,
+  pagarDespesa,
+} from "@/lib/actions/despesas";
 import { brl0, dateBR } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { DateField, MonthField } from "@/components/ui/date-field";
 import { Button } from "@/components/ui/button";
 
@@ -21,7 +27,32 @@ export interface DespesaDTO {
   vencimento: string | null;
   valor: string;
   status: string | null;
+  formaPagamento?: string | null;
+  obs?: string | null;
+  cancelado?: boolean;
 }
+
+/** Status exibido: "Vencida" derivado da data; "Cancelada" tem prioridade. */
+function displayStatus(d: DespesaDTO): string {
+  if (d.cancelado) return "Cancelada";
+  if (d.status === "Pago" || d.status === "Parcialmente paga") return d.status;
+  const v = d.vencimento;
+  if (v && v.split("/").length === 3) {
+    const iso = `${v.split("/")[2]}-${v.split("/")[0].padStart(2, "0")}-${v.split("/")[1].padStart(2, "0")}`;
+    const h = new Date();
+    const hj = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`;
+    if (iso < hj) return "Vencida";
+  }
+  return d.status || "Em aberto";
+}
+const statusTone = (s: string) =>
+  s === "Pago"
+    ? "success"
+    : s === "Vencida"
+      ? "danger"
+      : s === "Cancelada"
+        ? "neutral"
+        : "warning";
 
 interface Ref {
   fornecedores: { id: string; nome: string }[];
@@ -98,6 +129,7 @@ function Row({
   fornById,
   fornecedores,
   contas,
+  bancos,
   categorias,
   venc,
   canEditar,
@@ -113,6 +145,7 @@ function Row({
 } & Ref) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState({
@@ -126,7 +159,62 @@ function Row({
     valor: d.valor,
     status: d.status ?? "A pagar",
   });
+  // Formulário de pagamento (marcar como paga).
+  const hojeInterno = (() => {
+    const h = new Date();
+    return `${String(h.getMonth() + 1).padStart(2, "0")}/${String(h.getDate()).padStart(2, "0")}/${h.getFullYear()}`;
+  })();
+  const [pg, setPg] = useState({
+    data: hojeInterno,
+    valor: d.valor,
+    bancoId: d.bancoId ?? "",
+    forma: d.formaPagamento ?? "",
+    juros: "",
+    multa: "",
+    desconto: "",
+    obs: "",
+  });
+
+  const cancelar = () => {
+    const motivo = window.prompt("Motivo do cancelamento desta despesa:");
+    if (motivo === null) return;
+    setError(null);
+    start(async () => {
+      try {
+        await cancelarDespesa(d.id, motivo);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao cancelar.");
+      }
+    });
+  };
+
+  const confirmarPagamento = () => {
+    setError(null);
+    start(async () => {
+      try {
+        await pagarDespesa({
+          despesaId: d.id,
+          dataPagamento: pg.data,
+          valorPago: Number(pg.valor) || 0,
+          bankAccountId: pg.bancoId || null,
+          formaPagamento: pg.forma || null,
+          juros: Number(pg.juros) || 0,
+          multa: Number(pg.multa) || 0,
+          desconto: Number(pg.desconto) || 0,
+          obs: pg.obs || undefined,
+        });
+        setPaying(false);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao registrar pagamento.");
+      }
+    });
+  };
+
   const showActions = canEditar || canExcluir;
+  const stDisplay = displayStatus(d);
+  const isPago = d.status === "Pago";
 
   const cancel = () => {
     setF({
@@ -296,8 +384,43 @@ function Row({
     );
   }
 
+  if (paying) {
+    return (
+      <TR>
+        <TD colSpan={showActions ? 8 : 7}>
+          <div className="rounded-[8px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)] p-3">
+            <div className="mb-2 text-[12px] font-semibold text-[var(--color-ink)]">
+              Registrar pagamento — {d.numDoc ?? "despesa"} ({brl0(Number(d.valor))})
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div><Label>Data do pagamento</Label><DateField value={pg.data} onChange={(v) => setPg((s) => ({ ...s, data: v }))} className="h-8 text-xs" /></div>
+              <div><Label>Valor pago</Label><MoneyInput value={pg.valor} onChange={(v) => setPg((s) => ({ ...s, valor: v }))} className="h-8 text-xs" /></div>
+              <div>
+                <Label>Conta bancária</Label>
+                <Select value={pg.bancoId} onChange={(e) => setPg((s) => ({ ...s, bancoId: e.target.value }))} className="h-8 text-xs">
+                  <option value="">—</option>
+                  {bancos.map((b) => <option key={b.id} value={b.id}>{b.banco} · {b.tipo}</option>)}
+                </Select>
+              </div>
+              <div><Label>Forma</Label><Input value={pg.forma} onChange={(e) => setPg((s) => ({ ...s, forma: e.target.value }))} className="h-8 text-xs" /></div>
+              <div><Label>Juros</Label><MoneyInput value={pg.juros} onChange={(v) => setPg((s) => ({ ...s, juros: v }))} className="h-8 text-xs" /></div>
+              <div><Label>Multa</Label><MoneyInput value={pg.multa} onChange={(v) => setPg((s) => ({ ...s, multa: v }))} className="h-8 text-xs" /></div>
+              <div><Label>Desconto</Label><MoneyInput value={pg.desconto} onChange={(v) => setPg((s) => ({ ...s, desconto: v }))} className="h-8 text-xs" /></div>
+              <div><Label>Observação</Label><Input value={pg.obs} onChange={(e) => setPg((s) => ({ ...s, obs: e.target.value }))} className="h-8 text-xs" /></div>
+            </div>
+            <div className="mt-2 flex items-center justify-end gap-2">
+              {error && <span className="text-[11px] text-[var(--color-danger)]">{error}</span>}
+              <Button size="sm" disabled={pending} onClick={confirmarPagamento}>Confirmar pagamento</Button>
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setPaying(false)}>Cancelar</Button>
+            </div>
+          </div>
+        </TD>
+      </TR>
+    );
+  }
+
   return (
-    <TR>
+    <TR className={d.cancelado ? "opacity-60" : undefined}>
       <TD className="font-[family-name:var(--font-mono)]">
         {dateBR(venc ? d.vencimento : d.competencia)}
       </TD>
@@ -313,32 +436,54 @@ function Row({
         {brl0(Number(d.valor))}
       </TD>
       <TD>
-        <Badge tone={d.status === "Pago" ? "success" : "neutral"}>
-          {d.status ?? "—"}
-        </Badge>
+        <Badge tone={statusTone(stDisplay)}>{stDisplay}</Badge>
       </TD>
       {showActions && (
         <TD className="text-right">
-          <div className="flex justify-end gap-2">
-            {canEditar && (
-              <button
-                onClick={() => setEditing(true)}
-                disabled={pending}
-                className="text-sm text-[var(--color-accent2)] hover:underline disabled:opacity-50"
-              >
-                Editar
-              </button>
-            )}
-            {canExcluir && (
-              <button
-                onClick={remove}
-                disabled={pending}
-                className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
-              >
-                Excluir
-              </button>
-            )}
-          </div>
+          {d.cancelado ? (
+            <span className="text-[11px] text-[var(--color-ink4)]">cancelada</span>
+          ) : (
+            <div className="flex flex-wrap justify-end gap-2">
+              {canEditar && !isPago && (
+                <button
+                  onClick={() => setPaying(true)}
+                  disabled={pending}
+                  className="text-sm text-[var(--color-success)] hover:underline disabled:opacity-50"
+                >
+                  Pagar
+                </button>
+              )}
+              {canEditar && (
+                <button
+                  onClick={() => setEditing(true)}
+                  disabled={pending}
+                  className="text-sm text-[var(--color-accent2)] hover:underline disabled:opacity-50"
+                >
+                  Editar
+                </button>
+              )}
+              {canExcluir && (
+                <button
+                  onClick={cancelar}
+                  disabled={pending}
+                  className="text-sm text-[var(--color-warning)] hover:underline disabled:opacity-50"
+                  title="Cancelamento lógico (mantém histórico)"
+                >
+                  Cancelar
+                </button>
+              )}
+              {canExcluir && (
+                <button
+                  onClick={remove}
+                  disabled={pending}
+                  className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
+                  title="Exclusão física (irreversível)"
+                >
+                  Excluir
+                </button>
+              )}
+            </div>
+          )}
           {error && (
             <p className="mt-1 text-right text-[11px] text-[var(--color-danger)]">
               {error}

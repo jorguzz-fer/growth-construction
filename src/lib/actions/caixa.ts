@@ -170,6 +170,7 @@ export async function importCash(
   // Despesas previstas: chave (centavos|mês) → quantidade disponível.
   const despPool = new Map<string, number>();
   for (const d of despesas) {
+    if (d.cancelado) continue;
     const mm = monthKeyFrom(d.competencia) ?? monthKeyFrom(d.vencimento);
     if (!mm) continue;
     const key = `${cents(Math.abs(Number(d.valor)))}|${mm}`;

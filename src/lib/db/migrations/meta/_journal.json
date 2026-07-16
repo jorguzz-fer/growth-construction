@@ -155,6 +155,13 @@
       "when": 1784199526102,
       "tag": "0021_cash_entry_import_dedup",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784201305252,
+      "tag": "0022_despesa_cancelamento_logico",
+      "breakpoints": true
     }
   ]
 }
