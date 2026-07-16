@@ -1,0 +1,1 @@
+ALTER TABLE "stakeholder" ADD COLUMN "ativo" boolean DEFAULT true NOT NULL;

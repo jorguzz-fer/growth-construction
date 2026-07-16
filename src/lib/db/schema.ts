@@ -345,6 +345,8 @@ export const stakeholders = pgTable("stakeholder", {
   email: text("email"),
   tel: text("tel"),
   obs: text("obs"),
+  /** cadastro ativo? Inativação lógica preserva histórico e vínculos. */
+  ativo: boolean("ativo").notNull().default(true),
 });
 
 /** Conta bancária do tenant, com campos preparados para Open Finance. §3 */

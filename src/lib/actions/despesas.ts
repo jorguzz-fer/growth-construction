@@ -34,6 +34,94 @@ export async function addStakeholder(formData: FormData) {
     papeis,
     email: (formData.get("email") as string) || null,
     tel: (formData.get("tel") as string) || null,
+    obs: (formData.get("obs") as string) || null,
+  });
+  revalidatePath("/fornecedores");
+}
+
+/**
+ * Edita um cadastro de pessoa (fornecedor/prestador/corretor…). Permite ajustar
+ * os múltiplos papéis sem perder o histórico e os vínculos (mesma id).
+ */
+export async function updateStakeholder(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
+    throw new Error("Sem permissão para editar cadastros.");
+  }
+  const id = (formData.get("id") as string) || "";
+  if (!id) return;
+  const papeis = formData.getAll("papeis").map(String).filter(Boolean);
+  await db
+    .update(schema.stakeholders)
+    .set({
+      nome: (formData.get("nome") as string) || "Sem nome",
+      tipo: (formData.get("tipo") as "PJ" | "PF") || "PJ",
+      doc: (formData.get("doc") as string) || null,
+      papeis,
+      email: (formData.get("email") as string) || null,
+      tel: (formData.get("tel") as string) || null,
+      obs: (formData.get("obs") as string) || null,
+    })
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "stakeholder.update",
+    entity: "stakeholder",
+    entityId: id,
+    meta: { papeis },
+  });
+  revalidatePath("/fornecedores");
+}
+
+/** Inativa/reativa (exclusão lógica) um cadastro, preservando vínculos. */
+export async function setStakeholderAtivo(id: string, ativo: boolean) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
+    throw new Error("Sem permissão.");
+  }
+  await db
+    .update(schema.stakeholders)
+    .set({ ativo })
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: ativo ? "stakeholder.reactivate" : "stakeholder.deactivate",
+    entity: "stakeholder",
+    entityId: id,
+  });
+  revalidatePath("/fornecedores");
+}
+
+/**
+ * Exclusão física de um cadastro — só quando não há despesas vinculadas. Caso
+ * haja histórico, oriente a inativar (exclusão lógica) em vez de excluir.
+ */
+export async function deleteStakeholder(id: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "excluir")) {
+    throw new Error("Sem permissão.");
+  }
+  const [vinc] = await db
+    .select({ id: schema.despesas.id })
+    .from(schema.despesas)
+    .where(and(eq(schema.despesas.fornecedorId, id), eq(schema.despesas.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (vinc) {
+    throw new Error(
+      "Este cadastro possui despesas vinculadas — inative-o (exclusão lógica) para preservar o histórico.",
+    );
+  }
+  await db
+    .delete(schema.stakeholders)
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "stakeholder.delete",
+    entity: "stakeholder",
+    entityId: id,
   });
   revalidatePath("/fornecedores");
 }
