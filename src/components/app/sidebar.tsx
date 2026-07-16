@@ -66,6 +66,10 @@ export function Sidebar({
       items: [{ href: "/estoque", label: "Controle de Estoques" }],
     },
     {
+      title: "Controle de Ponto",
+      items: [{ href: "/ponto", label: "Ponto da Obra" }],
+    },
+    {
       title: "Reports & Dashboards",
       items: [
         { href: "/dashboard", label: "Dashboard" },

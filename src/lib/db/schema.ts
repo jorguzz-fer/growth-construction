@@ -216,7 +216,48 @@ export const projects = pgTable("project", {
    * lançado no caixa da construtora.
    */
   terrenoForaCaixa: boolean("terreno_fora_caixa").notNull().default(true),
+  // ── Localização da obra (controle de ponto georreferenciado) ────────────
+  endereco: text("endereco"),
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  /** raio permitido para registro de ponto, em metros (padrão 100). */
+  pontoRaioMetros: integer("ponto_raio_metros").notNull().default(100),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Registro de ponto georreferenciado, vinculado à obra. Cada dia trabalhado
+ * fica vinculado à obra correspondente (base da apuração → conta a pagar).
+ */
+export const timeEntries = pgTable("time_entry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id"),
+  /** nome/e-mail do funcionário (snapshot). */
+  funcionario: text("funcionario"),
+  /** "entrada" | "saida" */
+  tipo: text("tipo").notNull(),
+  /** data ("MM/DD/YYYY") e hora ("HH:MM") pelo relógio do servidor. */
+  data: text("data").notNull(),
+  hora: text("hora").notNull(),
+  serverAt: timestamp("server_at", { mode: "date" }).notNull().defaultNow(),
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  /** precisão informada pelo dispositivo (m) e distância à obra (m). */
+  precisaoMetros: integer("precisao_metros"),
+  distanciaMetros: integer("distancia_metros"),
+  dentroRaio: boolean("dentro_raio").notNull().default(false),
+  dispositivo: text("dispositivo"),
+  justificativa: text("justificativa"),
+  /** despesa (conta a pagar) gerada a partir deste registro, se houver. */
+  despesaId: uuid("despesa_id").references(() => despesas.id, {
+    onDelete: "set null",
+  }),
 });
 
 /**
