@@ -11,8 +11,10 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
+import { brl } from "@/lib/utils";
 
 interface Perms {
   criar: boolean;
@@ -339,7 +341,28 @@ function ProjectRow({
   const [startDate, setStartDate] = useState(project.startDate ?? "");
   const [endDate, setEndDate] = useState(project.endDate ?? "");
   const [clienteId, setClienteId] = useState(project.clienteId ?? "");
+  const numStr = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+  const [terr, setTerr] = useState({
+    custoConstrucao: numStr(project.custoConstrucao),
+    custoTerreno: numStr(project.custoTerreno),
+    valorConstrucao: numStr(project.valorConstrucao),
+    valorTerreno: numStr(project.valorTerreno),
+    formaPagamentoTerreno: project.formaPagamentoTerreno ?? "",
+    proprietarioTerreno: project.proprietarioTerreno ?? "",
+    terrenoForaCaixa: project.terrenoForaCaixa ?? true,
+  });
   const [pending, start] = useTransition();
+  const isObra = project.kind !== "office";
+  const valorGlobal = (Number(terr.valorConstrucao) || 0) + (Number(terr.valorTerreno) || 0);
+
+  const terrDirty =
+    terr.custoConstrucao !== numStr(project.custoConstrucao) ||
+    terr.custoTerreno !== numStr(project.custoTerreno) ||
+    terr.valorConstrucao !== numStr(project.valorConstrucao) ||
+    terr.valorTerreno !== numStr(project.valorTerreno) ||
+    terr.formaPagamentoTerreno !== (project.formaPagamentoTerreno ?? "") ||
+    terr.proprietarioTerreno !== (project.proprietarioTerreno ?? "") ||
+    terr.terrenoForaCaixa !== (project.terrenoForaCaixa ?? true);
 
   const dirty =
     name.trim() !== project.name ||
@@ -348,7 +371,8 @@ function ProjectRow({
       (project.durationMonths ?? null) ||
     startDate !== (project.startDate ?? "") ||
     endDate !== (project.endDate ?? "") ||
-    clienteId !== (project.clienteId ?? "");
+    clienteId !== (project.clienteId ?? "") ||
+    terrDirty;
 
   const save = () =>
     start(() =>
@@ -359,6 +383,13 @@ function ProjectRow({
         startDate,
         endDate,
         clienteId,
+        custoConstrucao: terr.custoConstrucao || null,
+        custoTerreno: terr.custoTerreno || null,
+        valorConstrucao: terr.valorConstrucao || null,
+        valorTerreno: terr.valorTerreno || null,
+        formaPagamentoTerreno: terr.formaPagamentoTerreno || null,
+        proprietarioTerreno: terr.proprietarioTerreno || null,
+        terrenoForaCaixa: terr.terrenoForaCaixa,
       }),
     );
 
@@ -412,6 +443,81 @@ function ProjectRow({
             disabled={!canEdit || pending}
           />
         </div>
+
+        {isObra && (
+          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
+            <h3 className="mb-1 text-[13px] font-semibold text-[var(--color-ink)]">
+              Terreno &amp; valor global da operação
+            </h3>
+            <p className="mb-3 text-[11.5px] text-[var(--color-ink3)]">
+              Distingue a <strong>visão financeira</strong> da construtora (o que entra/sai do caixa)
+              da <strong>visão econômica/imobiliária</strong> (valor global, incluindo o terreno).
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <Label>Custo da construção</Label>
+                <MoneyInput value={terr.custoConstrucao} onChange={(v) => setTerr((s) => ({ ...s, custoConstrucao: v }))} />
+              </div>
+              <div>
+                <Label>Custo do terreno</Label>
+                <MoneyInput value={terr.custoTerreno} onChange={(v) => setTerr((s) => ({ ...s, custoTerreno: v }))} />
+              </div>
+              <div>
+                <Label>Valor da construção</Label>
+                <MoneyInput value={terr.valorConstrucao} onChange={(v) => setTerr((s) => ({ ...s, valorConstrucao: v }))} />
+              </div>
+              <div>
+                <Label>Valor do terreno</Label>
+                <MoneyInput value={terr.valorTerreno} onChange={(v) => setTerr((s) => ({ ...s, valorTerreno: v }))} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Proprietário do terreno</Label>
+                <Input
+                  value={terr.proprietarioTerreno}
+                  onChange={(e) => setTerr((s) => ({ ...s, proprietarioTerreno: e.target.value }))}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Forma de pagamento do terreno</Label>
+                <Input
+                  value={terr.formaPagamentoTerreno}
+                  onChange={(e) => setTerr((s) => ({ ...s, formaPagamentoTerreno: e.target.value }))}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+            </div>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-ink)]">
+              <input
+                type="checkbox"
+                checked={terr.terrenoForaCaixa}
+                onChange={(e) => setTerr((s) => ({ ...s, terrenoForaCaixa: e.target.checked }))}
+                disabled={!canEdit || pending}
+                className="h-4 w-4 accent-[var(--color-accent2)]"
+              />
+              Terreno pago direto ao proprietário — <strong>não passa pelo caixa da construtora</strong>
+            </label>
+            <div className="mt-3 flex flex-wrap gap-4 border-t border-[var(--color-accent2)]/10 pt-3 text-[12.5px]">
+              <span className="text-[var(--color-ink3)]">
+                Valor global da operação:{" "}
+                <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">
+                  {brl(valorGlobal)}
+                </strong>
+              </span>
+              <span className="text-[var(--color-ink3)]">
+                Entrada financeira da construtora:{" "}
+                <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">
+                  {brl(
+                    terr.terrenoForaCaixa
+                      ? Number(terr.valorConstrucao) || 0
+                      : valorGlobal,
+                  )}
+                </strong>
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 pb-1.5">
           <SelectActive id={project.id} active={active} pending={pending} start={start} />
           {canEdit && (

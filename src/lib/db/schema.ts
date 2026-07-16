@@ -200,6 +200,22 @@ export const projects = pgTable("project", {
   clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
     onDelete: "set null",
   }),
+  // ── Custo do terreno / valor global (visão econômica × financeira) ──────
+  /** Custo de construção (obra) e custo de aquisição do terreno. */
+  custoConstrucao: numeric("custo_construcao", { precision: 15, scale: 2 }),
+  custoTerreno: numeric("custo_terreno", { precision: 15, scale: 2 }),
+  /** Valor de venda da construção e do terreno (compõem o valor global). */
+  valorConstrucao: numeric("valor_construcao", { precision: 15, scale: 2 }),
+  valorTerreno: numeric("valor_terreno", { precision: 15, scale: 2 }),
+  /** Forma de pagamento e proprietário do terreno. */
+  formaPagamentoTerreno: text("forma_pagamento_terreno"),
+  proprietarioTerreno: text("proprietario_terreno"),
+  /**
+   * Terreno pago direto ao proprietário (não passa pelo caixa da construtora).
+   * Quando true, o valor do terreno compõe a visão econômica/global, mas NÃO é
+   * lançado no caixa da construtora.
+   */
+  terrenoForaCaixa: boolean("terreno_fora_caixa").notNull().default(true),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
