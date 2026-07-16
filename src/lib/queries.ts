@@ -65,6 +65,19 @@ export async function getUnits(versionId: string): Promise<UnitRow[]> {
     .orderBy(asc(schema.units.code));
 }
 
+/**
+ * Todas as unidades do tenant (versão Atual de cada projeto) — para os cadastros
+ * de cliente/contrato listarem unidades de qualquer projeto, não só do ativo.
+ */
+export async function getUnitCodesByTenant(tenantId: string): Promise<string[]> {
+  const rows = await db
+    .select({ code: schema.units.code })
+    .from(schema.units)
+    .where(eq(schema.units.tenantId, tenantId))
+    .orderBy(asc(schema.units.code));
+  return [...new Set(rows.map((r) => r.code))];
+}
+
 export async function getUnit(
   versionId: string,
   unitId: string,
@@ -188,6 +201,47 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+export type DespesaComOrigem = DespesaRow & {
+  projectId: string;
+  projectName: string;
+  projectKind: string;
+  /** rótulo de origem: obra (projeto) ou "Filial/Matriz". */
+  origem: string;
+};
+
+/**
+ * Todas as despesas do tenant (todos os projetos/filiais), na versão Atual de
+ * cada projeto, com o rótulo de origem — base da consulta consolidada.
+ */
+export async function getDespesasByTenant(
+  tenantId: string,
+): Promise<DespesaComOrigem[]> {
+  const rows = await db
+    .select({
+      d: schema.despesas,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      projectKind: schema.projects.kind,
+    })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .where(
+      and(
+        eq(schema.despesas.tenantId, tenantId),
+        eq(schema.versions.kind, "atual"),
+      ),
+    )
+    .orderBy(asc(schema.despesas.competencia));
+  return rows.map((r) => ({
+    ...r.d,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    projectKind: r.projectKind,
+    origem: r.projectKind === "office" ? `Filial/Matriz · ${r.projectName}` : r.projectName,
+  }));
+}
+
 export interface ContaPagarRow {
   id: string;
   numDoc: string | null;
@@ -227,7 +281,12 @@ export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]>
     .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
     .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
     .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
-    .where(eq(schema.despesas.tenantId, tenantId));
+    .where(
+      and(
+        eq(schema.despesas.tenantId, tenantId),
+        eq(schema.despesas.cancelado, false),
+      ),
+    );
   return rows.map((r) => ({
     id: r.d.id,
     numDoc: r.d.numDoc,
@@ -507,12 +566,15 @@ export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
     }));
   }
   const d = await getDespesas(versionId);
-  return d.map((x) => ({
-    contaCef: x.contaCef,
-    categoriaDre: x.categoriaDre,
-    competencia: x.competencia,
-    valor: Number(x.valor),
-  }));
+  // Despesas canceladas (exclusão lógica) não compõem a DRE/relatórios.
+  return d
+    .filter((x) => !x.cancelado)
+    .map((x) => ({
+      contaCef: x.contaCef,
+      categoriaDre: x.categoriaDre,
+      competencia: x.competencia,
+      valor: Number(x.valor),
+    }));
 }
 
 export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;

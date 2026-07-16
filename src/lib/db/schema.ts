@@ -200,7 +200,64 @@ export const projects = pgTable("project", {
   clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
     onDelete: "set null",
   }),
+  // ── Custo do terreno / valor global (visão econômica × financeira) ──────
+  /** Custo de construção (obra) e custo de aquisição do terreno. */
+  custoConstrucao: numeric("custo_construcao", { precision: 15, scale: 2 }),
+  custoTerreno: numeric("custo_terreno", { precision: 15, scale: 2 }),
+  /** Valor de venda da construção e do terreno (compõem o valor global). */
+  valorConstrucao: numeric("valor_construcao", { precision: 15, scale: 2 }),
+  valorTerreno: numeric("valor_terreno", { precision: 15, scale: 2 }),
+  /** Forma de pagamento e proprietário do terreno. */
+  formaPagamentoTerreno: text("forma_pagamento_terreno"),
+  proprietarioTerreno: text("proprietario_terreno"),
+  /**
+   * Terreno pago direto ao proprietário (não passa pelo caixa da construtora).
+   * Quando true, o valor do terreno compõe a visão econômica/global, mas NÃO é
+   * lançado no caixa da construtora.
+   */
+  terrenoForaCaixa: boolean("terreno_fora_caixa").notNull().default(true),
+  // ── Localização da obra (controle de ponto georreferenciado) ────────────
+  endereco: text("endereco"),
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  /** raio permitido para registro de ponto, em metros (padrão 100). */
+  pontoRaioMetros: integer("ponto_raio_metros").notNull().default(100),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Registro de ponto georreferenciado, vinculado à obra. Cada dia trabalhado
+ * fica vinculado à obra correspondente (base da apuração → conta a pagar).
+ */
+export const timeEntries = pgTable("time_entry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id"),
+  /** nome/e-mail do funcionário (snapshot). */
+  funcionario: text("funcionario"),
+  /** "entrada" | "saida" */
+  tipo: text("tipo").notNull(),
+  /** data ("MM/DD/YYYY") e hora ("HH:MM") pelo relógio do servidor. */
+  data: text("data").notNull(),
+  hora: text("hora").notNull(),
+  serverAt: timestamp("server_at", { mode: "date" }).notNull().defaultNow(),
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  /** precisão informada pelo dispositivo (m) e distância à obra (m). */
+  precisaoMetros: integer("precisao_metros"),
+  distanciaMetros: integer("distancia_metros"),
+  dentroRaio: boolean("dentro_raio").notNull().default(false),
+  dispositivo: text("dispositivo"),
+  justificativa: text("justificativa"),
+  /** despesa (conta a pagar) gerada a partir deste registro, se houver. */
+  despesaId: uuid("despesa_id").references(() => despesas.id, {
+    onDelete: "set null",
+  }),
 });
 
 /**
@@ -329,6 +386,8 @@ export const stakeholders = pgTable("stakeholder", {
   email: text("email"),
   tel: text("tel"),
   obs: text("obs"),
+  /** cadastro ativo? Inativação lógica preserva histórico e vínculos. */
+  ativo: boolean("ativo").notNull().default(true),
 });
 
 /** Conta bancária do tenant, com campos preparados para Open Finance. §3 */
@@ -419,6 +478,11 @@ export const despesas = pgTable("despesa", {
   chequeStatus: text("cheque_status"),
   /** Fase 4: despesa paga por terceiro (não gera saída de caixa na competência). */
   pagoPorTerceiro: boolean("pago_por_terceiro").notNull().default(false),
+  /** Cancelamento lógico: mantém histórico, sai de saldos/relatórios. */
+  cancelado: boolean("cancelado").notNull().default(false),
+  canceladoEm: text("cancelado_em"),
+  canceladoPor: text("cancelado_por"),
+  motivoCancelamento: text("motivo_cancelamento"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -547,11 +611,25 @@ export const documents = pgTable("document", {
   despesaId: uuid("despesa_id").references(() => despesas.id, {
     onDelete: "cascade",
   }),
+  /** Vínculos comerciais (documentos de venda/contrato). */
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "cascade",
+  }),
+  unitCode: text("unit_code"),
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
   /** chave do objeto no bucket R2. */
   storageKey: text("storage_key").notNull(),
   filename: text("filename").notNull(),
   contentType: text("content_type"),
   size: integer("size"),
+  /** tipo do documento: Boleto, Nota Fiscal, Recibo, Contrato, Comprovante… */
+  tipo: text("tipo"),
+  /** versão do documento quando substituído (mantém histórico). */
+  versao: integer("versao").notNull().default(1),
+  /** quem realizou o upload (e-mail/id). */
+  uploadedBy: text("uploaded_by"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -649,6 +727,10 @@ export const cashEntries = pgTable("cash_entry", {
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   cat: text("cat"),
   unitCode: text("unit_code"),
+  /** nº do documento do extrato (quando importado). */
+  doc: text("doc"),
+  /** assinatura do lançamento importado (dedup do extrato). */
+  importHash: text("import_hash"),
   /** conciliado com o extrato? */
   rec: boolean("rec").notNull().default(false),
 });

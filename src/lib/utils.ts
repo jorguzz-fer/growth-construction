@@ -6,12 +6,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Evita o "-0"/"-0,00": se o valor arredondado na precisão exibida é zero,
+ * retorna 0 positivo. Sem isso, valores como -0,004 viram "-R$ 0,00".
+ */
+export function clampZero(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  const f = 10 ** decimals;
+  return Math.round(value * f) === 0 ? 0 : value;
+}
+
 /** Formata um número como moeda BRL (ex.: R$ 1.234,56). */
 export function brl(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(value);
+  }).format(clampZero(value, 2));
 }
 
 /** BRL sem casas decimais (ex.: R$ 1.235). */
@@ -20,7 +30,13 @@ export function brl0(value: number): string {
     style: "currency",
     currency: "BRL",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(clampZero(value, 0));
+}
+
+/** Percentual com 1 casa, sem "-0,0%" (ex.: 12,3%). */
+export function pct1(value: number): string {
+  const v = clampZero(value, 1);
+  return `${v.toFixed(1).replace(".", ",")}%`;
 }
 
 /**
@@ -30,8 +46,9 @@ export function brl0(value: number): string {
  * (ex.: "R$ 0,0" vs "R$ 0").
  */
 export function brlk(value: number): string {
-  const sign = value < 0 ? "-" : "";
-  const abs = Math.abs(value);
+  const v = clampZero(value, 0);
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
   const fix1 = (v: number) => (Math.round(v * 10) / 10).toFixed(1).replace(".", ",");
   if (abs >= 1e9) return `${sign}R$ ${fix1(abs / 1e9)} bi`;
   if (abs >= 1e6) return `${sign}R$ ${fix1(abs / 1e6)} mi`;

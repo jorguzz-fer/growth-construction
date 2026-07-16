@@ -81,6 +81,8 @@ export interface ImportCashRow {
   descricao?: string;
   valor?: number;
   cat?: string;
+  /** nº do documento do extrato (para dedup e exibição). */
+  doc?: string;
 }
 
 export interface ImportExtratoInput {
@@ -95,6 +97,18 @@ export interface ImportExtratoResult {
   inserted: number;
   conciliated: number;
   saldoUpdated: boolean;
+  /** lançamentos ignorados por já terem sido importados antes (dedup). */
+  skipped: number;
+}
+
+/** Assinatura de dedup de um lançamento do extrato (por conta). */
+function importSignature(
+  bankAccountId: string | null,
+  data: string | null | undefined,
+  valor: number,
+  doc: string | null | undefined,
+): string {
+  return `${bankAccountId ?? "-"}|${(data ?? "").trim()}|${cents(valor)}|${(doc ?? "").trim()}`;
 }
 
 /**
@@ -125,7 +139,28 @@ export async function importCash(
       ? input.bankAccountId
       : null;
 
-  const valid = rows.filter((r) => r.valor != null && r.valor !== 0);
+  // Dedup: ignora lançamentos já importados antes (mesma conta, data, valor e
+  // documento). Carrega as assinaturas existentes uma vez.
+  const existentes = await db
+    .select({ importHash: schema.cashEntries.importHash })
+    .from(schema.cashEntries)
+    .where(eq(schema.cashEntries.tenantId, ctx.tenant.id));
+  const jaImportados = new Set(
+    existentes.map((e) => e.importHash).filter((h): h is string => !!h),
+  );
+
+  const naoZero = rows.filter((r) => r.valor != null && r.valor !== 0);
+  const vistos = new Set<string>();
+  let skipped = 0;
+  const valid = naoZero.filter((r) => {
+    const sig = importSignature(bankAccountId, r.data, Number(r.valor), r.doc);
+    if (jaImportados.has(sig) || vistos.has(sig)) {
+      skipped++;
+      return false;
+    }
+    vistos.add(sig);
+    return true;
+  });
 
   // Pools para conciliação automática.
   const [despesas, units] = await Promise.all([
@@ -135,6 +170,7 @@ export async function importCash(
   // Despesas previstas: chave (centavos|mês) → quantidade disponível.
   const despPool = new Map<string, number>();
   for (const d of despesas) {
+    if (d.cancelado) continue;
     const mm = monthKeyFrom(d.competencia) ?? monthKeyFrom(d.vencimento);
     if (!mm) continue;
     const key = `${cents(Math.abs(Number(d.valor)))}|${mm}`;
@@ -190,6 +226,8 @@ export async function importCash(
       descricao: r.descricao || null,
       valor: String(v),
       cat,
+      doc: r.doc || null,
+      importHash: importSignature(bankAccountId, r.data, v, r.doc),
       rec,
     };
   });
@@ -225,13 +263,14 @@ export async function importCash(
     meta: {
       count: toInsert.length,
       conciliated,
+      skipped,
       bankAccountId,
       saldoUpdated,
     },
   });
   revalidatePath("/caixa");
   revalidatePath("/contas");
-  return { inserted: toInsert.length, conciliated, saldoUpdated };
+  return { inserted: toInsert.length, conciliated, saldoUpdated, skipped };
 }
 
 /** Alterna o estado de conciliação de um lançamento de caixa. */

@@ -17,9 +17,35 @@ function toISO(d: string | null): string {
 }
 
 const statusTone = (s: string | null) =>
-  s === "Pago" ? "success" : s === "A pagar" ? "warning" : "neutral";
+  s === "Pago"
+    ? "success"
+    : s === "Vencida"
+      ? "danger"
+      : s === "Cancelada"
+        ? "neutral"
+        : s === "A pagar" || s === "Em aberto" || s === "Parcialmente paga"
+          ? "warning"
+          : "neutral";
+
+/** Status exibido: "Vencida" é derivado automaticamente pela data de vencimento. */
+function displayStatus(
+  status: string | null,
+  vencimento: string | null,
+  hojeISO: string,
+): string {
+  if (status === "Pago" || status === "Cancelada" || status === "Parcialmente paga")
+    return status;
+  const iso =
+    vencimento && vencimento.split("/").length === 3
+      ? `${vencimento.split("/")[2]}-${vencimento.split("/")[0].padStart(2, "0")}-${vencimento.split("/")[1].padStart(2, "0")}`
+      : "";
+  if (iso && iso < hojeISO) return "Vencida";
+  return status || "Em aberto";
+}
 
 export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
+  const hoje = new Date();
+  const hojeISO = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
   const [fornecedor, setFornecedor] = useState("");
   const [cliente, setCliente] = useState("");
   const [projeto, setProjeto] = useState("");
@@ -43,7 +69,7 @@ export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    return rows.filter((r) => {
+    const out = rows.filter((r) => {
       if (fornecedor && r.fornecedorNome !== fornecedor) return false;
       const cli = r.clienteNome ?? "Empreendimento próprio";
       if (cliente && cli !== cliente) return false;
@@ -55,7 +81,26 @@ export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
       if (ate && (!iso || iso > ate)) return false;
       return true;
     });
-  }, [rows, fornecedor, cliente, projeto, categoria, status, de, ate]);
+    // Ordenação por vencimento usando datas reais (ISO), não strings BR:
+    //  1) vencidas (mais antiga → recente), 2) a vencer (mais próxima → distante),
+    //  3) pagas (por data de pagamento). Sem data vão para o fim do grupo.
+    const bucket = (r: ContaPagarRow): number => {
+      if (r.status === "Pago") return 2;
+      const iso = toISO(r.vencimento);
+      if (iso && iso < hojeISO) return 0; // vencida
+      return 1; // a vencer (ou sem vencimento)
+    };
+    const keyDate = (r: ContaPagarRow): string => {
+      const base = r.status === "Pago" ? toISO(r.dataPagamento) : toISO(r.vencimento);
+      return base || "9999-12-31";
+    };
+    return out.sort((a, b) => {
+      const ba = bucket(a);
+      const bb = bucket(b);
+      if (ba !== bb) return ba - bb;
+      return keyDate(a).localeCompare(keyDate(b));
+    });
+  }, [rows, fornecedor, cliente, projeto, categoria, status, de, ate, hojeISO]);
 
   const total = filtered.reduce((a, r) => a + r.valor, 0);
   const totalPend = filtered
@@ -138,7 +183,12 @@ export function ContasPagarTable({ rows }: { rows: ContaPagarRow[] }) {
                       {r.dataPagamento ? dateBR(r.dataPagamento) : "—"}
                     </TD>
                     <TD>{r.formaPagamento ?? "—"}</TD>
-                    <TD><Badge tone={statusTone(r.status)}>{r.status ?? "—"}</Badge></TD>
+                    <TD>
+                      {(() => {
+                        const st = displayStatus(r.status, r.vencimento, hojeISO);
+                        return <Badge tone={statusTone(st)}>{st}</Badge>;
+                      })()}
+                    </TD>
                   </TR>
                 ))}
                 {filtered.length === 0 && (

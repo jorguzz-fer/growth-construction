@@ -128,6 +128,13 @@ export async function createProject(
 }
 
 /** Renomeia / ajusta a duração e o status de um projeto (ou escritório). */
+/** Converte string/number em texto numérico (ou null) para colunas numeric. */
+function normValor(v: string | number | null | undefined): string | null {
+  if (v === undefined || v === null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(String(v).replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? String(n) : null;
+}
+
 export async function updateProject(
   projectId: string,
   patch: {
@@ -137,26 +144,35 @@ export async function updateProject(
     startDate?: string | null;
     endDate?: string | null;
     clienteId?: string | null;
+    custoConstrucao?: string | number | null;
+    custoTerreno?: string | number | null;
+    valorConstrucao?: string | number | null;
+    valorTerreno?: string | number | null;
+    formaPagamentoTerreno?: string | null;
+    proprietarioTerreno?: string | null;
+    terrenoForaCaixa?: boolean;
   },
 ) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) return;
   if (!ctx.projects.some((p) => p.id === projectId)) return;
 
-  const set: {
-    name?: string;
-    durationMonths?: number | null;
-    status?: ProjectStatus;
-    startDate?: string | null;
-    endDate?: string | null;
-    clienteId?: string | null;
-  } = {};
+  const set: Partial<typeof schema.projects.$inferInsert> = {};
   if (patch.name !== undefined && patch.name.trim()) set.name = patch.name.trim();
   if (patch.durationMonths !== undefined) set.durationMonths = normDuration(patch.durationMonths);
   if (patch.status !== undefined) set.status = normStatus(patch.status);
   if (patch.startDate !== undefined) set.startDate = normDate(patch.startDate);
   if (patch.endDate !== undefined) set.endDate = normDate(patch.endDate);
   if (patch.clienteId !== undefined) set.clienteId = normClienteId(patch.clienteId);
+  if (patch.custoConstrucao !== undefined) set.custoConstrucao = normValor(patch.custoConstrucao);
+  if (patch.custoTerreno !== undefined) set.custoTerreno = normValor(patch.custoTerreno);
+  if (patch.valorConstrucao !== undefined) set.valorConstrucao = normValor(patch.valorConstrucao);
+  if (patch.valorTerreno !== undefined) set.valorTerreno = normValor(patch.valorTerreno);
+  if (patch.formaPagamentoTerreno !== undefined)
+    set.formaPagamentoTerreno = patch.formaPagamentoTerreno?.trim() || null;
+  if (patch.proprietarioTerreno !== undefined)
+    set.proprietarioTerreno = patch.proprietarioTerreno?.trim() || null;
+  if (patch.terrenoForaCaixa !== undefined) set.terrenoForaCaixa = patch.terrenoForaCaixa;
   if (Object.keys(set).length === 0) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));

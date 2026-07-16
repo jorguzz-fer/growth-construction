@@ -6,6 +6,28 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 
+/** Renderiza o meta de auditoria; destaca alterações campo a campo (de → para). */
+function renderMeta(meta: unknown) {
+  if (!meta || typeof meta !== "object") return meta ? String(meta) : "—";
+  const m = meta as Record<string, unknown>;
+  const changes = m.changes as Record<string, { de: unknown; para: unknown }> | undefined;
+  if (changes && Object.keys(changes).length > 0) {
+    return (
+      <div className="space-y-0.5">
+        {Object.entries(changes).map(([k, v]) => (
+          <div key={k}>
+            <span className="text-[var(--color-ink2)]">{k}</span>:{" "}
+            <span className="text-[var(--color-danger)]">{String(v.de ?? "—")}</span>
+            {" → "}
+            <span className="text-[var(--color-success)]">{String(v.para ?? "—")}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <span className="break-words">{JSON.stringify(meta)}</span>;
+}
+
 export default async function AcoesPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -46,8 +68,8 @@ export default async function AcoesPage() {
                 {a.entity}
                 {a.entityId ? ` · ${a.entityId.slice(0, 8)}` : ""}
               </TD>
-              <TD className="max-w-[280px] truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
-                {a.meta ? JSON.stringify(a.meta) : "—"}
+              <TD className="max-w-[360px] font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
+                {renderMeta(a.meta)}
               </TD>
             </TR>
           ))}

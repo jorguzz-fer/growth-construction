@@ -34,6 +34,94 @@ export async function addStakeholder(formData: FormData) {
     papeis,
     email: (formData.get("email") as string) || null,
     tel: (formData.get("tel") as string) || null,
+    obs: (formData.get("obs") as string) || null,
+  });
+  revalidatePath("/fornecedores");
+}
+
+/**
+ * Edita um cadastro de pessoa (fornecedor/prestador/corretor…). Permite ajustar
+ * os múltiplos papéis sem perder o histórico e os vínculos (mesma id).
+ */
+export async function updateStakeholder(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
+    throw new Error("Sem permissão para editar cadastros.");
+  }
+  const id = (formData.get("id") as string) || "";
+  if (!id) return;
+  const papeis = formData.getAll("papeis").map(String).filter(Boolean);
+  await db
+    .update(schema.stakeholders)
+    .set({
+      nome: (formData.get("nome") as string) || "Sem nome",
+      tipo: (formData.get("tipo") as "PJ" | "PF") || "PJ",
+      doc: (formData.get("doc") as string) || null,
+      papeis,
+      email: (formData.get("email") as string) || null,
+      tel: (formData.get("tel") as string) || null,
+      obs: (formData.get("obs") as string) || null,
+    })
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "stakeholder.update",
+    entity: "stakeholder",
+    entityId: id,
+    meta: { papeis },
+  });
+  revalidatePath("/fornecedores");
+}
+
+/** Inativa/reativa (exclusão lógica) um cadastro, preservando vínculos. */
+export async function setStakeholderAtivo(id: string, ativo: boolean) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
+    throw new Error("Sem permissão.");
+  }
+  await db
+    .update(schema.stakeholders)
+    .set({ ativo })
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: ativo ? "stakeholder.reactivate" : "stakeholder.deactivate",
+    entity: "stakeholder",
+    entityId: id,
+  });
+  revalidatePath("/fornecedores");
+}
+
+/**
+ * Exclusão física de um cadastro — só quando não há despesas vinculadas. Caso
+ * haja histórico, oriente a inativar (exclusão lógica) em vez de excluir.
+ */
+export async function deleteStakeholder(id: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "fornecedores", "excluir")) {
+    throw new Error("Sem permissão.");
+  }
+  const [vinc] = await db
+    .select({ id: schema.despesas.id })
+    .from(schema.despesas)
+    .where(and(eq(schema.despesas.fornecedorId, id), eq(schema.despesas.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (vinc) {
+    throw new Error(
+      "Este cadastro possui despesas vinculadas — inative-o (exclusão lógica) para preservar o histórico.",
+    );
+  }
+  await db
+    .delete(schema.stakeholders)
+    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "stakeholder.delete",
+    entity: "stakeholder",
+    entityId: id,
   });
   revalidatePath("/fornecedores");
 }
@@ -207,6 +295,7 @@ export async function addDespesa(formData: FormData) {
       filename: file.name,
       contentType: file.type || null,
       size: file.size,
+      uploadedBy: ctx.userEmail || ctx.userId || null,
     });
   }
 
@@ -282,22 +371,26 @@ export interface DespesaPatch {
   vencimento?: string | null;
   valor?: string;
   status?: string | null;
+  obs?: string | null;
+  formaPagamento?: string | null;
 }
 
 /** Edita uma despesa já lançada (mesma versão/tenant do contexto ativo). */
 export async function updateDespesa(id: string, patch: DespesaPatch) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) return;
-  if (ctx.version.locked) throw new Error("Versão congelada — edição bloqueada.");
 
+  // Escopo por tenant: a despesa pode pertencer a qualquer projeto do tenant
+  // (a lista opera por projeto selecionado, não pela versão do contexto).
   const [existing] = await db
     .select()
     .from(schema.despesas)
     .where(
-      and(eq(schema.despesas.id, id), eq(schema.despesas.versionId, ctx.version.id)),
+      and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)),
     )
     .limit(1);
   if (!existing) return;
+  if (existing.cancelado) throw new Error("Despesa cancelada não pode ser editada.");
 
   const set: Partial<typeof schema.despesas.$inferInsert> = {};
   if (patch.fornecedorId !== undefined) set.fornecedorId = patch.fornecedorId || null;
@@ -322,7 +415,17 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
   if (patch.valor !== undefined) set.valor = patch.valor.trim() || "0";
   if (patch.status !== undefined) set.status = patch.status || null;
+  if (patch.obs !== undefined) set.obs = patch.obs || null;
+  if (patch.formaPagamento !== undefined) set.formaPagamento = patch.formaPagamento || null;
   if (Object.keys(set).length === 0) return;
+
+  // Auditoria campo a campo: valor anterior × novo.
+  const changes: Record<string, { de: unknown; para: unknown }> = {};
+  for (const k of Object.keys(set)) {
+    const antes = (existing as Record<string, unknown>)[k];
+    const depois = (set as Record<string, unknown>)[k];
+    if (antes !== depois) changes[k] = { de: antes ?? null, para: depois ?? null };
+  }
 
   await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
   await logAudit({
@@ -331,7 +434,7 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
     action: "despesa.update",
     entity: "despesa",
     entityId: id,
-    meta: set,
+    meta: { changes },
   });
   revalidatePath("/despesas");
 }
@@ -340,13 +443,12 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
 export async function deleteDespesa(id: string) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) return;
-  if (ctx.version.locked) throw new Error("Versão congelada — exclusão bloqueada.");
 
   const [existing] = await db
     .select()
     .from(schema.despesas)
     .where(
-      and(eq(schema.despesas.id, id), eq(schema.despesas.versionId, ctx.version.id)),
+      and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)),
     )
     .limit(1);
   if (!existing) return;
@@ -361,6 +463,143 @@ export async function deleteDespesa(id: string) {
     meta: { valor: existing.valor, numDoc: existing.numDoc },
   });
   revalidatePath("/despesas");
+}
+
+/**
+ * Cancelamento lógico de uma despesa: preserva o histórico para auditoria, mas
+ * a remove de saldos, relatórios, fluxo de caixa e contas a pagar. Preferível
+ * à exclusão física.
+ */
+export async function cancelarDespesa(id: string, motivo: string) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
+    throw new Error("Sem permissão para cancelar despesas.");
+  }
+  const [existing] = await db
+    .select()
+    .from(schema.despesas)
+    .where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!existing) throw new Error("Despesa não encontrada.");
+  if (existing.cancelado) return;
+
+  const hoje = new Date();
+  const canceladoEm = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${String(hoje.getDate()).padStart(2, "0")}/${hoje.getFullYear()}`;
+  await db
+    .update(schema.despesas)
+    .set({
+      cancelado: true,
+      canceladoEm,
+      canceladoPor: ctx.userEmail || ctx.userId || null,
+      motivoCancelamento: motivo?.trim() || null,
+      status: "Cancelada",
+    })
+    .where(eq(schema.despesas.id, id));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "despesa.cancel",
+    entity: "despesa",
+    entityId: id,
+    meta: { motivo: motivo?.trim() || null, valor: existing.valor, numDoc: existing.numDoc },
+  });
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+  revalidatePath("/caixa");
+  revalidatePath("/dre");
+  revalidatePath("/fluxocaixa");
+}
+
+export interface PagarDespesaInput {
+  despesaId: string;
+  dataPagamento: string; // "MM/DD/YYYY"
+  valorPago: number;
+  bankAccountId?: string | null;
+  formaPagamento?: string | null;
+  juros?: number;
+  multa?: number;
+  desconto?: number;
+  obs?: string;
+}
+
+/**
+ * Marca uma despesa (sem parcelamento) como paga: registra o pagamento com
+ * encargos, lança a saída real no Caixa (na data efetiva), atualiza o status e
+ * a conta bancária. Estrutura pronta para pagamento parcial.
+ */
+export async function pagarDespesa(input: PagarDespesaInput) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "editar")) {
+    throw new Error("Sem permissão para registrar pagamentos.");
+  }
+  const [d] = await db
+    .select()
+    .from(schema.despesas)
+    .where(
+      and(eq(schema.despesas.id, input.despesaId), eq(schema.despesas.tenantId, ctx.tenant.id)),
+    )
+    .limit(1);
+  if (!d) throw new Error("Despesa não encontrada.");
+  if (d.cancelado) throw new Error("Despesa cancelada não pode ser paga.");
+
+  const juros = input.juros || 0;
+  const multa = input.multa || 0;
+  const desconto = input.desconto || 0;
+  const valorPago = input.valorPago > 0 ? input.valorPago : Number(d.valor) + juros + multa - desconto;
+
+  await db.insert(schema.pagamentos).values({
+    tenantId: ctx.tenant.id,
+    despesaId: d.id,
+    parcelaId: null,
+    valorOriginal: String(d.valor),
+    desconto: String(desconto),
+    multa: String(multa),
+    juros: String(juros),
+    outrosAcrescimos: "0",
+    valorTotalPago: String(valorPago),
+    dataPagamento: input.dataPagamento || null,
+    bankAccountId: input.bankAccountId || null,
+    obs: input.obs || null,
+    usuarioId: ctx.userId,
+  });
+
+  // Pagamento integral × parcial (estrutura pronta): status conforme o total.
+  const pagoTotal = valorPago + desconto >= Number(d.valor) - 0.01;
+  await db
+    .update(schema.despesas)
+    .set({
+      status: pagoTotal ? "Pago" : "Parcialmente paga",
+      dataCaixa: input.dataPagamento || d.dataCaixa,
+      formaPagamento: input.formaPagamento || d.formaPagamento,
+      bancoId: input.bankAccountId || d.bancoId,
+    })
+    .where(eq(schema.despesas.id, d.id));
+
+  // Saída REAL no Controle de Caixa (valor efetivamente pago, na data real).
+  await db.insert(schema.cashEntries).values({
+    versionId: d.versionId,
+    tenantId: ctx.tenant.id,
+    bankAccountId: input.bankAccountId || null,
+    data: input.dataPagamento || null,
+    descricao: `Pagamento ${d.numDoc ?? "despesa"}`,
+    valor: String(-Math.abs(valorPago)),
+    cat: "despesa",
+    rec: true,
+  });
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "despesa.pay",
+    entity: "despesa",
+    entityId: d.id,
+    meta: { valorPago, juros, multa, desconto, dataPagamento: input.dataPagamento },
+  });
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+  revalidatePath("/caixa");
+  revalidatePath("/dre");
+  revalidatePath("/fluxocaixa");
 }
 
 /**
@@ -421,13 +660,15 @@ export async function uploadDespesaDoc(formData: FormData) {
     filename: file.name,
     contentType: file.type || null,
     size: file.size,
+    tipo: ((formData.get("tipo") as string) || "").trim() || null,
+    uploadedBy: ctx.userEmail || ctx.userId || null,
   });
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "document.upload",
     entity: "document",
-    meta: { filename: file.name, despesaId },
+    meta: { filename: file.name, despesaId, tipo: (formData.get("tipo") as string) || null },
   });
   revalidatePath("/despesas");
 }

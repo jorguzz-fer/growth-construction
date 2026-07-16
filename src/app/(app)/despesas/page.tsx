@@ -3,6 +3,7 @@ import { getActiveContext } from "@/lib/context";
 import {
   getChartAccounts,
   getDespesas,
+  getDespesasByTenant,
   getStakeholders,
   getBankAccounts,
   getDocuments,
@@ -51,18 +52,22 @@ export default async function DespesasPage({
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
-  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); a lista e o
-  // lançamento operam sobre a versão Atual do projeto selecionado.
+  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); "all" mostra
+  // a consulta consolidada (todos os projetos/filiais) com coluna Origem.
+  const isAll = sp.proj === "all";
   const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
   const version = await getAtualVersion(ctx.tenant.id, project.id);
   const versionId = version?.id ?? ctx.version.id;
 
-  const [despesas, fornecedores, contas, bancos] = await Promise.all([
-    getDespesas(versionId),
+  const [despesasRaw, fornecedores, contas, bancos] = await Promise.all([
+    isAll ? getDespesasByTenant(ctx.tenant.id) : getDespesas(versionId),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
   ]);
+  const despesas: Array<
+    Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
+  > = despesasRaw;
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
   const contasOrdenadas = [...contas].sort((a, b) =>
@@ -79,6 +84,10 @@ export default async function DespesasPage({
     vencimento: d.vencimento,
     valor: String(d.valor),
     status: d.status,
+    formaPagamento: d.formaPagamento,
+    obs: d.obs,
+    cancelado: d.cancelado,
+    origem: d.origem ?? null,
   });
   const refProps = {
     fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome })),
@@ -90,13 +99,14 @@ export default async function DespesasPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${project.name} · Atual`}
+        eyebrow={isAll ? "Todos os projetos / filiais" : `${project.name} · Atual`}
         title="Lançamentos de Despesas"
         subtitle={`${despesas.length} lançamentos · total ${brl0(total)}`}
         actions={
           <ProjectPicker
             projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-            selected={project.id}
+            selected={isAll ? "all" : project.id}
+            allOption
           />
         }
       />
@@ -138,6 +148,7 @@ export default async function DespesasPage({
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}
+            showOrigem={isAll}
             canEditar={canEditar}
             canExcluir={canExcluir}
             canEditNumero={canEditNumero}
@@ -213,7 +224,7 @@ async function Repositorio({
       {canEdit && r2 && (
         <Card className="mb-6">
           <CardContent className="p-5">
-            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <div>
                 <Label>Despesa (opcional)</Label>
                 <Select name="despesaId" defaultValue="">
@@ -226,7 +237,16 @@ async function Repositorio({
                 </Select>
               </div>
               <div>
-                <Label>Arquivo (NF/contrato, até 10 MB)</Label>
+                <Label>Tipo do documento</Label>
+                <Select name="tipo" defaultValue="">
+                  <option value="">—</option>
+                  {["Boleto", "Nota Fiscal", "Recibo", "Contrato", "Comprovante de pagamento", "Outros"].map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Arquivo (até 10 MB)</Label>
                 <input type="file" name="file" className="text-xs" required />
               </div>
               <div className="flex items-end">
@@ -246,7 +266,10 @@ async function Repositorio({
         <THead>
           <tr>
             <TH>Arquivo</TH>
+            <TH>Tipo</TH>
             <TH>Despesa vinculada</TH>
+            <TH>Enviado por</TH>
+            <TH>Enviado em</TH>
             <TH className="text-right">Tamanho</TH>
             <TH></TH>
           </tr>
@@ -255,10 +278,15 @@ async function Repositorio({
           {withUrls.map((d) => (
             <TR key={d.id}>
               <TD className="font-medium text-[var(--color-ink)]">{d.filename}</TD>
+              <TD className="text-[var(--color-ink2)]">{d.tipo ?? "—"}</TD>
               <TD>
                 {d.despesaId && despById.get(d.despesaId)
                   ? `${despById.get(d.despesaId)!.competencia ?? ""} · ${brl0(Number(despById.get(d.despesaId)!.valor))}`
                   : "—"}
+              </TD>
+              <TD className="text-[var(--color-ink3)]">{d.uploadedBy ?? "—"}</TD>
+              <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                {d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString("pt-BR") : "—"}
               </TD>
               <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
                 {d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—"}
@@ -274,7 +302,7 @@ async function Repositorio({
           ))}
           {withUrls.length === 0 && (
             <TR>
-              <TD colSpan={4} className="py-6 text-center text-[var(--color-ink3)]">
+              <TD colSpan={7} className="py-6 text-center text-[var(--color-ink3)]">
                 Nenhum documento.
               </TD>
             </TR>
