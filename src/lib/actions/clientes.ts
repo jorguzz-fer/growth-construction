@@ -1,12 +1,13 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
 
 const s = (fd: FormData, k: string) => {
   const v = (fd.get(k) as string) ?? "";
@@ -142,4 +143,68 @@ export async function deleteCliente(formData: FormData) {
   });
   revalidatePath("/clientes");
   redirect("/clientes");
+}
+
+/**
+ * Anexa um documento de venda/contrato a um cliente (e, opcionalmente, à
+ * unidade/projeto). Ao substituir um documento do mesmo tipo, a versão anterior
+ * é preservada (histórico) e a nova recebe versao = maior + 1.
+ */
+export async function uploadClienteDoc(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "clientes", "editar")) {
+    throw new Error("Sem permissão para anexar documentos.");
+  }
+  if (!isR2Configured()) {
+    throw new Error("Storage (R2) não configurado — defina as variáveis R2_*.");
+  }
+  const clienteId = (formData.get("clienteId") as string) || "";
+  if (!clienteId) throw new Error("Cliente inválido.");
+  const [cli] = await db
+    .select({ id: schema.clientes.id, unitCode: schema.clientes.unitCode })
+    .from(schema.clientes)
+    .where(and(eq(schema.clientes.id, clienteId), eq(schema.clientes.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!cli) throw new Error("Cliente não encontrado.");
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
+  const tipo = ((formData.get("tipo") as string) || "").trim() || null;
+
+  // Versão: maior versão existente do mesmo cliente + tipo, + 1 (histórico).
+  const anteriores = await db
+    .select({ versao: schema.documents.versao })
+    .from(schema.documents)
+    .where(and(eq(schema.documents.clienteId, clienteId), eq(schema.documents.tenantId, ctx.tenant.id)))
+    .orderBy(desc(schema.documents.versao))
+    .limit(1);
+  const versao = (anteriores[0]?.versao ?? 0) + 1;
+
+  const safe = file.name.replace(/[^\w.\-]+/g, "_");
+  const key = `tenants/${ctx.tenant.id}/vendas/${Date.now()}_${safe}`;
+  await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+
+  await db.insert(schema.documents).values({
+    tenantId: ctx.tenant.id,
+    clienteId,
+    unitCode: (formData.get("unitCode") as string) || cli.unitCode || null,
+    projectId: (formData.get("projectId") as string) || null,
+    storageKey: key,
+    filename: file.name,
+    contentType: file.type || null,
+    size: file.size,
+    tipo,
+    versao,
+    uploadedBy: ctx.userEmail || ctx.userId || null,
+  });
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "cliente.doc.upload",
+    entity: "document",
+    entityId: clienteId,
+    meta: { filename: file.name, tipo, versao },
+  });
+  revalidatePath(`/clientes/${clienteId}`);
 }

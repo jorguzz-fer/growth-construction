@@ -570,6 +570,14 @@ export const documents = pgTable("document", {
   despesaId: uuid("despesa_id").references(() => despesas.id, {
     onDelete: "cascade",
   }),
+  /** Vínculos comerciais (documentos de venda/contrato). */
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "cascade",
+  }),
+  unitCode: text("unit_code"),
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
   /** chave do objeto no bucket R2. */
   storageKey: text("storage_key").notNull(),
   filename: text("filename").notNull(),
@@ -577,6 +585,8 @@ export const documents = pgTable("document", {
   size: integer("size"),
   /** tipo do documento: Boleto, Nota Fiscal, Recibo, Contrato, Comprovante… */
   tipo: text("tipo"),
+  /** versão do documento quando substituído (mantém histórico). */
+  versao: integer("versao").notNull().default(1),
   /** quem realizou o upload (e-mail/id). */
   uploadedBy: text("uploaded_by"),
   uploadedAt: timestamp("uploaded_at", { mode: "date" }).notNull().defaultNow(),
