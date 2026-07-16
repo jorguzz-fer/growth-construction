@@ -649,6 +649,10 @@ export const cashEntries = pgTable("cash_entry", {
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   cat: text("cat"),
   unitCode: text("unit_code"),
+  /** nº do documento do extrato (quando importado). */
+  doc: text("doc"),
+  /** assinatura do lançamento importado (dedup do extrato). */
+  importHash: text("import_hash"),
   /** conciliado com o extrato? */
   rec: boolean("rec").notNull().default(false),
 });

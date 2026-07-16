@@ -148,6 +148,13 @@
       "when": 1784026137320,
       "tag": "0020_stock_movement_origem_vinculos",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784199526102,
+      "tag": "0021_cash_entry_import_dedup",
+      "breakpoints": true
     }
   ]
 }
