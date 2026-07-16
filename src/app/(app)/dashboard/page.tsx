@@ -7,6 +7,7 @@ import {
   getUnits,
   getPermutas,
   getReembolsos,
+  getContasPagar,
   permToCalc,
   reembToCalc,
   toCalcUnit,
@@ -78,6 +79,8 @@ interface Venc {
   label: string;
   value: number;
   overdue: boolean;
+  /** "receber" (entrada) ou "pagar" (saída/contas a pagar). */
+  tipo: "receber" | "pagar";
 }
 
 /** Expande o plano de pagamento das unidades vendidas em vencimentos rotulados. */
@@ -110,6 +113,7 @@ function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
           label: n > 1 ? `${s.label} #${i + 1}` : s.label,
           value: val,
           overdue: ord < todayOrd,
+          tipo: "receber",
         });
       }
     }
@@ -131,6 +135,7 @@ function expandVencimentos(units: UnitRow[], todayOrd: number): Venc[] {
         label: s.label,
         value: val,
         overdue: ord < todayOrd,
+        tipo: "receber",
       });
     }
   }
@@ -193,10 +198,33 @@ export default async function DashboardPage({
 
   const now = new Date();
   const todayOrd = now.getFullYear() * 12 + now.getMonth();
-  const vencimentos = expandVencimentos(primUnits, todayOrd)
+
+  // Próximos vencimentos = recebíveis das unidades (entrada) + contas a pagar
+  // reais do projeto (saída), de qualquer versão detalhada. Assim o dashboard
+  // "caixa real" contabiliza as contas a pagar/receber já lançadas.
+  const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
+    (c) =>
+      c.projectId === ctx.project.id &&
+      c.status !== "Pago" &&
+      !!c.vencimento,
+  );
+  const pagarVenc: Venc[] = contasPagarProj.map((c) => {
+    const d = parseDate(c.vencimento as string);
+    const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
+    return {
+      ord,
+      dateLabel: d ? `${String(d.d).padStart(2, "0")}/${String(d.mo).padStart(2, "0")}/${d.yr}` : "—",
+      unitCode: c.fornecedorNome ?? c.numDoc ?? "Conta a pagar",
+      label: c.descricao ?? c.numDoc ?? "Conta a pagar",
+      value: c.valor,
+      overdue: ord < todayOrd,
+      tipo: "pagar",
+    };
+  });
+  const vencimentos = [...expandVencimentos(primUnits, todayOrd), ...pagarVenc]
     .filter((v) => v.ord >= todayOrd - 3)
     .sort((a, b) => a.ord - b.ord)
-    .slice(0, 6);
+    .slice(0, 8);
 
   const kpis = [
     { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
@@ -333,12 +361,17 @@ export default async function DashboardPage({
                     <span className="flex-1 text-[13px] text-[var(--color-ink2)]">
                       {v.unitCode} — {v.label}
                     </span>
+                    <Badge tone={v.tipo === "pagar" ? "warning" : "success"}>
+                      {v.tipo === "pagar" ? "a pagar" : "a receber"}
+                    </Badge>
                     <span
                       className={`font-[family-name:var(--font-mono)] text-[13px] font-semibold ${
-                        v.overdue ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"
+                        v.tipo === "pagar"
+                          ? "text-[var(--color-danger)]"
+                          : "text-[var(--color-success)]"
                       }`}
                     >
-                      {brl0(v.value)}
+                      {v.tipo === "pagar" ? "−" : "+"}{brl0(v.value)}
                     </span>
                     {v.overdue && <Badge tone="danger">Atraso</Badge>}
                   </li>
