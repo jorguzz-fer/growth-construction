@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
+import { baixarXlsx } from "@/lib/download";
 import {
   saveBudgetDespesaLinhas,
   type DespesaLinhaInput,
@@ -149,8 +150,7 @@ export function DespesaLinhasEditor({
     }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Despesas");
-    // writeFile dispara o download de forma confiável no browser.
-    XLSX.writeFile(wb, `despesas-${kind}.xlsx`);
+    baixarXlsx(wb, `despesas-${kind}.xlsx`);
   };
 
   const importar = (file: File) => {
