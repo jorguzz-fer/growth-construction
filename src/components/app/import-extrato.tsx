@@ -314,7 +314,7 @@ export function ImportExtratoButton({
           accept={
             aiConfigured
               ? ".xlsx,.xls,.csv,application/pdf,image/png,image/jpeg,image/webp"
-              : ".xlsx,.xls,.csv"
+              : ".xlsx,.xls,.csv,application/pdf"
           }
           hidden
           onChange={(e) => {
@@ -348,22 +348,18 @@ export function ImportExtratoButton({
             disabled={pending || reading || !bankAccountId}
             onClick={() => inputRef.current?.click()}
           >
-            {reading
-              ? "Lendo PDF…"
-              : aiConfigured
-                ? "Selecionar arquivo (XLSX/CSV/PDF)"
-                : "Selecionar arquivo (XLSX/CSV)"}
+            {reading ? "Lendo PDF…" : "Selecionar arquivo (XLSX/CSV/PDF)"}
           </Button>
         </div>
         <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-          Selecione a conta e o arquivo do extrato. O sistema lê as colunas de
-          Data, Histórico, Documento e Valor (formatos brasileiro e americano,
-          valores positivos/negativos)
-          {aiConfigured ? " — e também extratos em PDF/imagem por IA" : ""}, mostra
-          uma <strong>pré-visualização</strong> para você escolher o que importar e
-          concilia automaticamente com as despesas/receitas previstas.
-          Lançamentos já importados são ignorados. O PDF original fica armazenado
-          para auditoria.
+          Selecione a conta e o arquivo do extrato (XLSX, CSV ou <strong>PDF</strong>).
+          O sistema lê Data, Histórico, Documento e Valor, mostra uma{" "}
+          <strong>pré-visualização</strong> para você revisar e escolher o que
+          importar, e concilia com as despesas/receitas previstas. Lançamentos já
+          importados são ignorados. O PDF original fica armazenado para auditoria.
+          {aiConfigured
+            ? " Com IA ativa, também lê extratos em imagem."
+            : " (PDF de texto; PDFs escaneados/imagem exigem IA.)"}
         </p>
         {!bankAccountId && contas.length === 0 && (
           <p className="mt-1 text-[11.5px] text-[var(--color-warning)]">

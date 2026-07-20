@@ -9,7 +9,11 @@ import { logAudit } from "@/lib/audit";
 import { getDespesas, getUnits, toCalcUnit } from "@/lib/queries";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
-import { extractExtratoFromDocument, type ExtratoExtraido } from "@/lib/ai/extrato-extract";
+import {
+  extractExtratoFromDocument,
+  extractExtratoFromText,
+  type ExtratoExtraido,
+} from "@/lib/ai/extrato-extract";
 
 /** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
 const EXTRATO_AI_MIME = [
@@ -31,11 +35,6 @@ export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtr
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão para importar extrato.");
   }
-  if (!isAiConfigured()) {
-    throw new Error(
-      "Leitura de PDF por IA não configurada (defina ANTHROPIC_API_KEY). Use XLSX/CSV ou configure a IA.",
-    );
-  }
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione um arquivo de extrato.");
   if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
@@ -44,7 +43,24 @@ export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtr
     throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato.");
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const result = await extractExtratoFromDocument(bytes, mime);
+  // Com IA configurada, usa a leitura por IA (melhor precisão, inclusive imagens).
+  // Sem IA, faz leitura de TEXTO do PDF (unpdf) por heurística — o usuário revisa
+  // e ajusta na tela de conferência. Imagens sem IA não são suportadas.
+  let result: ExtratoExtraido;
+  if (isAiConfigured()) {
+    result = await extractExtratoFromDocument(bytes, mime);
+  } else if (mime === "application/pdf") {
+    result = await extractExtratoFromText(bytes);
+    if (result.movimentos.length === 0) {
+      throw new Error(
+        "Não consegui identificar movimentações no texto do PDF. O arquivo pode ser uma imagem/escaneado — envie XLSX/CSV, ou configure a leitura por IA (ANTHROPIC_API_KEY).",
+      );
+    }
+  } else {
+    throw new Error(
+      "Leitura de imagem exige IA (ANTHROPIC_API_KEY). Para PDF sem IA, envie o PDF com texto; ou use XLSX/CSV.",
+    );
+  }
 
   // Guarda o arquivo original do extrato para auditoria (quando o R2 existe).
   const bankAccountId = (formData.get("bankAccountId") as string) || null;

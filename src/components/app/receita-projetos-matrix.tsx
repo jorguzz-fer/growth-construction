@@ -111,15 +111,9 @@ export function ReceitaProjetosMatrix({
       aoa.push([r.projectName, ...months.map((m) => Number(data[r.projectId]?.[m]) || 0)]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Receitas");
-    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const url = URL.createObjectURL(
-      new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receitas-${kind}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // writeFile dispara o download de forma confiável no browser (evita o bug de
+    // revogar o object URL antes do clique concluir).
+    XLSX.writeFile(wb, `receitas-${kind}.xlsx`);
   };
 
   const importar = (file: File) => {

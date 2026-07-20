@@ -27,6 +27,65 @@ export interface ExtratoExtraido {
 
 type ImageMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
+/** Valor monetário BR em texto → número (sem sinal). Ex.: "1.234,56" → 1234.56. */
+function parseBRMoney(s: string): number | null {
+  const m = s.replace(/\s/g, "").match(/-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}/);
+  if (!m) return null;
+  const n = Number(m[0].replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(n) ? Math.abs(n) : null;
+}
+
+/**
+ * Extração SEM IA de um extrato em PDF: lê o texto do PDF (unpdf) e identifica,
+ * por heurística, linhas com data + valor. É "melhor esforço" — a decisão final
+ * fica com o usuário na tela de conferência. Usado quando a IA não está
+ * configurada (ANTHROPIC_API_KEY ausente).
+ */
+export async function extractExtratoFromText(bytes: Uint8Array): Promise<ExtratoExtraido> {
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(bytes);
+  const { text } = await extractText(pdf, { mergePages: true });
+  const linhas = String(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const movimentos: ExtratoMovimento[] = [];
+  let saldoFinal: number | null = null;
+  const dateRe = /(\d{1,2})[/](\d{1,2})[/](\d{2,4})/;
+  const moneyGlobal = /-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}/g;
+  for (const linha of linhas) {
+    const dm = linha.match(dateRe);
+    const valores = linha.match(moneyGlobal);
+    if (!dm || !valores || valores.length === 0) continue;
+    const baixa = /^\s*saldo|saldo\s+(?:anterior|final|do dia|disp)/i.test(linha);
+    if (baixa) {
+      const v = parseBRMoney(valores[valores.length - 1]);
+      if (v != null) saldoFinal = /-/.test(valores[valores.length - 1]) ? -v : v;
+      continue;
+    }
+    // Último valor da linha costuma ser saldo; o penúltimo (quando há 2+) tende a
+    // ser o valor do lançamento. Com um único valor, usa-o.
+    const alvo = valores.length >= 2 ? valores[valores.length - 2] : valores[0];
+    const abs = parseBRMoney(alvo);
+    if (abs == null || abs === 0) continue;
+    // Sinal: marcadores de débito/saída na linha ("-", " D ", "DEBITO", "PAGAMENTO").
+    const negativo =
+      /-\s*R?\$?\s*\d/.test(alvo) ||
+      /\b[dD]\b|d[eé]bito|saíd|saida|pagamento|pgto|tarifa|tar\.|compra|saque/i.test(linha);
+    const y = dm[3].length === 2 ? "20" + dm[3] : dm[3];
+    const data = `${dm[2].padStart(2, "0")}/${dm[1].padStart(2, "0")}/${y}`;
+    const descricao =
+      linha
+        .replace(dateRe, "")
+        .replace(moneyGlobal, "")
+        .replace(/\s{2,}/g, " ")
+        .trim() || "—";
+    movimentos.push({ data, descricao, doc: "", valor: negativo ? -abs : abs });
+  }
+  return { movimentos, saldoFinal };
+}
+
 /** "DD/MM/YYYY" ou "YYYY-MM-DD" → interno "MM/DD/YYYY"; vazio se inválido. */
 function toInternal(s: string): string {
   const t = (s || "").trim();

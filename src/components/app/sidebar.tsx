@@ -37,11 +37,16 @@ export function Sidebar({
 
   const allSections: NavSection[] = [
     {
+      title: "Módulo Planejamento",
+      items: [
+        { href: "/budget", label: "Lançamento Budget" },
+        { href: "/forecast", label: "Lançamento Forecast" },
+      ],
+    },
+    {
       title: "Módulo Receitas",
       items: [
         { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
-        { href: "/budget", label: "Lançamento Budget" },
-        { href: "/forecast", label: "Lançamento Forecast" },
         { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
         { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },

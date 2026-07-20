@@ -149,11 +149,8 @@ export function DespesaLinhasEditor({
     }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Despesas");
-    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = `despesas-${kind}.xlsx`; a.click();
-    URL.revokeObjectURL(url);
+    // writeFile dispara o download de forma confiável no browser.
+    XLSX.writeFile(wb, `despesas-${kind}.xlsx`);
   };
 
   const importar = (file: File) => {
