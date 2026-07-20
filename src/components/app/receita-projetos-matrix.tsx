@@ -125,12 +125,23 @@ export function ReceitaProjetosMatrix({
         const grid = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true }).filter((r) => r.length);
         if (!grid.length) throw new Error("Planilha vazia.");
         const cols = (grid[0] as unknown[]).slice(1).map(monthKey);
+        // Todos os meses/anos reconhecidos no cabeçalho (para o resumo).
+        const mesesValidos = cols.filter(Boolean);
+        const anos = [...new Set(mesesValidos.map((m) => m.split("/")[1]).filter(Boolean))].sort();
+        const colsInvalidas = cols.filter((c) => !c).length;
         const next: Record<string, Record<string, string>> = { ...data };
         const cells: ReceitaProjetoCell[] = [];
+        const naoEncontrados: string[] = [];
+        let linhasDados = 0;
         for (const row of grid.slice(1)) {
-          const nome = String((row as unknown[])[0] ?? "").trim().toLowerCase();
-          const pid = byName.get(nome);
-          if (!pid) continue;
+          const nomeRaw = String((row as unknown[])[0] ?? "").trim();
+          if (!nomeRaw) continue;
+          linhasDados++;
+          const pid = byName.get(nomeRaw.toLowerCase());
+          if (!pid) {
+            naoEncontrados.push(nomeRaw);
+            continue;
+          }
           next[pid] = { ...(next[pid] || {}) };
           cols.forEach((mes, i) => {
             if (!mes) return;
@@ -141,9 +152,17 @@ export function ReceitaProjetosMatrix({
         }
         setData(next);
         const res = await saveBudgetReceita(kind, cells);
-        if (res?.skipped?.length)
-          setMsg(`Importado — exceto: ${res.skipped.join(", ")}. Descongele a versão para editar.`);
-        else setMsg("Planilha de receitas importada.");
+        // Resumo do processamento (item 3): anos, valores, linhas, não encontrados.
+        const partes = [
+          `${linhasDados} linha(s) lida(s)`,
+          `${cells.length} valor(es) importado(s)`,
+          `anos ${anos.join(", ") || "—"} (${mesesValidos.length} períodos)`,
+        ];
+        if (colsInvalidas > 0) partes.push(`${colsInvalidas} coluna(s) de mês não reconhecida(s)`);
+        if (naoEncontrados.length)
+          partes.push(`projetos não encontrados: ${[...new Set(naoEncontrados)].join(", ")}`);
+        if (res?.skipped?.length) partes.push(`não gravados (congelados): ${res.skipped.join(", ")}`);
+        setMsg(partes.join(" · ") + ".");
         router.refresh();
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Falha ao importar.");

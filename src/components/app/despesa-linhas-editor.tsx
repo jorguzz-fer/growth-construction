@@ -165,14 +165,27 @@ export function DespesaLinhasEditor({
         const grid = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true }).filter((r) => r.length);
         if (!grid.length) throw new Error("Planilha vazia.");
         const cols = (grid[0] as unknown[]).slice(3).map(monthKey);
+        const mesesValidos = cols.filter(Boolean);
+        const anos = [...new Set(mesesValidos.map((m) => m.split("/")[1]).filter(Boolean))].sort();
+        const colsInvalidas = cols.filter((c) => !c).length;
         const next: Linha[] = [];
+        const naoEncontrados: string[] = [];
+        let linhasDados = 0;
         for (const row of grid.slice(1)) {
-          const projNome = String((row as unknown[])[0] ?? "").trim().toLowerCase();
+          const projNomeRaw = String((row as unknown[])[0] ?? "").trim();
           const grupoTxt = String((row as unknown[])[1] ?? "").trim();
-          const proj = byProjName.get(projNome);
+          if (!projNomeRaw && !grupoTxt) continue;
+          linhasDados++;
+          const proj = byProjName.get(projNomeRaw.toLowerCase());
           const grupo = byGrupoLabel.get(grupoTxt.toLowerCase()) ?? byGrupoCode.get(grupoTxt.split(/\s*·\s*/)[0].trim());
-          if (!proj || !grupo) continue;
-          if (grupo.cef && proj.office) continue; // CEF não vai p/ filial
+          if (!proj || !grupo) {
+            naoEncontrados.push(`${projNomeRaw || "?"} / ${grupoTxt || "?"}`);
+            continue;
+          }
+          if (grupo.cef && proj.office) {
+            naoEncontrados.push(`${projNomeRaw} (grupo CEF não vai para filial)`);
+            continue;
+          }
           const dre = String((row as unknown[])[2] ?? "").trim() || grupo.dreCategory;
           const values: Record<string, string> = {};
           cols.forEach((mes, i) => {
@@ -183,15 +196,25 @@ export function DespesaLinhasEditor({
           next.push({ key: newKey(), projectId: proj.id, grupoCode: grupo.code, dreCategory: dre, values });
         }
         setLinhas(next);
+        // IMPORTANTE (item 3): usa TODOS os meses parseados de cada linha — não os
+        // meses exibidos — para não descartar anos além do horizonte atual.
         await saveBudgetDespesaLinhas(
           kind,
           next.map((l) => ({
             projectId: l.projectId, grupoCode: l.grupoCode, dreCategory: l.dreCategory,
             cef: byGrupoCode.get(l.grupoCode)?.cef ?? false,
-            values: months.map((m) => ({ mes: m, valor: Number(l.values[m]) || 0 })),
+            values: Object.entries(l.values).map(([mes, v]) => ({ mes, valor: Number(v) || 0 })),
           })),
         );
-        setMsg("Planilha de despesas importada.");
+        const valoresImportados = next.reduce((a, l) => a + Object.keys(l.values).length, 0);
+        const partes = [
+          `${linhasDados} linha(s) lida(s)`,
+          `${valoresImportados} valor(es) importado(s)`,
+          `anos ${anos.join(", ") || "—"} (${mesesValidos.length} períodos)`,
+        ];
+        if (colsInvalidas > 0) partes.push(`${colsInvalidas} coluna(s) de mês não reconhecida(s)`);
+        if (naoEncontrados.length) partes.push(`ignoradas: ${[...new Set(naoEncontrados)].slice(0, 8).join("; ")}`);
+        setMsg(partes.join(" · ") + ".");
         router.refresh();
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Falha ao importar.");
