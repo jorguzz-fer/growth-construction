@@ -1271,3 +1271,62 @@ export async function getConciliacaoData(
 
   return { pendentes, conciliados };
 }
+
+// ─────────────────────────── Contas a Receber ───────────────────────────────
+
+export interface ContaReceberRow {
+  id: string;
+  projectId: string;
+  projectName: string;
+  unitCode: string | null;
+  clienteId: string | null;
+  clienteNome: string | null;
+  descricao: string | null;
+  tipo: string;
+  valor: number;
+  vencimento: string | null;
+  dataRecebimento: string | null;
+  valorRecebido: number;
+  status: string;
+  bancoId: string | null;
+  origemCashEntryId: string | null;
+  createdAt: string | null;
+}
+
+/** Contas a receber criadas manualmente / convertidas do extrato (não canceladas). */
+export async function getContasReceber(tenantId: string): Promise<ContaReceberRow[]> {
+  const rows = await db
+    .select({
+      c: schema.contasReceber,
+      projectName: schema.projects.name,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.contasReceber)
+    .innerJoin(schema.projects, eq(schema.contasReceber.projectId, schema.projects.id))
+    .leftJoin(schema.clientes, eq(schema.contasReceber.clienteId, schema.clientes.id))
+    .where(
+      and(
+        eq(schema.contasReceber.tenantId, tenantId),
+        eq(schema.contasReceber.cancelado, false),
+      ),
+    )
+    .orderBy(asc(schema.contasReceber.vencimento));
+  return rows.map((r) => ({
+    id: r.c.id,
+    projectId: r.c.projectId,
+    projectName: r.projectName,
+    unitCode: r.c.unitCode,
+    clienteId: r.c.clienteId,
+    clienteNome: r.clienteNome,
+    descricao: r.c.descricao,
+    tipo: r.c.tipo,
+    valor: Number(r.c.valor),
+    vencimento: r.c.vencimento,
+    dataRecebimento: r.c.dataRecebimento,
+    valorRecebido: Number(r.c.valorRecebido),
+    status: r.c.status,
+    bancoId: r.c.bancoId,
+    origemCashEntryId: r.c.origemCashEntryId,
+    createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
+  }));
+}
