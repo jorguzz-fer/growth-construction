@@ -26,15 +26,62 @@ export async function addStakeholder(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   const papeis = formData.getAll("papeis").map(String).filter(Boolean);
-  await db.insert(schema.stakeholders).values({
+  const g = (k: string) => ((formData.get(k) as string) || "").trim() || null;
+  const [row] = await db
+    .insert(schema.stakeholders)
+    .values({
+      tenantId: ctx.tenant.id,
+      nome: (formData.get("nome") as string) || "Sem nome",
+      tipo: (formData.get("tipo") as "PJ" | "PF") || "PJ",
+      doc: g("doc"),
+      papeis,
+      email: g("email"),
+      tel: g("tel"),
+      obs: g("obs"),
+      // Dados complementares (cadastro inteligente por imagem/PDF — Seção 1).
+      nomeFantasia: g("nomeFantasia"),
+      contato: g("contato"),
+      whatsapp: g("whatsapp"),
+      site: g("site"),
+      endereco: g("endereco"),
+      numero: g("numero"),
+      complemento: g("complemento"),
+      bairro: g("bairro"),
+      cidade: g("cidade"),
+      estado: g("estado"),
+      cep: g("cep"),
+    })
+    .returning();
+
+  // O arquivo original permanece anexado ao cadastro do fornecedor (auditoria).
+  const file = formData.get("file") as File | null;
+  if (file && file.size > 0 && isR2Configured()) {
+    const safe = file.name.replace(/[^\w.\-]+/g, "_");
+    const key = `tenants/${ctx.tenant.id}/fornecedores/${Date.now()}_${safe}`;
+    await putObject(
+      key,
+      new Uint8Array(await file.arrayBuffer()),
+      file.type || "application/octet-stream",
+    );
+    await db.insert(schema.documents).values({
+      tenantId: ctx.tenant.id,
+      stakeholderId: row.id,
+      storageKey: key,
+      filename: file.name,
+      contentType: file.type || null,
+      size: file.size,
+      tipo: "Cadastro de fornecedor",
+      uploadedBy: ctx.userEmail || ctx.userId || null,
+    });
+  }
+
+  await logAudit({
     tenantId: ctx.tenant.id,
-    nome: (formData.get("nome") as string) || "Sem nome",
-    tipo: (formData.get("tipo") as "PJ" | "PF") || "PJ",
-    doc: (formData.get("doc") as string) || null,
-    papeis,
-    email: (formData.get("email") as string) || null,
-    tel: (formData.get("tel") as string) || null,
-    obs: (formData.get("obs") as string) || null,
+    userId: ctx.userId,
+    action: "stakeholder.create",
+    entity: "stakeholder",
+    entityId: row.id,
+    meta: { nome: row.nome, papeis, comDocumento: !!(file && file.size > 0) },
   });
   revalidatePath("/fornecedores");
 }
