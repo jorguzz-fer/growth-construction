@@ -1,7 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -143,13 +143,21 @@ export interface ReceitaProjetoCell {
   valor: number;
 }
 
-/** Substitui apenas as linhas de receita de uma rowKey específica da versão. */
+/**
+ * Substitui a receita de um projeto na versão. Para a linha do projeto
+ * (RECEITA_ROW_KEY) remove TODAS as linhas de receita que NÃO sejam "Outras
+ * Receitas" — inclusive rowKeys legados/importados — e regrava consolidado sob
+ * "Receita". Isso evita que valores "fantasma" sob outro rowKey reapareçam ao
+ * recarregar (causa do valor manual que "voltava" ao anterior). Para a própria
+ * linha "Outras Receitas", remove apenas ela.
+ */
 async function replaceReceitaRowKey(
   tenantId: string,
   versionId: string,
   rowKey: string,
   monthValues: { mes: string; valor: number }[],
 ) {
+  const isOutras = rowKey === OUTRAS_RECEITAS_KEY;
   await db.transaction(async (tx) => {
     await tx
       .delete(schema.budgetLines)
@@ -157,7 +165,9 @@ async function replaceReceitaRowKey(
         and(
           eq(schema.budgetLines.versionId, versionId),
           eq(schema.budgetLines.kind, "receita"),
-          eq(schema.budgetLines.rowKey, rowKey),
+          isOutras
+            ? eq(schema.budgetLines.rowKey, OUTRAS_RECEITAS_KEY)
+            : ne(schema.budgetLines.rowKey, OUTRAS_RECEITAS_KEY),
         ),
       );
     const rows = monthValues
@@ -192,10 +202,26 @@ async function anchorVersion(tenantId: string, kind: string) {
  * "Receita". A linha "Outras Receitas" (projectId sentinela) grava na versão
  * âncora sob a rowKey "Outras Receitas".
  */
+/** Soma a receita atual de uma versão (linha do projeto ou "Outras Receitas"). */
+async function receitaTotal(versionId: string, isOutras: boolean): Promise<number> {
+  const rows = await db
+    .select({ rowKey: schema.budgetLines.rowKey, valor: schema.budgetLines.valor })
+    .from(schema.budgetLines)
+    .where(
+      and(
+        eq(schema.budgetLines.versionId, versionId),
+        eq(schema.budgetLines.kind, "receita"),
+      ),
+    );
+  return rows
+    .filter((r) => (r.rowKey === OUTRAS_RECEITAS_KEY) === isOutras)
+    .reduce((a, r) => a + Number(r.valor), 0);
+}
+
 export async function saveBudgetReceita(
   kind: "budget" | "forecast",
   cells: ReceitaProjetoCell[],
-) {
+): Promise<{ skipped: string[] }> {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
 
@@ -210,19 +236,45 @@ export async function saveBudgetReceita(
   // (para permitir zerar), desde que exista âncora.
   if (!byProject.has(OUTRAS_RECEITAS_PID)) byProject.set(OUTRAS_RECEITAS_PID, []);
 
+  // Nomes dos projetos para mensagens claras de "não foi possível salvar".
+  const projs = await db
+    .select({ id: schema.projects.id, name: schema.projects.name })
+    .from(schema.projects)
+    .where(eq(schema.projects.tenantId, ctx.tenant.id));
+  const nameOf = new Map(projs.map((p) => [p.id, p.name]));
+
+  const skipped: string[] = [];
+  const changes: { projeto: string; de: number; para: number }[] = [];
   let saved = 0;
   for (const [projectId, pcells] of byProject) {
     const isOutras = projectId === OUTRAS_RECEITAS_PID;
+    const temValor = pcells.some((c) => Number(c.valor) !== 0);
     const v = isOutras
       ? await anchorVersion(ctx.tenant.id, kind)
       : await siblingVersion(projectId, kind);
-    if (!v || v.tenantId !== ctx.tenant.id || v.locked) continue;
+    if (!v || v.tenantId !== ctx.tenant.id) {
+      if (!isOutras && temValor) skipped.push(nameOf.get(projectId) ?? "Projeto");
+      continue;
+    }
+    if (v.locked) {
+      // Versão congelada: não sobrescreve. Só sinaliza se o usuário tentou lançar.
+      if (!isOutras && temValor) skipped.push(`${nameOf.get(projectId) ?? "Projeto"} (congelada)`);
+      continue;
+    }
+    const de = await receitaTotal(v.id, isOutras);
     await replaceReceitaRowKey(
       ctx.tenant.id,
       v.id,
       isOutras ? OUTRAS_RECEITAS_KEY : RECEITA_ROW_KEY,
       pcells.map((c) => ({ mes: c.mes, valor: Number(c.valor) })),
     );
+    const para = pcells.reduce((a, c) => a + Number(c.valor || 0), 0);
+    if (de !== para)
+      changes.push({
+        projeto: isOutras ? OUTRAS_RECEITAS_KEY : nameOf.get(projectId) ?? "Projeto",
+        de,
+        para,
+      });
     saved++;
   }
 
@@ -232,9 +284,10 @@ export async function saveBudgetReceita(
     action: "budget.saveReceita",
     entity: "budget_line",
     entityId: kind,
-    meta: { grupos: saved },
+    meta: { kind, grupos: saved, changes, skipped },
   });
   revalidateLancamento();
+  return { skipped };
 }
 
 /** Copia os lançamentos do Budget do projeto para a versão Forecast. */

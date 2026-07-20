@@ -37,7 +37,9 @@ export default async function UnidadesPage({
 
   const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
   const version = await getAtualVersion(ctx.tenant.id, project.id);
-  const allRows = await getUnits(version?.id ?? ctx.version.id);
+  // Só lista unidades da versão Atual DESTE projeto. Sem versão Atual, lista
+  // vazia — nunca cai na versão de outro projeto (evita mostrar unidades alheias).
+  const allRows = version ? await getUnits(version.id) : [];
   const rows = filter ? allRows.filter((r) => r.status === filter) : allRows;
 
   const vgv = allRows.reduce((a, r) => a + Number(r.valor), 0);

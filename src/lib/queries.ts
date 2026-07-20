@@ -757,7 +757,6 @@ export async function getReceitaByProject(
       .where(eq(schema.inccRates.tenantId, tenantId)),
   ]);
 
-  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
   const verByProj = new Map(vers.map((v) => [v.projectId, v.id]));
   const versionIds = vers.map((v) => v.id);
 
@@ -772,6 +771,12 @@ export async function getReceitaByProject(
           ),
         )
     : [];
+  // Meses = união do horizonte INCC com todos os meses efetivamente lançados.
+  // Garante que dados de anos além do INCC (ex.: import de Budget multi-ano)
+  // apareçam na matriz e sejam considerados ao salvar.
+  const monthSet = new Set(incc.map((r) => r.mes));
+  for (const l of lines) monthSet.add(l.mes);
+  const months = [...monthSet].sort(sortMonthKey);
   // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
   const receitaByVer = new Map<string, Record<string, number>>();
   const outrasByVer = new Map<string, Record<string, number>>();
@@ -844,7 +849,6 @@ export async function getDespesaLinhas(
     db.select({ mes: schema.inccRates.mes }).from(schema.inccRates).where(eq(schema.inccRates.tenantId, tenantId)),
   ]);
 
-  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
   const projById = new Map(projs.map((p) => [p.id, p.name]));
   const verById = new Map(vers.map((v) => [v.id, v.projectId]));
 
@@ -878,6 +882,12 @@ export async function getDespesaLinhas(
           ),
         )
     : [];
+
+  // Meses = união do horizonte INCC com todos os meses efetivamente lançados
+  // (mostra despesas de anos além do INCC, ex.: import de Budget multi-ano).
+  const monthSet = new Set(incc.map((r) => r.mes));
+  for (const l of bl) monthSet.add(l.mes);
+  const months = [...monthSet].sort(sortMonthKey);
 
   const lineMap = new Map<string, DespesaLinha>();
   for (const l of bl) {
