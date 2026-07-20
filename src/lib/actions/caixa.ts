@@ -7,6 +7,76 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { getDespesas, getUnits, toCalcUnit } from "@/lib/queries";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { extractExtratoFromDocument, type ExtratoExtraido } from "@/lib/ai/extrato-extract";
+
+/** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
+const EXTRATO_AI_MIME = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
+/**
+ * Lê um extrato bancário em PDF (ou imagem) por IA e retorna as movimentações
+ * identificadas para conferência na mesma tela de pré-visualização usada pelos
+ * formatos XLSX/CSV. O PDF original é armazenado (R2) para consulta/auditoria.
+ * A importação só ocorre após o usuário confirmar — nada é gravado aqui.
+ */
+export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtraido> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão para importar extrato.");
+  }
+  if (!isAiConfigured()) {
+    throw new Error(
+      "Leitura de PDF por IA não configurada (defina ANTHROPIC_API_KEY). Use XLSX/CSV ou configure a IA.",
+    );
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo de extrato.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
+  const mime = file.type || "";
+  if (!(EXTRATO_AI_MIME as readonly string[]).includes(mime)) {
+    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato.");
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const result = await extractExtratoFromDocument(bytes, mime);
+
+  // Guarda o arquivo original do extrato para auditoria (quando o R2 existe).
+  const bankAccountId = (formData.get("bankAccountId") as string) || null;
+  if (isR2Configured()) {
+    try {
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/extratos/${Date.now()}_${safe}`;
+      await putObject(key, bytes, file.type || "application/octet-stream");
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo: "Extrato bancário",
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+    } catch {
+      // Falha ao armazenar o original não impede a conferência/importação.
+    }
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "extrato.readPdf",
+    entity: "cash_entry",
+    entityId: bankAccountId ?? "—",
+    meta: { arquivo: file.name, movimentos: result.movimentos.length },
+  });
+  return result;
+}
 
 /** "MM/DD/YYYY" | "MM/YYYY" → "MM/YYYY" (para casar por competência). */
 function monthKeyFrom(d?: string | null): string | null {
@@ -282,4 +352,134 @@ export async function toggleConciliado(id: string, rec: boolean) {
     .set({ rec })
     .where(eq(schema.cashEntries.id, id));
   revalidatePath("/caixa");
+}
+
+/**
+ * Concilia um movimento do extrato com uma conta a pagar (despesa) escolhida
+ * pelo usuário: marca a despesa como PAGA (data e banco do movimento), vincula o
+ * movimento à despesa e registra a auditoria. Nada é conciliado automaticamente
+ * — só por esta ação. Um movimento não pode ser conciliado mais de uma vez.
+ */
+export async function conciliarDespesa(input: {
+  cashEntryId: string;
+  despesaId: string;
+}): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão para conciliar.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(
+      and(
+        eq(schema.cashEntries.id, input.cashEntryId),
+        eq(schema.cashEntries.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (mov.rec || mov.conciliadoDespesaId) {
+    throw new Error("Este movimento já está conciliado.");
+  }
+  const [desp] = await db
+    .select()
+    .from(schema.despesas)
+    .where(
+      and(
+        eq(schema.despesas.id, input.despesaId),
+        eq(schema.despesas.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!desp) throw new Error("Despesa não encontrada.");
+  if (desp.cancelado) throw new Error("Despesa cancelada.");
+  if (desp.status === "Pago") {
+    throw new Error("Esta despesa já está paga. Escolha outra ou desfaça o pagamento antes.");
+  }
+
+  const agora = new Date().toISOString();
+  await db
+    .update(schema.despesas)
+    .set({
+      status: "Pago",
+      dataCaixa: mov.data,
+      bancoId: mov.bankAccountId ?? desp.bancoId,
+    })
+    .where(eq(schema.despesas.id, desp.id));
+  await db
+    .update(schema.cashEntries)
+    .set({
+      rec: true,
+      conciliadoDespesaId: desp.id,
+      conciliadoPor: ctx.userEmail || ctx.userId || null,
+      conciliadoEm: agora,
+    })
+    .where(eq(schema.cashEntries.id, mov.id));
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "conciliacao.create",
+    entity: "cash_entry",
+    entityId: mov.id,
+    meta: { despesaId: desp.id, numDoc: desp.numDoc, valor: mov.valor, data: mov.data },
+  });
+  revalidatePath("/caixa");
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+}
+
+/**
+ * Desfaz uma conciliação (somente usuários autorizados): restaura a despesa para
+ * "A pagar" (remove data de pagamento) e libera o movimento. Preserva o registro
+ * de auditoria da operação.
+ */
+export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "excluir")) {
+    throw new Error("Sem permissão para desfazer conciliação.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(
+      and(
+        eq(schema.cashEntries.id, cashEntryId),
+        eq(schema.cashEntries.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (!mov.conciliadoDespesaId) {
+    // Nada vinculado: apenas garante o flag desmarcado.
+    await db.update(schema.cashEntries).set({ rec: false }).where(eq(schema.cashEntries.id, mov.id));
+    revalidatePath("/caixa");
+    return;
+  }
+  await db
+    .update(schema.despesas)
+    .set({ status: "A pagar", dataCaixa: null })
+    .where(
+      and(
+        eq(schema.despesas.id, mov.conciliadoDespesaId),
+        eq(schema.despesas.tenantId, ctx.tenant.id),
+      ),
+    );
+  await db
+    .update(schema.cashEntries)
+    .set({ rec: false, conciliadoDespesaId: null, conciliadoPor: null, conciliadoEm: null })
+    .where(eq(schema.cashEntries.id, mov.id));
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "conciliacao.undo",
+    entity: "cash_entry",
+    entityId: mov.id,
+    meta: { despesaId: mov.conciliadoDespesaId },
+  });
+  revalidatePath("/caixa");
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
 }

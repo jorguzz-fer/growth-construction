@@ -25,12 +25,25 @@ export function FornecedorForm({
   const [notice, setNotice] = useState<string | null>(null);
 
   const [nome, setNome] = useState("");
+  const [nomeFantasia, setNomeFantasia] = useState("");
   const [tipo, setTipo] = useState("PJ");
   const [doc, setDoc] = useState("");
+  const [contato, setContato] = useState("");
   const [email, setEmail] = useState("");
   const [tel, setTel] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [site, setSite] = useState("");
+  const [endereco, setEndereco] = useState("");
+  const [numero, setNumero] = useState("");
+  const [complemento, setComplemento] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [cidade, setCidade] = useState("");
+  const [estado, setEstado] = useState("");
+  const [cep, setCep] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [file, setFile] = useState<File | null>(null);
+  /** Campos que a IA sinalizou como baixa confiança (para o usuário conferir). */
+  const [lowConf, setLowConf] = useState<Set<string>>(new Set());
 
   const toggle = (p: string) =>
     setSelected((prev) => {
@@ -39,6 +52,17 @@ export function FornecedorForm({
       else next.add(p);
       return next;
     });
+
+  /** Marca de "baixa confiança" ao lado do rótulo de um campo lido pela IA. */
+  const lc = (field: string) =>
+    lowConf.has(field) ? (
+      <span
+        className="ml-1 text-[10px] font-normal text-[var(--color-warning)]"
+        title="Preenchido com baixa confiança pela IA — confira"
+      >
+        ⚠ conferir
+      </span>
+    ) : null;
 
   function ler() {
     if (!file) {
@@ -53,33 +77,48 @@ export function FornecedorForm({
       try {
         const x = await extractFornecedorFromDoc(fd);
         const filled: string[] = [];
-        if (x.nome) {
-          setNome(x.nome);
-          filled.push("nome");
-        }
-        if (x.tipo) {
+        // Não sobrescreve campos já preenchidos manualmente sem necessidade:
+        // só preenche o que a IA trouxe E o campo está vazio.
+        const set = (
+          val: string,
+          cur: string,
+          setter: (v: string) => void,
+          label: string,
+        ) => {
+          if (val && !cur.trim()) {
+            setter(val);
+            filled.push(label);
+          }
+        };
+        set(x.nome, nome, setNome, "nome");
+        set(x.nomeFantasia, nomeFantasia, setNomeFantasia, "nome fantasia");
+        if (x.tipo && tipo === "PJ") {
           setTipo(x.tipo);
-          filled.push("tipo");
         }
-        if (x.doc) {
-          setDoc(x.doc);
-          filled.push("documento");
-        }
-        if (x.email) {
-          setEmail(x.email);
-          filled.push("e-mail");
-        }
-        if (x.tel) {
-          setTel(x.tel);
-          filled.push("telefone");
-        }
-        if (x.papeis.length) {
+        set(x.doc, doc, setDoc, "documento");
+        set(x.contato, contato, setContato, "contato");
+        set(x.email, email, setEmail, "e-mail");
+        set(x.tel, tel, setTel, "telefone");
+        set(x.whatsapp, whatsapp, setWhatsapp, "whatsapp");
+        set(x.site, site, setSite, "site");
+        set(x.endereco, endereco, setEndereco, "endereço");
+        set(x.numero, numero, setNumero, "número");
+        set(x.complemento, complemento, setComplemento, "complemento");
+        set(x.bairro, bairro, setBairro, "bairro");
+        set(x.cidade, cidade, setCidade, "cidade");
+        set(x.estado, estado, setEstado, "estado");
+        set(x.cep, cep, setCep, "CEP");
+        if (x.papeis.length && selected.size === 0) {
           setSelected(new Set(x.papeis));
           filled.push("papéis");
         }
+        setLowConf(new Set(x.baixaConfianca ?? []));
         setNotice(
           filled.length
-            ? `Campos preenchidos pela IA: ${filled.join(", ")}. Revise e ajuste antes de cadastrar.`
+            ? `Campos preenchidos pela IA: ${filled.join(", ")}. Revise e ajuste antes de cadastrar.` +
+                (x.baixaConfianca?.length
+                  ? ` Confira os campos com baixa confiança: ${x.baixaConfianca.join(", ")}.`
+                  : "")
             : "A IA não conseguiu identificar campos com confiança — preencha manualmente.",
         );
       } catch (e) {
@@ -96,20 +135,44 @@ export function FornecedorForm({
     }
     const fd = new FormData();
     fd.set("nome", nome);
+    fd.set("nomeFantasia", nomeFantasia);
     fd.set("tipo", tipo);
     fd.set("doc", doc);
+    fd.set("contato", contato);
     fd.set("email", email);
     fd.set("tel", tel);
+    fd.set("whatsapp", whatsapp);
+    fd.set("site", site);
+    fd.set("endereco", endereco);
+    fd.set("numero", numero);
+    fd.set("complemento", complemento);
+    fd.set("bairro", bairro);
+    fd.set("cidade", cidade);
+    fd.set("estado", estado);
+    fd.set("cep", cep);
     for (const p of selected) fd.append("papeis", p);
+    if (file) fd.set("file", file);
     startSaving(async () => {
       try {
         await addStakeholder(fd);
         setNome("");
+        setNomeFantasia("");
         setTipo("PJ");
         setDoc("");
+        setContato("");
         setEmail("");
         setTel("");
+        setWhatsapp("");
+        setSite("");
+        setEndereco("");
+        setNumero("");
+        setComplemento("");
+        setBairro("");
+        setCidade("");
+        setEstado("");
+        setCep("");
         setSelected(new Set());
+        setLowConf(new Set());
         setFile(null);
         if (fileRef.current) fileRef.current.value = "";
         setNotice(null);
@@ -183,12 +246,56 @@ export function FornecedorForm({
             <Input value={doc} onChange={(e) => setDoc(e.target.value)} />
           </div>
           <div className="sm:col-span-2">
-            <Label>E-mail</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Label>Nome fantasia{lc("nomeFantasia")}</Label>
+            <Input value={nomeFantasia} onChange={(e) => setNomeFantasia(e.target.value)} />
           </div>
           <div className="sm:col-span-2">
-            <Label>Telefone</Label>
+            <Label>Pessoa de contato{lc("contato")}</Label>
+            <Input value={contato} onChange={(e) => setContato(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>E-mail{lc("email")}</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <Label>Telefone{lc("tel")}</Label>
             <Input value={tel} onChange={(e) => setTel(e.target.value)} />
+          </div>
+          <div>
+            <Label>WhatsApp{lc("whatsapp")}</Label>
+            <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Site{lc("site")}</Label>
+            <Input value={site} onChange={(e) => setSite(e.target.value)} />
+          </div>
+          <div className="sm:col-span-3">
+            <Label>Endereço{lc("endereco")}</Label>
+            <Input value={endereco} onChange={(e) => setEndereco(e.target.value)} />
+          </div>
+          <div>
+            <Label>Número{lc("numero")}</Label>
+            <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Complemento{lc("complemento")}</Label>
+            <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Bairro{lc("bairro")}</Label>
+            <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Cidade{lc("cidade")}</Label>
+            <Input value={cidade} onChange={(e) => setCidade(e.target.value)} />
+          </div>
+          <div>
+            <Label>Estado{lc("estado")}</Label>
+            <Input value={estado} onChange={(e) => setEstado(e.target.value)} maxLength={2} />
+          </div>
+          <div>
+            <Label>CEP{lc("cep")}</Label>
+            <Input value={cep} onChange={(e) => setCep(e.target.value)} />
           </div>
         </div>
 

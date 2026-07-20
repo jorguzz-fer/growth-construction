@@ -191,6 +191,23 @@ export async function getStakeholders(
     .orderBy(asc(schema.stakeholders.nome));
 }
 
+/**
+ * Sócios do tenant: stakeholders ATIVOS com o papel "Sócio/Quotista". Usado no
+ * cadastro de "despesa paga por sócio" (seleção sem digitação livre).
+ */
+export async function getSocios(
+  tenantId: string,
+): Promise<{ id: string; nome: string }[]> {
+  const rows = await db
+    .select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, papeis: schema.stakeholders.papeis, ativo: schema.stakeholders.ativo })
+    .from(schema.stakeholders)
+    .where(eq(schema.stakeholders.tenantId, tenantId))
+    .orderBy(asc(schema.stakeholders.nome));
+  return rows
+    .filter((r) => r.ativo && (r.papeis ?? []).includes("Sócio/Quotista"))
+    .map((r) => ({ id: r.id, nome: r.nome }));
+}
+
 export async function getBankAccounts(
   tenantId: string,
 ): Promise<BankAccountRow[]> {
@@ -757,7 +774,6 @@ export async function getReceitaByProject(
       .where(eq(schema.inccRates.tenantId, tenantId)),
   ]);
 
-  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
   const verByProj = new Map(vers.map((v) => [v.projectId, v.id]));
   const versionIds = vers.map((v) => v.id);
 
@@ -772,6 +788,12 @@ export async function getReceitaByProject(
           ),
         )
     : [];
+  // Meses = união do horizonte INCC com todos os meses efetivamente lançados.
+  // Garante que dados de anos além do INCC (ex.: import de Budget multi-ano)
+  // apareçam na matriz e sejam considerados ao salvar.
+  const monthSet = new Set(incc.map((r) => r.mes));
+  for (const l of lines) monthSet.add(l.mes);
+  const months = [...monthSet].sort(sortMonthKey);
   // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
   const receitaByVer = new Map<string, Record<string, number>>();
   const outrasByVer = new Map<string, Record<string, number>>();
@@ -844,7 +866,6 @@ export async function getDespesaLinhas(
     db.select({ mes: schema.inccRates.mes }).from(schema.inccRates).where(eq(schema.inccRates.tenantId, tenantId)),
   ]);
 
-  const months = [...new Set(incc.map((r) => r.mes))].sort(sortMonthKey);
   const projById = new Map(projs.map((p) => [p.id, p.name]));
   const verById = new Map(vers.map((v) => [v.id, v.projectId]));
 
@@ -878,6 +899,12 @@ export async function getDespesaLinhas(
           ),
         )
     : [];
+
+  // Meses = união do horizonte INCC com todos os meses efetivamente lançados
+  // (mostra despesas de anos além do INCC, ex.: import de Budget multi-ano).
+  const monthSet = new Set(incc.map((r) => r.mes));
+  for (const l of bl) monthSet.add(l.mes);
+  const months = [...monthSet].sort(sortMonthKey);
 
   const lineMap = new Map<string, DespesaLinha>();
   for (const l of bl) {
@@ -1103,4 +1130,144 @@ export async function getAuditLog(
     .where(eq(schema.auditLog.tenantId, tenantId))
     .orderBy(desc(schema.auditLog.createdAt))
     .limit(limit);
+}
+
+// ─────────────────────── Conciliação bancária (Caixa) ───────────────────────
+
+export interface ConciliacaoSugestao {
+  despesaId: string;
+  numDoc: string | null;
+  fornecedor: string | null;
+  descricao: string | null;
+  valor: number;
+  vencimento: string | null;
+  /** grau de compatibilidade (só orientação — decisão é do usuário). */
+  grau: "alta" | "media" | "baixa";
+}
+export interface MovimentoPendente {
+  cashEntryId: string;
+  data: string | null;
+  descricao: string | null;
+  doc: string | null;
+  valor: number;
+  sugestoes: ConciliacaoSugestao[];
+}
+export interface MovimentoConciliado {
+  cashEntryId: string;
+  data: string | null;
+  descricao: string | null;
+  valor: number;
+  despesaId: string | null;
+  despesaNumDoc: string | null;
+  fornecedor: string | null;
+  conciliadoPor: string | null;
+  conciliadoEm: string | null;
+}
+export interface ConciliacaoData {
+  pendentes: MovimentoPendente[];
+  conciliados: MovimentoConciliado[];
+}
+
+const normStr = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+/** "MM/DD/YYYY" → dia serial UTC (para diferença em dias); null se inválido. */
+const diaSerial = (s: string | null | undefined): number | null => {
+  if (!s) return null;
+  const p = s.split("/");
+  if (p.length !== 3) return null;
+  const [mo, d, y] = p.map(Number);
+  if (!y || !mo || !d) return null;
+  return Math.floor(Date.UTC(y, mo - 1, d) / 86400000);
+};
+
+/**
+ * Dados da conciliação bancária: movimentos do extrato ainda não conciliados
+ * (saídas) com SUGESTÕES de contas a pagar em aberto (com grau de
+ * compatibilidade), e os movimentos já conciliados (para desfazer/histórico).
+ * As sugestões são só orientação — nada é conciliado sem ação do usuário.
+ */
+export async function getConciliacaoData(
+  tenantId: string,
+  versionId: string,
+): Promise<ConciliacaoData> {
+  const [entries, contas] = await Promise.all([
+    db
+      .select()
+      .from(schema.cashEntries)
+      .where(
+        and(
+          eq(schema.cashEntries.tenantId, tenantId),
+          eq(schema.cashEntries.versionId, versionId),
+        ),
+      ),
+    getContasPagar(tenantId),
+  ]);
+  const despById = new Map(contas.map((c) => [c.id, c]));
+  const abertas = contas.filter((c) => c.status !== "Pago");
+
+  const pendentes: MovimentoPendente[] = [];
+  const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
+  for (const e of entries) {
+    if (e.rec || e.conciliadoDespesaId) continue;
+    const valor = Number(e.valor);
+    if (!valor || valor >= 0) continue; // só saídas do extrato, por ora
+    const movCents = Math.round(Math.abs(valor) * 100);
+    const movDia = diaSerial(e.data);
+    const desc = normStr(e.descricao ?? "");
+    const sugestoes: (ConciliacaoSugestao & { _prox: number })[] = [];
+    for (const c of abertas) {
+      const cCents = Math.round(Math.abs(c.valor) * 100);
+      const exato = cCents === movCents;
+      const aprox = !exato && Math.abs(cCents - movCents) <= Math.max(50, movCents * 0.02);
+      if (!exato && !aprox) continue;
+      const vDia = diaSerial(c.vencimento);
+      const prox = movDia != null && vDia != null ? Math.abs(vDia - movDia) : 9999;
+      const vencida = movDia != null && vDia != null && vDia <= movDia;
+      const dataProx = prox <= 7 || vencida;
+      const primeiroNome = c.fornecedorNome ? normStr(c.fornecedorNome).split(/\s+/)[0] : "";
+      const nomeMatch = primeiroNome.length >= 3 && desc.includes(primeiroNome);
+      let grau: "alta" | "media" | "baixa";
+      if (exato && (dataProx || nomeMatch)) grau = "alta";
+      else if (exato || (aprox && (dataProx || nomeMatch))) grau = "media";
+      else grau = "baixa";
+      sugestoes.push({
+        despesaId: c.id,
+        numDoc: c.numDoc,
+        fornecedor: c.fornecedorNome,
+        descricao: c.descricao,
+        valor: c.valor,
+        vencimento: c.vencimento,
+        grau,
+        _prox: prox,
+      });
+    }
+    sugestoes.sort((a, b) => rankGrau[a.grau] - rankGrau[b.grau] || a._prox - b._prox);
+    pendentes.push({
+      cashEntryId: e.id,
+      data: e.data,
+      descricao: e.descricao,
+      doc: e.doc,
+      valor,
+      sugestoes: sugestoes.slice(0, 4).map(({ _prox, ...s }) => { void _prox; return s; }),
+    });
+  }
+
+  const conciliados: MovimentoConciliado[] = entries
+    .filter((e) => e.conciliadoDespesaId)
+    .map((e) => {
+      const d = e.conciliadoDespesaId ? despById.get(e.conciliadoDespesaId) : undefined;
+      return {
+        cashEntryId: e.id,
+        data: e.data,
+        descricao: e.descricao,
+        valor: Number(e.valor),
+        despesaId: e.conciliadoDespesaId,
+        despesaNumDoc: d?.numDoc ?? null,
+        fornecedor: d?.fornecedorNome ?? null,
+        conciliadoPor: e.conciliadoPor,
+        conciliadoEm: e.conciliadoEm,
+      };
+    });
+
+  return { pendentes, conciliados };
 }

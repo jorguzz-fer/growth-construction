@@ -12,11 +12,24 @@ import { isAiConfigured } from "@/lib/ai/despesa-extract";
 
 export interface ExtractedFornecedor {
   nome: string;
+  nomeFantasia: string;
   tipo: "PJ" | "PF" | "";
   doc: string;
+  contato: string;
   email: string;
   tel: string;
+  whatsapp: string;
+  site: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
   papeis: string[];
+  /** Nomes de campos que a IA identificou com BAIXA confiança (para sinalizar). */
+  baixaConfianca: string[];
 }
 
 type ImageMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
@@ -52,8 +65,9 @@ export async function extractFornecedorFromDocument(
       properties: {
         nome: {
           type: "string",
-          description: "Razão social ou nome do fornecedor. Vazio se não identificar.",
+          description: "Razão social ou nome principal do fornecedor. Vazio se não identificar.",
         },
+        nomeFantasia: { type: "string", description: "Nome fantasia. Vazio se não houver." },
         tipo: {
           type: "string",
           enum: ["PJ", "PF", ""],
@@ -63,16 +77,36 @@ export async function extractFornecedorFromDocument(
           type: "string",
           description: "CNPJ ou CPF (com pontuação). Vazio se não houver.",
         },
+        contato: { type: "string", description: "Nome da pessoa de contato. Vazio se não houver." },
         email: { type: "string", description: "E-mail de contato. Vazio se não houver." },
         tel: { type: "string", description: "Telefone de contato. Vazio se não houver." },
+        whatsapp: { type: "string", description: "WhatsApp, se distinto do telefone. Vazio se não houver." },
+        site: { type: "string", description: "Site/URL. Vazio se não houver." },
+        endereco: { type: "string", description: "Logradouro (rua/avenida). Vazio se não houver." },
+        numero: { type: "string", description: "Número do endereço. Vazio se não houver." },
+        complemento: { type: "string", description: "Complemento (sala, andar). Vazio se não houver." },
+        bairro: { type: "string", description: "Bairro. Vazio se não houver." },
+        cidade: { type: "string", description: "Cidade. Vazio se não houver." },
+        estado: { type: "string", description: "UF (2 letras). Vazio se não houver." },
+        cep: { type: "string", description: "CEP. Vazio se não houver." },
         papeis: {
           type: "array",
           description:
             "Papéis mais prováveis do fornecedor, dentre os listados. Vazio se incerto.",
           items: { type: "string", enum: [...PAPEIS_STAKEHOLDER] },
         },
+        baixaConfianca: {
+          type: "array",
+          description:
+            "Lista dos NOMES de campos preenchidos com BAIXA confiança (ex.: 'doc', 'cep'), para o usuário conferir. Vazio se todos confiáveis.",
+          items: { type: "string" },
+        },
       },
-      required: ["nome", "tipo", "doc", "email", "tel", "papeis"],
+      required: [
+        "nome", "nomeFantasia", "tipo", "doc", "contato", "email", "tel", "whatsapp",
+        "site", "endereco", "numero", "complemento", "bairro", "cidade", "estado", "cep",
+        "papeis", "baixaConfianca",
+      ],
     },
     strict: true,
   };
@@ -105,14 +139,29 @@ export async function extractFornecedorFromDocument(
   const input = block.input as Partial<ExtractedFornecedor>;
   const tipo = input.tipo === "PJ" || input.tipo === "PF" ? input.tipo : "";
   const papeisSet = new Set<string>(PAPEIS_STAKEHOLDER);
+  const str = (v: unknown) => String(v ?? "");
   return {
-    nome: String(input.nome ?? ""),
+    nome: str(input.nome),
+    nomeFantasia: str(input.nomeFantasia),
     tipo,
-    doc: String(input.doc ?? ""),
-    email: String(input.email ?? ""),
-    tel: String(input.tel ?? ""),
+    doc: str(input.doc),
+    contato: str(input.contato),
+    email: str(input.email),
+    tel: str(input.tel),
+    whatsapp: str(input.whatsapp),
+    site: str(input.site),
+    endereco: str(input.endereco),
+    numero: str(input.numero),
+    complemento: str(input.complemento),
+    bairro: str(input.bairro),
+    cidade: str(input.cidade),
+    estado: str(input.estado),
+    cep: str(input.cep),
     papeis: Array.isArray(input.papeis)
       ? input.papeis.map(String).filter((p) => papeisSet.has(p))
+      : [],
+    baixaConfianca: Array.isArray(input.baixaConfianca)
+      ? input.baixaConfianca.map(String)
       : [],
   };
 }

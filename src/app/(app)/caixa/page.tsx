@@ -3,6 +3,7 @@ import { getActiveContext } from "@/lib/context";
 import {
   getBankAccounts,
   getCash,
+  getConciliacaoData,
   getInccRows,
   getPermutas,
   getReembolsos,
@@ -11,6 +12,7 @@ import {
   reembToCalc,
   toCalcUnit,
 } from "@/lib/queries";
+import { ConciliacaoReview } from "@/components/app/conciliacao-review";
 import {
   calcProjection,
   permutaCashByMonth,
@@ -18,6 +20,9 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { can } from "@/lib/permissions";
+import type { ConciliacaoData } from "@/lib/queries";
 import { brl0, dateBR, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
@@ -62,6 +67,7 @@ export default async function CaixaPage({
   if (!ctx) return null;
 
   const sp = await searchParams;
+  const aiConfigured = isAiConfigured();
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
@@ -123,10 +129,12 @@ export default async function CaixaPage({
 
   // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
   const version = compareVersions[0];
-  const [cashAll, contas] = await Promise.all([
+  const [cashAll, contas, conciliacaoData] = await Promise.all([
     getCash(version.id),
     getBankAccounts(ctx.tenant.id),
+    getConciliacaoData(ctx.tenant.id, version.id),
   ]);
+  const canDesfazerConc = can(ctx.perms, "caixa", "excluir");
   // Filtro de período (item 3): entradas/saídas dentro do intervalo.
   const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
@@ -337,8 +345,15 @@ export default async function CaixaPage({
         ))}
       </div>
 
-      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} />}
-      {tab === "conciliacao" && <Conciliacao cash={cash} conciliados={conciliados} />}
+      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} aiConfigured={aiConfigured} />}
+      {tab === "conciliacao" && (
+        <Conciliacao
+          cash={cash}
+          conciliados={conciliados}
+          conciliacaoData={conciliacaoData}
+          canDesfazer={canDesfazerConc}
+        />
+      )}
       {tab === "previstas" && <Previstas versionId={version.id} projectId={ctx.project.id} />}
     </>
   );
@@ -347,15 +362,18 @@ export default async function CaixaPage({
 function Lancamentos({
   cash,
   contas,
+  aiConfigured,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   contas: Awaited<ReturnType<typeof getBankAccounts>>;
+  aiConfigured: boolean;
 }) {
   return (
     <>
       <div className="mb-4">
         <ImportExtratoButton
           contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+          aiConfigured={aiConfigured}
         />
       </div>
       <CaixaEntryForm
@@ -369,30 +387,37 @@ function Lancamentos({
 function Conciliacao({
   cash,
   conciliados,
+  conciliacaoData,
+  canDesfazer,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   conciliados: number;
+  conciliacaoData: ConciliacaoData;
+  canDesfazer: boolean;
 }) {
-  // Divergências: movimentos importados do extrato que não casaram
-  // automaticamente com contas a pagar/receber (ficam pendentes).
-  const divergencias = cash.filter((c) => !c.rec && c.cat === "extrato").length;
   return (
     <>
       <div className="mb-3 flex flex-wrap gap-2">
         <Badge tone="success">{conciliados} conciliados</Badge>
         <Badge tone="warning">{cash.length - conciliados} pendentes</Badge>
-        {divergencias > 0 && (
-          <Badge tone="danger">{divergencias} divergências do extrato</Badge>
+        {conciliacaoData.pendentes.length > 0 && (
+          <Badge tone="danger">{conciliacaoData.pendentes.length} saídas a conciliar</Badge>
         )}
       </div>
-      {divergencias > 0 && (
-        <p className="mb-3 text-[12px] text-[var(--color-ink3)]">
-          Divergências são lançamentos do extrato importado sem correspondência
-          automática nos módulos de Despesas/Receitas — concilie manualmente
-          marcando a caixa ao lado.
-        </p>
-      )}
-      <CashTable cash={cash} withToggle />
+
+      {/* Revisão com sugestões (grau de compatibilidade) + desfazer/auditoria. */}
+      <ConciliacaoReview
+        pendentes={conciliacaoData.pendentes}
+        conciliados={conciliacaoData.conciliados}
+        canDesfazer={canDesfazer}
+      />
+
+      <div className="mt-6">
+        <h3 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
+          Todos os lançamentos de caixa
+        </h3>
+        <CashTable cash={cash} withToggle />
+      </div>
     </>
   );
 }

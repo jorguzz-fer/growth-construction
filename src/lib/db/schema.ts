@@ -386,6 +386,19 @@ export const stakeholders = pgTable("stakeholder", {
   email: text("email"),
   tel: text("tel"),
   obs: text("obs"),
+  // Dados complementares (cadastro inteligente por imagem/PDF). Todos opcionais
+  // e retrocompatíveis; `nome` segue sendo a razão social / nome principal.
+  nomeFantasia: text("nome_fantasia"),
+  contato: text("contato"),
+  whatsapp: text("whatsapp"),
+  site: text("site"),
+  endereco: text("endereco"),
+  numero: text("numero"),
+  complemento: text("complemento"),
+  bairro: text("bairro"),
+  cidade: text("cidade"),
+  estado: text("estado"),
+  cep: text("cep"),
   /** cadastro ativo? Inativação lógica preserva histórico e vínculos. */
   ativo: boolean("ativo").notNull().default(true),
 });
@@ -615,6 +628,10 @@ export const documents = pgTable("document", {
   clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
     onDelete: "cascade",
   }),
+  /** Documento original do cadastro inteligente de fornecedor (Seção 1). */
+  stakeholderId: uuid("stakeholder_id").references((): AnyPgColumn => stakeholders.id, {
+    onDelete: "cascade",
+  }),
   unitCode: text("unit_code"),
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "set null",
@@ -733,6 +750,13 @@ export const cashEntries = pgTable("cash_entry", {
   importHash: text("import_hash"),
   /** conciliado com o extrato? */
   rec: boolean("rec").notNull().default(false),
+  /** despesa conciliada a este movimento (para desfazer/histórico da conciliação). */
+  conciliadoDespesaId: uuid("conciliado_despesa_id").references(() => despesas.id, {
+    onDelete: "set null",
+  }),
+  /** usuário e data/hora da conciliação (auditoria). */
+  conciliadoPor: text("conciliado_por"),
+  conciliadoEm: text("conciliado_em"),
 });
 
 /** Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6. */

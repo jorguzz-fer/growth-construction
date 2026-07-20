@@ -94,8 +94,10 @@ export function ReceitaProjetosMatrix({
     setMsg(null);
     start(async () => {
       try {
-        await saveBudgetReceita(kind, collectCells());
-        setMsg("Receitas salvas.");
+        const res = await saveBudgetReceita(kind, collectCells());
+        if (res?.skipped?.length)
+          setMsg(`Salvo — exceto: ${res.skipped.join(", ")}. Descongele a versão para editar.`);
+        else setMsg("Receitas salvas.");
         router.refresh();
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Falha ao salvar.");
@@ -145,8 +147,10 @@ export function ReceitaProjetosMatrix({
           });
         }
         setData(next);
-        await saveBudgetReceita(kind, cells);
-        setMsg("Planilha de receitas importada.");
+        const res = await saveBudgetReceita(kind, cells);
+        if (res?.skipped?.length)
+          setMsg(`Importado — exceto: ${res.skipped.join(", ")}. Descongele a versão para editar.`);
+        else setMsg("Planilha de receitas importada.");
         router.refresh();
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Falha ao importar.");
