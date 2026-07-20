@@ -5,6 +5,7 @@ import {
   getDespesas,
   getDespesasByTenant,
   getStakeholders,
+  getSocios,
   getBankAccounts,
   getDocuments,
   getAtualVersion,
@@ -59,11 +60,12 @@ export default async function DespesasPage({
   const version = await getAtualVersion(ctx.tenant.id, project.id);
   const versionId = version?.id ?? ctx.version.id;
 
-  const [despesasRaw, fornecedores, contas, bancos] = await Promise.all([
+  const [despesasRaw, fornecedores, contas, bancos, socios] = await Promise.all([
     isAll ? getDespesasByTenant(ctx.tenant.id) : getDespesas(versionId),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
+    getSocios(ctx.tenant.id),
   ]);
   const despesas: Array<
     Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
@@ -141,6 +143,7 @@ export default async function DespesasPage({
               contas={contasOrdenadas.map((c) => ({ code: c.code, name: c.name }))}
               bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
               categorias={CATEGORIAS_DRE}
+              socios={socios}
               aiConfigured={aiConfigured}
               r2Configured={r2Configured}
               canEditNumero={canEditNumero}

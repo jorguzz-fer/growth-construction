@@ -191,6 +191,23 @@ export async function getStakeholders(
     .orderBy(asc(schema.stakeholders.nome));
 }
 
+/**
+ * Sócios do tenant: stakeholders ATIVOS com o papel "Sócio/Quotista". Usado no
+ * cadastro de "despesa paga por sócio" (seleção sem digitação livre).
+ */
+export async function getSocios(
+  tenantId: string,
+): Promise<{ id: string; nome: string }[]> {
+  const rows = await db
+    .select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, papeis: schema.stakeholders.papeis, ativo: schema.stakeholders.ativo })
+    .from(schema.stakeholders)
+    .where(eq(schema.stakeholders.tenantId, tenantId))
+    .orderBy(asc(schema.stakeholders.nome));
+  return rows
+    .filter((r) => r.ativo && (r.papeis ?? []).includes("Sócio/Quotista"))
+    .map((r) => ({ id: r.id, nome: r.nome }));
+}
+
 export async function getBankAccounts(
   tenantId: string,
 ): Promise<BankAccountRow[]> {

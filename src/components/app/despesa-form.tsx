@@ -50,6 +50,7 @@ export function DespesaForm({
   contas,
   bancos,
   categorias,
+  socios = [],
   aiConfigured,
   r2Configured,
   canEditNumero = false,
@@ -60,6 +61,7 @@ export function DespesaForm({
   contas: Conta[];
   bancos: Banco[];
   categorias: readonly string[];
+  socios?: { id: string; nome: string }[];
   aiConfigured: boolean;
   r2Configured: boolean;
   canEditNumero?: boolean;
@@ -86,6 +88,13 @@ export function DespesaForm({
   // Despesa recorrente: repete o mesmo lançamento nos próximos meses.
   const [recorrente, setRecorrente] = useState(false);
   const [recMeses, setRecMeses] = useState("12");
+
+  // Despesa paga por sócio (Seção 3): reconhecida na DRE sem saída de caixa da
+  // empresa; se reembolsável, gera obrigação a reembolsar (tela Restituições).
+  const [pagoPorSocio, setPagoPorSocio] = useState(false);
+  const [socioId, setSocioId] = useState("");
+  const [socioData, setSocioData] = useState("");
+  const [socioReembolsavel, setSocioReembolsavel] = useState(true);
 
   // Fase 2 — forma/condição de pagamento e parcelas
   const [formaPagamento, setFormaPagamento] = useState("");
@@ -227,6 +236,12 @@ export function DespesaForm({
       fd.set("chequeDataCompensacao", ch.compensacao);
       fd.set("chequeStatus", ch.status);
     }
+    // Despesa paga por sócio
+    if (pagoPorSocio && socioId) {
+      fd.set("pagoPorSocioId", socioId);
+      fd.set("socioDataPagamento", socioData);
+      if (socioReembolsavel) fd.set("socioReembolsavel", "1");
+    }
     if (file) fd.set("file", file);
     startSaving(async () => {
       try {
@@ -243,6 +258,10 @@ export function DespesaForm({
         setStatus("A pagar");
         setRecorrente(false);
         setRecMeses("12");
+        setPagoPorSocio(false);
+        setSocioId("");
+        setSocioData("");
+        setSocioReembolsavel(true);
         setFormaPagamento("");
         setFormaDesc("");
         setCondicao("");
@@ -421,8 +440,67 @@ export function DespesaForm({
               </div>
             )}
           </div>
-          {/* Pagamento & parcelamento (Fase 2) */}
+          {/* Despesa paga por sócio (Seção 3) */}
           <div className="col-span-2 space-y-3 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--color-ink)]">
+              <input
+                type="checkbox"
+                checked={pagoPorSocio}
+                onChange={(e) => setPagoPorSocio(e.target.checked)}
+                className="h-4 w-4 accent-[var(--color-accent2)]"
+              />
+              Despesa paga por sócio (não movimenta o caixa da empresa no cadastro)
+            </label>
+            {pagoPorSocio && (
+              <>
+                {socios.length === 0 && (
+                  <p className="text-[12px] text-[var(--color-warning)]">
+                    Nenhum sócio cadastrado. Cadastre um stakeholder com o papel
+                    &ldquo;Sócio/Quotista&rdquo; para usar esta opção.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div>
+                    <Label>Sócio pagador</Label>
+                    <Select value={socioId} onChange={(e) => setSocioId(e.target.value)}>
+                      <option value="">— selecione —</option>
+                      {socios.map((so) => (
+                        <option key={so.id} value={so.id}>
+                          {so.nome}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Data do pagamento</Label>
+                    <DateField value={socioData} onChange={setSocioData} />
+                  </div>
+                  <div className="flex items-end sm:col-span-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--color-ink)]">
+                      <input
+                        type="checkbox"
+                        checked={socioReembolsavel}
+                        onChange={(e) => setSocioReembolsavel(e.target.checked)}
+                        className="h-4 w-4 accent-[var(--color-accent2)]"
+                      />
+                      Será reembolsada pela empresa
+                    </label>
+                  </div>
+                </div>
+                <p className="text-[11.5px] text-[var(--color-ink3)]">
+                  {socioReembolsavel
+                    ? "Gera uma obrigação a reembolsar ao sócio. O caixa só se move quando o reembolso for registrado (tela Restituições)."
+                    : "Paga definitivamente pelo sócio: registrada na DRE/projeto, sem obrigação e sem movimentar o caixa da empresa."}
+                </p>
+              </>
+            )}
+          </div>
+          {/* Pagamento & parcelamento (Fase 2) */}
+          <div
+            className={`col-span-2 space-y-3 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4 ${
+              pagoPorSocio ? "hidden" : ""
+            }`}
+          >
             <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">
               Pagamento & parcelamento
             </h3>

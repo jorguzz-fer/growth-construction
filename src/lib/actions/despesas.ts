@@ -207,6 +207,13 @@ export async function addDespesa(formData: FormData) {
     numDoc = await reserveDespesaNumber(ctx.tenant.id);
   }
   const s = (k: string) => (formData.get(k) as string) || null;
+  // Despesa paga por sócio (Seção 3): a despesa é reconhecida normalmente na DRE
+  // e no projeto, mas NÃO gera saída de caixa da empresa. A obrigação com o
+  // sócio é registrada em despesa_terceiro; o caixa só se move no reembolso
+  // (restituição). Se não houver reembolso, a obrigação já nasce quitada.
+  const pagoPorSocioId = s("pagoPorSocioId");
+  const socioReembolsavel = !!formData.get("socioReembolsavel");
+  const socioDataPagamento = s("socioDataPagamento");
   const core = {
     versionId: version.id,
     tenantId: ctx.tenant.id,
@@ -215,9 +222,11 @@ export async function addDespesa(formData: FormData) {
     contaCef: s("contaCef"),
     categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
     competencia: s("competencia"),
-    vencimento: s("vencimento"),
+    vencimento: pagoPorSocioId ? socioDataPagamento : s("vencimento"),
     valor: (formData.get("valor") as string) || "0",
-    status: s("status") || "A pagar",
+    status: pagoPorSocioId ? "Pago" : s("status") || "A pagar",
+    // Não gera saída de caixa da empresa no momento do cadastro.
+    pagoPorTerceiro: !!pagoPorSocioId,
     // Fase 2 — forma/condição de pagamento
     formaPagamento: s("formaPagamento"),
     formaPagamentoDesc: s("formaPagamentoDesc"),
@@ -247,7 +256,11 @@ export async function addDespesa(formData: FormData) {
   const valorTotal = Number(row.valor);
   const condicao = row.condicaoPagamento;
   let parcelas: { vencimento: string | null; valor: number }[] = [];
-  if (parcelasJson) {
+  // Despesa paga por sócio já está quitada pelo sócio — não gera parcelas/contas
+  // a pagar da empresa.
+  if (pagoPorSocioId) {
+    parcelas = [];
+  } else if (parcelasJson) {
     try {
       const arr = JSON.parse(parcelasJson) as { vencimento: string; valor: number }[];
       parcelas = arr
@@ -307,6 +320,39 @@ export async function addDespesa(formData: FormData) {
     entityId: row.id,
     meta: { valor: row.valor, contaCef: row.contaCef },
   });
+
+  // Despesa paga por sócio: registra a obrigação empresa↔sócio (reusa a infra de
+  // "pago por terceiro"). Reembolsável → obrigação PENDENTE (o caixa só se move
+  // no reembolso, feito na tela de Restituições). Sem reembolso → obrigação já
+  // QUITADA (saldo 0), sem movimento de caixa e sem duplicar despesa na DRE.
+  if (pagoPorSocioId) {
+    await db.insert(schema.despesaTerceiros).values({
+      tenantId: ctx.tenant.id,
+      despesaId: row.id,
+      pagadorTerceiroId: pagoPorSocioId,
+      empresaResponsavelId: projectId,
+      valorTotal: row.valor,
+      valorRestituido: socioReembolsavel ? "0" : row.valor,
+      dataPagamentoOriginal: socioDataPagamento,
+      status: socioReembolsavel ? "Aguardando restituição" : "Sem reembolso",
+      obs: socioReembolsavel
+        ? "Despesa paga por sócio — a reembolsar"
+        : "Despesa paga por sócio — sem reembolso",
+    });
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "despesa.pagaPorSocio",
+      entity: "despesa",
+      entityId: row.id,
+      meta: {
+        socioId: pagoPorSocioId,
+        valor: row.valor,
+        reembolsavel: socioReembolsavel,
+        dataPagamento: socioDataPagamento,
+      },
+    });
+  }
 
   // Despesa recorrente: replica o lançamento nos próximos meses (competência e
   // vencimento avançam 1 mês a cada repetição). Cada réplica recebe seu próprio
