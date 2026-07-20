@@ -353,3 +353,133 @@ export async function toggleConciliado(id: string, rec: boolean) {
     .where(eq(schema.cashEntries.id, id));
   revalidatePath("/caixa");
 }
+
+/**
+ * Concilia um movimento do extrato com uma conta a pagar (despesa) escolhida
+ * pelo usuário: marca a despesa como PAGA (data e banco do movimento), vincula o
+ * movimento à despesa e registra a auditoria. Nada é conciliado automaticamente
+ * — só por esta ação. Um movimento não pode ser conciliado mais de uma vez.
+ */
+export async function conciliarDespesa(input: {
+  cashEntryId: string;
+  despesaId: string;
+}): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão para conciliar.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(
+      and(
+        eq(schema.cashEntries.id, input.cashEntryId),
+        eq(schema.cashEntries.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (mov.rec || mov.conciliadoDespesaId) {
+    throw new Error("Este movimento já está conciliado.");
+  }
+  const [desp] = await db
+    .select()
+    .from(schema.despesas)
+    .where(
+      and(
+        eq(schema.despesas.id, input.despesaId),
+        eq(schema.despesas.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!desp) throw new Error("Despesa não encontrada.");
+  if (desp.cancelado) throw new Error("Despesa cancelada.");
+  if (desp.status === "Pago") {
+    throw new Error("Esta despesa já está paga. Escolha outra ou desfaça o pagamento antes.");
+  }
+
+  const agora = new Date().toISOString();
+  await db
+    .update(schema.despesas)
+    .set({
+      status: "Pago",
+      dataCaixa: mov.data,
+      bancoId: mov.bankAccountId ?? desp.bancoId,
+    })
+    .where(eq(schema.despesas.id, desp.id));
+  await db
+    .update(schema.cashEntries)
+    .set({
+      rec: true,
+      conciliadoDespesaId: desp.id,
+      conciliadoPor: ctx.userEmail || ctx.userId || null,
+      conciliadoEm: agora,
+    })
+    .where(eq(schema.cashEntries.id, mov.id));
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "conciliacao.create",
+    entity: "cash_entry",
+    entityId: mov.id,
+    meta: { despesaId: desp.id, numDoc: desp.numDoc, valor: mov.valor, data: mov.data },
+  });
+  revalidatePath("/caixa");
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+}
+
+/**
+ * Desfaz uma conciliação (somente usuários autorizados): restaura a despesa para
+ * "A pagar" (remove data de pagamento) e libera o movimento. Preserva o registro
+ * de auditoria da operação.
+ */
+export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "excluir")) {
+    throw new Error("Sem permissão para desfazer conciliação.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(
+      and(
+        eq(schema.cashEntries.id, cashEntryId),
+        eq(schema.cashEntries.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (!mov.conciliadoDespesaId) {
+    // Nada vinculado: apenas garante o flag desmarcado.
+    await db.update(schema.cashEntries).set({ rec: false }).where(eq(schema.cashEntries.id, mov.id));
+    revalidatePath("/caixa");
+    return;
+  }
+  await db
+    .update(schema.despesas)
+    .set({ status: "A pagar", dataCaixa: null })
+    .where(
+      and(
+        eq(schema.despesas.id, mov.conciliadoDespesaId),
+        eq(schema.despesas.tenantId, ctx.tenant.id),
+      ),
+    );
+  await db
+    .update(schema.cashEntries)
+    .set({ rec: false, conciliadoDespesaId: null, conciliadoPor: null, conciliadoEm: null })
+    .where(eq(schema.cashEntries.id, mov.id));
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "conciliacao.undo",
+    entity: "cash_entry",
+    entityId: mov.id,
+    meta: { despesaId: mov.conciliadoDespesaId },
+  });
+  revalidatePath("/caixa");
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+}

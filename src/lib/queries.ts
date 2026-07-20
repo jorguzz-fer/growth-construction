@@ -1131,3 +1131,143 @@ export async function getAuditLog(
     .orderBy(desc(schema.auditLog.createdAt))
     .limit(limit);
 }
+
+// ─────────────────────── Conciliação bancária (Caixa) ───────────────────────
+
+export interface ConciliacaoSugestao {
+  despesaId: string;
+  numDoc: string | null;
+  fornecedor: string | null;
+  descricao: string | null;
+  valor: number;
+  vencimento: string | null;
+  /** grau de compatibilidade (só orientação — decisão é do usuário). */
+  grau: "alta" | "media" | "baixa";
+}
+export interface MovimentoPendente {
+  cashEntryId: string;
+  data: string | null;
+  descricao: string | null;
+  doc: string | null;
+  valor: number;
+  sugestoes: ConciliacaoSugestao[];
+}
+export interface MovimentoConciliado {
+  cashEntryId: string;
+  data: string | null;
+  descricao: string | null;
+  valor: number;
+  despesaId: string | null;
+  despesaNumDoc: string | null;
+  fornecedor: string | null;
+  conciliadoPor: string | null;
+  conciliadoEm: string | null;
+}
+export interface ConciliacaoData {
+  pendentes: MovimentoPendente[];
+  conciliados: MovimentoConciliado[];
+}
+
+const normStr = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+/** "MM/DD/YYYY" → dia serial UTC (para diferença em dias); null se inválido. */
+const diaSerial = (s: string | null | undefined): number | null => {
+  if (!s) return null;
+  const p = s.split("/");
+  if (p.length !== 3) return null;
+  const [mo, d, y] = p.map(Number);
+  if (!y || !mo || !d) return null;
+  return Math.floor(Date.UTC(y, mo - 1, d) / 86400000);
+};
+
+/**
+ * Dados da conciliação bancária: movimentos do extrato ainda não conciliados
+ * (saídas) com SUGESTÕES de contas a pagar em aberto (com grau de
+ * compatibilidade), e os movimentos já conciliados (para desfazer/histórico).
+ * As sugestões são só orientação — nada é conciliado sem ação do usuário.
+ */
+export async function getConciliacaoData(
+  tenantId: string,
+  versionId: string,
+): Promise<ConciliacaoData> {
+  const [entries, contas] = await Promise.all([
+    db
+      .select()
+      .from(schema.cashEntries)
+      .where(
+        and(
+          eq(schema.cashEntries.tenantId, tenantId),
+          eq(schema.cashEntries.versionId, versionId),
+        ),
+      ),
+    getContasPagar(tenantId),
+  ]);
+  const despById = new Map(contas.map((c) => [c.id, c]));
+  const abertas = contas.filter((c) => c.status !== "Pago");
+
+  const pendentes: MovimentoPendente[] = [];
+  const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
+  for (const e of entries) {
+    if (e.rec || e.conciliadoDespesaId) continue;
+    const valor = Number(e.valor);
+    if (!valor || valor >= 0) continue; // só saídas do extrato, por ora
+    const movCents = Math.round(Math.abs(valor) * 100);
+    const movDia = diaSerial(e.data);
+    const desc = normStr(e.descricao ?? "");
+    const sugestoes: (ConciliacaoSugestao & { _prox: number })[] = [];
+    for (const c of abertas) {
+      const cCents = Math.round(Math.abs(c.valor) * 100);
+      const exato = cCents === movCents;
+      const aprox = !exato && Math.abs(cCents - movCents) <= Math.max(50, movCents * 0.02);
+      if (!exato && !aprox) continue;
+      const vDia = diaSerial(c.vencimento);
+      const prox = movDia != null && vDia != null ? Math.abs(vDia - movDia) : 9999;
+      const vencida = movDia != null && vDia != null && vDia <= movDia;
+      const dataProx = prox <= 7 || vencida;
+      const primeiroNome = c.fornecedorNome ? normStr(c.fornecedorNome).split(/\s+/)[0] : "";
+      const nomeMatch = primeiroNome.length >= 3 && desc.includes(primeiroNome);
+      let grau: "alta" | "media" | "baixa";
+      if (exato && (dataProx || nomeMatch)) grau = "alta";
+      else if (exato || (aprox && (dataProx || nomeMatch))) grau = "media";
+      else grau = "baixa";
+      sugestoes.push({
+        despesaId: c.id,
+        numDoc: c.numDoc,
+        fornecedor: c.fornecedorNome,
+        descricao: c.descricao,
+        valor: c.valor,
+        vencimento: c.vencimento,
+        grau,
+        _prox: prox,
+      });
+    }
+    sugestoes.sort((a, b) => rankGrau[a.grau] - rankGrau[b.grau] || a._prox - b._prox);
+    pendentes.push({
+      cashEntryId: e.id,
+      data: e.data,
+      descricao: e.descricao,
+      doc: e.doc,
+      valor,
+      sugestoes: sugestoes.slice(0, 4).map(({ _prox, ...s }) => { void _prox; return s; }),
+    });
+  }
+
+  const conciliados: MovimentoConciliado[] = entries
+    .filter((e) => e.conciliadoDespesaId)
+    .map((e) => {
+      const d = e.conciliadoDespesaId ? despById.get(e.conciliadoDespesaId) : undefined;
+      return {
+        cashEntryId: e.id,
+        data: e.data,
+        descricao: e.descricao,
+        valor: Number(e.valor),
+        despesaId: e.conciliadoDespesaId,
+        despesaNumDoc: d?.numDoc ?? null,
+        fornecedor: d?.fornecedorNome ?? null,
+        conciliadoPor: e.conciliadoPor,
+        conciliadoEm: e.conciliadoEm,
+      };
+    });
+
+  return { pendentes, conciliados };
+}

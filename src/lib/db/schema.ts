@@ -750,6 +750,13 @@ export const cashEntries = pgTable("cash_entry", {
   importHash: text("import_hash"),
   /** conciliado com o extrato? */
   rec: boolean("rec").notNull().default(false),
+  /** despesa conciliada a este movimento (para desfazer/histórico da conciliação). */
+  conciliadoDespesaId: uuid("conciliado_despesa_id").references(() => despesas.id, {
+    onDelete: "set null",
+  }),
+  /** usuário e data/hora da conciliação (auditoria). */
+  conciliadoPor: text("conciliado_por"),
+  conciliadoEm: text("conciliado_em"),
 });
 
 /** Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6. */

@@ -204,6 +204,13 @@
       "when": 1784545973496,
       "tag": "0028_fornecedor_dados_complementares",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1784546618400,
+      "tag": "0029_conciliacao_vinculo",
+      "breakpoints": true
     }
   ]
 }
