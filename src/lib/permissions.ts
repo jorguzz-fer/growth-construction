@@ -16,7 +16,7 @@ export interface ScreenPerm {
 }
 export type PermMatrix = Record<string, ScreenPerm>;
 
-export type Modulo = "Receitas" | "Despesas" | "Reports" | "Config";
+export type Modulo = "Planejamento" | "Receitas" | "Despesas" | "Reports" | "Config";
 
 export interface Screen {
   id: string; // = primeiro segmento da rota (ex.: "unidades")
@@ -38,9 +38,10 @@ export const SCREENS: Screen[] = [
   { id: "rolling", label: "Rolling Forecast", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
-  { id: "budget", label: "Lançamento Budget", modulo: "Receitas" },
-  { id: "forecast", label: "Lançamento Forecast", modulo: "Receitas" },
+  { id: "budget", label: "Lançamento Budget", modulo: "Planejamento" },
+  { id: "forecast", label: "Lançamento Forecast", modulo: "Planejamento" },
   { id: "clientes", label: "Clientes (Compradores)", modulo: "Receitas" },
+  { id: "contasreceber", label: "Contas a Receber", modulo: "Receitas" },
   { id: "medicaolanc", label: "Lançamento de Medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
   { id: "reembolso", label: "Reembolso", modulo: "Receitas" },

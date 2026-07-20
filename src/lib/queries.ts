@@ -1152,6 +1152,22 @@ export interface MovimentoPendente {
   valor: number;
   sugestoes: ConciliacaoSugestao[];
 }
+export interface SugestaoReceber {
+  contaReceberId: string;
+  descricao: string | null;
+  projectName: string;
+  valor: number;
+  vencimento: string | null;
+  grau: "alta" | "media" | "baixa";
+}
+export interface MovimentoPendenteEntrada {
+  cashEntryId: string;
+  data: string | null;
+  descricao: string | null;
+  doc: string | null;
+  valor: number;
+  sugestoes: SugestaoReceber[];
+}
 export interface MovimentoConciliado {
   cashEntryId: string;
   data: string | null;
@@ -1165,6 +1181,7 @@ export interface MovimentoConciliado {
 }
 export interface ConciliacaoData {
   pendentes: MovimentoPendente[];
+  pendentesEntrada: MovimentoPendenteEntrada[];
   conciliados: MovimentoConciliado[];
 }
 
@@ -1190,7 +1207,7 @@ export async function getConciliacaoData(
   tenantId: string,
   versionId: string,
 ): Promise<ConciliacaoData> {
-  const [entries, contas] = await Promise.all([
+  const [entries, contas, receber] = await Promise.all([
     db
       .select()
       .from(schema.cashEntries)
@@ -1201,9 +1218,12 @@ export async function getConciliacaoData(
         ),
       ),
     getContasPagar(tenantId),
+    getContasReceber(tenantId),
   ]);
   const despById = new Map(contas.map((c) => [c.id, c]));
+  const recById = new Map(receber.map((c) => [c.id, c]));
   const abertas = contas.filter((c) => c.status !== "Pago");
+  const receberAbertas = receber.filter((c) => c.status !== "Recebido" && c.status !== "Cancelada");
 
   const pendentes: MovimentoPendente[] = [];
   const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
@@ -1252,22 +1272,128 @@ export async function getConciliacaoData(
     });
   }
 
+  // Entradas do extrato (crédito) ainda não conciliadas → sugere contas a receber.
+  const pendentesEntrada: MovimentoPendenteEntrada[] = [];
+  for (const e of entries) {
+    if (e.rec || e.conciliadoDespesaId || e.conciliadoContaReceberId) continue;
+    const valor = Number(e.valor);
+    if (!valor || valor <= 0) continue; // só entradas
+    const movCents = Math.round(Math.abs(valor) * 100);
+    const movDia = diaSerial(e.data);
+    const desc = normStr(e.descricao ?? "");
+    const sugestoes: (SugestaoReceber & { _prox: number })[] = [];
+    for (const c of receberAbertas) {
+      const saldo = c.valor - c.valorRecebido;
+      const cCents = Math.round(Math.abs(saldo || c.valor) * 100);
+      const exato = cCents === movCents;
+      const aprox = !exato && Math.abs(cCents - movCents) <= Math.max(50, movCents * 0.02);
+      if (!exato && !aprox) continue;
+      const vDia = diaSerial(c.vencimento);
+      const prox = movDia != null && vDia != null ? Math.abs(vDia - movDia) : 9999;
+      const dataProx = prox <= 7 || (movDia != null && vDia != null && vDia <= movDia);
+      const nomeAlvo = normStr(c.clienteNome ?? c.descricao ?? "").split(/\s+/)[0];
+      const nomeMatch = nomeAlvo.length >= 3 && desc.includes(nomeAlvo);
+      let grau: "alta" | "media" | "baixa";
+      if (exato && (dataProx || nomeMatch)) grau = "alta";
+      else if (exato || (aprox && (dataProx || nomeMatch))) grau = "media";
+      else grau = "baixa";
+      sugestoes.push({
+        contaReceberId: c.id,
+        descricao: c.descricao ?? c.tipo,
+        projectName: c.projectName,
+        valor: c.valor,
+        vencimento: c.vencimento,
+        grau,
+        _prox: prox,
+      });
+    }
+    sugestoes.sort((a, b) => rankGrau[a.grau] - rankGrau[b.grau] || a._prox - b._prox);
+    pendentesEntrada.push({
+      cashEntryId: e.id,
+      data: e.data,
+      descricao: e.descricao,
+      doc: e.doc,
+      valor,
+      sugestoes: sugestoes.slice(0, 4).map(({ _prox, ...s }) => { void _prox; return s; }),
+    });
+  }
+
   const conciliados: MovimentoConciliado[] = entries
-    .filter((e) => e.conciliadoDespesaId)
+    .filter((e) => e.conciliadoDespesaId || e.conciliadoContaReceberId)
     .map((e) => {
       const d = e.conciliadoDespesaId ? despById.get(e.conciliadoDespesaId) : undefined;
+      const r = e.conciliadoContaReceberId ? recById.get(e.conciliadoContaReceberId) : undefined;
       return {
         cashEntryId: e.id,
         data: e.data,
         descricao: e.descricao,
         valor: Number(e.valor),
-        despesaId: e.conciliadoDespesaId,
-        despesaNumDoc: d?.numDoc ?? null,
-        fornecedor: d?.fornecedorNome ?? null,
+        despesaId: e.conciliadoDespesaId ?? e.conciliadoContaReceberId,
+        despesaNumDoc: d?.numDoc ?? (r ? "Conta a receber" : null),
+        fornecedor: d?.fornecedorNome ?? r?.clienteNome ?? r?.descricao ?? null,
         conciliadoPor: e.conciliadoPor,
         conciliadoEm: e.conciliadoEm,
       };
     });
 
-  return { pendentes, conciliados };
+  return { pendentes, pendentesEntrada, conciliados };
+}
+
+// ─────────────────────────── Contas a Receber ───────────────────────────────
+
+export interface ContaReceberRow {
+  id: string;
+  projectId: string;
+  projectName: string;
+  unitCode: string | null;
+  clienteId: string | null;
+  clienteNome: string | null;
+  descricao: string | null;
+  tipo: string;
+  valor: number;
+  vencimento: string | null;
+  dataRecebimento: string | null;
+  valorRecebido: number;
+  status: string;
+  bancoId: string | null;
+  origemCashEntryId: string | null;
+  createdAt: string | null;
+}
+
+/** Contas a receber criadas manualmente / convertidas do extrato (não canceladas). */
+export async function getContasReceber(tenantId: string): Promise<ContaReceberRow[]> {
+  const rows = await db
+    .select({
+      c: schema.contasReceber,
+      projectName: schema.projects.name,
+      clienteNome: schema.clientes.nomeCompleto,
+    })
+    .from(schema.contasReceber)
+    .innerJoin(schema.projects, eq(schema.contasReceber.projectId, schema.projects.id))
+    .leftJoin(schema.clientes, eq(schema.contasReceber.clienteId, schema.clientes.id))
+    .where(
+      and(
+        eq(schema.contasReceber.tenantId, tenantId),
+        eq(schema.contasReceber.cancelado, false),
+      ),
+    )
+    .orderBy(asc(schema.contasReceber.vencimento));
+  return rows.map((r) => ({
+    id: r.c.id,
+    projectId: r.c.projectId,
+    projectName: r.projectName,
+    unitCode: r.c.unitCode,
+    clienteId: r.c.clienteId,
+    clienteNome: r.clienteNome,
+    descricao: r.c.descricao,
+    tipo: r.c.tipo,
+    valor: Number(r.c.valor),
+    vencimento: r.c.vencimento,
+    dataRecebimento: r.c.dataRecebimento,
+    valorRecebido: Number(r.c.valorRecebido),
+    status: r.c.status,
+    bancoId: r.c.bancoId,
+    origemCashEntryId: r.c.origemCashEntryId,
+    createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
+  }));
 }

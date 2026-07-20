@@ -211,6 +211,13 @@
       "when": 1784546618400,
       "tag": "0029_conciliacao_vinculo",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784558256261,
+      "tag": "0030_contas_receber",
+      "breakpoints": true
     }
   ]
 }

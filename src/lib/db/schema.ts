@@ -754,9 +754,50 @@ export const cashEntries = pgTable("cash_entry", {
   conciliadoDespesaId: uuid("conciliado_despesa_id").references(() => despesas.id, {
     onDelete: "set null",
   }),
+  /** conta a receber conciliada a este movimento (entradas). */
+  conciliadoContaReceberId: uuid("conciliado_conta_receber_id"),
   /** usuário e data/hora da conciliação (auditoria). */
   conciliadoPor: text("conciliado_por"),
   conciliadoEm: text("conciliado_em"),
+});
+
+/**
+ * Conta a Receber (recebível) criada manualmente ou a partir do extrato. Os
+ * recebíveis das unidades vendidas continuam sendo derivados do plano de
+ * pagamento (não duplicados aqui); esta tabela guarda os recebíveis lançados à
+ * mão e as receitas convertidas de itens do extrato. Vinculada a um projeto.
+ */
+export const contasReceber = pgTable("conta_receber", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  /** unidade/venda de origem (opcional). */
+  unitCode: text("unit_code"),
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "set null",
+  }),
+  descricao: text("descricao"),
+  /** Sinal | Parcela mensal | Outros | Outras Receitas. */
+  tipo: text("tipo").notNull().default("Outros"),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** data prevista "MM/DD/YYYY". */
+  vencimento: text("vencimento"),
+  dataRecebimento: text("data_recebimento"),
+  valorRecebido: numeric("valor_recebido", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** A receber | Recebido | Parcialmente recebido | Cancelado. */
+  status: text("status").notNull().default("A receber"),
+  bancoId: uuid("banco_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+  /** rastreabilidade: item do extrato que originou/conciliou esta conta. */
+  origemCashEntryId: uuid("origem_cash_entry_id").references(() => cashEntries.id, {
+    onDelete: "set null",
+  }),
+  cancelado: boolean("cancelado").notNull().default(false),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 /** Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6. */

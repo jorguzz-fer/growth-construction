@@ -10,6 +10,7 @@ import { Badge, unitStatusTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { UnitActions } from "@/components/app/unit-actions";
+import { UnidadesImportExport } from "@/components/app/unidades-import-export";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,24 @@ export default async function UnidadesPage({
           </div>
         }
       />
+
+      {/* Import / export de unidades por planilha (considera o projeto selecionado) */}
+      <div className="mb-4">
+        <UnidadesImportExport
+          projectId={project.id}
+          projectName={project.name}
+          canImport={canEdit}
+          units={allRows.map((u) => ({
+            code: u.code,
+            bloco: u.bloco,
+            tipo: u.tipo,
+            m2: u.m2,
+            andar: u.andar,
+            valor: String(u.valor),
+            status: u.status,
+          }))}
+        />
+      </div>
 
       {/* Filtros por status */}
       <div className="mb-4 flex flex-wrap gap-2">

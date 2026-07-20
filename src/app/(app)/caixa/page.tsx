@@ -408,6 +408,7 @@ function Conciliacao({
       {/* Revisão com sugestões (grau de compatibilidade) + desfazer/auditoria. */}
       <ConciliacaoReview
         pendentes={conciliacaoData.pendentes}
+        pendentesEntrada={conciliacaoData.pendentesEntrada}
         conciliados={conciliacaoData.conciliados}
         canDesfazer={canDesfazer}
       />

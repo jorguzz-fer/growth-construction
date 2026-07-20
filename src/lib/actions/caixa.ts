@@ -7,9 +7,14 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { getDespesas, getUnits, toCalcUnit } from "@/lib/queries";
+import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
-import { extractExtratoFromDocument, type ExtratoExtraido } from "@/lib/ai/extrato-extract";
+import {
+  extractExtratoFromDocument,
+  extractExtratoFromText,
+  type ExtratoExtraido,
+} from "@/lib/ai/extrato-extract";
 
 /** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
 const EXTRATO_AI_MIME = [
@@ -31,11 +36,6 @@ export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtr
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão para importar extrato.");
   }
-  if (!isAiConfigured()) {
-    throw new Error(
-      "Leitura de PDF por IA não configurada (defina ANTHROPIC_API_KEY). Use XLSX/CSV ou configure a IA.",
-    );
-  }
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione um arquivo de extrato.");
   if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
@@ -44,7 +44,24 @@ export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtr
     throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato.");
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const result = await extractExtratoFromDocument(bytes, mime);
+  // Com IA configurada, usa a leitura por IA (melhor precisão, inclusive imagens).
+  // Sem IA, faz leitura de TEXTO do PDF (unpdf) por heurística — o usuário revisa
+  // e ajusta na tela de conferência. Imagens sem IA não são suportadas.
+  let result: ExtratoExtraido;
+  if (isAiConfigured()) {
+    result = await extractExtratoFromDocument(bytes, mime);
+  } else if (mime === "application/pdf") {
+    result = await extractExtratoFromText(bytes);
+    if (result.movimentos.length === 0) {
+      throw new Error(
+        "Não consegui identificar movimentações no texto do PDF. O arquivo pode ser uma imagem/escaneado — envie XLSX/CSV, ou configure a leitura por IA (ANTHROPIC_API_KEY).",
+      );
+    }
+  } else {
+    throw new Error(
+      "Leitura de imagem exige IA (ANTHROPIC_API_KEY). Para PDF sem IA, envie o PDF com texto; ou use XLSX/CSV.",
+    );
+  }
 
   // Guarda o arquivo original do extrato para auditoria (quando o R2 existe).
   const bankAccountId = (formData.get("bankAccountId") as string) || null;
@@ -451,6 +468,45 @@ export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
     )
     .limit(1);
   if (!mov) throw new Error("Movimento não encontrado.");
+  // Entrada conciliada a uma conta a receber: estorna o recebimento.
+  if (mov.conciliadoContaReceberId) {
+    const [cr] = await db
+      .select()
+      .from(schema.contasReceber)
+      .where(
+        and(
+          eq(schema.contasReceber.id, mov.conciliadoContaReceberId),
+          eq(schema.contasReceber.tenantId, ctx.tenant.id),
+        ),
+      )
+      .limit(1);
+    if (cr) {
+      const novoReceb = Math.max(0, Number(cr.valorRecebido) - Math.abs(Number(mov.valor)));
+      await db
+        .update(schema.contasReceber)
+        .set({
+          valorRecebido: String(novoReceb),
+          status: novoReceb <= 0 ? "A receber" : "Parcialmente recebido",
+          dataRecebimento: novoReceb <= 0 ? null : cr.dataRecebimento,
+        })
+        .where(eq(schema.contasReceber.id, cr.id));
+    }
+    await db
+      .update(schema.cashEntries)
+      .set({ rec: false, conciliadoContaReceberId: null, conciliadoPor: null, conciliadoEm: null })
+      .where(eq(schema.cashEntries.id, mov.id));
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "conciliacao.undo",
+      entity: "cash_entry",
+      entityId: mov.id,
+      meta: { contaReceberId: mov.conciliadoContaReceberId },
+    });
+    revalidatePath("/caixa");
+    revalidatePath("/contasreceber");
+    return;
+  }
   if (!mov.conciliadoDespesaId) {
     // Nada vinculado: apenas garante o flag desmarcado.
     await db.update(schema.cashEntries).set({ rec: false }).where(eq(schema.cashEntries.id, mov.id));
@@ -482,4 +538,166 @@ export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
   revalidatePath("/caixa");
   revalidatePath("/despesas");
   revalidatePath("/contaspagar");
+}
+
+/**
+ * Concilia uma ENTRADA do extrato com uma conta a receber existente (item 7):
+ * marca a conta como recebida (total/parcial), vincula o movimento e audita.
+ * Impede conciliar um movimento já processado (conciliado ou convertido).
+ */
+export async function conciliarContaReceber(input: {
+  cashEntryId: string;
+  contaReceberId: string;
+}): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão para conciliar.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (mov.rec || mov.conciliadoDespesaId || mov.conciliadoContaReceberId) {
+    throw new Error("Este movimento já está processado.");
+  }
+  const [cr] = await db
+    .select()
+    .from(schema.contasReceber)
+    .where(and(eq(schema.contasReceber.id, input.contaReceberId), eq(schema.contasReceber.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!cr) throw new Error("Conta a receber não encontrada.");
+  if (cr.cancelado || cr.status === "Recebido") {
+    throw new Error("Esta conta a receber já está recebida ou cancelada.");
+  }
+  const valorMov = Math.abs(Number(mov.valor));
+  const novoReceb = Number(cr.valorRecebido) + valorMov;
+  const total = Number(cr.valor);
+  const status = novoReceb + 0.01 >= total ? "Recebido" : "Parcialmente recebido";
+  const agora = new Date().toISOString();
+  await db
+    .update(schema.contasReceber)
+    .set({
+      valorRecebido: String(novoReceb),
+      status,
+      dataRecebimento: mov.data,
+      bancoId: mov.bankAccountId ?? cr.bancoId,
+    })
+    .where(eq(schema.contasReceber.id, cr.id));
+  await db
+    .update(schema.cashEntries)
+    .set({
+      rec: true,
+      conciliadoContaReceberId: cr.id,
+      conciliadoPor: ctx.userEmail || ctx.userId || null,
+      conciliadoEm: agora,
+    })
+    .where(eq(schema.cashEntries.id, mov.id));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "conciliacao.receber",
+    entity: "cash_entry",
+    entityId: mov.id,
+    meta: { contaReceberId: cr.id, valor: valorMov, status },
+  });
+  revalidatePath("/caixa");
+  revalidatePath("/contasreceber");
+}
+
+/**
+ * Transforma um item do extrato em uma NOVA conta (item 6): saída → conta a
+ * pagar (despesa, já paga na data do movimento); entrada → conta a receber (já
+ * recebida). Vincula o movimento à conta criada (rastreabilidade) e o marca como
+ * processado, impedindo que o mesmo item seja conciliado E convertido.
+ */
+export async function criarContaFromExtrato(cashEntryId: string): Promise<void> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão.");
+  }
+  const [mov] = await db
+    .select()
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.id, cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!mov) throw new Error("Movimento não encontrado.");
+  if (mov.rec || mov.conciliadoDespesaId || mov.conciliadoContaReceberId) {
+    throw new Error("Este movimento já foi processado (conciliado ou convertido).");
+  }
+  const [ver] = await db
+    .select({ projectId: schema.versions.projectId })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, mov.versionId))
+    .limit(1);
+  if (!ver) throw new Error("Versão do movimento não encontrada.");
+  const valor = Number(mov.valor);
+  const agora = new Date().toISOString();
+
+  if (valor < 0) {
+    // Saída → nova conta a pagar (despesa), já paga na data do movimento.
+    const numDoc = await reserveDespesaNumber(ctx.tenant.id);
+    const [desp] = await db
+      .insert(schema.despesas)
+      .values({
+        versionId: mov.versionId,
+        tenantId: ctx.tenant.id,
+        numDoc,
+        valor: String(Math.abs(valor)),
+        status: "Pago",
+        vencimento: mov.data,
+        dataCaixa: mov.data,
+        bancoId: mov.bankAccountId,
+        obs: mov.descricao ?? "Convertido do extrato",
+      })
+      .returning();
+    await db
+      .update(schema.cashEntries)
+      .set({ rec: true, conciliadoDespesaId: desp.id, conciliadoPor: ctx.userEmail || ctx.userId || null, conciliadoEm: agora })
+      .where(eq(schema.cashEntries.id, mov.id));
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "extrato.criarContaPagar",
+      entity: "despesa",
+      entityId: desp.id,
+      meta: { cashEntryId: mov.id, valor: desp.valor },
+    });
+    revalidatePath("/despesas");
+    revalidatePath("/contaspagar");
+  } else {
+    // Entrada → nova conta a receber, já recebida na data do movimento.
+    const [cr] = await db
+      .insert(schema.contasReceber)
+      .values({
+        tenantId: ctx.tenant.id,
+        projectId: ver.projectId,
+        descricao: mov.descricao ?? "Convertido do extrato",
+        tipo: "Outros",
+        valor: String(valor),
+        vencimento: mov.data,
+        dataRecebimento: mov.data,
+        valorRecebido: String(valor),
+        status: "Recebido",
+        bancoId: mov.bankAccountId,
+        origemCashEntryId: mov.id,
+        createdBy: ctx.userEmail || ctx.userId || null,
+      })
+      .returning();
+    await db
+      .update(schema.cashEntries)
+      .set({ rec: true, conciliadoContaReceberId: cr.id, conciliadoPor: ctx.userEmail || ctx.userId || null, conciliadoEm: agora })
+      .where(eq(schema.cashEntries.id, mov.id));
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "extrato.criarContaReceber",
+      entity: "conta_receber",
+      entityId: cr.id,
+      meta: { cashEntryId: mov.id, valor: cr.valor },
+    });
+    revalidatePath("/contasreceber");
+  }
+  revalidatePath("/caixa");
 }
