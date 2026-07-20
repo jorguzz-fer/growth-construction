@@ -7,6 +7,76 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { getDespesas, getUnits, toCalcUnit } from "@/lib/queries";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { extractExtratoFromDocument, type ExtratoExtraido } from "@/lib/ai/extrato-extract";
+
+/** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
+const EXTRATO_AI_MIME = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
+/**
+ * Lê um extrato bancário em PDF (ou imagem) por IA e retorna as movimentações
+ * identificadas para conferência na mesma tela de pré-visualização usada pelos
+ * formatos XLSX/CSV. O PDF original é armazenado (R2) para consulta/auditoria.
+ * A importação só ocorre após o usuário confirmar — nada é gravado aqui.
+ */
+export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtraido> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    throw new Error("Sem permissão para importar extrato.");
+  }
+  if (!isAiConfigured()) {
+    throw new Error(
+      "Leitura de PDF por IA não configurada (defina ANTHROPIC_API_KEY). Use XLSX/CSV ou configure a IA.",
+    );
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo de extrato.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
+  const mime = file.type || "";
+  if (!(EXTRATO_AI_MIME as readonly string[]).includes(mime)) {
+    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato.");
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const result = await extractExtratoFromDocument(bytes, mime);
+
+  // Guarda o arquivo original do extrato para auditoria (quando o R2 existe).
+  const bankAccountId = (formData.get("bankAccountId") as string) || null;
+  if (isR2Configured()) {
+    try {
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/extratos/${Date.now()}_${safe}`;
+      await putObject(key, bytes, file.type || "application/octet-stream");
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo: "Extrato bancário",
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+    } catch {
+      // Falha ao armazenar o original não impede a conferência/importação.
+    }
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "extrato.readPdf",
+    entity: "cash_entry",
+    entityId: bankAccountId ?? "—",
+    meta: { arquivo: file.name, movimentos: result.movimentos.length },
+  });
+  return result;
+}
 
 /** "MM/DD/YYYY" | "MM/YYYY" → "MM/YYYY" (para casar por competência). */
 function monthKeyFrom(d?: string | null): string | null {

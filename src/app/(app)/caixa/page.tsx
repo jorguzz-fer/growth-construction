@@ -18,6 +18,7 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { brl0, dateBR, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
@@ -62,6 +63,7 @@ export default async function CaixaPage({
   if (!ctx) return null;
 
   const sp = await searchParams;
+  const aiConfigured = isAiConfigured();
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
@@ -337,7 +339,7 @@ export default async function CaixaPage({
         ))}
       </div>
 
-      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} />}
+      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} aiConfigured={aiConfigured} />}
       {tab === "conciliacao" && <Conciliacao cash={cash} conciliados={conciliados} />}
       {tab === "previstas" && <Previstas versionId={version.id} projectId={ctx.project.id} />}
     </>
@@ -347,15 +349,18 @@ export default async function CaixaPage({
 function Lancamentos({
   cash,
   contas,
+  aiConfigured,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   contas: Awaited<ReturnType<typeof getBankAccounts>>;
+  aiConfigured: boolean;
 }) {
   return (
     <>
       <div className="mb-4">
         <ImportExtratoButton
           contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+          aiConfigured={aiConfigured}
         />
       </div>
       <CaixaEntryForm

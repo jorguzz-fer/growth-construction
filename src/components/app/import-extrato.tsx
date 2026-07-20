@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
-import { importCash, type ImportCashRow } from "@/lib/actions/caixa";
+import { importCash, extractExtratoPdf, type ImportCashRow } from "@/lib/actions/caixa";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -175,10 +175,17 @@ function parseSheet(aoa: unknown[][]): ParseResult {
 
 // ─────────────────────────── Componente ────────────────────────────────────
 
-export function ImportExtratoButton({ contas }: { contas: Conta[] }) {
+export function ImportExtratoButton({
+  contas,
+  aiConfigured = false,
+}: {
+  contas: Conta[];
+  aiConfigured?: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [reading, startReading] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [bankAccountId, setBankAccountId] = useState("");
@@ -186,10 +193,45 @@ export function ImportExtratoButton({ contas }: { contas: Conta[] }) {
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [resumo, setResumo] = useState<{ reconhecidos: number; ignorados: number } | null>(null);
 
+  const isPdfOrImage = (file: File) =>
+    file.type === "application/pdf" || file.type.startsWith("image/");
+
   async function onFile(file: File) {
     setMsg(null);
     setErro(null);
     setPreview(null);
+    // PDF/imagem: leitura por IA no servidor (mesma tela de conferência).
+    if (isPdfOrImage(file)) {
+      const fd = new FormData();
+      fd.set("file", file);
+      if (bankAccountId) fd.set("bankAccountId", bankAccountId);
+      startReading(async () => {
+        try {
+          const res = await extractExtratoPdf(fd);
+          const rows: PreviewRow[] = res.movimentos.map((m) => ({
+            incluir: true,
+            data: m.data,
+            descricao: m.descricao,
+            doc: m.doc,
+            valor: m.valor,
+            tipo: m.valor >= 0 ? "entrada" : "saida",
+          }));
+          if (rows.length === 0) {
+            setErro(
+              "Nenhuma movimentação foi reconhecida no PDF. Verifique se o extrato está legível (não protegido/escaneado sem texto).",
+            );
+            return;
+          }
+          setPreview(rows);
+          setResumo({ reconhecidos: rows.length, ignorados: 0 });
+          if (res.saldoFinal != null && !saldoFinal) setSaldoFinal(String(res.saldoFinal));
+        } catch (e) {
+          setErro(e instanceof Error ? e.message : "Falha ao ler o PDF do extrato.");
+        }
+      });
+      return;
+    }
+    // XLSX/CSV: parsing local (comportamento existente, inalterado).
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -269,7 +311,11 @@ export function ImportExtratoButton({ contas }: { contas: Conta[] }) {
         <input
           ref={inputRef}
           type="file"
-          accept=".xlsx,.xls,.csv"
+          accept={
+            aiConfigured
+              ? ".xlsx,.xls,.csv,application/pdf,image/png,image/jpeg,image/webp"
+              : ".xlsx,.xls,.csv"
+          }
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -299,19 +345,25 @@ export function ImportExtratoButton({ contas }: { contas: Conta[] }) {
           </div>
           <Button
             variant="outline"
-            disabled={pending || !bankAccountId}
+            disabled={pending || reading || !bankAccountId}
             onClick={() => inputRef.current?.click()}
           >
-            Selecionar arquivo (XLSX/CSV)
+            {reading
+              ? "Lendo PDF…"
+              : aiConfigured
+                ? "Selecionar arquivo (XLSX/CSV/PDF)"
+                : "Selecionar arquivo (XLSX/CSV)"}
           </Button>
         </div>
         <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
           Selecione a conta e o arquivo do extrato. O sistema lê as colunas de
           Data, Histórico, Documento e Valor (formatos brasileiro e americano,
-          valores positivos/negativos), mostra uma{" "}
-          <strong>pré-visualização</strong> para você escolher o que importar e
+          valores positivos/negativos)
+          {aiConfigured ? " — e também extratos em PDF/imagem por IA" : ""}, mostra
+          uma <strong>pré-visualização</strong> para você escolher o que importar e
           concilia automaticamente com as despesas/receitas previstas.
-          Lançamentos já importados são ignorados.
+          Lançamentos já importados são ignorados. O PDF original fica armazenado
+          para auditoria.
         </p>
         {!bankAccountId && contas.length === 0 && (
           <p className="mt-1 text-[11.5px] text-[var(--color-warning)]">
