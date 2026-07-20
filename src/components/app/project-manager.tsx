@@ -15,6 +15,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/utils";
+import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
 
 interface Perms {
   criar: boolean;
@@ -60,12 +61,16 @@ export function ProjectManager({
   perms,
   clientes,
   tenantName,
+  docsByProject = {},
+  r2Configured = false,
 }: {
   projects: Project[];
   activeId: string;
   perms: Perms;
   clientes: ClienteOpt[];
   tenantName: string;
+  docsByProject?: Record<string, ProjetoDoc[]>;
+  r2Configured?: boolean;
 }) {
   const empreendimentos = projects.filter((p) => p.kind !== "office");
   const escritorios = projects.filter((p) => p.kind === "office");
@@ -90,6 +95,8 @@ export function ProjectManager({
             canEdit={perms.editar}
             clientes={clientes}
             tenantName={tenantName}
+            docs={docsByProject[p.id] ?? []}
+            r2={r2Configured}
           />
         ))}
       </section>
@@ -325,6 +332,8 @@ function ProjectRow({
   canDelete,
   clientes,
   tenantName,
+  docs,
+  r2,
 }: {
   project: Project;
   active: boolean;
@@ -332,6 +341,8 @@ function ProjectRow({
   canDelete: boolean;
   clientes: ClienteOpt[];
   tenantName: string;
+  docs: ProjetoDoc[];
+  r2: boolean;
 }) {
   const [name, setName] = useState(project.name);
   const [duration, setDuration] = useState(
@@ -517,6 +528,8 @@ function ProjectRow({
             </div>
           </div>
         )}
+
+        <ProjetoDocs projectId={project.id} docs={docs} canEdit={canEdit} r2={r2} />
 
         <div className="flex flex-wrap items-center gap-2 pb-1.5">
           <SelectActive id={project.id} active={active} pending={pending} start={start} />

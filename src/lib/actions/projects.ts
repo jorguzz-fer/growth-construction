@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
@@ -12,6 +12,7 @@ import {
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { DEFAULT_INCC } from "@/lib/calc/constants";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -219,4 +220,72 @@ export async function deleteProject(projectId: string) {
     meta: { name: target.name },
   });
   revalidatePath("/", "layout");
+}
+
+/**
+ * Anexa um arquivo (contrato, proposta, documento jurídico, etc.) ao cadastro do
+ * projeto. Reusa a tabela `documents` (vínculo por project_id) e o armazenamento
+ * R2. Múltiplos arquivos por projeto; os documentos são preservados em edições
+ * posteriores do projeto. Requer permissão de edição de projeto.
+ */
+export async function uploadProjetoDoc(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "editar")) {
+    throw new Error("Sem permissão para anexar documentos ao projeto.");
+  }
+  if (!isR2Configured()) {
+    throw new Error("Storage (R2) não configurado — defina as variáveis R2_*.");
+  }
+  const projectId = (formData.get("projectId") as string) || "";
+  if (!projectId || !ctx.projects.some((p) => p.id === projectId)) {
+    throw new Error("Projeto inválido.");
+  }
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > 20 * 1024 * 1024) throw new Error("Arquivo deve ter até 20 MB.");
+
+  const safe = file.name.replace(/[^\w.\-]+/g, "_");
+  const key = `tenants/${ctx.tenant.id}/projetos/${projectId}/${Date.now()}_${safe}`;
+  await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+
+  await db.insert(schema.documents).values({
+    tenantId: ctx.tenant.id,
+    projectId,
+    storageKey: key,
+    filename: file.name,
+    contentType: file.type || null,
+    size: file.size,
+    tipo: ((formData.get("tipo") as string) || "").trim() || "Documento do projeto",
+    uploadedBy: ctx.userEmail || ctx.userId || null,
+  });
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "projeto.doc.upload",
+    entity: "document",
+    entityId: projectId,
+    meta: { filename: file.name, tipo: (formData.get("tipo") as string) || null },
+  });
+  revalidatePath("/projeto");
+}
+
+/** Remove um documento anexado ao projeto (registro; o objeto R2 fica órfão). */
+export async function deleteProjetoDoc(formData: FormData) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "editar")) {
+    throw new Error("Sem permissão.");
+  }
+  const id = (formData.get("id") as string) || "";
+  if (!id) return;
+  await db
+    .delete(schema.documents)
+    .where(and(eq(schema.documents.id, id), eq(schema.documents.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "projeto.doc.delete",
+    entity: "document",
+    entityId: id,
+  });
+  revalidatePath("/projeto");
 }
