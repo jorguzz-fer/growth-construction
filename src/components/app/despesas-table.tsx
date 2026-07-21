@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  updateDespesa,
   deleteDespesa,
   cancelarDespesa,
   pagarDespesa,
@@ -13,11 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { Input, Label, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
-import { DateField, MonthField } from "@/components/ui/date-field";
+import { DateField } from "@/components/ui/date-field";
 import { Button } from "@/components/ui/button";
 
 export interface DespesaDTO {
   id: string;
+  /** projeto ao qual a despesa pertence (necessário para abrir a edição). */
+  projectId: string;
   numDoc: string | null;
   fornecedorId: string | null;
   bancoId: string | null;
@@ -58,32 +59,23 @@ const statusTone = (s: string) =>
 
 interface Ref {
   fornecedores: { id: string; nome: string }[];
-  contas: { code: string; name: string }[];
   bancos: { id: string; banco: string; tipo: string }[];
-  categorias: readonly string[];
 }
 
 export function DespesasTable({
   rows,
   fornecedores,
-  contas,
   bancos,
-  categorias,
   venc,
   showOrigem = false,
-  editId,
   canEditar,
   canExcluir,
-  canEditNumero = false,
 }: {
   rows: DespesaDTO[];
   venc?: boolean;
   showOrigem?: boolean;
-  /** id da despesa que deve abrir já em modo de edição (deep link ?edit=). */
-  editId?: string;
   canEditar: boolean;
   canExcluir: boolean;
-  canEditNumero?: boolean;
 } & Ref) {
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const showActions = canEditar || canExcluir;
@@ -110,16 +102,11 @@ export function DespesasTable({
             key={d.id}
             d={d}
             fornById={fornById}
-            fornecedores={fornecedores}
-            contas={contas}
             bancos={bancos}
-            categorias={categorias}
             venc={venc}
             showOrigem={showOrigem}
-            openEdit={!!editId && d.id === editId}
             canEditar={canEditar}
             canExcluir={canExcluir}
-            canEditNumero={canEditNumero}
           />
         ))}
         {rows.length === 0 && (
@@ -137,42 +124,37 @@ export function DespesasTable({
 function Row({
   d,
   fornById,
-  fornecedores,
-  contas,
   bancos,
-  categorias,
   venc,
   showOrigem = false,
-  openEdit = false,
   canEditar,
   canExcluir,
-  canEditNumero = false,
 }: {
   d: DespesaDTO;
   fornById: Map<string, string>;
+  bancos: Ref["bancos"];
   showOrigem?: boolean;
-  openEdit?: boolean;
   venc?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
-  canEditNumero?: boolean;
-} & Ref) {
+}) {
   const router = useRouter();
-  const [editing, setEditing] = useState(openEdit);
+  const searchParams = useSearchParams();
   const [paying, setPaying] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [f, setF] = useState({
-    numDoc: d.numDoc ?? "",
-    fornecedorId: d.fornecedorId ?? "",
-    contaCef: d.contaCef ?? "",
-    categoriaDre: d.categoriaDre ?? "",
-    bancoId: d.bancoId ?? "",
-    competencia: d.competencia ?? "",
-    vencimento: d.vencimento ?? "",
-    valor: d.valor,
-    status: d.status ?? "A pagar",
-  });
+
+  // Abre a tela completa de edição (mesmo formulário do cadastro, já preenchido)
+  // via deep link ?edit=. Preserva o projeto da despesa para carregar a versão
+  // correta (importante na consulta consolidada).
+  const abrirEdicao = () => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("tab", "lancamentos");
+    params.set("proj", d.projectId);
+    params.set("edit", d.id);
+    router.push(`/despesas?${params.toString()}`);
+  };
+
   // Formulário de pagamento (marcar como paga).
   const hojeInterno = (() => {
     const h = new Date();
@@ -230,45 +212,6 @@ function Row({
   const stDisplay = displayStatus(d);
   const isPago = d.status === "Pago";
 
-  const cancel = () => {
-    setF({
-      numDoc: d.numDoc ?? "",
-      fornecedorId: d.fornecedorId ?? "",
-      contaCef: d.contaCef ?? "",
-      categoriaDre: d.categoriaDre ?? "",
-      bancoId: d.bancoId ?? "",
-      competencia: d.competencia ?? "",
-      vencimento: d.vencimento ?? "",
-      valor: d.valor,
-      status: d.status ?? "A pagar",
-    });
-    setError(null);
-    setEditing(false);
-  };
-
-  const save = () => {
-    setError(null);
-    start(async () => {
-      try {
-        await updateDespesa(d.id, {
-          numDoc: f.numDoc,
-          fornecedorId: f.fornecedorId,
-          contaCef: f.contaCef,
-          categoriaDre: f.categoriaDre,
-          bancoId: f.bancoId,
-          competencia: f.competencia,
-          vencimento: f.vencimento,
-          valor: f.valor,
-          status: f.status,
-        });
-        setEditing(false);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao salvar.");
-      }
-    });
-  };
-
   const remove = () => {
     if (
       !window.confirm(
@@ -286,118 +229,6 @@ function Row({
       }
     });
   };
-
-  if (editing) {
-    return (
-      <TR>
-        <TD>
-          {venc ? (
-            <DateField
-              value={f.vencimento}
-              onChange={(v) => setF((s) => ({ ...s, vencimento: v }))}
-              className="h-8 text-xs"
-            />
-          ) : (
-            <MonthField
-              value={f.competencia}
-              onChange={(v) => setF((s) => ({ ...s, competencia: v }))}
-              className="h-8 text-xs"
-            />
-          )}
-        </TD>
-        {showOrigem && <TD className="text-[11px] text-[var(--color-ink3)]">{d.origem ?? "—"}</TD>}
-        <TD>
-          {canEditNumero ? (
-            <Input
-              value={f.numDoc}
-              onChange={(e) => setF((s) => ({ ...s, numDoc: e.target.value }))}
-              className="h-8 w-28 text-xs"
-            />
-          ) : (
-            <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-              {f.numDoc || "—"}
-            </span>
-          )}
-        </TD>
-        <TD>
-          <Select
-            value={f.fornecedorId}
-            onChange={(e) => setF((s) => ({ ...s, fornecedorId: e.target.value }))}
-            className="h-8 text-xs"
-          >
-            <option value="">—</option>
-            {fornecedores.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.nome}
-              </option>
-            ))}
-          </Select>
-        </TD>
-        <TD>
-          <Select
-            value={f.contaCef}
-            onChange={(e) => setF((s) => ({ ...s, contaCef: e.target.value }))}
-            className="h-8 text-xs"
-          >
-            <option value="">—</option>
-            {contas.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} — {c.name}
-              </option>
-            ))}
-          </Select>
-        </TD>
-        <TD>
-          <Select
-            value={f.categoriaDre}
-            onChange={(e) => setF((s) => ({ ...s, categoriaDre: e.target.value }))}
-            className="h-8 text-xs"
-          >
-            <option value="">—</option>
-            {categorias.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
-        </TD>
-        <TD>
-          <Input
-            type="number"
-            step="0.01"
-            value={f.valor}
-            onChange={(e) => setF((s) => ({ ...s, valor: e.target.value }))}
-            className="h-8 w-24 text-right text-xs"
-          />
-        </TD>
-        <TD>
-          <Select
-            value={f.status}
-            onChange={(e) => setF((s) => ({ ...s, status: e.target.value }))}
-            className="h-8 text-xs"
-          >
-            <option>A pagar</option>
-            <option>Pago</option>
-          </Select>
-        </TD>
-        <TD className="text-right">
-          <div className="flex justify-end gap-1.5">
-            <Button size="sm" disabled={pending} onClick={save}>
-              Salvar
-            </Button>
-            <Button size="sm" variant="ghost" disabled={pending} onClick={cancel}>
-              Cancelar
-            </Button>
-          </div>
-          {error && (
-            <p className="mt-1 text-right text-[11px] text-[var(--color-danger)]">
-              {error}
-            </p>
-          )}
-        </TD>
-      </TR>
-    );
-  }
 
   if (paying) {
     return (
@@ -475,7 +306,7 @@ function Row({
               )}
               {canEditar && (
                 <button
-                  onClick={() => setEditing(true)}
+                  onClick={abrirEdicao}
                   disabled={pending}
                   className="text-sm text-[var(--color-accent2)] hover:underline disabled:opacity-50"
                 >

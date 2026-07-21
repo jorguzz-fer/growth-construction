@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addDespesa, extractDespesaFromDoc } from "@/lib/actions/despesas";
+import { addDespesa, updateDespesa, extractDespesaFromDoc } from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -33,6 +33,28 @@ interface Banco {
   tipo: string;
 }
 
+/**
+ * Dados de uma despesa carregada para edição. Quando `edit` está presente, o
+ * formulário abre com estes valores em vez de vazio e grava via `updateDespesa`
+ * (em vez de criar uma nova despesa). Datas seguem o formato interno da tela
+ * (competência "MM/YYYY", vencimento "MM/DD/YYYY").
+ */
+export interface EditDespesa {
+  id: string;
+  projectId: string;
+  projectNome: string;
+  fornecedorId: string | null;
+  contaCef: string | null;
+  categoriaDre: string | null;
+  bancoId: string | null;
+  numDoc: string | null;
+  competencia: string | null;
+  vencimento: string | null;
+  valor: string;
+  status: string | null;
+  formaPagamento?: string | null;
+}
+
 const STRIP_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
 const norm = (s: string) =>
   s
@@ -54,6 +76,7 @@ export function DespesaForm({
   aiConfigured,
   r2Configured,
   canEditNumero = false,
+  edit = null,
 }: {
   projetos: Projeto[];
   projetoId: string;
@@ -65,24 +88,27 @@ export function DespesaForm({
   aiConfigured: boolean;
   r2Configured: boolean;
   canEditNumero?: boolean;
+  /** Quando presente, o formulário abre em modo EDIÇÃO da despesa informada. */
+  edit?: EditDespesa | null;
 }) {
   const router = useRouter();
+  const isEdit = !!edit;
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, startReading] = useTransition();
   const [saving, startSaving] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [projeto, setProjeto] = useState(projetoId);
-  const [fornecedorId, setFornecedorId] = useState("");
-  const [contaCef, setContaCef] = useState("");
-  const [categoriaDre, setCategoriaDre] = useState(categorias[0] ?? "Custo Variável");
-  const [bancoId, setBancoId] = useState("");
-  const [numDoc, setNumDoc] = useState("");
-  const [competencia, setCompetencia] = useState("");
-  const [vencimento, setVencimento] = useState("");
-  const [valor, setValor] = useState("");
-  const [status, setStatus] = useState("A pagar");
+  const [projeto, setProjeto] = useState(edit?.projectId ?? projetoId);
+  const [fornecedorId, setFornecedorId] = useState(edit?.fornecedorId ?? "");
+  const [contaCef, setContaCef] = useState(edit?.contaCef ?? "");
+  const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? categorias[0] ?? "Custo Variável");
+  const [bancoId, setBancoId] = useState(edit?.bancoId ?? "");
+  const [numDoc, setNumDoc] = useState(edit?.numDoc ?? "");
+  const [competencia, setCompetencia] = useState(edit?.competencia ?? "");
+  const [vencimento, setVencimento] = useState(edit?.vencimento ?? "");
+  const [valor, setValor] = useState(edit?.valor ?? "");
+  const [status, setStatus] = useState(edit?.status ?? "A pagar");
   const [file, setFile] = useState<File | null>(null);
 
   // Despesa recorrente: repete o mesmo lançamento nos próximos meses.
@@ -200,6 +226,45 @@ export function DespesaForm({
 
   function salvar() {
     setError(null);
+    // Modo edição: grava as alterações na despesa existente (updateDespesa) e
+    // volta para a lista. Não recria parcelas/recorrência nem mexe no caixa.
+    if (isEdit && edit) {
+      const patch: {
+        fornecedorId: string | null;
+        bancoId: string | null;
+        contaCef: string | null;
+        categoriaDre: string;
+        numDoc?: string;
+        competencia: string | null;
+        vencimento: string | null;
+        valor: string;
+        status: string;
+      } = {
+        fornecedorId: fornecedorId || null,
+        bancoId: bancoId || null,
+        contaCef: contaCef || null,
+        categoriaDre,
+        competencia: competencia || null,
+        vencimento: vencimento || null,
+        valor: valor || "0",
+        status,
+      };
+      // Só envia o número quando o usuário pode editá-lo (owner/admin); assim
+      // evitamos o erro de permissão quando o valor não mudou.
+      if (canEditNumero) patch.numDoc = numDoc;
+      startSaving(async () => {
+        try {
+          await updateDespesa(edit.id, patch);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("edit");
+          router.push(`${url.pathname}${url.search}`);
+          router.refresh();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Falha ao salvar as alterações.");
+        }
+      });
+      return;
+    }
     const fd = new FormData();
     fd.set("projectId", projeto);
     fd.set("fornecedorId", fornecedorId);
@@ -283,7 +348,18 @@ export function DespesaForm({
   return (
     <Card className="mb-6">
       <CardContent className="space-y-4 p-5">
-        {/* Documento + leitura por IA */}
+        {isEdit && (
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-semibold text-[var(--color-ink)]">
+              Editar despesa {edit?.numDoc ? `nº ${edit.numDoc}` : ""}
+            </h2>
+            <span className="text-[12px] text-[var(--color-ink3)]">
+              {edit?.projectNome}
+            </span>
+          </div>
+        )}
+        {/* Documento + leitura por IA — só no cadastro de uma nova despesa. */}
+        {!isEdit && (
         <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
@@ -319,12 +395,17 @@ export function DespesaForm({
               : " Configure as variáveis R2_* para armazenar o arquivo."}
           </p>
         </div>
+        )}
 
         {/* Campos da despesa */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="sm:col-span-2">
             <Label>Projeto</Label>
-            <Select value={projeto} onChange={(e) => setProjeto(e.target.value)}>
+            <Select
+              value={projeto}
+              onChange={(e) => setProjeto(e.target.value)}
+              disabled={isEdit}
+            >
               {projetos.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
@@ -387,7 +468,11 @@ export function DespesaForm({
           ) : (
             <div>
               <Label>Nº Documento</Label>
-              <Input value="Gerado automaticamente" disabled readOnly />
+              <Input
+                value={isEdit ? numDoc || "—" : "Gerado automaticamente"}
+                disabled
+                readOnly
+              />
             </div>
           )}
           <div>
@@ -409,6 +494,11 @@ export function DespesaForm({
               <option>Pago</option>
             </Select>
           </div>
+          {/* Recorrência, sócio pagador e parcelamento só valem no cadastro
+              de uma nova despesa — a edição ajusta apenas os dados da despesa
+              existente, sem recriar lançamentos, parcelas ou caixa. */}
+          {!isEdit && (
+          <>
           {/* Despesa recorrente — repete nos próximos meses */}
           <div className="col-span-2 flex flex-wrap items-end gap-4 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-4">
             <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--color-ink)]">
@@ -610,16 +700,38 @@ export function DespesaForm({
               </div>
             )}
           </div>
+          </>
+          )}
 
-          <div className="col-span-2 flex items-end sm:col-span-4">
+          <div className="col-span-2 flex items-center gap-3 sm:col-span-4">
             <Button
               type="button"
               className="w-full sm:w-auto"
-              disabled={busy || (parcelas.length > 0 && !totalOk)}
+              disabled={busy || (!isEdit && parcelas.length > 0 && !totalOk)}
               onClick={salvar}
             >
-              {saving ? "Lançando…" : "Lançar despesa"}
+              {saving
+                ? isEdit
+                  ? "Salvando…"
+                  : "Lançando…"
+                : isEdit
+                  ? "Salvar alterações"
+                  : "Lançar despesa"}
             </Button>
+            {isEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("edit");
+                  router.push(`${url.pathname}${url.search}`);
+                }}
+              >
+                Cancelar
+              </Button>
+            )}
           </div>
         </div>
 

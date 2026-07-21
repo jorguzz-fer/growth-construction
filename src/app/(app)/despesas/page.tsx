@@ -77,6 +77,7 @@ export default async function DespesasPage({
   );
   const toDTO = (d: (typeof despesas)[number]): DespesaDTO => ({
     id: d.id,
+    projectId: (d as { projectId?: string }).projectId ?? project.id,
     numDoc: d.numDoc,
     fornecedorId: d.fornecedorId,
     bancoId: d.bancoId,
@@ -91,12 +92,44 @@ export default async function DespesasPage({
     cancelado: d.cancelado,
     origem: d.origem ?? null,
   });
-  const refProps = {
+  // A tabela só precisa de fornecedores (exibição) e bancos (pagamento).
+  const tableRefProps = {
     fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome })),
+    bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
+  };
+  // Props comuns ao formulário completo (cadastro e edição).
+  const despesaFormProps = {
+    projetos: ctx.projects.map((p) => ({ id: p.id, nome: p.name })),
+    projetoId: project.id,
+    fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome, doc: f.doc })),
     contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
     categorias: CATEGORIAS_DRE,
+    socios,
+    aiConfigured,
+    r2Configured,
+    canEditNumero,
   };
+  // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição.
+  const editRow = sp.edit ? despesas.find((d) => d.id === sp.edit) : undefined;
+  const editData =
+    editRow && canEditar
+      ? {
+          id: editRow.id,
+          projectId: project.id,
+          projectNome: project.name,
+          fornecedorId: editRow.fornecedorId,
+          contaCef: editRow.contaCef,
+          categoriaDre: editRow.categoriaDre,
+          bancoId: editRow.bancoId,
+          numDoc: editRow.numDoc,
+          competencia: editRow.competencia,
+          vencimento: editRow.vencimento,
+          valor: String(editRow.valor),
+          status: editRow.status,
+          formaPagamento: editRow.formaPagamento,
+        }
+      : null;
 
   return (
     <>
@@ -131,32 +164,17 @@ export default async function DespesasPage({
 
       {tab === "lancamentos" && (
         <>
-          {canEdit && (
-            <DespesaForm
-              projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
-              projetoId={project.id}
-              fornecedores={fornecedores.map((f) => ({
-                id: f.id,
-                nome: f.nome,
-                doc: f.doc,
-              }))}
-              contas={contasOrdenadas.map((c) => ({ code: c.code, name: c.name }))}
-              bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
-              categorias={CATEGORIAS_DRE}
-              socios={socios}
-              aiConfigured={aiConfigured}
-              r2Configured={r2Configured}
-              canEditNumero={canEditNumero}
-            />
+          {editData ? (
+            <DespesaForm {...despesaFormProps} edit={editData} />
+          ) : (
+            canEdit && <DespesaForm {...despesaFormProps} />
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}
             showOrigem={isAll}
-            editId={sp.edit}
             canEditar={canEditar}
             canExcluir={canExcluir}
-            canEditNumero={canEditNumero}
-            {...refProps}
+            {...tableRefProps}
           />
         </>
       )}
@@ -168,12 +186,10 @@ export default async function DespesasPage({
             .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))
             .map(toDTO)}
           venc
-          editId={sp.edit}
           showOrigem={isAll}
           canEditar={canEditar}
           canExcluir={canExcluir}
-          canEditNumero={canEditNumero}
-          {...refProps}
+          {...tableRefProps}
         />
       )}
 
