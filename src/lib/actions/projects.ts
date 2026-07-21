@@ -152,6 +152,7 @@ export async function updateProject(
     formaPagamentoTerreno?: string | null;
     proprietarioTerreno?: string | null;
     terrenoForaCaixa?: boolean;
+    custoObraDriver?: string;
   },
 ) {
   const ctx = await getActiveContext();
@@ -174,6 +175,8 @@ export async function updateProject(
   if (patch.proprietarioTerreno !== undefined)
     set.proprietarioTerreno = patch.proprietarioTerreno?.trim() || null;
   if (patch.terrenoForaCaixa !== undefined) set.terrenoForaCaixa = patch.terrenoForaCaixa;
+  if (patch.custoObraDriver !== undefined)
+    set.custoObraDriver = patch.custoObraDriver === "medicao" ? "medicao" : "despesas";
   if (Object.keys(set).length === 0) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));

@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "custo_obra_driver" text DEFAULT 'despesas' NOT NULL;
