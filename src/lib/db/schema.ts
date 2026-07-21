@@ -216,6 +216,12 @@ export const projects = pgTable("project", {
    * lançado no caixa da construtora.
    */
   terrenoForaCaixa: boolean("terreno_fora_caixa").notNull().default(true),
+  /**
+   * Origem do Custo Variável de obra na DRE (evita dobrar medição × despesa):
+   * "despesas" = usa as despesas com categoria "Custo Variável" (medições NÃO
+   * entram no custo); "medicao" = usa as medições de obra. Default "despesas".
+   */
+  custoObraDriver: text("custo_obra_driver").notNull().default("despesas"),
   // ── Localização da obra (controle de ponto georreferenciado) ────────────
   endereco: text("endereco"),
   latitude: numeric("latitude", { precision: 10, scale: 7 }),

@@ -362,6 +362,7 @@ function ProjectRow({
     proprietarioTerreno: project.proprietarioTerreno ?? "",
     terrenoForaCaixa: project.terrenoForaCaixa ?? true,
   });
+  const [custoDriver, setCustoDriver] = useState(project.custoObraDriver ?? "despesas");
   const [pending, start] = useTransition();
   const isObra = project.kind !== "office";
   const valorGlobal = (Number(terr.valorConstrucao) || 0) + (Number(terr.valorTerreno) || 0);
@@ -383,6 +384,7 @@ function ProjectRow({
     startDate !== (project.startDate ?? "") ||
     endDate !== (project.endDate ?? "") ||
     clienteId !== (project.clienteId ?? "") ||
+    custoDriver !== (project.custoObraDriver ?? "despesas") ||
     terrDirty;
 
   const save = () =>
@@ -394,6 +396,7 @@ function ProjectRow({
         startDate,
         endDate,
         clienteId,
+        custoObraDriver: custoDriver,
         custoConstrucao: terr.custoConstrucao || null,
         custoTerreno: terr.custoTerreno || null,
         valorConstrucao: terr.valorConstrucao || null,
@@ -454,6 +457,29 @@ function ProjectRow({
             disabled={!canEdit || pending}
           />
         </div>
+
+        {isObra && (
+          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
+            <h3 className="mb-1 text-[13px] font-semibold text-[var(--color-ink)]">
+              Custo Variável de obra na DRE
+            </h3>
+            <p className="mb-2 text-[11.5px] text-[var(--color-ink3)]">
+              Define a <strong>origem do custo de obra</strong> na DRE, evitando dobrar
+              medição × nota. Com <strong>Despesas</strong>, o custo vem das despesas
+              &ldquo;Custo Variável&rdquo; (competência da despesa) e as medições
+              <strong> não</strong> entram no custo.
+            </p>
+            <Select
+              value={custoDriver}
+              onChange={(e) => setCustoDriver(e.target.value)}
+              disabled={!canEdit || pending}
+              className="max-w-xs"
+            >
+              <option value="despesas">Despesas (nota fiscal) — recomendado</option>
+              <option value="medicao">Medição de obra</option>
+            </Select>
+          </div>
+        )}
 
         {isObra && (
           <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
