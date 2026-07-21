@@ -8,6 +8,7 @@ import {
   getSocios,
   getBankAccounts,
   getDocuments,
+  getDocumentsByDespesa,
   getAtualVersion,
 } from "@/lib/queries";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
@@ -110,8 +111,32 @@ export default async function DespesasPage({
     r2Configured,
     canEditNumero,
   };
-  // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição.
+  // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
+  // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
   const editRow = sp.edit ? despesas.find((d) => d.id === sp.edit) : undefined;
+  const editDocs =
+    editRow && canEditar
+      ? await getDocumentsByDespesa(ctx.tenant.id, editRow.id)
+      : [];
+  const editDocsComUrl = r2Configured
+    ? await Promise.all(
+        editDocs.map(async (doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          tipo: doc.tipo,
+          size: doc.size,
+          uploadedAt: doc.uploadedAt ? doc.uploadedAt.toISOString() : null,
+          url: await readUrl(doc.storageKey),
+        })),
+      )
+    : editDocs.map((doc) => ({
+        id: doc.id,
+        filename: doc.filename,
+        tipo: doc.tipo,
+        size: doc.size,
+        uploadedAt: doc.uploadedAt ? doc.uploadedAt.toISOString() : null,
+        url: null as string | null,
+      }));
   const editData =
     editRow && canEditar
       ? {
@@ -128,6 +153,8 @@ export default async function DespesasPage({
           valor: String(editRow.valor),
           status: editRow.status,
           formaPagamento: editRow.formaPagamento,
+          documentos: editDocsComUrl,
+          r2Configured,
         }
       : null;
 

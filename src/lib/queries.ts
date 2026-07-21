@@ -656,6 +656,23 @@ export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Documentos anexados a uma despesa específica (mais recentes primeiro). */
+export async function getDocumentsByDespesa(
+  tenantId: string,
+  despesaId: string,
+): Promise<DocumentRow[]> {
+  return db
+    .select()
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.tenantId, tenantId),
+        eq(schema.documents.despesaId, despesaId),
+      ),
+    )
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type CashRow = typeof schema.cashEntries.$inferSelect;
 
 export async function getCash(versionId: string): Promise<CashRow[]> {

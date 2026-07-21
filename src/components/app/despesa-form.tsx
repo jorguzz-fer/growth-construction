@@ -39,6 +39,16 @@ interface Banco {
  * (em vez de criar uma nova despesa). Datas seguem o formato interno da tela
  * (competência "MM/YYYY", vencimento "MM/DD/YYYY").
  */
+export interface DespesaAnexo {
+  id: string;
+  filename: string;
+  tipo: string | null;
+  size: number | null;
+  uploadedAt: string | null;
+  /** URL assinada para abrir/baixar; null quando o storage não está configurado. */
+  url: string | null;
+}
+
 export interface EditDespesa {
   id: string;
   projectId: string;
@@ -53,6 +63,10 @@ export interface EditDespesa {
   valor: string;
   status: string | null;
   formaPagamento?: string | null;
+  /** Documentos anexados à despesa (para visualizar/baixar na edição). */
+  documentos?: DespesaAnexo[];
+  /** Se o storage (R2) está configurado — habilita os links de download. */
+  r2Configured?: boolean;
 }
 
 const STRIP_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
@@ -356,6 +370,59 @@ export function DespesaForm({
             <span className="text-[12px] text-[var(--color-ink3)]">
               {edit?.projectNome}
             </span>
+          </div>
+        )}
+        {/* Anexos da despesa — permite visualizar/baixar o documento original. */}
+        {isEdit && (
+          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4">
+            <h3 className="mb-2 text-[13px] font-semibold text-[var(--color-ink)]">
+              Documento anexado
+            </h3>
+            {(edit?.documentos?.length ?? 0) === 0 ? (
+              <p className="text-[12px] text-[var(--color-ink3)]">
+                Nenhum documento anexado a esta despesa.
+                {edit?.r2Configured === false
+                  ? " (Storage não configurado — defina as variáveis R2_*.)"
+                  : " Você pode anexar um arquivo pela aba Repositório."}
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {edit?.documentos?.map((doc) => (
+                  <li
+                    key={doc.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface)] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-[var(--color-ink)]">
+                        {doc.filename}
+                      </p>
+                      <p className="text-[11px] text-[var(--color-ink3)]">
+                        {doc.tipo ? `${doc.tipo} · ` : ""}
+                        {doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ""}
+                        {doc.uploadedAt
+                          ? ` · ${new Date(doc.uploadedAt).toLocaleDateString("pt-BR")}`
+                          : ""}
+                      </p>
+                    </div>
+                    {doc.url ? (
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener"
+                        download
+                        className="shrink-0 rounded-[6px] border border-[var(--color-accent2)]/30 px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent2)]/8"
+                      >
+                        Abrir / Baixar
+                      </a>
+                    ) : (
+                      <span className="shrink-0 text-[11px] text-[var(--color-ink4)]">
+                        indisponível
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {/* Documento + leitura por IA — só no cadastro de uma nova despesa. */}
