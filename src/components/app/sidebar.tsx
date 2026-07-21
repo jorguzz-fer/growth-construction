@@ -16,6 +16,22 @@ interface NavSection {
   items: NavItem[];
 }
 
+/**
+ * Cor neon por módulo — as legendas do menu mudam de cor conforme o módulo,
+ * destacando-se sobre o fundo escuro da sidebar. Chave = título da seção.
+ */
+const MODULE_NEON: Record<string, string> = {
+  "Módulo Planejamento": "#22d3ee", // ciano
+  "Módulo Receitas": "#34ff9e", // verde
+  "Módulo Despesas": "#ff5db1", // rosa
+  "Módulo Estoque": "#ff9d3c", // laranja
+  "Controle de Ponto": "#ffe14d", // amarelo
+  "Reports & Dashboards": "#c084fc", // roxo
+  Config: "#5aa9ff", // azul
+};
+const DEFAULT_NEON = "#93a3b8";
+const neonOf = (title: string): string => MODULE_NEON[title] ?? DEFAULT_NEON;
+
 export interface SidebarProps {
   tenantName: string;
   userName: string;
@@ -167,35 +183,52 @@ export function Sidebar({
       </Link>
 
       <nav className="flex-1 py-1">
-        {sections.map((sec) => (
-          <div key={sec.title}>
-            <div className="px-4 pb-1 pt-3 font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/20">
-              {sec.title}
+        {sections.map((sec) => {
+          const neon = neonOf(sec.title);
+          return (
+            <div key={sec.title}>
+              <div
+                className="px-4 pb-1 pt-3 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] opacity-55"
+                style={{ color: neon }}
+              >
+                {sec.title}
+              </div>
+              {sec.items.map((it) => {
+                const active = pathname === it.href;
+                return (
+                  <Link
+                    key={it.href}
+                    href={it.href}
+                    onClick={close}
+                    style={{
+                      color: neon,
+                      borderColor: active ? neon : "transparent",
+                      backgroundColor: active ? `${neon}22` : undefined,
+                      textShadow: active
+                        ? `0 0 10px ${neon}aa, 0 0 3px ${neon}`
+                        : `0 0 6px ${neon}30`,
+                    }}
+                    className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[14px] font-medium tracking-tight transition-all ${
+                      active
+                        ? "opacity-100"
+                        : "opacity-65 hover:bg-white/5 hover:opacity-100"
+                    }`}
+                  >
+                    <span className="flex-1">{it.label}</span>
+                    {it.badge != null && it.badge > 0 && (
+                      <span
+                        className="rounded-full px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px]"
+                        style={{ backgroundColor: `${neon}33`, color: neon }}
+                      >
+                        {it.badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
             </div>
-            {sec.items.map((it) => {
-              const active = pathname === it.href;
-              return (
-                <Link
-                  key={it.href}
-                  href={it.href}
-                  onClick={close}
-                  className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[12.5px] transition-colors ${
-                    active
-                      ? "border-[var(--color-accent2)] bg-[var(--color-accent2)]/20 text-white"
-                      : "border-transparent text-white/50 hover:bg-white/5 hover:text-white/85"
-                  }`}
-                >
-                  <span className="flex-1">{it.label}</span>
-                  {it.badge != null && it.badge > 0 && (
-                    <span className="rounded-full bg-[var(--color-accent2)]/30 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-accent3)]">
-                      {it.badge}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="mt-auto border-t border-white/10 p-3">
