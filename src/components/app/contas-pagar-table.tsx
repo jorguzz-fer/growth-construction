@@ -154,9 +154,11 @@ export function ContasPagarTable({
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <THead>
+          {/* Altura limitada: a rolagem (horizontal e vertical) acontece dentro
+              da tabela, então a barra horizontal fica visível de imediato — sem
+              precisar descer até o fim da página. Cabeçalho fixo ao rolar. */}
+          <Table wrapperClassName="max-h-[70vh]">
+            <THead className="sticky top-0 z-10">
                 <tr>
                   <TH>Fornecedor</TH>
                   <TH>Descrição</TH>
@@ -217,8 +219,7 @@ export function ContasPagarTable({
                   </TR>
                 )}
               </tbody>
-            </Table>
-          </div>
+          </Table>
         </CardContent>
       </Card>
     </div>

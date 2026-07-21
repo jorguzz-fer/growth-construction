@@ -3,19 +3,38 @@ import { cn } from "@/lib/utils";
 
 export function Table({
   className,
+  wrapperClassName,
   ...props
-}: React.TableHTMLAttributes<HTMLTableElement>) {
+}: React.TableHTMLAttributes<HTMLTableElement> & {
+  /**
+   * Classes extras no contêiner de rolagem (ex.: `max-h-[70vh]` para limitar a
+   * altura e manter a barra de rolagem horizontal sempre visível, em vez de só
+   * no fim da página).
+   */
+  wrapperClassName?: string;
+}) {
   return (
-    <div className="w-full overflow-x-auto rounded-[12px] border border-[var(--color-accent2)]/12 bg-white">
+    <div
+      className={cn(
+        "w-full overflow-auto rounded-[12px] border border-[var(--color-accent2)]/12 bg-white",
+        wrapperClassName,
+      )}
+    >
       <table className={cn("w-full border-collapse text-sm", className)} {...props} />
     </div>
   );
 }
 
-export function THead(props: React.HTMLAttributes<HTMLTableSectionElement>) {
+export function THead({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <thead
-      className="border-b border-[var(--color-accent2)]/12 bg-[var(--color-surface2)]"
+      className={cn(
+        "border-b border-[var(--color-accent2)]/12 bg-[var(--color-surface2)]",
+        className,
+      )}
       {...props}
     />
   );
