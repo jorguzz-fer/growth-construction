@@ -33,3 +33,35 @@ export function horizonMonths(
   for (let i = base - back; i <= base + fwd; i++) out.push(idxToKey(i));
   return out;
 }
+
+/** Competência "MM/YYYY" → índice absoluto de mês (ou null se inválida). */
+function keyToIdx(mk: string): number | null {
+  const p = mk.split("/");
+  if (p.length !== 2) return null;
+  const m = Number(p[0]);
+  const y = Number(p[1]);
+  if (!m || !y) return null;
+  return y * 12 + (m - 1);
+}
+
+/**
+ * Estende uma lista de competências PARA FRENTE até (hoje + `fwd` meses),
+ * devolvendo um intervalo contíguo e ordenado do mês mais antigo presente
+ * (ou o mês atual, se vazio) até o alvo. Não adiciona meses no passado além
+ * do que já existe — usado nas grades de lançamento (Budget/Forecast) para
+ * permitir lançar nos próximos 5 anos sem inflar o passado.
+ */
+export function fillHorizonForward(
+  months: string[],
+  today: Date = new Date(),
+  fwd: number = HORIZON_MONTHS_FWD,
+): string[] {
+  const idxs = months.map(keyToIdx).filter((n): n is number => n != null);
+  const todayIdx = today.getFullYear() * 12 + today.getMonth();
+  const targetMax = todayIdx + fwd;
+  const min = idxs.length ? Math.min(...idxs) : todayIdx;
+  const max = Math.max(targetMax, idxs.length ? Math.max(...idxs) : targetMax);
+  const out: string[] = [];
+  for (let i = min; i <= max; i++) out.push(idxToKey(i));
+  return out;
+}

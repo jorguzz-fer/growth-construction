@@ -10,6 +10,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
   CalcPermuta,
@@ -805,12 +806,12 @@ export async function getReceitaByProject(
           ),
         )
     : [];
-  // Meses = união do horizonte INCC com todos os meses efetivamente lançados.
-  // Garante que dados de anos além do INCC (ex.: import de Budget multi-ano)
-  // apareçam na matriz e sejam considerados ao salvar.
+  // Meses = INCC + meses lançados, estendidos PARA FRENTE até hoje + 5 anos,
+  // para permitir lançamento nos próximos cinco anos. Contíguo e ordenado;
+  // dados além do alvo (ex.: import multi-ano) são preservados.
   const monthSet = new Set(incc.map((r) => r.mes));
   for (const l of lines) monthSet.add(l.mes);
-  const months = [...monthSet].sort(sortMonthKey);
+  const months = fillHorizonForward([...monthSet]);
   // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
   const receitaByVer = new Map<string, Record<string, number>>();
   const outrasByVer = new Map<string, Record<string, number>>();
@@ -917,11 +918,12 @@ export async function getDespesaLinhas(
         )
     : [];
 
-  // Meses = união do horizonte INCC com todos os meses efetivamente lançados
-  // (mostra despesas de anos além do INCC, ex.: import de Budget multi-ano).
+  // Meses = INCC + meses lançados, estendidos PARA FRENTE até hoje + 5 anos
+  // (permite lançar despesas nos próximos cinco anos). Dados além do alvo
+  // (ex.: import multi-ano) são preservados.
   const monthSet = new Set(incc.map((r) => r.mes));
   for (const l of bl) monthSet.add(l.mes);
-  const months = [...monthSet].sort(sortMonthKey);
+  const months = fillHorizonForward([...monthSet]);
 
   const lineMap = new Map<string, DespesaLinha>();
   for (const l of bl) {
