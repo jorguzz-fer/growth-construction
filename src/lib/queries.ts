@@ -10,6 +10,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { horizonMonths } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
   CalcPermuta,
@@ -808,7 +809,7 @@ export async function getReceitaByProject(
   // Meses = união do horizonte INCC com todos os meses efetivamente lançados.
   // Garante que dados de anos além do INCC (ex.: import de Budget multi-ano)
   // apareçam na matriz e sejam considerados ao salvar.
-  const monthSet = new Set(incc.map((r) => r.mes));
+  const monthSet = new Set<string>([...horizonMonths(), ...incc.map((r) => r.mes)]);
   for (const l of lines) monthSet.add(l.mes);
   const months = [...monthSet].sort(sortMonthKey);
   // Separa a receita do projeto ("Receita") da linha "Outras Receitas".
@@ -919,7 +920,7 @@ export async function getDespesaLinhas(
 
   // Meses = união do horizonte INCC com todos os meses efetivamente lançados
   // (mostra despesas de anos além do INCC, ex.: import de Budget multi-ano).
-  const monthSet = new Set(incc.map((r) => r.mes));
+  const monthSet = new Set<string>([...horizonMonths(), ...incc.map((r) => r.mes)]);
   for (const l of bl) monthSet.add(l.mes);
   const months = [...monthSet].sort(sortMonthKey);
 
