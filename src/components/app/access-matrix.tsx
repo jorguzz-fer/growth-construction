@@ -26,7 +26,13 @@ const ACTIONS: { key: PermAction; label: string }[] = [
   { key: "editar", label: "Editar" },
   { key: "excluir", label: "Excluir" },
 ];
-const MODULOS: Modulo[] = ["Receitas", "Despesas", "Reports", "Config"];
+const MODULOS: Modulo[] = [
+  "Receitas",
+  "Despesas",
+  "Conciliação de Caixa",
+  "Reports",
+  "Config",
+];
 
 export function AccessMatrix({
   members,

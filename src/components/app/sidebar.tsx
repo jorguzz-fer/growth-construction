@@ -26,6 +26,7 @@ const MODULE_NEON: Record<string, string> = {
   "Módulo Despesas": "#ff5db1", // rosa
   "Módulo Estoque": "#ff9d3c", // laranja
   "Controle de Ponto": "#ffe14d", // amarelo
+  "Conciliação de Caixa": "#2dd4bf", // turquesa
   "Reports & Dashboards": "#c084fc", // roxo
   Config: "#5aa9ff", // azul
 };
@@ -92,13 +93,18 @@ export function Sidebar({
       items: [{ href: "/ponto", label: "Ponto da Obra" }],
     },
     {
+      title: "Conciliação de Caixa",
+      items: [
+        { href: "/caixa", label: "Caixa" },
+        { href: "/fechamento", label: "Fechamento de Caixa" },
+      ],
+    },
+    {
       title: "Reports & Dashboards",
       items: [
         { href: "/dashboard", label: "Dashboard" },
         { href: "/projecao", label: "Projeção de Receitas" },
         { href: "/consolidado", label: "Consolidado" },
-        { href: "/caixa", label: "Caixa" },
-        { href: "/fechamento", label: "Fechamento de Caixa" },
         { href: "/balancodia", label: "Balanço do Dia" },
         { href: "/dre", label: "DRE" },
         { href: "/fluxocaixa", label: "Fluxo de Caixa" },
