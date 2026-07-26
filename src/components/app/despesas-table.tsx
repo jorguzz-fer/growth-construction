@@ -153,6 +153,12 @@ function Row({
     params.set("proj", d.projectId);
     params.set("edit", d.id);
     router.push(`/despesas?${params.toString()}`);
+    // Mudança só de query (mesma página) não rola a tela: a tela completa de
+    // edição abre no topo, então trazemos a visão para lá — igual ao fluxo
+    // vindo de Contas a Pagar (navegação entre páginas já sobe ao topo).
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   // Formulário de pagamento (marcar como paga).
