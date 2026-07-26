@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Select } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { MonthField } from "@/components/ui/date-field";
 
 export function DreControls({
   projects,
@@ -12,6 +14,8 @@ export function DreControls({
   periodDisabled,
   view,
   vs,
+  de,
+  ate,
 }: {
   projects: { id: string; label: string }[];
   proj: string;
@@ -20,22 +24,46 @@ export function DreControls({
   periodDisabled: boolean;
   view: string;
   vs: string;
+  /** Recorte customizado (competência interna "MM/YYYY"). */
+  de: string;
+  ate: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
   const [pending, start] = useTransition();
 
-  const go = (patch: Partial<Record<"proj" | "periodo" | "view" | "vs", string>>) => {
+  // Estado local dos campos De/Até (aplicados via botão, para não navegar a
+  // cada tecla). Sincroniza quando a URL muda por fora.
+  const [deVal, setDeVal] = useState(de);
+  const [ateVal, setAteVal] = useState(ate);
+  useEffect(() => setDeVal(de), [de]);
+  useEffect(() => setAteVal(ate), [ate]);
+
+  const go = (
+    patch: Partial<Record<"proj" | "periodo" | "view" | "vs" | "de" | "ate", string>>,
+  ) => {
     const params = new URLSearchParams(sp.toString());
-    const next = { proj, periodo, view, vs, ...patch };
+    const next = { proj, periodo, view, vs, de, ate, ...patch };
     params.set("proj", next.proj);
     params.set("periodo", next.periodo);
     if (next.view) params.set("view", next.view);
     else params.delete("view");
     if (next.vs) params.set("vs", next.vs);
     else params.delete("vs");
+    // De/Até só valem no recorte customizado.
+    if (next.periodo === "custom") {
+      if (next.de) params.set("de", next.de);
+      else params.delete("de");
+      if (next.ate) params.set("ate", next.ate);
+      else params.delete("ate");
+    } else {
+      params.delete("de");
+      params.delete("ate");
+    }
     start(() => router.push(`/dre?${params.toString()}`));
   };
+
+  const aplicarCustom = () => go({ periodo: "custom", de: deVal, ate: ateVal });
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -64,6 +92,31 @@ export function DreControls({
           </option>
         ))}
       </Select>
+      {periodo === "custom" && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <span className="mb-0.5 block font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wide text-[var(--color-ink3)]">
+              De
+            </span>
+            <MonthField value={deVal} onChange={setDeVal} className="h-9 w-[110px]" />
+          </div>
+          <div>
+            <span className="mb-0.5 block font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wide text-[var(--color-ink3)]">
+              Até
+            </span>
+            <MonthField value={ateVal} onChange={setAteVal} className="h-9 w-[110px]" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={aplicarCustom}
+            className="h-9"
+          >
+            Aplicar
+          </Button>
+        </div>
+      )}
       <Select
         value={view}
         disabled={pending}
