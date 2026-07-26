@@ -10,6 +10,8 @@ import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { Sidebar } from "@/components/app/sidebar";
 import { AccessDenied } from "@/components/app/access-denied";
+import { BackupReminder } from "@/components/app/backup-reminder";
+import { hasPendingSemesterBackup } from "@/lib/backup";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +94,12 @@ export default async function AppLayout({
   const screenId = screenIdOfPath(pathname);
   const denied = screenId ? !can(ctx.perms, screenId, "ver") : false;
 
+  // Aviso de backup: só para quem pode ver a tela de Backup e quando o último
+  // semestre encerrado tem dados a arquivar.
+  const backupPending = can(ctx.perms, "backup", "ver")
+    ? await hasPendingSemesterBackup(ctx.tenant.id)
+    : { has: false, key: "", label: "" };
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
@@ -113,6 +121,9 @@ export default async function AppLayout({
               className="max-h-8 w-auto object-contain"
             />
           </div>
+        )}
+        {backupPending.has && (
+          <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />
         )}
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
           {denied ? <AccessDenied /> : children}

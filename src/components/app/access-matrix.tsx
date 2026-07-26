@@ -31,6 +31,7 @@ const MODULOS: Modulo[] = [
   "Despesas",
   "Conciliação de Caixa",
   "Reports",
+  "Backup",
   "Config",
 ];
 

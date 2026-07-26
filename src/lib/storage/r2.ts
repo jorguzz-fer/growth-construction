@@ -54,6 +54,18 @@ export async function putObject(
   );
 }
 
+/** Baixa um objeto inteiro em memória (usado para montar o ZIP de backup). */
+export async function getObjectBytes(key: string): Promise<Uint8Array> {
+  const res = await client().send(
+    new GetObjectCommand({ Bucket: process.env.R2_BUCKET, Key: key }),
+  );
+  const body = res.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
+  if (!body?.transformToByteArray) {
+    throw new Error("Resposta do R2 sem corpo legível.");
+  }
+  return body.transformToByteArray();
+}
+
 /** Presigned URL de upload (PUT). Válida por `expiresIn` segundos. */
 export async function presignUpload(
   key: string,

@@ -28,6 +28,7 @@ const MODULE_NEON: Record<string, string> = {
   "Controle de Ponto": "#ffe14d", // amarelo
   "Conciliação de Caixa": "#2dd4bf", // turquesa
   "Reports & Dashboards": "#c084fc", // roxo
+  Backup: "#f9a8d4", // rosa claro
   Config: "#5aa9ff", // azul
 };
 const DEFAULT_NEON = "#93a3b8";
@@ -112,6 +113,10 @@ export function Sidebar({
         { href: "/rolling", label: "Rolling Forecast" },
         { href: "/resumo", label: "Resumo Executivo" },
       ],
+    },
+    {
+      title: "Backup",
+      items: [{ href: "/backup", label: "Backup & Arquivamento" }],
     },
     {
       title: "Config",

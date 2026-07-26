@@ -22,6 +22,7 @@ export type Modulo =
   | "Despesas"
   | "Conciliação de Caixa"
   | "Reports"
+  | "Backup"
   | "Config";
 
 export interface Screen {
@@ -61,6 +62,7 @@ export const SCREENS: Screen[] = [
   { id: "contas", label: "Contas Correntes", modulo: "Despesas" },
   { id: "estoque", label: "Controle de Estoques", modulo: "Despesas" },
   { id: "ponto", label: "Controle de Ponto", modulo: "Despesas" },
+  { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },
   { id: "usuarios", label: "Usuários & Acessos", modulo: "Config" },
   { id: "acessos", label: "Gestão de Acessos", modulo: "Config" },
   { id: "acoes", label: "Log de Auditoria", modulo: "Config" },
