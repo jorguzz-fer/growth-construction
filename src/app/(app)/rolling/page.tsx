@@ -20,6 +20,7 @@ import {
   type ProjectionSource,
 } from "@/lib/calc";
 import { dateBR, monthInRange } from "@/lib/utils";
+import { horizonMonths } from "@/lib/horizon";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import {
@@ -164,8 +165,10 @@ export default async function RollingPage({
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 
   // ── Horizonte + janelas de 12 meses (Ano N) ──────────────────────────────
+  // Janela móvel padrão (2 anos atrás + 5 à frente) unida aos meses com dados.
   const axis = Array.from(
     new Set([
+      ...horizonMonths(),
       ...incc.map((r) => r.m),
       ...PROJECTION_SOURCES.flatMap((s) => Object.keys(sources[s])),
       ...Object.keys(reembMonth),

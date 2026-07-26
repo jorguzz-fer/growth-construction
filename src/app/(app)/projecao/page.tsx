@@ -14,6 +14,7 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
+import { horizonMonths } from "@/lib/horizon";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -128,9 +129,15 @@ export default async function ProjecaoPage({
   }
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 
-  // Horizonte (48 meses da tabela INCC + meses extras da projeção).
+  // Horizonte padrão (janela móvel: 2 anos atrás + 5 à frente) + INCC + meses
+  // extras da projeção.
   const axis = Array.from(
-    new Set([...incc.map((r) => r.m), ...Object.keys(unitsProj), ...Object.keys(reembMonth)]),
+    new Set([
+      ...horizonMonths(),
+      ...incc.map((r) => r.m),
+      ...Object.keys(unitsProj),
+      ...Object.keys(reembMonth),
+    ]),
   ).sort(sortMonth);
 
   // Janelas de 12 meses (Ano 1..N).

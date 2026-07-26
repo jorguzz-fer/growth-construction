@@ -16,7 +16,14 @@ export interface ScreenPerm {
 }
 export type PermMatrix = Record<string, ScreenPerm>;
 
-export type Modulo = "Planejamento" | "Receitas" | "Despesas" | "Reports" | "Config";
+export type Modulo =
+  | "Planejamento"
+  | "Receitas"
+  | "Despesas"
+  | "Conciliação de Caixa"
+  | "Reports"
+  | "Backup"
+  | "Config";
 
 export interface Screen {
   id: string; // = primeiro segmento da rota (ex.: "unidades")
@@ -29,8 +36,8 @@ export const SCREENS: Screen[] = [
   { id: "dashboard", label: "Dashboard", modulo: "Reports" },
   { id: "projecao", label: "Projeção de Receitas", modulo: "Reports" },
   { id: "consolidado", label: "Consolidado", modulo: "Reports" },
-  { id: "caixa", label: "Controle de Caixa", modulo: "Reports" },
-  { id: "fechamento", label: "Fechamento de Caixa", modulo: "Reports" },
+  { id: "caixa", label: "Controle de Caixa", modulo: "Conciliação de Caixa" },
+  { id: "fechamento", label: "Fechamento de Caixa", modulo: "Conciliação de Caixa" },
   { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
@@ -55,6 +62,7 @@ export const SCREENS: Screen[] = [
   { id: "contas", label: "Contas Correntes", modulo: "Despesas" },
   { id: "estoque", label: "Controle de Estoques", modulo: "Despesas" },
   { id: "ponto", label: "Controle de Ponto", modulo: "Despesas" },
+  { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },
   { id: "usuarios", label: "Usuários & Acessos", modulo: "Config" },
   { id: "acessos", label: "Gestão de Acessos", modulo: "Config" },
   { id: "acoes", label: "Log de Auditoria", modulo: "Config" },
