@@ -125,6 +125,7 @@ export function BudgetPlanningScreen({
           canCreate={canCreateForecast}
           currentForecastId={data.versionId}
           onCreated={(id) => go({ v: id })}
+          onCompare={() => go({ cmp: "1" })}
         />
       )}
       {kind === "forecast" && !data.versionId ? null : (
@@ -164,12 +165,14 @@ function ForecastToolbar({
   canCreate,
   currentForecastId,
   onCreated,
+  onCompare,
 }: {
   projectId: string;
   budgetVersions: { id: string; label: string }[];
   canCreate: boolean;
   currentForecastId: string | null;
   onCreated: (id: string) => void;
+  onCompare: () => void;
 }) {
   const [baseId, setBaseId] = useState(budgetVersions[0]?.id ?? "");
   const [nome, setNome] = useState("");
@@ -251,6 +254,11 @@ function ForecastToolbar({
                 onClick={duplicar}
               >
                 Duplicar atual
+              </Button>
+            )}
+            {currentForecastId && (
+              <Button type="button" variant="outline" disabled={pending} onClick={onCompare}>
+                Comparar com Budget
               </Button>
             )}
           </div>

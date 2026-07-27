@@ -531,6 +531,124 @@ export async function getStockMovements(tenantId: string): Promise<StockMovement
 
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
+export interface CompareRowP {
+  rowKey: string;
+  label: string;
+  budget: number;
+  forecast: number;
+}
+export interface ForecastComparisonData {
+  ok: boolean;
+  message?: string;
+  forecastLabel: string;
+  budgetLabel: string;
+  months: string[];
+  receitas: CompareRowP[];
+  despesas: CompareRowP[];
+  budgetByMonth: Record<string, number>;
+  forecastByMonth: Record<string, number>;
+}
+
+/**
+ * Comparação entre um Forecast e o Budget de origem (spec §16). Reaproveita
+ * getBudgetPlanning para as duas versões e calcula a variação por conta e por
+ * mês. Se o Forecast não tem origem registrada, usa o Budget padrão do projeto.
+ */
+export async function getForecastComparison(
+  tenantId: string,
+  forecastVersionId: string,
+): Promise<ForecastComparisonData> {
+  const empty: ForecastComparisonData = {
+    ok: false,
+    forecastLabel: "",
+    budgetLabel: "",
+    months: [],
+    receitas: [],
+    despesas: [],
+    budgetByMonth: {},
+    forecastByMonth: {},
+  };
+  const [fv] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.id, forecastVersionId),
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.kind, "forecast"),
+      ),
+    )
+    .limit(1);
+  if (!fv) return { ...empty, message: "Forecast não encontrado." };
+
+  let budgetVersionId = fv.sourceVersionId;
+  if (!budgetVersionId) {
+    const budgets = await getProjectVersionsByKind(tenantId, fv.projectId, "budget");
+    budgetVersionId = budgets[0]?.id ?? null;
+  }
+  if (!budgetVersionId) {
+    return { ...empty, forecastLabel: fv.label, message: "Projeto sem Budget para comparar." };
+  }
+  const [bv] = await db
+    .select({ label: schema.versions.label })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, budgetVersionId))
+    .limit(1);
+
+  const [budgetData, forecastData] = await Promise.all([
+    getBudgetPlanning(tenantId, fv.projectId, "budget", budgetVersionId),
+    getBudgetPlanning(tenantId, fv.projectId, "forecast", forecastVersionId),
+  ]);
+  const months = forecastData.months.length ? forecastData.months : budgetData.months;
+
+  const merge = (
+    bRows: import("./planning").PlanningAccountRow[],
+    fRows: import("./planning").PlanningAccountRow[],
+  ): CompareRowP[] => {
+    const map = new Map<string, CompareRowP>();
+    for (const r of bRows)
+      map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: r.total, forecast: 0 });
+    for (const r of fRows) {
+      const cur = map.get(r.rowKey);
+      if (cur) cur.forecast = r.total;
+      else map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: 0, forecast: r.total });
+    }
+    return [...map.values()];
+  };
+
+  const monthlyTotals = (rows: import("./planning").PlanningAccountRow[]) => {
+    const out: Record<string, number> = {};
+    for (const m of months) {
+      let s = 0;
+      for (const r of rows) s += Math.round(r.total * (Number(r.pct[m]) || 0)) / 100;
+      out[m] = s;
+    }
+    return out;
+  };
+  const sumMonthly = (a: Record<string, number>, b: Record<string, number>) => {
+    const out: Record<string, number> = {};
+    for (const m of months) out[m] = (a[m] || 0) + (b[m] || 0);
+    return out;
+  };
+
+  return {
+    ok: true,
+    forecastLabel: fv.label,
+    budgetLabel: bv?.label ?? "Budget",
+    months,
+    receitas: merge(budgetData.receitas, forecastData.receitas),
+    despesas: merge(budgetData.despesas, forecastData.despesas),
+    budgetByMonth: sumMonthly(
+      monthlyTotals(budgetData.receitas),
+      monthlyTotals(budgetData.despesas),
+    ),
+    forecastByMonth: sumMonthly(
+      monthlyTotals(forecastData.receitas),
+      monthlyTotals(forecastData.despesas),
+    ),
+  };
+}
+
 /** Versões de um tipo (budget/forecast) de um projeto — para seletores/criação. */
 export async function getProjectVersionsByKind(
   tenantId: string,
