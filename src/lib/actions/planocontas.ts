@@ -8,9 +8,13 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
 type Kind = "cef" | "complementar";
+type Natureza = "receita" | "despesa";
 
 function normKind(v: unknown): Kind {
   return v === "complementar" ? "complementar" : "cef";
+}
+function normNatureza(v: unknown): Natureza {
+  return v === "receita" ? "receita" : "despesa";
 }
 
 async function codeExists(tenantId: string, code: string): Promise<boolean> {
@@ -34,12 +38,14 @@ export async function addChartGroup(input: {
   groupName: string;
   code: string;
   name: string;
+  natureza?: string;
 }) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "planocontas", "criar")) {
     throw new Error("Sem permissão para criar grupos.");
   }
   const kind = normKind(input.kind);
+  const natureza = normNatureza(input.natureza);
   const groupCode = input.groupCode.trim();
   const groupName = input.groupName.trim();
   const code = input.code.trim();
@@ -57,13 +63,14 @@ export async function addChartGroup(input: {
     groupCode,
     groupName,
     kind,
+    natureza,
   });
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "chart.group.create",
     entity: "chart_account",
-    meta: { groupCode, groupName, kind },
+    meta: { groupCode, groupName, kind, natureza },
   });
   revalidatePath("/planocontas");
 }
@@ -75,12 +82,14 @@ export async function addChartItem(input: {
   groupName: string;
   code: string;
   name: string;
+  natureza?: string;
 }) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "planocontas", "criar")) {
     throw new Error("Sem permissão para criar subitens.");
   }
   const kind = normKind(input.kind);
+  const natureza = normNatureza(input.natureza);
   const code = input.code.trim();
   const name = input.name.trim();
   if (!code || !name) throw new Error("Informe o código e o nome do subitem.");
@@ -94,6 +103,7 @@ export async function addChartItem(input: {
     groupCode: input.groupCode.trim(),
     groupName: input.groupName.trim(),
     kind,
+    natureza,
   });
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -108,7 +118,7 @@ export async function addChartItem(input: {
 /** Edita o código/nome de um subitem. */
 export async function updateChartItem(
   id: string,
-  patch: { code?: string; name?: string },
+  patch: { code?: string; name?: string; natureza?: string },
 ) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
@@ -123,7 +133,7 @@ export async function updateChartItem(
     )
     .limit(1);
   if (!current) return;
-  const set: { code?: string; name?: string } = {};
+  const set: { code?: string; name?: string; natureza?: Natureza } = {};
   if (patch.code && patch.code.trim() && patch.code.trim() !== current.code) {
     if (await codeExists(ctx.tenant.id, patch.code.trim())) {
       throw new Error(`O código "${patch.code.trim()}" já existe.`);
@@ -131,6 +141,7 @@ export async function updateChartItem(
     set.code = patch.code.trim();
   }
   if (patch.name && patch.name.trim()) set.name = patch.name.trim();
+  if (patch.natureza !== undefined) set.natureza = normNatureza(patch.natureza);
   if (Object.keys(set).length === 0) return;
   await db
     .update(schema.chartAccounts)
@@ -143,6 +154,29 @@ export async function updateChartItem(
     entity: "chart_account",
     entityId: id,
     meta: set,
+  });
+  revalidatePath("/planocontas");
+}
+
+/** Ativa/inativa um subitem (exclusão lógica: some de novos lançamentos, fica no histórico). */
+export async function setChartAccountAtivo(id: string, ativo: boolean) {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
+  await db
+    .update(schema.chartAccounts)
+    .set({ ativo })
+    .where(
+      and(
+        eq(schema.chartAccounts.id, id),
+        eq(schema.chartAccounts.tenantId, ctx.tenant.id),
+      ),
+    );
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: ativo ? "chart.item.activate" : "chart.item.deactivate",
+    entity: "chart_account",
+    entityId: id,
   });
   revalidatePath("/planocontas");
 }
