@@ -1,8 +1,10 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import * as XLSX from "xlsx";
+import { baixarXlsx } from "@/lib/download";
 import {
   saveBudgetPlanning,
   setVersionStatus,
@@ -419,6 +421,8 @@ function Bloco({
   const [saving, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const setTotal = (i: number, v: string) =>
     setRows((s) => s.map((r, j) => (j === i ? { ...r, total: v } : r)));
@@ -475,6 +479,101 @@ function Bloco({
     });
   };
 
+  const exportar = () => {
+    const header = [
+      "Conta",
+      "Nome",
+      "Total",
+      ...months.flatMap((m) => [`${m} %`, `${m} R$`]),
+      "Total %",
+      "Saldo",
+    ];
+    const aoa: (string | number)[][] = [header];
+    rows.forEach((r, i) => {
+      const rc = calc.perRow[i];
+      aoa.push([
+        r.rowKey,
+        r.label,
+        num(r.total),
+        ...months.flatMap((m) => [num(r.pct[m]), rc.valorMes[m]]),
+        rc.somaPct,
+        rc.saldo,
+      ]);
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet(aoa),
+      bloco === "receita" ? "Receitas" : "Despesas",
+    );
+    baixarXlsx(wb, `${bloco}_${versionId ?? "versao"}.xlsx`);
+  };
+
+  const importar = async (file: File) => {
+    setImportMsg(null);
+    setError(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
+      if (aoa.length < 2) {
+        setImportMsg("Planilha vazia ou sem linhas de dados.");
+        return;
+      }
+      const header = (aoa[0] ?? []).map((h) => String(h ?? "").trim());
+      const idxConta = header.findIndex((h) => /^conta$/i.test(h));
+      const idxTotal = header.findIndex((h) => /^total$/i.test(h));
+      if (idxConta < 0) {
+        setImportMsg('Coluna "Conta" não encontrada no cabeçalho.');
+        return;
+      }
+      const monthCols: { mes: string; col: number }[] = [];
+      header.forEach((h, c) => {
+        const m = h.match(/^(\d{1,2}\/\d{4})\s*%$/);
+        if (m) monthCols.push({ mes: m[1].padStart(7, "0"), col: c });
+      });
+      const monthSet = new Set(months);
+      const byKey = new Map(rows.map((r, i) => [r.rowKey, i] as const));
+      const next = rows.map((r) => ({ ...r, pct: { ...r.pct } }));
+      let matched = 0;
+      let ignored = 0;
+      const fora = new Set<string>();
+      for (let i = 1; i < aoa.length; i++) {
+        const row = aoa[i];
+        if (!row) continue;
+        const code = String(row[idxConta] ?? "").trim();
+        if (!code) continue;
+        const ri = byKey.get(code);
+        if (ri == null) {
+          ignored++;
+          continue;
+        }
+        if (idxTotal >= 0 && row[idxTotal] != null && row[idxTotal] !== "") {
+          next[ri].total = String(Number(row[idxTotal]) || 0);
+        }
+        for (const mc of monthCols) {
+          if (!monthSet.has(mc.mes)) {
+            fora.add(mc.mes);
+            continue;
+          }
+          const v = row[mc.col];
+          next[ri].pct[mc.mes] = v == null || v === "" ? "" : String(Number(v) || 0);
+        }
+        matched++;
+      }
+      setRows(next);
+      const parts = [`${matched} conta(s) atualizada(s)`];
+      if (ignored) parts.push(`${ignored} ignorada(s) (código não está no Plano de Contas)`);
+      if (fora.size) parts.push(`meses fora do período ignorados: ${[...fora].join(", ")}`);
+      setImportMsg(parts.join(" · ") + ". Revise a prévia e clique em Salvar.");
+    } catch {
+      setImportMsg("Não foi possível ler a planilha.");
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   const pctTone = (soma: number) =>
     Math.abs(soma - 100) < 0.01
       ? "var(--color-success)"
@@ -494,20 +593,47 @@ function Bloco({
               automaticamente; a soma por conta não pode ultrapassar 100%.
             </p>
           </div>
-          {canEdit && (
-            <div className="flex items-center gap-2">
-              {error && <span className="text-[12px] text-[var(--color-danger)]">{error}</span>}
-              {ok && !error && <span className="text-[12px] text-[var(--color-success)]">Salvo ✓</span>}
-              <Button
-                type="button"
-                disabled={saving || algumAcima || !versionId}
-                onClick={salvar}
-              >
-                {saving ? "Salvando…" : bloco === "receita" ? "Salvar receitas" : "Salvar despesas"}
-              </Button>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {error && <span className="text-[12px] text-[var(--color-danger)]">{error}</span>}
+            {ok && !error && <span className="text-[12px] text-[var(--color-success)]">Salvo ✓</span>}
+            <Button type="button" variant="outline" onClick={exportar}>
+              Exportar planilha
+            </Button>
+            {canEdit && (
+              <>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importar(f);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  Importar planilha
+                </Button>
+                <Button
+                  type="button"
+                  disabled={saving || algumAcima || !versionId}
+                  onClick={salvar}
+                >
+                  {saving ? "Salvando…" : bloco === "receita" ? "Salvar receitas" : "Salvar despesas"}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
+        {importMsg && (
+          <p className="border-b border-[var(--color-accent2)]/12 bg-[var(--color-accent)]/8 px-4 py-2 text-[12px] text-[var(--color-ink2)]">
+            {importMsg}
+          </p>
+        )}
 
         <div className="max-h-[70vh] overflow-auto">
           <table className="w-full border-collapse text-sm">
