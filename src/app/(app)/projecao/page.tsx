@@ -14,6 +14,7 @@ import {
   type MonthlyProjection,
 } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
+import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -133,22 +134,19 @@ export default async function ProjecaoPage({
     new Set([...incc.map((r) => r.m), ...Object.keys(unitsProj), ...Object.keys(reembMonth)]),
   ).sort(sortMonth);
 
-  // Janelas de 12 meses (Ano 1..N).
-  const years: { value: number; months: string[]; label: string }[] = [];
-  for (let i = 0; i < axis.length; i += 12) {
-    const months = axis.slice(i, i + 12);
-    if (months.length === 0) continue;
-    years.push({
-      value: years.length + 1,
-      months,
-      label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
-    });
-  }
-  const wantedAno = Number(sp.ano) || 1;
-  const selectedYear = Math.min(Math.max(1, wantedAno), Math.max(1, years.length));
+  // Recortes por ano-calendário (2025, 2026, … até o ano atual + 5).
+  const years = calendarYearWindows(axis, new Date().getFullYear()).map((y) => ({
+    value: Number(y.value),
+    label: y.label,
+    months: y.months,
+  }));
+  const curYear = new Date().getFullYear();
+  const selectedYear = years.some((y) => y.value === Number(sp.ano))
+    ? Number(sp.ano)
+    : curYear;
   const yearMonths = hasRange
     ? axis.filter((m) => monthInRange(m, de, ate))
-    : years[selectedYear - 1]?.months ?? [];
+    : years.find((y) => y.value === selectedYear)?.months ?? [];
 
   const vendidas = unitRows.filter((u) => u.status === "Vendido").length;
   const grand = (p: MonthlyProjection) => Object.values(p).reduce((a, b) => a + b, 0);

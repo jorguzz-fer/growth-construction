@@ -14,6 +14,7 @@ import { permutaCashByMonth } from "@/lib/calc";
 import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
 import { brl0, brlk, monthInRange } from "@/lib/utils";
+import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -172,21 +173,20 @@ export default async function FluxoCaixaPage({
       ...Object.keys(saidas),
     ]),
   ].sort(sortMonthKey);
-  const years: { value: number; months: string[]; label: string }[] = [];
-  for (let i = 0; i < axis.length; i += 12) {
-    const months = axis.slice(i, i + 12);
-    if (months.length)
-      years.push({
-        value: years.length + 1,
-        months,
-        label: `Ano ${years.length + 1} (${months[0]}–${months[months.length - 1]})`,
-      });
-  }
-  const selectedYear = Math.min(Math.max(1, Number(sp.ano) || 1), Math.max(1, years.length));
-  // Com período informado, o intervalo de datas tem prioridade sobre o Ano N.
+  // Recortes por ano-calendário (2025, 2026, … até o ano atual + 5).
+  const years = calendarYearWindows(axis, new Date().getFullYear()).map((y) => ({
+    value: Number(y.value),
+    label: y.label,
+    months: y.months,
+  }));
+  const curYear = new Date().getFullYear();
+  const selectedYear = years.some((y) => y.value === Number(sp.ano))
+    ? Number(sp.ano)
+    : curYear;
+  // Com período informado, o intervalo de datas tem prioridade sobre o ano.
   const yearMonths = hasRange
     ? axis.filter((mm) => monthInRange(mm, de, ate))
-    : years[selectedYear - 1]?.months ?? [];
+    : years.find((y) => y.value === selectedYear)?.months ?? [];
 
   // Saldo acumulado corre desde o saldo inicial ao longo de todo o horizonte.
   let acumulado = saldoInicial;

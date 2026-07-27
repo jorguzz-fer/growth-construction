@@ -62,6 +62,32 @@ export function projectPeriodMonthsFromDates(
   );
 }
 
+/**
+ * Recortes por ANO-CALENDÁRIO para os seletores de período dos relatórios:
+ * 2025, 2026, 2027… do ano mais antigo com dados (ou o ano atual) até o ano
+ * atual + `fwd` (padrão 5). Cada opção traz os 12 meses "MM/YYYY" do ano.
+ */
+export function calendarYearWindows(
+  months: string[],
+  currentYear: number,
+  fwd: number = 5,
+): { value: string; label: string; months: string[] }[] {
+  const dataYears = months
+    .map((m) => Number(m.split("/")[1]))
+    .filter((y) => Number.isFinite(y) && y > 0);
+  const start = Math.min(currentYear, ...(dataYears.length ? dataYears : [currentYear]));
+  const end = Math.max(currentYear + fwd, ...(dataYears.length ? dataYears : [currentYear]));
+  const out: { value: string; label: string; months: string[] }[] = [];
+  for (let y = start; y <= end; y++) {
+    out.push({
+      value: String(y),
+      label: String(y),
+      months: Array.from({ length: 12 }, (_, i) => `${String(i + 1).padStart(2, "0")}/${y}`),
+    });
+  }
+  return out;
+}
+
 /** Uma conta (linha) do Budget/Forecast: total + percentual/valor por mês. */
 export interface PlanningAccountRow {
   /** identidade da linha = código do grupo do Plano de Contas (ou chave legada). */
