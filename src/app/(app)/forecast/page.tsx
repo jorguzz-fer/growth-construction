@@ -21,11 +21,12 @@ export default async function ForecastPage({
   if (!can(ctx.perms, "forecast", "ver")) return <AccessDenied />;
   const sp = await searchParams;
 
-  const obras = ctx.projects.filter((p) => p.kind !== "office");
+  // Inclui obras e matriz/filiais (office). Offices usam ano atual + 5 anos.
+  const alvos = ctx.projects;
   const projId =
-    obras.find((p) => p.id === sp.proj)?.id ??
-    obras.find((p) => p.id === ctx.project.id)?.id ??
-    obras[0]?.id ??
+    alvos.find((p) => p.id === sp.proj)?.id ??
+    alvos.find((p) => p.id === ctx.project.id)?.id ??
+    alvos[0]?.id ??
     ctx.project.id;
   const [data, budgetVersions] = await Promise.all([
     getBudgetPlanning(ctx.tenant.id, projId, "forecast", sp.v ?? null),
@@ -39,7 +40,10 @@ export default async function ForecastPage({
     return <BudgetForecastCompare data={cmp} backHref={back} />;
   }
 
-  const projects = obras.map((p) => ({ id: p.id, label: p.name }));
+  const projects = alvos.map((p) => ({
+    id: p.id,
+    label: p.kind === "office" ? `${p.name} · Matriz/Filial` : p.name,
+  }));
   return (
     <BudgetPlanningScreen
       data={data}

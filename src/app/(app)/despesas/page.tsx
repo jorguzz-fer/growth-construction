@@ -73,6 +73,26 @@ export default async function DespesasPage({
   > = despesasRaw;
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
+
+  // Anexos por despesa: marca na lista (clipe) quais despesas têm documento e
+  // permite abri-lo direto. Usa o documento mais recente de cada despesa.
+  const despesaIdSet = new Set(despesas.map((d) => d.id));
+  const allDocs = await getDocuments(ctx.tenant.id); // ordenado por mais recente
+  const docByDespesa = new Map<string, { count: number; storageKey: string }>();
+  for (const doc of allDocs) {
+    if (!doc.despesaId || !despesaIdSet.has(doc.despesaId)) continue;
+    const cur = docByDespesa.get(doc.despesaId);
+    if (cur) cur.count += 1;
+    else docByDespesa.set(doc.despesaId, { count: 1, storageKey: doc.storageKey });
+  }
+  const anexoUrlByDespesa = new Map<string, string>();
+  if (r2Configured) {
+    await Promise.all(
+      [...docByDespesa].map(async ([id, v]) =>
+        anexoUrlByDespesa.set(id, await readUrl(v.storageKey)),
+      ),
+    );
+  }
   const contasOrdenadas = [...contas].sort((a, b) =>
     a.code.localeCompare(b.code, undefined, { numeric: true }),
   );
@@ -92,6 +112,8 @@ export default async function DespesasPage({
     obs: d.obs,
     cancelado: d.cancelado,
     origem: d.origem ?? null,
+    anexoUrl: anexoUrlByDespesa.get(d.id) ?? null,
+    anexoCount: docByDespesa.get(d.id)?.count ?? 0,
   });
   // A tabela só precisa de fornecedores (exibição) e bancos (pagamento).
   const tableRefProps = {
@@ -192,9 +214,9 @@ export default async function DespesasPage({
       {tab === "lancamentos" && (
         <>
           {editData ? (
-            <DespesaForm {...despesaFormProps} edit={editData} />
+            <DespesaForm key={`edit-${editData.id}`} {...despesaFormProps} edit={editData} />
           ) : (
-            canEdit && <DespesaForm {...despesaFormProps} />
+            canEdit && <DespesaForm key="novo" {...despesaFormProps} />
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}

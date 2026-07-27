@@ -725,9 +725,15 @@ export async function getBudgetPlanning(
     versions[0] ??
     null;
 
-  // O período vem das DATAS de início/fim do cadastro do projeto.
-  const startMk = monthKeyOfInternalDate(project?.startDate);
-  const endMk = monthKeyOfInternalDate(project?.endDate);
+  // Período: obras usam as DATAS de início/fim do cadastro. Matriz/filiais
+  // (kind "office") não têm cronograma → usam o ano atual + 5 anos à frente.
+  let startMk = monthKeyOfInternalDate(project?.startDate);
+  let endMk = monthKeyOfInternalDate(project?.endDate);
+  if (project?.kind === "office") {
+    const cy = new Date().getFullYear();
+    startMk = `01/${cy}`;
+    endMk = `12/${cy + 5}`;
+  }
   const months = project ? projectPeriodMonths(startMk, endMk) : [];
 
   const emptyData: import("./planning").BudgetPlanningData = {
