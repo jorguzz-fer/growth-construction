@@ -2,6 +2,7 @@ import { getActiveContext } from "@/lib/context";
 import { getInccRows, getRevenueBySource } from "@/lib/queries";
 import { PROJECTION_SOURCES, type MonthlyProjection } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
+import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -130,24 +131,22 @@ export default async function ConsolidadoPage({
     ? fullAxis.filter((m) => monthInRange(m, de, ate))
     : fullAxis;
 
-  const yearWindows: { value: number; months: string[]; label: string }[] = [];
-  for (let i = 0; i < axis.length; i += 12) {
-    const months = axis.slice(i, i + 12);
-    if (months.length === 0) continue;
-    yearWindows.push({
-      value: yearWindows.length + 1,
-      months,
-      label: `Ano ${yearWindows.length + 1} (${months[0]}–${months[months.length - 1]})`,
-    });
-  }
-  const wantedAno = Number(sp.ano) || 1;
-  const ano = Math.min(Math.max(1, wantedAno), Math.max(1, yearWindows.length));
-  const yearMonths = hasRange ? axis : yearWindows[ano - 1]?.months ?? [];
+  // Recortes por ano-calendário (2025, 2026, … até o ano atual + 5).
+  const yearWindows = calendarYearWindows(fullAxis, new Date().getFullYear()).map((y) => ({
+    value: Number(y.value),
+    label: y.label,
+    months: y.months,
+  }));
+  const curYear = new Date().getFullYear();
+  const ano = yearWindows.some((y) => y.value === Number(sp.ano))
+    ? Number(sp.ano)
+    : curYear;
+  const yearMonths = hasRange ? axis : yearWindows.find((y) => y.value === ano)?.months ?? [];
 
   // Colunas conforme a periodicidade.
   const columns: { label: string; months: string[] }[] = [];
   if (view === "anual") {
-    for (const y of yearWindows) columns.push({ label: `Ano ${y.value}`, months: y.months });
+    for (const y of yearWindows) columns.push({ label: y.label, months: y.months });
   } else if (view === "mensal") {
     for (const m of yearMonths) columns.push({ label: m, months: [m] });
   } else {
