@@ -2,8 +2,16 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import * as XLSX from "xlsx";
-import { importCash, extractExtratoPdf, type ImportCashRow } from "@/lib/actions/caixa";
+import {
+  importCash,
+  extractExtratoPdf,
+  matchCandidatosMovimento,
+  pairMovimento,
+  type ImportCashRow,
+  type CandidatoMatch,
+} from "@/lib/actions/caixa";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -192,6 +200,12 @@ export function ImportExtratoButton({
   const [saldoFinal, setSaldoFinal] = useState("");
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [resumo, setResumo] = useState<{ reconhecidos: number; ignorados: number } | null>(null);
+  // Pareamento (modal): linha em conciliação, candidatos e estados de carga.
+  const [matching, setMatching] = useState<PreviewRow | null>(null);
+  const [cands, setCands] = useState<CandidatoMatch[] | null>(null);
+  const [loadingCands, startCands] = useTransition();
+  const [pairing, startPairing] = useTransition();
+  const [modalErro, setModalErro] = useState<string | null>(null);
 
   const isPdfOrImage = (file: File) =>
     file.type === "application/pdf" || file.type.startsWith("image/");
@@ -259,33 +273,95 @@ export function ImportExtratoButton({
     }
   }
 
-  const selecionados = preview?.filter((r) => r.incluir) ?? [];
-  const totEntradas = selecionados
+  const visiveis = preview ?? [];
+  const totEntradas = visiveis
     .filter((r) => r.tipo === "entrada")
     .reduce((a, r) => a + r.valor, 0);
-  const totSaidas = selecionados
+  const totSaidas = visiveis
     .filter((r) => r.tipo === "saida")
     .reduce((a, r) => a + Math.abs(r.valor), 0);
 
-  const toggle = (idx: number) =>
-    setPreview((s) => (s ? s.map((r, i) => (i === idx ? { ...r, incluir: !r.incluir } : r)) : s));
-  const marcarTodos = (v: boolean) =>
-    setPreview((s) => (s ? s.map((r) => ({ ...r, incluir: v })) : s));
+  // Remove uma linha da conferência por REFERÊNCIA (robusto a mudanças de índice
+  // enquanto o modal de pareamento está aberto).
+  const removeRow = (r: PreviewRow) =>
+    setPreview((s) => {
+      const next = s ? s.filter((x) => x !== r) : s;
+      return next && next.length ? next : null;
+    });
 
-  function confirmar() {
-    if (!preview) return;
+  /** Link "Adicionar": abre o cadastro pré-preenchido (nova aba). */
+  function addHref(r: PreviewRow): string {
+    if (r.tipo === "saida") {
+      const p = new URLSearchParams({ tab: "lancamentos", novo: "1" });
+      p.set("pf_valor", String(Math.abs(r.valor)));
+      if (r.data) {
+        p.set("pf_venc", r.data);
+        const parts = r.data.split("/");
+        if (parts.length === 3) p.set("pf_comp", `${parts[0]}/${parts[2]}`);
+      }
+      if (r.doc) p.set("pf_doc", r.doc);
+      return `/despesas?${p.toString()}`;
+    }
+    // Entrada → cadastro de contas a receber.
+    return "/contasreceber";
+  }
+
+  function abrirParear(r: PreviewRow) {
+    setModalErro(null);
+    setCands(null);
+    setMatching(r);
+    startCands(async () => {
+      try {
+        const res = await matchCandidatosMovimento({
+          data: r.data,
+          descricao: r.descricao,
+          valor: r.valor,
+          doc: r.doc,
+        });
+        setCands(res.candidatos);
+      } catch {
+        setModalErro("Falha ao buscar candidatos de conciliação.");
+        setCands([]);
+      }
+    });
+  }
+
+  function confirmarPar(c: CandidatoMatch) {
+    const r = matching;
+    if (!r) return;
+    setModalErro(null);
+    startPairing(async () => {
+      const res = await pairMovimento({
+        mov: { data: r.data, descricao: r.descricao, valor: r.valor, doc: r.doc },
+        bankAccountId: bankAccountId || null,
+        alvoId: c.id,
+        alvoTipo: c.tipo,
+      });
+      if (res.ok) {
+        setMatching(null);
+        setCands(null);
+        removeRow(r);
+        setMsg(
+          `Movimento conciliado com ${c.tipo === "despesa" ? "a despesa" : "a conta a receber"} de ${c.nome}.`,
+        );
+        router.refresh();
+      } else {
+        setModalErro(res.error ?? "Falha ao conciliar o movimento.");
+      }
+    });
+  }
+
+  /** Importa as linhas restantes como movimentos de caixa (concilia automático). */
+  function importarRestantes() {
+    if (!preview || preview.length === 0) return;
     setErro(null);
-    const rows: ImportCashRow[] = selecionados.map((r) => ({
+    const rows: ImportCashRow[] = preview.map((r) => ({
       data: r.data || undefined,
       descricao: r.descricao,
       valor: r.valor,
       doc: r.doc || undefined,
       cat: "extrato",
     }));
-    if (rows.length === 0) {
-      setErro("Selecione ao menos um lançamento para importar.");
-      return;
-    }
     const saldo = parseMoney(saldoFinal);
     start(async () => {
       try {
@@ -374,7 +450,8 @@ export function ImportExtratoButton({
         {msg && <p className="mt-2 text-xs text-[var(--color-success)]">{msg}</p>}
       </div>
 
-      {/* Pré-visualização / conciliação */}
+      {/* Pré-visualização / triagem: cada linha tem 3 ações (Adicionar / Parear /
+          Ignorar). O que sobrar pode ser importado em lote como movimento. */}
       {preview && (
         <Card>
           <CardContent className="p-4">
@@ -383,56 +460,31 @@ export function ImportExtratoButton({
                 <h3 className="text-sm font-semibold text-[var(--color-ink)]">
                   Pré-visualização do extrato
                 </h3>
-                <Badge tone="neutral">{resumo?.reconhecidos ?? preview.length} reconhecidos</Badge>
+                <Badge tone="neutral">{visiveis.length} pendentes</Badge>
                 {resumo && resumo.ignorados > 0 && (
                   <Badge tone="warning">{resumo.ignorados} ignorados (saldo/total)</Badge>
                 )}
-                <Badge tone="success">{selecionados.length} selecionados</Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="text-[11px] text-[var(--color-accent2)] hover:underline"
-                  onClick={() => marcarTodos(true)}
-                >
-                  marcar todos
-                </button>
-                <button
-                  className="text-[11px] text-[var(--color-ink3)] hover:underline"
-                  onClick={() => marcarTodos(false)}
-                >
-                  desmarcar
-                </button>
-              </div>
+              <p className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
+                Adicionar = cadastra · Parear = concilia com projeção · Ignorar = descarta
+              </p>
             </div>
 
-            <div className="max-h-[420px] overflow-auto rounded-[8px] border border-[var(--color-accent2)]/12">
+            <div className="tbl-scroll max-h-[440px] overflow-auto rounded-[8px] border border-[var(--color-accent2)]/12">
               <table className="w-full border-collapse text-[12.5px]">
-                <thead className="sticky top-0 bg-[var(--color-surface2)]">
+                <thead className="sticky top-0 z-10 bg-[var(--color-surface2)]">
                   <tr className="text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                    <th className="w-8 px-2 py-2"></th>
                     <th className="px-2 py-2">Data</th>
                     <th className="px-2 py-2">Descrição</th>
                     <th className="px-2 py-2">Documento</th>
                     <th className="px-2 py-2 text-right">Valor</th>
                     <th className="px-2 py-2">Tipo</th>
+                    <th className="px-2 py-2 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.map((r, i) => (
-                    <tr
-                      key={i}
-                      className={`border-t border-[var(--color-accent2)]/8 ${
-                        r.incluir ? "" : "opacity-40"
-                      }`}
-                    >
-                      <td className="px-2 py-1.5">
-                        <input
-                          type="checkbox"
-                          checked={r.incluir}
-                          onChange={() => toggle(i)}
-                          className="h-4 w-4 accent-[var(--color-accent2)]"
-                        />
-                      </td>
+                  {visiveis.map((r, i) => (
+                    <tr key={i} className="border-t border-[var(--color-accent2)]/8">
                       <td className="whitespace-nowrap px-2 py-1.5 font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
                         {r.data ? dateBR(r.data) : "—"}
                       </td>
@@ -452,8 +504,46 @@ export function ImportExtratoButton({
                           {r.tipo === "entrada" ? "Entrada" : "Saída"}
                         </Badge>
                       </td>
+                      <td className="px-2 py-1.5">
+                        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                          <Link
+                            href={addHref(r)}
+                            target="_blank"
+                            onClick={() => removeRow(r)}
+                            className="rounded-[6px] bg-[var(--color-accent2)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"
+                            title={
+                              r.tipo === "saida"
+                                ? "Abrir cadastro de despesa pré-preenchido (nova aba)"
+                                : "Abrir contas a receber (nova aba)"
+                            }
+                          >
+                            Adicionar
+                          </Link>
+                          <button
+                            onClick={() => abrirParear(r)}
+                            className="rounded-[6px] border border-[var(--color-accent2)]/40 px-2 py-1 text-[11px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent4)]"
+                            title="Parear com uma despesa/receita já lançada"
+                          >
+                            Parear
+                          </button>
+                          <button
+                            onClick={() => removeRow(r)}
+                            className="rounded-[6px] border border-[var(--color-accent2)]/20 px-2 py-1 text-[11px] text-[var(--color-ink3)] hover:bg-[var(--color-surface2)]"
+                            title="Ignorar esta linha"
+                          >
+                            Ignorar
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
+                  {visiveis.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-2 py-6 text-center text-[var(--color-ink4)]">
+                        Todas as linhas foram tratadas.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -465,16 +555,128 @@ export function ImportExtratoButton({
               </p>
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => setPreview(null)} disabled={pending}>
-                  Cancelar
+                  Fechar
                 </Button>
-                <Button onClick={confirmar} disabled={pending || selecionados.length === 0}>
-                  {pending ? "Importando…" : `Importar ${selecionados.length} lançamento(s)`}
+                <Button
+                  variant="outline"
+                  onClick={importarRestantes}
+                  disabled={pending || visiveis.length === 0}
+                  title="Importa as linhas restantes como movimentos de caixa (concilia automaticamente por valor/mês)"
+                >
+                  {pending ? "Importando…" : `Importar ${visiveis.length} como movimento`}
                 </Button>
               </div>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Modal de pareamento (Parear): candidatos de conciliação. */}
+      {matching && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            if (!pairing) {
+              setMatching(null);
+              setCands(null);
+            }
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-[12px] bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1 flex items-start justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[var(--color-ink)]">
+                Parear movimento com{" "}
+                {matching.tipo === "saida" ? "conta a pagar" : "conta a receber"}
+              </h3>
+              <button
+                onClick={() => {
+                  if (!pairing) {
+                    setMatching(null);
+                    setCands(null);
+                  }
+                }}
+                className="text-[var(--color-ink3)] hover:text-[var(--color-ink)]"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-3 text-[12px] text-[var(--color-ink3)]">
+              {matching.data ? dateBR(matching.data) : "—"} · {matching.descricao} ·{" "}
+              <strong
+                className={
+                  matching.valor < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"
+                }
+              >
+                {brl(matching.valor)}
+              </strong>
+            </p>
+
+            {loadingCands && (
+              <p className="py-6 text-center text-[12px] text-[var(--color-ink3)]">
+                Buscando candidatos…
+              </p>
+            )}
+
+            {!loadingCands && cands && cands.length === 0 && (
+              <div className="rounded-[8px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 text-center">
+                <p className="text-[12.5px] text-[var(--color-ink2)]">
+                  Nenhuma {matching.tipo === "saida" ? "despesa" : "receita"} lançada compatível
+                  (mesmo valor aproximado) foi encontrada.
+                </p>
+                <p className="mt-1 text-[11.5px] text-[var(--color-ink3)]">
+                  Use <strong>Adicionar</strong> para cadastrar, ou{" "}
+                  <strong>Ignorar</strong> para descartar.
+                </p>
+              </div>
+            )}
+
+            {!loadingCands && cands && cands.length > 0 && (
+              <div className="space-y-2">
+                {cands.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--color-accent2)]/12 p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge tone={grauTone(c.grau)}>{grauLabel(c.grau)}</Badge>
+                        <span className="truncate text-[13px] font-medium text-[var(--color-ink)]">
+                          {c.nome}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 truncate text-[11.5px] text-[var(--color-ink3)]">
+                        {c.descricao}
+                        {c.projectName ? ` · ${c.projectName}` : ""}
+                        {c.vencimento ? ` · venc. ${dateBR(c.vencimento)}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 whitespace-nowrap">
+                      <span className="font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--color-ink2)]">
+                        {brl(c.valor)}
+                      </span>
+                      <Button size="sm" onClick={() => confirmarPar(c)} disabled={pairing}>
+                        {pairing ? "Conciliando…" : "Conciliar"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {modalErro && (
+              <p className="mt-3 text-xs text-[var(--color-danger)]">{modalErro}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const grauTone = (g: "alta" | "media" | "baixa") =>
+  g === "alta" ? "success" : g === "media" ? "warning" : "neutral";
+const grauLabel = (g: "alta" | "media" | "baixa") =>
+  g === "alta" ? "Alta compatibilidade" : g === "media" ? "Média" : "Baixa";
