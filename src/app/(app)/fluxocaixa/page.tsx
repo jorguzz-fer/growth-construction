@@ -101,7 +101,10 @@ export default async function FluxoCaixaPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  // Por padrão, o Fluxo abre na versão ATUAL (dados reais); o usuário pode
+  // selecionar/comparar outras versões pelo seletor.
+  const atualVersion = ctx.versions.find((v) => v.kind === "atual") ?? ctx.version;
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, atualVersion);
   const multi = compareVersions.length > 1;
   const versionSelect = (
     <VersionMultiSelect
