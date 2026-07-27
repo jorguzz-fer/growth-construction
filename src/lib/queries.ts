@@ -2,7 +2,6 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
-  calcProjection,
   calcProjectionBySource,
   reembursementsByMonth,
   PROJECTION_SOURCES,
@@ -1030,7 +1029,7 @@ export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
  */
 export async function getMonthlyRevenue(
   versionId: string,
-  projectId: string,
+  _projectId: string,
 ): Promise<MonthlyProjection> {
   const kind = await getVersionKind(versionId);
   if (kind === "budget" || kind === "forecast") {
@@ -1048,15 +1047,22 @@ export async function getMonthlyRevenue(
     return out;
   }
 
-  const [unitRows, reembRows, incc] = await Promise.all([
+  const [unitRows, reembRows] = await Promise.all([
     getUnits(versionId),
     getReembolsos(versionId),
-    getInccRows(projectId),
   ]);
   const out: MonthlyProjection = {};
+  // Receita da versão Atual = recebíveis das vendas (MESMA fonte da tela Contas
+  // a Receber: expandUnitReceivables — leitura tolerante do plano, sem depender
+  // das flags usar*). Assim DRE e Fluxo batem com os recebíveis exibidos.
+  // Agrega por mês do vencimento ("MM/DD/YYYY" → "MM/YYYY").
   for (const r of unitRows) {
-    const p = calcProjection(toCalcUnit(r), incc);
-    for (const [mm, v] of Object.entries(p)) out[mm] = (out[mm] || 0) + v;
+    for (const rec of expandUnitReceivables(r.paymentPlan, r.status)) {
+      const p = rec.dia.split("/");
+      if (p.length !== 3) continue;
+      const mk = `${p[0]}/${p[2]}`;
+      out[mk] = (out[mk] || 0) + rec.valor;
+    }
   }
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;

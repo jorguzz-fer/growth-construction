@@ -56,3 +56,38 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
+
+/*
+ * Barra de rolagem horizontal SEMPRE visível (não-overlay), para contêineres
+ * de tabela largos (ex.: Contas a Pagar). Força o scrollbar do WebKit/Chromium
+ * a aparecer mesmo quando o SO usa barras "overlay" que se escondem; e mantém
+ * overflow-x: scroll para reservar a barra independentemente de transbordo.
+ */
+.scroll-x-always {
+  overflow-x: scroll !important;
+  scrollbar-gutter: stable;
+}
+.scroll-x-always::-webkit-scrollbar {
+  height: 14px;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+}
+.scroll-x-always::-webkit-scrollbar:horizontal {
+  height: 14px;
+}
+.scroll-x-always::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+.scroll-x-always::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: 6px;
+}
+.scroll-x-always::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.55);
+}
+/* Firefox */
+.scroll-x-always {
+  scrollbar-width: auto;
+}

@@ -158,7 +158,7 @@ export function ContasPagarTable({
               da tabela, então a barra horizontal fica visível de imediato — sem
               precisar descer até o fim da página. Cabeçalho fixo ao rolar. */}
           <Table
-            wrapperClassName="max-h-[70vh] !overflow-x-scroll"
+            wrapperClassName="max-h-[70vh] scroll-x-always"
             className="min-w-[1200px]"
           >
             <THead className="sticky top-0 z-10">
