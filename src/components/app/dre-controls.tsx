@@ -16,6 +16,8 @@ export function DreControls({
   vs,
   de,
   ate,
+  showVersionKind = false,
+  versionKind = "atual",
 }: {
   projects: { id: string; label: string }[];
   proj: string;
@@ -27,6 +29,9 @@ export function DreControls({
   /** Recorte customizado (competência interna "MM/YYYY"). */
   de: string;
   ate: string;
+  /** Mostra o seletor de TIPO de versão (usado na visão "Empresa toda"). */
+  showVersionKind?: boolean;
+  versionKind?: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -40,12 +45,18 @@ export function DreControls({
   useEffect(() => setAteVal(ate), [ate]);
 
   const go = (
-    patch: Partial<Record<"proj" | "periodo" | "view" | "vs" | "de" | "ate", string>>,
+    patch: Partial<
+      Record<"proj" | "periodo" | "view" | "vs" | "de" | "ate" | "vkind", string>
+    >,
   ) => {
     const params = new URLSearchParams(sp.toString());
     const next = { proj, periodo, view, vs, de, ate, ...patch };
     params.set("proj", next.proj);
     params.set("periodo", next.periodo);
+    if (patch.vkind !== undefined) {
+      if (patch.vkind && patch.vkind !== "atual") params.set("vkind", patch.vkind);
+      else params.delete("vkind");
+    }
     if (next.view) params.set("view", next.view);
     else params.delete("view");
     if (next.vs) params.set("vs", next.vs);
@@ -92,6 +103,19 @@ export function DreControls({
           </option>
         ))}
       </Select>
+      {showVersionKind && (
+        <Select
+          value={versionKind}
+          disabled={pending}
+          onChange={(e) => go({ vkind: e.target.value })}
+          className="h-9 w-auto"
+          title="Tipo de versão aplicado a todos os projetos"
+        >
+          <option value="atual">Atual (real)</option>
+          <option value="forecast">Forecast</option>
+          <option value="budget">Budget</option>
+        </Select>
+      )}
       {periodo === "custom" && (
         <div className="flex flex-wrap items-end gap-2">
           <div>
