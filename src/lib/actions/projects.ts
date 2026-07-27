@@ -46,6 +46,13 @@ const normDate = (v: string | null | undefined): string | null => {
   const s = (v ?? "").trim();
   return s ? s : null;
 };
+/** Normaliza uma competência "MM/YYYY" (ou null). */
+const normMonth = (v: string | null | undefined): string | null => {
+  const s = (v ?? "").trim();
+  return /^\d{1,2}\/\d{4}$/.test(s)
+    ? `${s.split("/")[0].padStart(2, "0")}/${s.split("/")[1]}`
+    : null;
+};
 
 /**
  * Cria um projeto (empreendimento) ou uma unidade/escritório (centro de custo)
@@ -63,6 +70,8 @@ export async function createProject(
     status?: ProjectStatus;
     startDate?: string | null;
     endDate?: string | null;
+    mesInicial?: string | null;
+    mesFinal?: string | null;
     clienteId?: string | null;
   },
 ) {
@@ -90,6 +99,8 @@ export async function createProject(
         durationMonths: duration,
         startDate: kind === "office" ? null : normDate(opts?.startDate),
         endDate: kind === "office" ? null : normDate(opts?.endDate),
+        mesInicial: kind === "office" ? null : normMonth(opts?.mesInicial),
+        mesFinal: kind === "office" ? null : normMonth(opts?.mesFinal),
         clienteId: kind === "office" ? null : normClienteId(opts?.clienteId),
       })
       .returning();
@@ -144,6 +155,8 @@ export async function updateProject(
     status?: ProjectStatus;
     startDate?: string | null;
     endDate?: string | null;
+    mesInicial?: string | null;
+    mesFinal?: string | null;
     clienteId?: string | null;
     custoConstrucao?: string | number | null;
     custoTerreno?: string | number | null;
@@ -164,6 +177,8 @@ export async function updateProject(
   if (patch.status !== undefined) set.status = normStatus(patch.status);
   if (patch.startDate !== undefined) set.startDate = normDate(patch.startDate);
   if (patch.endDate !== undefined) set.endDate = normDate(patch.endDate);
+  if (patch.mesInicial !== undefined) set.mesInicial = normMonth(patch.mesInicial);
+  if (patch.mesFinal !== undefined) set.mesFinal = normMonth(patch.mesFinal);
   if (patch.clienteId !== undefined) set.clienteId = normClienteId(patch.clienteId);
   if (patch.custoConstrucao !== undefined) set.custoConstrucao = normValor(patch.custoConstrucao);
   if (patch.custoTerreno !== undefined) set.custoTerreno = normValor(patch.custoTerreno);

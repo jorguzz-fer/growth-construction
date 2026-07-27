@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
-import { DateField } from "@/components/ui/date-field";
+import { DateField, MonthField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/utils";
 import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
@@ -28,6 +28,20 @@ export interface ClienteOpt {
 }
 
 type Status = "Em andamento" | "Planejamento";
+
+/** Duração em meses entre duas competências "MM/YYYY" (inclusive); null se inválido. */
+function mesesEntre(ini: string, fim: string): number | null {
+  const p = (s: string) => {
+    const m = s.split("/");
+    return m.length === 2 && Number(m[0]) && Number(m[1])
+      ? Number(m[1]) * 12 + (Number(m[0]) - 1)
+      : null;
+  };
+  const a = p(ini);
+  const b = p(fim);
+  if (a == null || b == null || b < a) return null;
+  return b - a + 1;
+}
 
 /** Dropdown de Cliente: "próprio" (tenant) + clientes cadastrados. */
 function ClienteSelect({
@@ -142,8 +156,12 @@ function NewProjectForm({
   const [status, setStatus] = useState<Status>("Planejamento");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [mesInicial, setMesInicial] = useState("");
+  const [mesFinal, setMesFinal] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [pending, start] = useTransition();
+
+  const duracaoPeriodo = mesInicial && mesFinal ? mesesEntre(mesInicial, mesFinal) : null;
 
   const submit = () => {
     const clean = name.trim();
@@ -155,6 +173,8 @@ function NewProjectForm({
         status,
         startDate,
         endDate,
+        mesInicial,
+        mesFinal,
         clienteId,
       });
       setName("");
@@ -162,6 +182,8 @@ function NewProjectForm({
       setStatus("Planejamento");
       setStartDate("");
       setEndDate("");
+      setMesInicial("");
+      setMesFinal("");
       setClienteId("");
     });
   };
@@ -201,6 +223,26 @@ function NewProjectForm({
             <Label>Data de fim</Label>
             <DateField value={endDate} onChange={setEndDate} />
           </div>
+          <div>
+            <Label>Mês inicial</Label>
+            <MonthField value={mesInicial} onChange={setMesInicial} />
+          </div>
+          <div>
+            <Label>Mês final</Label>
+            <MonthField value={mesFinal} onChange={setMesFinal} />
+          </div>
+          <div>
+            <Label>Duração calculada</Label>
+            <Input
+              value={duracaoPeriodo != null ? `${duracaoPeriodo} meses` : "—"}
+              disabled
+              readOnly
+            />
+          </div>
+          <p className="sm:col-span-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+            O período (mês inicial e final) define as colunas mensais do Budget e
+            do Forecast deste projeto.
+          </p>
           <div>
             <Label>Status</Label>
             <Select
@@ -351,6 +393,8 @@ function ProjectRow({
   const [status, setStatus] = useState<Status>(project.status as Status);
   const [startDate, setStartDate] = useState(project.startDate ?? "");
   const [endDate, setEndDate] = useState(project.endDate ?? "");
+  const [mesInicial, setMesInicial] = useState(project.mesInicial ?? "");
+  const [mesFinal, setMesFinal] = useState(project.mesFinal ?? "");
   const [clienteId, setClienteId] = useState(project.clienteId ?? "");
   const numStr = (v: unknown) => (v === null || v === undefined ? "" : String(v));
   const [terr, setTerr] = useState({
@@ -382,8 +426,12 @@ function ProjectRow({
       (project.durationMonths ?? null) ||
     startDate !== (project.startDate ?? "") ||
     endDate !== (project.endDate ?? "") ||
+    mesInicial !== (project.mesInicial ?? "") ||
+    mesFinal !== (project.mesFinal ?? "") ||
     clienteId !== (project.clienteId ?? "") ||
     terrDirty;
+
+  const duracaoPeriodo = mesInicial && mesFinal ? mesesEntre(mesInicial, mesFinal) : null;
 
   const save = () =>
     start(() =>
@@ -393,6 +441,8 @@ function ProjectRow({
         status,
         startDate,
         endDate,
+        mesInicial,
+        mesFinal,
         clienteId,
         custoConstrucao: terr.custoConstrucao || null,
         custoTerreno: terr.custoTerreno || null,
@@ -433,6 +483,30 @@ function ProjectRow({
           <Label>Data de fim</Label>
           <DateField value={endDate} onChange={setEndDate} />
         </div>
+        {isObra && (
+          <>
+            <div>
+              <Label>Mês inicial</Label>
+              <MonthField value={mesInicial} onChange={setMesInicial} />
+            </div>
+            <div>
+              <Label>Mês final</Label>
+              <MonthField value={mesFinal} onChange={setMesFinal} />
+            </div>
+            <div>
+              <Label>Duração calculada</Label>
+              <Input
+                value={duracaoPeriodo != null ? `${duracaoPeriodo} meses` : "—"}
+                disabled
+                readOnly
+              />
+            </div>
+            <p className="sm:col-span-3 -mt-1 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+              O período (mês inicial e final) determina as colunas mensais do
+              Budget e do Forecast deste projeto.
+            </p>
+          </>
+        )}
         <div>
           <Label>Status</Label>
           <Select
