@@ -213,7 +213,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="tbl-scroll overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-accent2)]/12">

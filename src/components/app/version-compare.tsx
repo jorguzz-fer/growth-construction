@@ -32,7 +32,7 @@ export function VersionCompareTable({
   return (
     <Card>
       <CardContent className="p-5">
-        <div className="overflow-x-auto">
+        <div className="tbl-scroll overflow-x-auto">
           <Table>
             <THead>
               <tr>

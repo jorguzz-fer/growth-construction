@@ -23,7 +23,7 @@ function CompareBloco({ titulo, rows }: { titulo: string; rows: CompareRowP[] })
         <h2 className="border-b border-[var(--color-accent2)]/12 p-4 text-[15px] font-semibold text-[var(--color-ink)]">
           {titulo}
         </h2>
-        <div className="overflow-x-auto">
+        <div className="tbl-scroll overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead className="bg-[var(--color-surface2)]">
               <tr>

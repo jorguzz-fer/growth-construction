@@ -318,7 +318,7 @@ function Historico({ entries }: { entries: PontoEntry[] }) {
   return (
     <Card>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="tbl-scroll overflow-x-auto">
           <Table>
             <THead>
               <tr>

@@ -299,8 +299,7 @@ export function ContasReceberManager({
       </div>
       <Card className="mb-8">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <Table wrapperClassName="scroll-x-always" className="min-w-[900px]">
               <THead>
                 <tr>
                   <TH>Projeto</TH>
@@ -325,7 +324,6 @@ export function ContasReceberManager({
                 )}
               </tbody>
             </Table>
-          </div>
         </CardContent>
       </Card>
 
@@ -335,8 +333,7 @@ export function ContasReceberManager({
       </h2>
       <Card>
         <CardContent className="p-0">
-          <div className="max-h-[420px] overflow-auto">
-            <Table>
+          <Table wrapperClassName="max-h-[420px] scroll-x-always" className="min-w-[900px]">
               <THead>
                 <tr>
                   <TH>Unidade</TH>
@@ -371,7 +368,6 @@ export function ContasReceberManager({
                 )}
               </tbody>
             </Table>
-          </div>
         </CardContent>
       </Card>
     </div>

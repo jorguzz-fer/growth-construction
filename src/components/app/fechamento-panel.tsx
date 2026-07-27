@@ -154,7 +154,7 @@ export function FechamentoPanel({
               </h2>
               <Badge tone="warning">{brl0(totalPagar)}</Badge>
             </div>
-            <div className="overflow-x-auto">
+            <div className="tbl-scroll overflow-x-auto">
               <Table>
                 <THead>
                   <tr>
@@ -195,7 +195,7 @@ export function FechamentoPanel({
               </h2>
               <Badge tone="success">{brl0(totalReceber)}</Badge>
             </div>
-            <div className="overflow-x-auto">
+            <div className="tbl-scroll overflow-x-auto">
               <Table>
                 <THead>
                   <tr>
