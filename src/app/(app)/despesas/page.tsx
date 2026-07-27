@@ -41,7 +41,17 @@ const TABS: { key: Tab; label: string }[] = [
 export default async function DespesasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; proj?: string; edit?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    proj?: string;
+    edit?: string;
+    // Pré-preenchimento de nova despesa (ex.: vindo de uma linha do extrato).
+    novo?: string;
+    pf_valor?: string;
+    pf_venc?: string;
+    pf_comp?: string;
+    pf_doc?: string;
+  }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -216,7 +226,22 @@ export default async function DespesasPage({
           {editData ? (
             <DespesaForm key={`edit-${editData.id}`} {...despesaFormProps} edit={editData} />
           ) : (
-            canEdit && <DespesaForm key="novo" {...despesaFormProps} />
+            canEdit && (
+              <DespesaForm
+                key={sp.novo ? "novo-prefill" : "novo"}
+                {...despesaFormProps}
+                prefill={
+                  sp.novo
+                    ? {
+                        valor: sp.pf_valor ?? null,
+                        vencimento: sp.pf_venc ?? null,
+                        competencia: sp.pf_comp ?? null,
+                        numDoc: sp.pf_doc ?? null,
+                      }
+                    : null
+                }
+              />
+            )
           )}
           <DespesasTable
             rows={despesas.map(toDTO)}

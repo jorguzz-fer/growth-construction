@@ -6,7 +6,13 @@ import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { getDespesas, getUnits, toCalcUnit } from "@/lib/queries";
+import {
+  getDespesas,
+  getUnits,
+  toCalcUnit,
+  getContasPagar,
+  getContasReceber,
+} from "@/lib/queries";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
@@ -728,4 +734,258 @@ export async function criarContaFromExtrato(cashEntryId: string): Promise<void> 
     revalidatePath("/contasreceber");
   }
   revalidatePath("/caixa");
+}
+
+// ───────── Triagem por linha do extrato (Adicionar / Parear / Ignorar) ─────────
+// Cada linha lida do extrato (ainda NÃO importada) pode ser: pareada com uma
+// conta a pagar/receber já lançada (conciliação automática), enviada para o
+// cadastro de despesa/receita (Adicionar) ou ignorada. Aqui ficam as ações de
+// (a) buscar candidatos de conciliação e (b) confirmar o pareamento.
+
+/** Uma linha do extrato em conferência (movimentação bancária ainda não gravada). */
+export interface MovimentoTriage {
+  /** data "MM/DD/YYYY". */
+  data?: string | null;
+  descricao?: string | null;
+  /** valor com sinal: negativo = saída/despesa, positivo = entrada/receita. */
+  valor: number;
+  /** nº do documento do extrato. */
+  doc?: string | null;
+}
+
+export interface CandidatoMatch {
+  id: string;
+  tipo: "despesa" | "receita";
+  /** fornecedor (despesa) ou cliente (receita). */
+  nome: string;
+  descricao: string;
+  projectName: string | null;
+  /** valor previsto a pagar/receber. */
+  valor: number;
+  vencimento: string | null;
+  grau: "alta" | "media" | "baixa";
+}
+
+const normNome = (s: string) =>
+  (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+
+/** "MM/DD/YYYY" → nº de dias (para proximidade de datas). null se inválido. */
+function dayNum(d?: string | null): number | null {
+  if (!d) return null;
+  const p = d.split("/");
+  if (p.length !== 3) return null;
+  const [mm, dd, yy] = p.map((x) => Number(x));
+  if (!mm || !dd || !yy) return null;
+  return Math.floor(Date.UTC(yy, mm - 1, dd) / 86400000);
+}
+
+/**
+ * Candidatos de conciliação para UMA linha do extrato (ainda não importada):
+ * saída → contas a pagar em aberto; entrada → contas a receber em aberto.
+ * Ranqueia dando preferência a valores IGUAIS e a fornecedor/cliente que aparece
+ * na descrição; usa proximidade de data como desempate. Retorna os melhores.
+ */
+export async function matchCandidatosMovimento(
+  mov: MovimentoTriage,
+): Promise<{ tipo: "saida" | "entrada"; candidatos: CandidatoMatch[] }> {
+  const tipo: "saida" | "entrada" = Number(mov.valor) < 0 ? "saida" : "entrada";
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) return { tipo, candidatos: [] };
+
+  const alvoCents = cents(Math.abs(Number(mov.valor) || 0));
+  const tol = Math.max(50, Math.round(alvoCents * 0.02)); // 2% ou R$ 0,50
+  const descNorm = normNome(mov.descricao ?? "");
+  const movDay = dayNum(mov.data);
+  const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
+
+  function avaliar(
+    id: string,
+    kind: "despesa" | "receita",
+    nome: string | null,
+    descricao: string | null,
+    projectName: string | null,
+    valorPrev: number,
+    restante: number,
+    vencimento: string | null,
+  ): (CandidatoMatch & { _prox: number }) | null {
+    const candCents = cents(Math.abs(restante > 0 ? restante : valorPrev));
+    const diff = Math.abs(candCents - alvoCents);
+    const exato = diff === 0;
+    const aprox = diff <= tol;
+    if (!exato && !aprox) return null; // valor incompatível → descarta
+    const primeiro = normNome(nome ?? "").split(/\s+/)[0] ?? "";
+    const nomeMatch = primeiro.length >= 3 && descNorm.includes(primeiro);
+    const vd = dayNum(vencimento);
+    const prox = movDay != null && vd != null ? Math.abs(movDay - vd) : 9999;
+    const dataProx =
+      (movDay != null && vd != null && (prox <= 15 || vd <= movDay)) || false;
+    let grau: "alta" | "media" | "baixa";
+    if (exato && (dataProx || nomeMatch)) grau = "alta";
+    else if (exato || (aprox && (dataProx || nomeMatch))) grau = "media";
+    else grau = "baixa";
+    return {
+      id,
+      tipo: kind,
+      nome: nome ?? "—",
+      descricao: descricao ?? "—",
+      projectName,
+      valor: valorPrev,
+      vencimento,
+      grau,
+      _prox: prox,
+    };
+  }
+
+  const out: (CandidatoMatch & { _prox: number })[] = [];
+  if (tipo === "saida") {
+    const contas = await getContasPagar(ctx.tenant.id);
+    for (const c of contas) {
+      if (c.status === "Pago" || c.status === "Cancelada") continue;
+      const cand = avaliar(
+        c.id,
+        "despesa",
+        c.fornecedorNome,
+        c.descricao || c.numDoc,
+        c.projectName,
+        c.valor,
+        0,
+        c.vencimento,
+      );
+      if (cand) out.push(cand);
+    }
+  } else {
+    const contas = await getContasReceber(ctx.tenant.id);
+    for (const c of contas) {
+      if (c.status === "Recebido" || c.status === "Cancelado") continue;
+      const restante = Number(c.valor) - Number(c.valorRecebido || 0);
+      const cand = avaliar(
+        c.id,
+        "receita",
+        c.clienteNome,
+        c.descricao || c.tipo,
+        c.projectName,
+        c.valor,
+        restante,
+        c.vencimento,
+      );
+      if (cand) out.push(cand);
+    }
+  }
+
+  out.sort((a, b) => {
+    const g = rankGrau[a.grau] - rankGrau[b.grau];
+    if (g !== 0) return g;
+    return a._prox - b._prox;
+  });
+  const candidatos: CandidatoMatch[] = out.slice(0, 8).map((c) => ({
+    id: c.id,
+    tipo: c.tipo,
+    nome: c.nome,
+    descricao: c.descricao,
+    projectName: c.projectName,
+    valor: c.valor,
+    vencimento: c.vencimento,
+    grau: c.grau,
+  }));
+  return { tipo, candidatos };
+}
+
+export interface PairMovimentoInput {
+  mov: MovimentoTriage;
+  bankAccountId?: string | null;
+  alvoId: string;
+  alvoTipo: "despesa" | "receita";
+}
+
+/**
+ * Confirma o pareamento de uma linha do extrato com uma conta a pagar/receber:
+ * grava a movimentação bancária (cashEntry) e concilia automaticamente com o
+ * alvo escolhido (marca a despesa como Paga ou soma o recebimento na conta a
+ * receber). Reaproveita um cashEntry pendente de mesma assinatura, se houver.
+ * RETORNA o erro (em vez de lançar) para a mensagem chegar à tela em produção.
+ */
+export async function pairMovimento(
+  input: PairMovimentoInput,
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    return { ok: false, error: "Sem permissão para conciliar." };
+  }
+  if (ctx.version.locked) return { ok: false, error: "Versão congelada." };
+  const { mov, alvoId, alvoTipo } = input;
+  const valor = Number(mov.valor);
+  if (!Number.isFinite(valor) || valor === 0) {
+    return { ok: false, error: "Movimento sem valor válido." };
+  }
+  if (alvoTipo === "despesa" && valor >= 0) {
+    return { ok: false, error: "Só é possível parear despesas com saídas do extrato." };
+  }
+  if (alvoTipo === "receita" && valor <= 0) {
+    return { ok: false, error: "Só é possível parear receitas com entradas do extrato." };
+  }
+
+  const contas = await db
+    .select({ id: schema.bankAccounts.id })
+    .from(schema.bankAccounts)
+    .where(eq(schema.bankAccounts.tenantId, ctx.tenant.id));
+  const bankAccountId =
+    input.bankAccountId && contas.some((c) => c.id === input.bankAccountId)
+      ? input.bankAccountId
+      : null;
+
+  try {
+    // Reaproveita um movimento já importado (mesma assinatura) se ainda estiver
+    // pendente; senão insere um novo cashEntry para a movimentação bancária.
+    const sig = importSignature(bankAccountId, mov.data, valor, mov.doc);
+    const existentes = await db
+      .select()
+      .from(schema.cashEntries)
+      .where(
+        and(
+          eq(schema.cashEntries.tenantId, ctx.tenant.id),
+          eq(schema.cashEntries.importHash, sig),
+        ),
+      );
+    if (
+      existentes.some(
+        (e) => e.rec || e.conciliadoDespesaId || e.conciliadoContaReceberId,
+      )
+    ) {
+      return { ok: false, error: "Este movimento já foi conciliado antes." };
+    }
+    const pend = existentes[0];
+    let cashId: string;
+    if (pend) {
+      cashId = pend.id;
+    } else {
+      const [row] = await db
+        .insert(schema.cashEntries)
+        .values({
+          versionId: ctx.version.id,
+          tenantId: ctx.tenant.id,
+          bankAccountId,
+          data: mov.data || null,
+          descricao: mov.descricao || null,
+          valor: String(valor),
+          cat: alvoTipo === "despesa" ? "despesa" : "receita",
+          doc: mov.doc || null,
+          importHash: sig,
+          rec: false,
+        })
+        .returning();
+      cashId = row.id;
+    }
+    if (alvoTipo === "despesa") {
+      await conciliarDespesa({ cashEntryId: cashId, despesaId: alvoId });
+    } else {
+      await conciliarContaReceber({ cashEntryId: cashId, contaReceberId: alvoId });
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("[extrato] falha ao parear movimento:", e);
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Falha ao conciliar o movimento.",
+    };
+  }
 }

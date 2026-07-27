@@ -69,6 +69,19 @@ export interface EditDespesa {
   r2Configured?: boolean;
 }
 
+/**
+ * Pré-preenchimento de uma NOVA despesa (ex.: a partir de uma linha do extrato).
+ * Só é usado quando o formulário abre em modo criação (sem `edit`).
+ */
+export interface PrefillDespesa {
+  valor?: string | null;
+  /** vencimento "MM/DD/YYYY". */
+  vencimento?: string | null;
+  /** competência "MM/YYYY". */
+  competencia?: string | null;
+  numDoc?: string | null;
+}
+
 const STRIP_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
 const norm = (s: string) =>
   s
@@ -91,6 +104,7 @@ export function DespesaForm({
   r2Configured,
   canEditNumero = false,
   edit = null,
+  prefill = null,
 }: {
   projetos: Projeto[];
   projetoId: string;
@@ -104,6 +118,8 @@ export function DespesaForm({
   canEditNumero?: boolean;
   /** Quando presente, o formulário abre em modo EDIÇÃO da despesa informada. */
   edit?: EditDespesa | null;
+  /** Pré-preenchimento de nova despesa (ignorado em modo edição). */
+  prefill?: PrefillDespesa | null;
 }) {
   const router = useRouter();
   const isEdit = !!edit;
@@ -118,10 +134,10 @@ export function DespesaForm({
   const [contaCef, setContaCef] = useState(edit?.contaCef ?? "");
   const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? categorias[0] ?? "Custo Variável");
   const [bancoId, setBancoId] = useState(edit?.bancoId ?? "");
-  const [numDoc, setNumDoc] = useState(edit?.numDoc ?? "");
-  const [competencia, setCompetencia] = useState(edit?.competencia ?? "");
-  const [vencimento, setVencimento] = useState(edit?.vencimento ?? "");
-  const [valor, setValor] = useState(edit?.valor ?? "");
+  const [numDoc, setNumDoc] = useState(edit?.numDoc ?? prefill?.numDoc ?? "");
+  const [competencia, setCompetencia] = useState(edit?.competencia ?? prefill?.competencia ?? "");
+  const [vencimento, setVencimento] = useState(edit?.vencimento ?? prefill?.vencimento ?? "");
+  const [valor, setValor] = useState(edit?.valor ?? prefill?.valor ?? "");
   const [status, setStatus] = useState(edit?.status ?? "A pagar");
   const [file, setFile] = useState<File | null>(null);
 
