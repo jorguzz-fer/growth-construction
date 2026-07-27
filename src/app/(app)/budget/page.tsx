@@ -16,14 +16,19 @@ export default async function BudgetPage({
   if (!can(ctx.perms, "budget", "ver")) return <AccessDenied />;
   const sp = await searchParams;
 
-  const obras = ctx.projects.filter((p) => p.kind !== "office");
+  // Inclui obras e matriz/filiais (office). Offices não têm cronograma → o
+  // período do Budget/Forecast é o ano atual + 5 anos (definido no servidor).
+  const alvos = ctx.projects;
   const projId =
-    obras.find((p) => p.id === sp.proj)?.id ??
-    obras.find((p) => p.id === ctx.project.id)?.id ??
-    obras[0]?.id ??
+    alvos.find((p) => p.id === sp.proj)?.id ??
+    alvos.find((p) => p.id === ctx.project.id)?.id ??
+    alvos[0]?.id ??
     ctx.project.id;
   const data = await getBudgetPlanning(ctx.tenant.id, projId, "budget", sp.v ?? null);
-  const projects = obras.map((p) => ({ id: p.id, label: p.name }));
+  const projects = alvos.map((p) => ({
+    id: p.id,
+    label: p.kind === "office" ? `${p.name} · Matriz/Filial` : p.name,
+  }));
   return (
     <BudgetPlanningScreen
       data={data}
