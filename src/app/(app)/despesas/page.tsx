@@ -84,6 +84,18 @@ export default async function DespesasPage({
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
 
+  // Última despesa lançada (maior createdAt): fica fixada no topo da listagem,
+  // destacada, para servir de conferência do que acabou de ser cadastrado.
+  let latestId: string | null = null;
+  let latestT = -1;
+  for (const d of despesas) {
+    const t = d.createdAt ? d.createdAt.getTime() : 0;
+    if (t >= latestT) {
+      latestT = t;
+      latestId = d.id;
+    }
+  }
+
   // Anexos por despesa: marca na lista (clipe) quais despesas têm documento e
   // permite abri-lo direto. Usa o documento mais recente de cada despesa.
   const despesaIdSet = new Set(despesas.map((d) => d.id));
@@ -246,6 +258,7 @@ export default async function DespesasPage({
           <DespesasTable
             rows={despesas.map(toDTO)}
             showOrigem={isAll}
+            latestId={latestId}
             canEditar={canEditar}
             canExcluir={canExcluir}
             {...tableRefProps}
