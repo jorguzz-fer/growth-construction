@@ -114,10 +114,6 @@ export function Sidebar({
       ],
     },
     {
-      title: "Backup",
-      items: [{ href: "/backup", label: "Backup & Arquivamento" }],
-    },
-    {
       title: "Config",
       items: [
         { href: "/projeto", label: "Projetos" },
@@ -129,6 +125,11 @@ export function Sidebar({
         { href: "/contabilidade", label: "Acesso Contabilidade" },
         { href: "/diagnosticoia", label: "Diagnóstico de IA" },
       ],
+    },
+    // Backup é sempre o ÚLTIMO módulo do menu.
+    {
+      title: "Backup",
+      items: [{ href: "/backup", label: "Backup & Arquivamento" }],
     },
   ];
 
