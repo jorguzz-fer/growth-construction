@@ -14,7 +14,6 @@ import { permutaCashByMonth } from "@/lib/calc";
 import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
 import { brl0, brlk, monthInRange } from "@/lib/utils";
-import { horizonMonths } from "@/lib/horizon";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -102,7 +101,10 @@ export default async function FluxoCaixaPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  // Por padrão, o Fluxo abre na versão ATUAL (dados reais); o usuário pode
+  // selecionar/comparar outras versões pelo seletor.
+  const atualVersion = ctx.versions.find((v) => v.kind === "atual") ?? ctx.version;
+  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, atualVersion);
   const multi = compareVersions.length > 1;
   const versionSelect = (
     <VersionMultiSelect
@@ -162,10 +164,9 @@ export default async function FluxoCaixaPage({
   // Saldo inicial = soma dos saldos das contas correntes.
   const saldoInicial = contas.reduce((a, c) => a + Number(c.saldo), 0);
 
-  // Horizonte padrão (janela móvel: 2 anos atrás + 5 à frente) + INCC + dados.
+  // Eixo = INCC + meses com movimentação (âncora nos dados reais).
   const axis = [
     ...new Set([
-      ...horizonMonths(),
       ...incc.map((r) => r.m),
       ...Object.keys(entradas),
       ...Object.keys(saidas),
