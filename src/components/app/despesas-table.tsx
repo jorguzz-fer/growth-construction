@@ -33,6 +33,10 @@ export interface DespesaDTO {
   cancelado?: boolean;
   /** rótulo de origem (obra/filial) — usado na consulta consolidada. */
   origem?: string | null;
+  /** URL do anexo mais recente (clipe na linha); null se não houver/sem storage. */
+  anexoUrl?: string | null;
+  /** quantidade de documentos anexados à despesa. */
+  anexoCount?: number;
 }
 
 /** Status exibido: "Vencida" derivado da data; "Cancelada" tem prioridade. */
@@ -282,7 +286,21 @@ function Row({
         </TD>
       )}
       <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-        {d.numDoc ?? "—"}
+        <span className="inline-flex items-center gap-1.5">
+          {d.numDoc ?? "—"}
+          {d.anexoUrl && (
+            <a
+              href={d.anexoUrl}
+              target="_blank"
+              rel="noopener"
+              title={`Abrir anexo${(d.anexoCount ?? 0) > 1 ? ` (${d.anexoCount} arquivos)` : ""}`}
+              className="text-[13px] text-[var(--color-accent2)] hover:opacity-70"
+              onClick={(e) => e.stopPropagation()}
+            >
+              📎{(d.anexoCount ?? 0) > 1 ? <span className="ml-0.5 text-[10px]">{d.anexoCount}</span> : null}
+            </a>
+          )}
+        </span>
       </TD>
       <TD>{d.fornecedorId ? fornById.get(d.fornecedorId) ?? "—" : "—"}</TD>
       <TD>
