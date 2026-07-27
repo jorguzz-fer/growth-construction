@@ -540,6 +540,163 @@ export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]
 }
 
 /**
+ * Carga da tela de planejamento (Budget/Forecast) no modelo total + %, para um
+ * PROJETO e uma VERSÃO específicos. As linhas são os GRUPOS do Plano de Contas
+ * separados por natureza (receita/despesa); grupos inativos e chaves legadas
+ * (ex.: "Receita"/"Outras Receitas") que já tenham dados aparecem como linhas
+ * legadas para preservar o histórico. As colunas vêm do período do projeto.
+ */
+export async function getBudgetPlanning(
+  tenantId: string,
+  projectId: string,
+  kind: "budget" | "forecast",
+  wantedVersionId?: string | null,
+): Promise<import("./planning").BudgetPlanningData> {
+  const { projectPeriodMonths } = await import("./planning");
+  const { defaultDreCategory } = await import("./budget/config");
+
+  const [project] = await db
+    .select()
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, tenantId)))
+    .limit(1);
+
+  const versionRows = project
+    ? await db
+        .select()
+        .from(schema.versions)
+        .where(and(eq(schema.versions.projectId, projectId), eq(schema.versions.kind, kind)))
+        .orderBy(asc(schema.versions.createdAt))
+    : [];
+  const versions = versionRows.map((v) => ({
+    id: v.id,
+    label: v.label,
+    kind: v.kind,
+    status: v.status,
+    isDefault: v.isDefault,
+    locked: v.locked,
+    sourceVersionId: v.sourceVersionId,
+  }));
+  const selected =
+    versions.find((v) => v.id === wantedVersionId) ??
+    versions.find((v) => v.isDefault) ??
+    versions[0] ??
+    null;
+
+  const months = project ? projectPeriodMonths(project.mesInicial, project.mesFinal) : [];
+
+  const emptyData: import("./planning").BudgetPlanningData = {
+    project: {
+      id: projectId,
+      name: project?.name ?? "",
+      mesInicial: project?.mesInicial ?? null,
+      mesFinal: project?.mesFinal ?? null,
+      recursosProprios: Number(project?.recursosProprios ?? 0) || 0,
+    },
+    hasPeriod: months.length > 0,
+    months,
+    versions,
+    versionId: selected?.id ?? null,
+    receitas: [],
+    despesas: [],
+  };
+  if (!project || !selected) return emptyData;
+
+  // Grupos do Plano de Contas (natureza derivada dos subitens; ativo = algum ativo).
+  const accounts = await getChartAccounts(tenantId);
+  interface Grp {
+    groupCode: string;
+    groupName: string;
+    kind: "cef" | "complementar";
+    natureza: "receita" | "despesa";
+    ativo: boolean;
+  }
+  const grpMap = new Map<string, Grp>();
+  for (const a of accounts) {
+    const g = grpMap.get(a.groupCode);
+    const nat = a.natureza === "receita" ? "receita" : "despesa";
+    if (!g) {
+      grpMap.set(a.groupCode, {
+        groupCode: a.groupCode,
+        groupName: a.groupName,
+        kind: a.kind,
+        natureza: nat,
+        ativo: a.ativo ?? true,
+      });
+    } else {
+      if (a.ativo) g.ativo = true;
+    }
+  }
+  const grupos = [...grpMap.values()];
+
+  // Totais por conta (budget_account) e pct por mês (budget_line) da versão.
+  const [accRows, lineRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.budgetAccounts)
+      .where(eq(schema.budgetAccounts.versionId, selected.id)),
+    db
+      .select()
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.versionId, selected.id)),
+  ]);
+  const totalOf = new Map<string, number>(); // `${kind}|${rowKey}` -> total
+  const dreOf = new Map<string, string | null>();
+  for (const a of accRows) {
+    totalOf.set(`${a.kind}|${a.rowKey}`, Number(a.total));
+    dreOf.set(`${a.kind}|${a.rowKey}`, a.dreCategory);
+  }
+  const pctOf = new Map<string, Record<string, number>>(); // key -> {mes: pct}
+  for (const l of lineRows) {
+    const key = `${l.kind}|${l.rowKey}`;
+    const bag = pctOf.get(key) ?? {};
+    bag[l.mes] = l.pct != null ? Number(l.pct) : 0;
+    pctOf.set(key, bag);
+  }
+
+  const build = (nat: "receita" | "despesa"): import("./planning").PlanningAccountRow[] => {
+    const rows: import("./planning").PlanningAccountRow[] = [];
+    const seen = new Set<string>();
+    // Grupos ativos da natureza (fonte oficial das linhas).
+    for (const g of grupos.filter((x) => x.natureza === nat && x.ativo)) {
+      const key = `${nat}|${g.groupCode}`;
+      seen.add(g.groupCode);
+      rows.push({
+        rowKey: g.groupCode,
+        label: g.groupName,
+        dreCategory:
+          nat === "receita" ? "Receita" : dreOf.get(key) ?? defaultDreCategory(g.kind),
+        total: totalOf.get(key) ?? 0,
+        pct: pctOf.get(key) ?? {},
+        ativo: true,
+        fromChart: true,
+      });
+    }
+    // Linhas legadas: chaves com dados que não correspondem a um grupo ativo.
+    for (const a of accRows.filter((x) => x.kind === nat)) {
+      if (seen.has(a.rowKey)) continue;
+      seen.add(a.rowKey);
+      rows.push({
+        rowKey: a.rowKey,
+        label: a.rowKey,
+        dreCategory: a.dreCategory ?? (nat === "receita" ? "Receita" : null),
+        total: Number(a.total),
+        pct: pctOf.get(`${nat}|${a.rowKey}`) ?? {},
+        ativo: false,
+        fromChart: false,
+      });
+    }
+    return rows;
+  };
+
+  return {
+    ...emptyData,
+    receitas: build("receita"),
+    despesas: build("despesa"),
+  };
+}
+
+/**
  * Versão "Atual" (detalhada) de um projeto, no escopo do tenant. Como não há
  * mais "versão ativa", os lançamentos de despesas/receitas sempre gravam aqui.
  */

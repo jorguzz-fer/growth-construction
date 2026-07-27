@@ -165,6 +165,9 @@ export async function updateProject(
     formaPagamentoTerreno?: string | null;
     proprietarioTerreno?: string | null;
     terrenoForaCaixa?: boolean;
+    financiamentoConstrucao?: string | number | null;
+    financiamentoTerreno?: string | number | null;
+    recursosProprios?: string | number | null;
   },
 ) {
   const ctx = await getActiveContext();
@@ -189,6 +192,12 @@ export async function updateProject(
   if (patch.proprietarioTerreno !== undefined)
     set.proprietarioTerreno = patch.proprietarioTerreno?.trim() || null;
   if (patch.terrenoForaCaixa !== undefined) set.terrenoForaCaixa = patch.terrenoForaCaixa;
+  if (patch.financiamentoConstrucao !== undefined)
+    set.financiamentoConstrucao = normValor(patch.financiamentoConstrucao);
+  if (patch.financiamentoTerreno !== undefined)
+    set.financiamentoTerreno = normValor(patch.financiamentoTerreno);
+  if (patch.recursosProprios !== undefined)
+    set.recursosProprios = normValor(patch.recursosProprios);
   if (Object.keys(set).length === 0) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));

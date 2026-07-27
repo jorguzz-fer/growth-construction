@@ -405,6 +405,9 @@ function ProjectRow({
     formaPagamentoTerreno: project.formaPagamentoTerreno ?? "",
     proprietarioTerreno: project.proprietarioTerreno ?? "",
     terrenoForaCaixa: project.terrenoForaCaixa ?? true,
+    financiamentoConstrucao: numStr(project.financiamentoConstrucao),
+    financiamentoTerreno: numStr(project.financiamentoTerreno),
+    recursosProprios: numStr(project.recursosProprios),
   });
   const [pending, start] = useTransition();
   const isObra = project.kind !== "office";
@@ -417,7 +420,10 @@ function ProjectRow({
     terr.valorTerreno !== numStr(project.valorTerreno) ||
     terr.formaPagamentoTerreno !== (project.formaPagamentoTerreno ?? "") ||
     terr.proprietarioTerreno !== (project.proprietarioTerreno ?? "") ||
-    terr.terrenoForaCaixa !== (project.terrenoForaCaixa ?? true);
+    terr.terrenoForaCaixa !== (project.terrenoForaCaixa ?? true) ||
+    terr.financiamentoConstrucao !== numStr(project.financiamentoConstrucao) ||
+    terr.financiamentoTerreno !== numStr(project.financiamentoTerreno) ||
+    terr.recursosProprios !== numStr(project.recursosProprios);
 
   const dirty =
     name.trim() !== project.name ||
@@ -451,6 +457,9 @@ function ProjectRow({
         formaPagamentoTerreno: terr.formaPagamentoTerreno || null,
         proprietarioTerreno: terr.proprietarioTerreno || null,
         terrenoForaCaixa: terr.terrenoForaCaixa,
+        financiamentoConstrucao: terr.financiamentoConstrucao || null,
+        financiamentoTerreno: terr.financiamentoTerreno || null,
+        recursosProprios: terr.recursosProprios || null,
       }),
     );
 
@@ -554,6 +563,18 @@ function ProjectRow({
               <div>
                 <Label>Valor do terreno</Label>
                 <MoneyInput value={terr.valorTerreno} onChange={(v) => setTerr((s) => ({ ...s, valorTerreno: v }))} />
+              </div>
+              <div>
+                <Label>Financiamento da construção</Label>
+                <MoneyInput value={terr.financiamentoConstrucao} onChange={(v) => setTerr((s) => ({ ...s, financiamentoConstrucao: v }))} />
+              </div>
+              <div>
+                <Label>Financiamento do terreno</Label>
+                <MoneyInput value={terr.financiamentoTerreno} onChange={(v) => setTerr((s) => ({ ...s, financiamentoTerreno: v }))} />
+              </div>
+              <div>
+                <Label>Recursos próprios</Label>
+                <MoneyInput value={terr.recursosProprios} onChange={(v) => setTerr((s) => ({ ...s, recursosProprios: v }))} />
               </div>
               <div className="sm:col-span-2">
                 <Label>Proprietário do terreno</Label>

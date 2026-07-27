@@ -218,6 +218,13 @@ export const projects = pgTable("project", {
   formaPagamentoTerreno: text("forma_pagamento_terreno"),
   proprietarioTerreno: text("proprietario_terreno"),
   /**
+   * Composição do funding da obra (indicador "Recursos próprios" do Budget).
+   * Valores informados no cadastro (não é fórmula calculada).
+   */
+  financiamentoConstrucao: numeric("financiamento_construcao", { precision: 15, scale: 2 }),
+  financiamentoTerreno: numeric("financiamento_terreno", { precision: 15, scale: 2 }),
+  recursosProprios: numeric("recursos_proprios", { precision: 15, scale: 2 }),
+  /**
    * Terreno pago direto ao proprietário (não passa pelo caixa da construtora).
    * Quando true, o valor do terreno compõe a visão econômica/global, mas NÃO é
    * lançado no caixa da construtora.

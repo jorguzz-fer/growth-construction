@@ -225,6 +225,13 @@
       "when": 1785116376100,
       "tag": "0031_planejamento_budget_forecast",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785117556050,
+      "tag": "0032_planejamento_recursos_proprios",
+      "breakpoints": true
     }
   ]
 }
