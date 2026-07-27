@@ -16,7 +16,7 @@ export function Table({
   return (
     <div
       className={cn(
-        "w-full overflow-auto rounded-[12px] border border-[var(--color-accent2)]/12 bg-white",
+        "tbl-scroll w-full overflow-auto rounded-[12px] border border-[var(--color-accent2)]/12 bg-white",
         wrapperClassName,
       )}
     >

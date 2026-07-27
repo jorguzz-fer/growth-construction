@@ -58,10 +58,40 @@ body {
 }
 
 /*
- * Barra de rolagem horizontal SEMPRE visível (não-overlay), para contêineres
- * de tabela largos (ex.: Contas a Pagar). Força o scrollbar do WebKit/Chromium
- * a aparecer mesmo quando o SO usa barras "overlay" que se escondem; e mantém
- * overflow-x: scroll para reservar a barra independentemente de transbordo.
+ * Barra de rolagem CLÁSSICA (não-overlay) para TODOS os contêineres de tabela.
+ * O Chrome/Edge no Windows usam barras "overlay" (estilo Fluent) que ficam
+ * escondidas até o usuário rolar aquele elemento — por isso a barra horizontal
+ * "não aparecia". Qualquer regra ::-webkit-scrollbar opta o elemento para fora
+ * do modo overlay, forçando a barra clássica sempre visível QUANDO há transbordo
+ * (overflow: auto continua escondendo a barra quando não é necessária).
+ */
+.tbl-scroll::-webkit-scrollbar {
+  height: 14px;
+  width: 12px;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+}
+.tbl-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+.tbl-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: 6px;
+}
+.tbl-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.55);
+}
+.tbl-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(15, 23, 42, 0.35) rgba(15, 23, 42, 0.06);
+}
+
+/*
+ * Variante para tabelas largas que devem exibir a barra horizontal DE IMEDIATO
+ * (ex.: Contas a Pagar): força overflow-x: scroll para reservar a barra mesmo
+ * antes de rolar. Herda a estilização clássica de .tbl-scroll.
  */
 .scroll-x-always {
   overflow-x: scroll !important;

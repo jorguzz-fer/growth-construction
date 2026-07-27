@@ -113,7 +113,7 @@ export function BalancoDiaTable({ rows }: { rows: BalancoRow[] }) {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="tbl-scroll overflow-x-auto">
             <Table>
               <THead>
                 <tr>
