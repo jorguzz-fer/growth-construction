@@ -7,17 +7,21 @@ import {
   deleteChartGroup,
   deleteChartItem,
   renameChartGroup,
+  setChartAccountAtivo,
   updateChartItem,
 } from "@/lib/actions/planocontas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 
 type Kind = "cef" | "complementar";
+type Natureza = "receita" | "despesa";
 interface Item {
   id: string;
   code: string;
   name: string;
+  natureza: Natureza;
+  ativo: boolean;
 }
 interface Group {
   code: string;
@@ -216,9 +220,10 @@ function GroupCard({ group, perms }: { group: Group; perms: PlanoPerms }) {
 function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
   const [code, setCode] = useState(item.code);
   const [name, setName] = useState(item.name);
+  const [natureza, setNatureza] = useState<Natureza>(item.natureza);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const dirty = code !== item.code || name !== item.name;
+  const dirty = code !== item.code || name !== item.name || natureza !== item.natureza;
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -232,7 +237,7 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className={`flex flex-wrap items-center gap-2 ${item.ativo ? "" : "opacity-55"}`}>
       <Input
         value={code}
         onChange={(e) => setCode(e.target.value)}
@@ -245,15 +250,40 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
         disabled={!perms.editar || pending}
         className="h-8 flex-1 text-xs"
       />
+      <Select
+        value={natureza}
+        onChange={(e) => setNatureza(e.target.value as Natureza)}
+        disabled={!perms.editar || pending}
+        className="h-8 w-28 text-xs"
+        title="Natureza da conta (bloco Receitas/Despesas no planejamento)"
+      >
+        <option value="despesa">Despesa</option>
+        <option value="receita">Receita</option>
+      </Select>
+      {!item.ativo && (
+        <span className="rounded-full bg-[var(--color-ink4)]/15 px-2 py-0.5 text-[10px] text-[var(--color-ink3)]">
+          inativa
+        </span>
+      )}
       {perms.editar && (
         <Button
           size="sm"
           variant="outline"
           disabled={pending || !dirty}
-          onClick={() => run(() => updateChartItem(item.id, { code, name }))}
+          onClick={() => run(() => updateChartItem(item.id, { code, name, natureza }))}
         >
           Salvar
         </Button>
+      )}
+      {perms.editar && (
+        <button
+          disabled={pending}
+          onClick={() => run(() => setChartAccountAtivo(item.id, !item.ativo))}
+          className="px-1.5 text-[11px] text-[var(--color-accent2)] hover:underline disabled:opacity-50"
+          title={item.ativo ? "Inativar (some de novos lançamentos)" : "Reativar"}
+        >
+          {item.ativo ? "Inativar" : "Reativar"}
+        </button>
       )}
       {perms.excluir && (
         <button
@@ -273,6 +303,7 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
 function NewItemRow({ group }: { group: Group }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [natureza, setNatureza] = useState<Natureza>("despesa");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -286,6 +317,7 @@ function NewItemRow({ group }: { group: Group }) {
           groupName: group.name,
           code,
           name,
+          natureza,
         });
         setCode("");
         setName("");
@@ -311,6 +343,15 @@ function NewItemRow({ group }: { group: Group }) {
         disabled={pending}
         className="h-8 flex-1 text-xs"
       />
+      <Select
+        value={natureza}
+        onChange={(e) => setNatureza(e.target.value as Natureza)}
+        disabled={pending}
+        className="h-8 w-28 text-xs"
+      >
+        <option value="despesa">Despesa</option>
+        <option value="receita">Receita</option>
+      </Select>
       <Button size="sm" disabled={pending || !code.trim() || !name.trim()} onClick={add}>
         Adicionar
       </Button>
@@ -325,6 +366,7 @@ function NewGroupForm({ kind }: { kind: Kind }) {
   const [groupName, setGroupName] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [natureza, setNatureza] = useState<Natureza>("despesa");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -332,7 +374,7 @@ function NewGroupForm({ kind }: { kind: Kind }) {
     setError(null);
     start(async () => {
       try {
-        await addChartGroup({ kind, groupCode, groupName, code, name });
+        await addChartGroup({ kind, groupCode, groupName, code, name, natureza });
         setGroupCode("");
         setGroupName("");
         setCode("");
@@ -397,6 +439,17 @@ function NewGroupForm({ kind }: { kind: Kind }) {
               placeholder="Descrição"
               className="h-8 text-xs"
             />
+          </div>
+          <div className="w-32">
+            <label className="text-[10px] text-[var(--color-ink3)]">Natureza</label>
+            <Select
+              value={natureza}
+              onChange={(e) => setNatureza(e.target.value as Natureza)}
+              className="h-8 text-xs"
+            >
+              <option value="despesa">Despesa</option>
+              <option value="receita">Receita</option>
+            </Select>
           </div>
         </div>
         <div className="flex items-center gap-2">

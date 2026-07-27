@@ -8,11 +8,12 @@ import { PlanoContasManager } from "@/components/app/planocontas-manager";
 export const dynamic = "force-dynamic";
 
 type Kind = "cef" | "complementar";
+type Natureza = "receita" | "despesa";
 interface Group {
   code: string;
   name: string;
   kind: Kind;
-  items: { id: string; code: string; name: string }[];
+  items: { id: string; code: string; name: string; natureza: Natureza; ativo: boolean }[];
 }
 
 function groupBy(rows: ChartAccountRow[], kind: Kind): Group[] {
@@ -21,7 +22,13 @@ function groupBy(rows: ChartAccountRow[], kind: Kind): Group[] {
     if (!map.has(r.groupCode)) {
       map.set(r.groupCode, { code: r.groupCode, name: r.groupName, kind, items: [] });
     }
-    map.get(r.groupCode)!.items.push({ id: r.id, code: r.code, name: r.name });
+    map.get(r.groupCode)!.items.push({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      natureza: (r.natureza === "receita" ? "receita" : "despesa") as Natureza,
+      ativo: r.ativo ?? true,
+    });
   }
   const groups = [...map.values()];
   for (const g of groups) {

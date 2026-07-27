@@ -42,7 +42,6 @@ export const SCREENS: Screen[] = [
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
   { id: "medicao", label: "Medição de Obra", modulo: "Reports" },
-  { id: "rolling", label: "Rolling Forecast", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
   { id: "budget", label: "Lançamento Budget", modulo: "Planejamento" },
@@ -71,6 +70,7 @@ export const SCREENS: Screen[] = [
   { id: "projeto", label: "Projetos", modulo: "Config" },
   { id: "numeracao", label: "Numeração de Despesas", modulo: "Config" },
   { id: "versao", label: "Configuração da Versão", modulo: "Config" },
+  { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
 ];
 
 export const SCREEN_IDS = SCREENS.map((s) => s.id);

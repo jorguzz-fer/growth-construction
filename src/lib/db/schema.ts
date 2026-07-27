@@ -194,6 +194,13 @@ export const projects = pgTable("project", {
   startDate: text("start_date"),
   endDate: text("end_date"),
   /**
+   * Período de planejamento (competências "MM/YYYY"). É a fonte OFICIAL das
+   * colunas mensais do Budget e do Forecast — o período não é editável nessas
+   * telas, vem daqui. Ver docs/SPEC (Planejamento §2).
+   */
+  mesInicial: text("mes_inicial"),
+  mesFinal: text("mes_final"),
+  /**
    * Cliente da obra (lista fechada). NULL = empreendimento próprio da
    * construtora/incorporadora (tenant), que comercializará as unidades.
    */
@@ -210,6 +217,13 @@ export const projects = pgTable("project", {
   /** Forma de pagamento e proprietário do terreno. */
   formaPagamentoTerreno: text("forma_pagamento_terreno"),
   proprietarioTerreno: text("proprietario_terreno"),
+  /**
+   * Composição do funding da obra (indicador "Recursos próprios" do Budget).
+   * Valores informados no cadastro (não é fórmula calculada).
+   */
+  financiamentoConstrucao: numeric("financiamento_construcao", { precision: 15, scale: 2 }),
+  financiamentoTerreno: numeric("financiamento_terreno", { precision: 15, scale: 2 }),
+  recursosProprios: numeric("recursos_proprios", { precision: 15, scale: 2 }),
   /**
    * Terreno pago direto ao proprietário (não passa pelo caixa da construtora).
    * Quando true, o valor do terreno compõe a visão econômica/global, mas NÃO é
@@ -283,6 +297,17 @@ export const versions = pgTable(
     isDefault: boolean("is_default").notNull().default(false),
     /** congelada: bloqueia lançamentos/edições (ver Configuração da Versão). */
     locked: boolean("locked").notNull().default(false),
+    /** status do workflow da versão: "Rascunho" | "Concluído" | "Aprovado". */
+    status: text("status").notNull().default("Rascunho"),
+    /**
+     * Versão de Budget que originou este Forecast (rastreabilidade/comparação).
+     * NULL para Budget/Atual ou Forecast sem origem. O Forecast é um snapshot
+     * independente — esta referência NÃO o mantém sincronizado com o Budget.
+     */
+    sourceVersionId: uuid("source_version_id").references(
+      (): AnyPgColumn => versions.id,
+      { onDelete: "set null" },
+    ),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (v) => [unique("version_project_key_uq").on(v.projectId, v.key)],
@@ -440,6 +465,14 @@ export const chartAccounts = pgTable(
     groupCode: text("group_code").notNull(),
     groupName: text("group_name").notNull(),
     kind: accountKindEnum("kind").notNull(),
+    /**
+     * Natureza da conta no planejamento: "receita" ou "despesa". Define em qual
+     * bloco (Receitas/Despesas) do Budget/Forecast a conta aparece. Padrão
+     * "despesa" (o plano de contas existente é orientado a despesa).
+     */
+    natureza: text("natureza").notNull().default("despesa"),
+    /** Conta ativa: inativas não aparecem em novos lançamentos, mas ficam no histórico. */
+    ativo: boolean("ativo").notNull().default(true),
   },
   (c) => [unique("chart_account_tenant_code_uq").on(c.tenantId, c.code)],
 );
@@ -901,8 +934,41 @@ export const budgetLines = pgTable(
     /** "MM/YYYY". */
     mes: text("mes").notNull(),
     valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+    /**
+     * Percentual do mês sobre o total da conta (modelo total + %). O `valor` é
+     * recalculado = total × pct / 100. NULL em lançamentos antigos que ainda não
+     * migraram (a migração faz o backfill a partir do valor/total).
+     */
+    pct: numeric("pct", { precision: 7, scale: 4 }),
   },
   (t) => [unique("budget_line_uq").on(t.versionId, t.kind, t.rowKey, t.mes)],
+);
+
+/**
+ * Total planejado por conta em uma versão (modelo total + %). O valor mensal em
+ * `budget_line` é derivado deste total pelo percentual do mês. Uma linha por
+ * (versão, tipo, conta). Ver docs/SPEC (Planejamento §7–8).
+ */
+export const budgetAccounts = pgTable(
+  "budget_account",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    /** "receita" | "despesa". */
+    kind: text("kind").notNull(),
+    /** identidade da linha: código da conta do Plano de Contas (ou chave legada). */
+    rowKey: text("row_key").notNull(),
+    /** categoria DRE associada. */
+    dreCategory: text("dre_category"),
+    /** total planejado da conta no projeto (base para o rateio mensal por %). */
+    total: numeric("total", { precision: 15, scale: 2 }).notNull().default("0"),
+  },
+  (t) => [unique("budget_account_uq").on(t.versionId, t.kind, t.rowKey)],
 );
 
 /**

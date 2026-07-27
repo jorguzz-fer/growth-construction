@@ -358,8 +358,8 @@ export function ImportExtratoButton({
           importar, e concilia com as despesas/receitas previstas. Lançamentos já
           importados são ignorados. O PDF original fica armazenado para auditoria.
           {aiConfigured
-            ? " Com IA ativa, também lê extratos em imagem."
-            : " (PDF de texto; PDFs escaneados/imagem exigem IA.)"}
+            ? " Com IA ativa, também lê extratos em imagem e PDFs escaneados."
+            : " (Só PDF com texto; escaneados/imagem exigem IA — ative em Config → Diagnóstico de IA.)"}
         </p>
         {!bankAccountId && contas.length === 0 && (
           <p className="mt-1 text-[11.5px] text-[var(--color-warning)]">

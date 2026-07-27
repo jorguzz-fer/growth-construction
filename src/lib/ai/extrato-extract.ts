@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { aiClient, createMessageWithFallback, isAiConfigured } from "@/lib/ai/client";
 
 /**
  * Leitura de extrato bancário em PDF por IA, para pré-preencher a importação de
@@ -107,7 +107,7 @@ export async function extractExtratoFromDocument(
   if (!isAiConfigured()) {
     throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
-  const client = new Anthropic();
+  const client = aiClient();
   const data = Buffer.from(bytes).toString("base64");
 
   const docBlock: Anthropic.ContentBlockParam =
@@ -152,8 +152,7 @@ export async function extractExtratoFromDocument(
     strict: true,
   };
 
-  const message = await client.messages.create({
-    model: "claude-opus-4-8",
+  const message = await createMessageWithFallback(client, {
     max_tokens: 8192,
     tools: [tool],
     tool_choice: { type: "tool", name: "extrair_extrato" },

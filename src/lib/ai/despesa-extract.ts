@@ -1,17 +1,16 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
+import { aiClient, createMessageWithFallback, isAiConfigured } from "@/lib/ai/client";
 
 /**
  * Leitura de documentos (NF / boleto / contrato) por IA para pré-preencher um
- * lançamento de despesa. Usa a API da Claude (modelo claude-opus-4-8), com
+ * lançamento de despesa. Usa a API da Claude (com fallback de modelo), com
  * suporte a PDF e imagens. Fica desabilitado quando ANTHROPIC_API_KEY não está
  * definida (mesmo padrão do R2) — nesse caso apenas o upload/vínculo funciona.
  */
 
-export function isAiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
+export { isAiConfigured };
 
 export interface ExtractedDespesa {
   fornecedorNome: string;
@@ -50,7 +49,7 @@ export async function extractDespesaFromDocument(
   if (!isAiConfigured()) {
     throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
-  const client = new Anthropic();
+  const client = aiClient();
   const data = Buffer.from(bytes).toString("base64");
 
   const docBlock: Anthropic.ContentBlockParam =
@@ -138,8 +137,7 @@ export async function extractDespesaFromDocument(
     strict: true,
   };
 
-  const message = await client.messages.create({
-    model: "claude-opus-4-8",
+  const message = await createMessageWithFallback(client, {
     max_tokens: 1024,
     tools: [tool],
     tool_choice: { type: "tool", name: "preencher_despesa" },

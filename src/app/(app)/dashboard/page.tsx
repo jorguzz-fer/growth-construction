@@ -301,9 +301,6 @@ export default async function DashboardPage({
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">
               Comparativo de versões — {year}
             </h2>
-            <Link href="/rolling" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              ⟳ Rolling
-            </Link>
           </div>
           <BarChart
             height={320}

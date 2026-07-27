@@ -531,12 +531,311 @@ export async function getStockMovements(tenantId: string): Promise<StockMovement
 
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
+export interface CompareRowP {
+  rowKey: string;
+  label: string;
+  budget: number;
+  forecast: number;
+}
+export interface ForecastComparisonData {
+  ok: boolean;
+  message?: string;
+  forecastLabel: string;
+  budgetLabel: string;
+  months: string[];
+  receitas: CompareRowP[];
+  despesas: CompareRowP[];
+  budgetByMonth: Record<string, number>;
+  forecastByMonth: Record<string, number>;
+}
+
+/**
+ * Comparação entre um Forecast e o Budget de origem (spec §16). Reaproveita
+ * getBudgetPlanning para as duas versões e calcula a variação por conta e por
+ * mês. Se o Forecast não tem origem registrada, usa o Budget padrão do projeto.
+ */
+export async function getForecastComparison(
+  tenantId: string,
+  forecastVersionId: string,
+): Promise<ForecastComparisonData> {
+  const empty: ForecastComparisonData = {
+    ok: false,
+    forecastLabel: "",
+    budgetLabel: "",
+    months: [],
+    receitas: [],
+    despesas: [],
+    budgetByMonth: {},
+    forecastByMonth: {},
+  };
+  const [fv] = await db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.id, forecastVersionId),
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.kind, "forecast"),
+      ),
+    )
+    .limit(1);
+  if (!fv) return { ...empty, message: "Forecast não encontrado." };
+
+  let budgetVersionId = fv.sourceVersionId;
+  if (!budgetVersionId) {
+    const budgets = await getProjectVersionsByKind(tenantId, fv.projectId, "budget");
+    budgetVersionId = budgets[0]?.id ?? null;
+  }
+  if (!budgetVersionId) {
+    return { ...empty, forecastLabel: fv.label, message: "Projeto sem Budget para comparar." };
+  }
+  const [bv] = await db
+    .select({ label: schema.versions.label })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, budgetVersionId))
+    .limit(1);
+
+  const [budgetData, forecastData] = await Promise.all([
+    getBudgetPlanning(tenantId, fv.projectId, "budget", budgetVersionId),
+    getBudgetPlanning(tenantId, fv.projectId, "forecast", forecastVersionId),
+  ]);
+  const months = forecastData.months.length ? forecastData.months : budgetData.months;
+
+  const merge = (
+    bRows: import("./planning").PlanningAccountRow[],
+    fRows: import("./planning").PlanningAccountRow[],
+  ): CompareRowP[] => {
+    const map = new Map<string, CompareRowP>();
+    for (const r of bRows)
+      map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: r.total, forecast: 0 });
+    for (const r of fRows) {
+      const cur = map.get(r.rowKey);
+      if (cur) cur.forecast = r.total;
+      else map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: 0, forecast: r.total });
+    }
+    return [...map.values()];
+  };
+
+  const monthlyTotals = (rows: import("./planning").PlanningAccountRow[]) => {
+    const out: Record<string, number> = {};
+    for (const m of months) {
+      let s = 0;
+      for (const r of rows) s += Math.round(r.total * (Number(r.pct[m]) || 0)) / 100;
+      out[m] = s;
+    }
+    return out;
+  };
+  const sumMonthly = (a: Record<string, number>, b: Record<string, number>) => {
+    const out: Record<string, number> = {};
+    for (const m of months) out[m] = (a[m] || 0) + (b[m] || 0);
+    return out;
+  };
+
+  return {
+    ok: true,
+    forecastLabel: fv.label,
+    budgetLabel: bv?.label ?? "Budget",
+    months,
+    receitas: merge(budgetData.receitas, forecastData.receitas),
+    despesas: merge(budgetData.despesas, forecastData.despesas),
+    budgetByMonth: sumMonthly(
+      monthlyTotals(budgetData.receitas),
+      monthlyTotals(budgetData.despesas),
+    ),
+    forecastByMonth: sumMonthly(
+      monthlyTotals(forecastData.receitas),
+      monthlyTotals(forecastData.despesas),
+    ),
+  };
+}
+
+/** Versões de um tipo (budget/forecast) de um projeto — para seletores/criação. */
+export async function getProjectVersionsByKind(
+  tenantId: string,
+  projectId: string,
+  kind: "budget" | "forecast",
+): Promise<{ id: string; label: string; status: string }[]> {
+  const rows = await db
+    .select({
+      id: schema.versions.id,
+      label: schema.versions.label,
+      status: schema.versions.status,
+    })
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.projectId, projectId),
+        eq(schema.versions.kind, kind),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt));
+  return rows;
+}
+
 /** Lançamentos simplificados (Budget/Forecast) de uma versão. */
 export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]> {
   return db
     .select()
     .from(schema.budgetLines)
     .where(eq(schema.budgetLines.versionId, versionId));
+}
+
+/**
+ * Carga da tela de planejamento (Budget/Forecast) no modelo total + %, para um
+ * PROJETO e uma VERSÃO específicos. As linhas são os GRUPOS do Plano de Contas
+ * separados por natureza (receita/despesa); grupos inativos e chaves legadas
+ * (ex.: "Receita"/"Outras Receitas") que já tenham dados aparecem como linhas
+ * legadas para preservar o histórico. As colunas vêm do período do projeto.
+ */
+export async function getBudgetPlanning(
+  tenantId: string,
+  projectId: string,
+  kind: "budget" | "forecast",
+  wantedVersionId?: string | null,
+): Promise<import("./planning").BudgetPlanningData> {
+  const { projectPeriodMonths } = await import("./planning");
+  const { defaultDreCategory } = await import("./budget/config");
+
+  const [project] = await db
+    .select()
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, tenantId)))
+    .limit(1);
+
+  const versionRows = project
+    ? await db
+        .select()
+        .from(schema.versions)
+        .where(and(eq(schema.versions.projectId, projectId), eq(schema.versions.kind, kind)))
+        .orderBy(asc(schema.versions.createdAt))
+    : [];
+  const versions = versionRows.map((v) => ({
+    id: v.id,
+    label: v.label,
+    kind: v.kind,
+    status: v.status,
+    isDefault: v.isDefault,
+    locked: v.locked,
+    sourceVersionId: v.sourceVersionId,
+  }));
+  const selected =
+    versions.find((v) => v.id === wantedVersionId) ??
+    versions.find((v) => v.isDefault) ??
+    versions[0] ??
+    null;
+
+  const months = project ? projectPeriodMonths(project.mesInicial, project.mesFinal) : [];
+
+  const emptyData: import("./planning").BudgetPlanningData = {
+    project: {
+      id: projectId,
+      name: project?.name ?? "",
+      mesInicial: project?.mesInicial ?? null,
+      mesFinal: project?.mesFinal ?? null,
+      recursosProprios: Number(project?.recursosProprios ?? 0) || 0,
+    },
+    hasPeriod: months.length > 0,
+    months,
+    versions,
+    versionId: selected?.id ?? null,
+    receitas: [],
+    despesas: [],
+  };
+  if (!project || !selected) return emptyData;
+
+  // Grupos do Plano de Contas (natureza derivada dos subitens; ativo = algum ativo).
+  const accounts = await getChartAccounts(tenantId);
+  interface Grp {
+    groupCode: string;
+    groupName: string;
+    kind: "cef" | "complementar";
+    natureza: "receita" | "despesa";
+    ativo: boolean;
+  }
+  const grpMap = new Map<string, Grp>();
+  for (const a of accounts) {
+    const g = grpMap.get(a.groupCode);
+    const nat = a.natureza === "receita" ? "receita" : "despesa";
+    if (!g) {
+      grpMap.set(a.groupCode, {
+        groupCode: a.groupCode,
+        groupName: a.groupName,
+        kind: a.kind,
+        natureza: nat,
+        ativo: a.ativo ?? true,
+      });
+    } else {
+      if (a.ativo) g.ativo = true;
+    }
+  }
+  const grupos = [...grpMap.values()];
+
+  // Totais por conta (budget_account) e pct por mês (budget_line) da versão.
+  const [accRows, lineRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.budgetAccounts)
+      .where(eq(schema.budgetAccounts.versionId, selected.id)),
+    db
+      .select()
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.versionId, selected.id)),
+  ]);
+  const totalOf = new Map<string, number>(); // `${kind}|${rowKey}` -> total
+  const dreOf = new Map<string, string | null>();
+  for (const a of accRows) {
+    totalOf.set(`${a.kind}|${a.rowKey}`, Number(a.total));
+    dreOf.set(`${a.kind}|${a.rowKey}`, a.dreCategory);
+  }
+  const pctOf = new Map<string, Record<string, number>>(); // key -> {mes: pct}
+  for (const l of lineRows) {
+    const key = `${l.kind}|${l.rowKey}`;
+    const bag = pctOf.get(key) ?? {};
+    bag[l.mes] = l.pct != null ? Number(l.pct) : 0;
+    pctOf.set(key, bag);
+  }
+
+  const build = (nat: "receita" | "despesa"): import("./planning").PlanningAccountRow[] => {
+    const rows: import("./planning").PlanningAccountRow[] = [];
+    const seen = new Set<string>();
+    // Grupos ativos da natureza (fonte oficial das linhas).
+    for (const g of grupos.filter((x) => x.natureza === nat && x.ativo)) {
+      const key = `${nat}|${g.groupCode}`;
+      seen.add(g.groupCode);
+      rows.push({
+        rowKey: g.groupCode,
+        label: g.groupName,
+        dreCategory:
+          nat === "receita" ? "Receita" : dreOf.get(key) ?? defaultDreCategory(g.kind),
+        total: totalOf.get(key) ?? 0,
+        pct: pctOf.get(key) ?? {},
+        ativo: true,
+        fromChart: true,
+      });
+    }
+    // Linhas legadas: chaves com dados que não correspondem a um grupo ativo.
+    for (const a of accRows.filter((x) => x.kind === nat)) {
+      if (seen.has(a.rowKey)) continue;
+      seen.add(a.rowKey);
+      rows.push({
+        rowKey: a.rowKey,
+        label: a.rowKey,
+        dreCategory: a.dreCategory ?? (nat === "receita" ? "Receita" : null),
+        total: Number(a.total),
+        pct: pctOf.get(`${nat}|${a.rowKey}`) ?? {},
+        ativo: false,
+        fromChart: false,
+      });
+    }
+    return rows;
+  };
+
+  return {
+    ...emptyData,
+    receitas: build("receita"),
+    despesas: build("despesa"),
+  };
 }
 
 /**

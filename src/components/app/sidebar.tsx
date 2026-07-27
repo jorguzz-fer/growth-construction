@@ -110,7 +110,6 @@ export function Sidebar({
         { href: "/dre", label: "DRE" },
         { href: "/fluxocaixa", label: "Fluxo de Caixa" },
         { href: "/medicao", label: "Medição de Obra" },
-        { href: "/rolling", label: "Rolling Forecast" },
         { href: "/resumo", label: "Resumo Executivo" },
       ],
     },
@@ -128,6 +127,7 @@ export function Sidebar({
         { href: "/acessos", label: "Gestão de Acessos" },
         { href: "/acoes", label: "Log de Auditoria" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
+        { href: "/diagnosticoia", label: "Diagnóstico de IA" },
       ],
     },
   ];

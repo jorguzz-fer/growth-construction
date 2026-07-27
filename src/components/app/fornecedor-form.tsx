@@ -220,7 +220,7 @@ export function FornecedorForm({
           <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
             {aiConfigured
               ? "A IA lê o documento e preenche os campos abaixo — revise antes de cadastrar."
-              : "Leitura automática por IA desativada (defina ANTHROPIC_API_KEY para habilitar)."}
+              : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
           </p>
         </div>
 

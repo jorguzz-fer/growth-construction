@@ -1,7 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { PAPEIS_STAKEHOLDER } from "@/lib/calc/constants";
-import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { aiClient, createMessageWithFallback, isAiConfigured } from "@/lib/ai/client";
 
 /**
  * Leitura de documentos (cartão CNPJ, contrato social, cabeçalho de NF, cartão
@@ -41,7 +41,7 @@ export async function extractFornecedorFromDocument(
   if (!isAiConfigured()) {
     throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
-  const client = new Anthropic();
+  const client = aiClient();
   const data = Buffer.from(bytes).toString("base64");
 
   const docBlock: Anthropic.ContentBlockParam =
@@ -111,8 +111,7 @@ export async function extractFornecedorFromDocument(
     strict: true,
   };
 
-  const message = await client.messages.create({
-    model: "claude-opus-4-8",
+  const message = await createMessageWithFallback(client, {
     max_tokens: 1024,
     tools: [tool],
     tool_choice: { type: "tool", name: "preencher_fornecedor" },
