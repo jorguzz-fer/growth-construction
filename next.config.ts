@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
   // não morrer por OOM. Ver docs/STACK.md §4.
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  // Rolling Forecast foi descontinuado: URLs antigas /rolling redirecionam
+  // para /forecast (o enforcement de permissão da rota-destino continua valendo).
+  async redirects() {
+    return [{ source: "/rolling", destination: "/forecast", permanent: true }];
+  },
   experimental: {
     // Uploads (logo da empresa até 2 MB, documentos de despesas até 10 MB)
     // passam pela Server Action como FormData. O limite padrão do body de

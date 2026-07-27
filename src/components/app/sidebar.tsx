@@ -110,7 +110,6 @@ export function Sidebar({
         { href: "/dre", label: "DRE" },
         { href: "/fluxocaixa", label: "Fluxo de Caixa" },
         { href: "/medicao", label: "Medição de Obra" },
-        { href: "/rolling", label: "Rolling Forecast" },
         { href: "/resumo", label: "Resumo Executivo" },
       ],
     },
