@@ -128,6 +128,7 @@ export function Sidebar({
         { href: "/acessos", label: "Gestão de Acessos" },
         { href: "/acoes", label: "Log de Auditoria" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
+        { href: "/diagnosticoia", label: "Diagnóstico de IA" },
       ],
     },
   ];

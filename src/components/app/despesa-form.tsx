@@ -456,7 +456,7 @@ export function DespesaForm({
           <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
             {aiConfigured
               ? "A IA lê o documento e preenche os campos abaixo — revise antes de lançar."
-              : "Leitura automática por IA desativada (defina ANTHROPIC_API_KEY para habilitar)."}
+              : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
             {r2Configured
               ? " O arquivo é anexado e vinculado à despesa ao lançar."
               : " Configure as variáveis R2_* para armazenar o arquivo."}
