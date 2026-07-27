@@ -1,6 +1,6 @@
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
-import { getBudgetPlanning } from "@/lib/queries";
+import { getBudgetPlanning, getProjectVersionsByKind } from "@/lib/queries";
 import { AccessDenied } from "@/components/app/access-denied";
 import { BudgetPlanningScreen } from "@/components/app/budget-planning-screen";
 
@@ -22,7 +22,10 @@ export default async function ForecastPage({
     obras.find((p) => p.id === ctx.project.id)?.id ??
     obras[0]?.id ??
     ctx.project.id;
-  const data = await getBudgetPlanning(ctx.tenant.id, projId, "forecast", sp.v ?? null);
+  const [data, budgetVersions] = await Promise.all([
+    getBudgetPlanning(ctx.tenant.id, projId, "forecast", sp.v ?? null),
+    getProjectVersionsByKind(ctx.tenant.id, projId, "budget"),
+  ]);
   const projects = obras.map((p) => ({ id: p.id, label: p.name }));
   return (
     <BudgetPlanningScreen
@@ -30,6 +33,8 @@ export default async function ForecastPage({
       kind="forecast"
       projects={projects}
       canEdit={can(ctx.perms, "forecast", "editar")}
+      budgetVersions={budgetVersions.map((v) => ({ id: v.id, label: v.label }))}
+      canCreateForecast={can(ctx.perms, "forecast", "criar")}
     />
   );
 }

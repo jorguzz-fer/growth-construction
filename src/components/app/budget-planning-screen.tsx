@@ -6,6 +6,8 @@ import Link from "next/link";
 import {
   saveBudgetPlanning,
   setVersionStatus,
+  createForecastFromBudget,
+  duplicateForecast,
   type PlanningAccountInput,
 } from "@/lib/actions/planning";
 import type { BudgetPlanningData, PlanningAccountRow } from "@/lib/planning";
@@ -47,16 +49,23 @@ export function BudgetPlanningScreen({
   kind,
   projects,
   canEdit,
+  budgetVersions = [],
+  canCreateForecast = false,
 }: {
   data: BudgetPlanningData;
   kind: "budget" | "forecast";
   projects: { id: string; label: string }[];
   canEdit: boolean;
+  budgetVersions?: { id: string; label: string }[];
+  canCreateForecast?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
   const months = data.months;
   const titulo = kind === "budget" ? "Lançamento Budget" : "Lançamento Forecast";
+  // No Forecast, o total de cada conta é herdado do Budget (somente leitura);
+  // só a redistribuição mensal (%) é editável.
+  const totalReadOnly = kind === "forecast";
 
   const go = (patch: Record<string, string>) => {
     const params = new URLSearchParams(sp.toString());
@@ -109,28 +118,146 @@ export function BudgetPlanningScreen({
         onVersion={(id) => go({ v: id })}
         canEdit={canEdit}
       />
-      <Bloco
-        key={`rec-${data.versionId}`}
-        titulo="Receitas por projeto"
-        primeiraCol="Receita total do projeto"
-        rows={data.receitas}
-        months={months}
-        versionId={data.versionId}
-        bloco="receita"
-        canEdit={canEdit && !isLocked(data)}
-      />
-      <div className="h-5" />
-      <Bloco
-        key={`desp-${data.versionId}`}
-        titulo="Despesas por grupo · projeto/filial"
-        primeiraCol="Orçamento total do projeto"
-        rows={data.despesas}
-        months={months}
-        versionId={data.versionId}
-        bloco="despesa"
-        canEdit={canEdit && !isLocked(data)}
-      />
+      {kind === "forecast" && (
+        <ForecastToolbar
+          projectId={data.project.id}
+          budgetVersions={budgetVersions}
+          canCreate={canCreateForecast}
+          currentForecastId={data.versionId}
+          onCreated={(id) => go({ v: id })}
+        />
+      )}
+      {kind === "forecast" && !data.versionId ? null : (
+        <>
+          <Bloco
+            key={`rec-${data.versionId}`}
+            titulo="Receitas por projeto"
+            primeiraCol="Receita total do projeto"
+            rows={data.receitas}
+            months={months}
+            versionId={data.versionId}
+            bloco="receita"
+            canEdit={canEdit && !isLocked(data)}
+            totalReadOnly={totalReadOnly}
+          />
+          <div className="h-5" />
+          <Bloco
+            key={`desp-${data.versionId}`}
+            titulo="Despesas por grupo · projeto/filial"
+            primeiraCol="Orçamento total do projeto"
+            rows={data.despesas}
+            months={months}
+            versionId={data.versionId}
+            bloco="despesa"
+            canEdit={canEdit && !isLocked(data)}
+            totalReadOnly={totalReadOnly}
+          />
+        </>
+      )}
     </>
+  );
+}
+
+function ForecastToolbar({
+  projectId,
+  budgetVersions,
+  canCreate,
+  currentForecastId,
+  onCreated,
+}: {
+  projectId: string;
+  budgetVersions: { id: string; label: string }[];
+  canCreate: boolean;
+  currentForecastId: string | null;
+  onCreated: (id: string) => void;
+}) {
+  const [baseId, setBaseId] = useState(budgetVersions[0]?.id ?? "");
+  const [nome, setNome] = useState("");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  if (budgetVersions.length === 0) {
+    return (
+      <Card className="mb-5">
+        <CardContent className="p-4 text-[13px] text-[var(--color-ink3)]">
+          Este projeto ainda não possui um Budget disponível para criação do Forecast.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const criar = () => {
+    if (!canCreate || !baseId) return;
+    setError(null);
+    start(async () => {
+      try {
+        const id = await createForecastFromBudget(projectId, baseId, nome);
+        setNome("");
+        onCreated(id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao criar Forecast.");
+      }
+    });
+  };
+  const duplicar = () => {
+    if (!canCreate || !currentForecastId) return;
+    setError(null);
+    start(async () => {
+      try {
+        const id = await duplicateForecast(currentForecastId, nome);
+        setNome("");
+        onCreated(id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao duplicar Forecast.");
+      }
+    });
+  };
+
+  return (
+    <Card className="mb-5">
+      <CardContent className="flex flex-wrap items-end gap-3 p-4">
+        <div>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+            Novo Forecast a partir do Budget
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={baseId}
+              onChange={(e) => setBaseId(e.target.value)}
+              className="h-9 w-auto"
+              disabled={!canCreate || pending}
+            >
+              {budgetVersions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  Base: {v.label}
+                </option>
+              ))}
+            </Select>
+            <Input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Nome do Forecast (ex.: Revisão 01)"
+              className="h-9 w-56"
+              disabled={!canCreate || pending}
+            />
+            <Button type="button" disabled={!canCreate || pending || !baseId} onClick={criar}>
+              Criar Forecast
+            </Button>
+            {currentForecastId && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canCreate || pending}
+                onClick={duplicar}
+              >
+                Duplicar atual
+              </Button>
+            )}
+          </div>
+        </div>
+        {error && <span className="text-[12px] text-[var(--color-danger)]">{error}</span>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -267,6 +394,7 @@ function Bloco({
   versionId,
   bloco,
   canEdit,
+  totalReadOnly = false,
 }: {
   titulo: string;
   primeiraCol: string;
@@ -275,6 +403,7 @@ function Bloco({
   versionId: string | null;
   bloco: "receita" | "despesa";
   canEdit: boolean;
+  totalReadOnly?: boolean;
 }) {
   const [rows, setRows] = useState<RowState[]>(() =>
     initialRows.map((r) => toRowState(r, months)),
@@ -423,10 +552,15 @@ function Bloco({
                       )}
                     </td>
                     <td className="sticky left-[220px] z-10 bg-white px-2 py-1">
-                      {canEdit ? (
+                      {canEdit && !totalReadOnly ? (
                         <MoneyInput value={r.total} onChange={(v) => setTotal(i, v)} className="h-8 w-[120px] text-right text-xs" />
                       ) : (
-                        <div className="text-right font-[family-name:var(--font-mono)] text-xs">{brl0(rc.total)}</div>
+                        <div
+                          className="text-right font-[family-name:var(--font-mono)] text-xs"
+                          title={totalReadOnly ? "Total herdado do Budget (somente leitura)" : undefined}
+                        >
+                          {brl0(rc.total)}
+                        </div>
                       )}
                     </td>
                     {months.map((m) => (

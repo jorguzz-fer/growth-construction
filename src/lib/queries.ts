@@ -531,6 +531,30 @@ export async function getStockMovements(tenantId: string): Promise<StockMovement
 
 export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 
+/** Versões de um tipo (budget/forecast) de um projeto — para seletores/criação. */
+export async function getProjectVersionsByKind(
+  tenantId: string,
+  projectId: string,
+  kind: "budget" | "forecast",
+): Promise<{ id: string; label: string; status: string }[]> {
+  const rows = await db
+    .select({
+      id: schema.versions.id,
+      label: schema.versions.label,
+      status: schema.versions.status,
+    })
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.projectId, projectId),
+        eq(schema.versions.kind, kind),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt));
+  return rows;
+}
+
 /** Lançamentos simplificados (Budget/Forecast) de uma versão. */
 export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]> {
   return db
