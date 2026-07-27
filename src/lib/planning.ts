@@ -38,6 +38,30 @@ export function projectPeriodMonths(
   return out;
 }
 
+/** Data interna "MM/DD/YYYY" → competência "MM/YYYY" (ou null). */
+export function monthKeyOfInternalDate(d: string | null | undefined): string | null {
+  const p = (d || "").trim().split("/");
+  if (p.length !== 3) return null;
+  const m = Number(p[0]);
+  const y = Number(p[2]);
+  if (!m || !y || m < 1 || m > 12) return null;
+  return `${String(m).padStart(2, "0")}/${y}`;
+}
+
+/**
+ * Meses do período a partir das DATAS de início e fim do projeto (fonte oficial
+ * das colunas do Budget/Forecast). "MM/DD/YYYY" → competências "MM/YYYY".
+ */
+export function projectPeriodMonthsFromDates(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+): string[] {
+  return projectPeriodMonths(
+    monthKeyOfInternalDate(startDate),
+    monthKeyOfInternalDate(endDate),
+  );
+}
+
 /** Uma conta (linha) do Budget/Forecast: total + percentual/valor por mês. */
 export interface PlanningAccountRow {
   /** identidade da linha = código do grupo do Plano de Contas (ou chave legada). */

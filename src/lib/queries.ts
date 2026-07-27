@@ -694,7 +694,7 @@ export async function getBudgetPlanning(
   kind: "budget" | "forecast",
   wantedVersionId?: string | null,
 ): Promise<import("./planning").BudgetPlanningData> {
-  const { projectPeriodMonths } = await import("./planning");
+  const { projectPeriodMonths, monthKeyOfInternalDate } = await import("./planning");
   const { defaultDreCategory } = await import("./budget/config");
 
   const [project] = await db
@@ -725,14 +725,17 @@ export async function getBudgetPlanning(
     versions[0] ??
     null;
 
-  const months = project ? projectPeriodMonths(project.mesInicial, project.mesFinal) : [];
+  // O período vem das DATAS de início/fim do cadastro do projeto.
+  const startMk = monthKeyOfInternalDate(project?.startDate);
+  const endMk = monthKeyOfInternalDate(project?.endDate);
+  const months = project ? projectPeriodMonths(startMk, endMk) : [];
 
   const emptyData: import("./planning").BudgetPlanningData = {
     project: {
       id: projectId,
       name: project?.name ?? "",
-      mesInicial: project?.mesInicial ?? null,
-      mesFinal: project?.mesFinal ?? null,
+      mesInicial: startMk,
+      mesFinal: endMk,
       recursosProprios: Number(project?.recursosProprios ?? 0) || 0,
     },
     hasPeriod: months.length > 0,
