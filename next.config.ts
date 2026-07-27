@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   // não morrer por OOM. Ver docs/STACK.md §4.
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  // `unpdf` (leitura de texto de PDF do extrato) carrega o pdf.js por import
+  // dinâmico aninhado. Com `output: "standalone"`, o tracer do Next às vezes não
+  // copia esses arquivos para o bundle, e a leitura do PDF falha em produção
+  // (Coolify) mesmo funcionando em dev. Marcá-lo como externo faz o Next
+  // resolvê-lo de node_modules em runtime (nft copia o pacote inteiro).
+  serverExternalPackages: ["unpdf"],
   // Rolling Forecast foi descontinuado: URLs antigas /rolling redirecionam
   // para /forecast (o enforcement de permissão da rota-destino continua valendo).
   async redirects() {

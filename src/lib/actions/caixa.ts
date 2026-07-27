@@ -31,36 +31,64 @@ const EXTRATO_AI_MIME = [
  * formatos XLSX/CSV. O PDF original é armazenado (R2) para consulta/auditoria.
  * A importação só ocorre após o usuário confirmar — nada é gravado aqui.
  */
-export async function extractExtratoPdf(formData: FormData): Promise<ExtratoExtraido> {
+export async function extractExtratoPdf(
+  formData: FormData,
+): Promise<ExtratoExtraido & { error?: string }> {
+  // IMPORTANTE: em produção o Next.js redige (esconde) a mensagem de qualquer
+  // erro LANÇADO por uma Server Action, substituindo por um texto genérico
+  // ("An error occurred in the Server Components render…"). Por isso RETORNAMOS
+  // os erros em `error` — assim a mensagem real chega ao usuário na tela.
+  const empty: ExtratoExtraido = { movimentos: [], saldoFinal: null };
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
-    throw new Error("Sem permissão para importar extrato.");
+    return { ...empty, error: "Sem permissão para importar extrato." };
   }
   const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) throw new Error("Selecione um arquivo de extrato.");
-  if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
+  if (!file || file.size === 0) return { ...empty, error: "Selecione um arquivo de extrato." };
+  // Limite alinhado ao bodySizeLimit das Server Actions (12 MB no next.config):
+  // acima disso o Next rejeita o upload antes da action rodar.
+  if (file.size > 10 * 1024 * 1024) {
+    return { ...empty, error: "Arquivo deve ter até 10 MB. Para extratos maiores, envie XLSX/CSV." };
+  }
   const mime = file.type || "";
   if (!(EXTRATO_AI_MIME as readonly string[]).includes(mime)) {
-    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato.");
+    return { ...empty, error: "Envie um PDF ou imagem (PNG, JPG ou WebP) do extrato." };
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   // Com IA configurada, usa a leitura por IA (melhor precisão, inclusive imagens).
   // Sem IA, faz leitura de TEXTO do PDF (unpdf) por heurística — o usuário revisa
   // e ajusta na tela de conferência. Imagens sem IA não são suportadas.
   let result: ExtratoExtraido;
-  if (isAiConfigured()) {
-    result = await extractExtratoFromDocument(bytes, mime);
-  } else if (mime === "application/pdf") {
-    result = await extractExtratoFromText(bytes);
-    if (result.movimentos.length === 0) {
-      throw new Error(
-        "Não consegui identificar movimentações no texto do PDF. O arquivo pode ser uma imagem/escaneado — envie XLSX/CSV, ou configure a leitura por IA (ANTHROPIC_API_KEY).",
-      );
+  try {
+    if (isAiConfigured()) {
+      result = await extractExtratoFromDocument(bytes, mime);
+    } else if (mime === "application/pdf") {
+      result = await extractExtratoFromText(bytes);
+    } else {
+      return {
+        ...empty,
+        error:
+          "Leitura de imagem exige IA (ANTHROPIC_API_KEY). Para PDF sem IA, envie o PDF com texto; ou use XLSX/CSV.",
+      };
     }
-  } else {
-    throw new Error(
-      "Leitura de imagem exige IA (ANTHROPIC_API_KEY). Para PDF sem IA, envie o PDF com texto; ou use XLSX/CSV.",
-    );
+  } catch (e) {
+    console.error("[extrato] falha ao ler PDF/imagem:", e);
+    const detail = e instanceof Error ? e.message : String(e);
+    return {
+      ...empty,
+      error:
+        `Falha ao ler o arquivo do extrato (${detail}). ` +
+        "Se o PDF for escaneado/imagem (sem texto), ative a leitura por IA em " +
+        "Config → Diagnóstico de IA, ou envie o extrato em XLSX/CSV.",
+    };
+  }
+  if (result.movimentos.length === 0) {
+    return {
+      ...result,
+      error:
+        "Não identifiquei movimentações no texto do PDF. Ele pode ser escaneado/imagem " +
+        "(sem texto) — ative a leitura por IA em Config → Diagnóstico de IA, ou envie XLSX/CSV.",
+    };
   }
 
   // Guarda o arquivo original do extrato para auditoria (quando o R2 existe).

@@ -208,6 +208,10 @@ export function ImportExtratoButton({
       startReading(async () => {
         try {
           const res = await extractExtratoPdf(fd);
+          if (res.error) {
+            setErro(res.error);
+            return;
+          }
           const rows: PreviewRow[] = res.movimentos.map((m) => ({
             incluir: true,
             data: m.data,
