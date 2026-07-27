@@ -2,7 +2,6 @@ import { getActiveContext } from "@/lib/context";
 import { getInccRows, getRevenueBySource } from "@/lib/queries";
 import { PROJECTION_SOURCES, type MonthlyProjection } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
-import { horizonMonths } from "@/lib/horizon";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -122,7 +121,6 @@ export default async function ConsolidadoPage({
   // (item 3), o eixo é restrito ao intervalo [de, ate].
   const fullAxis = Array.from(
     new Set([
-      ...horizonMonths(),
       ...incc.map((r) => r.m),
       ...PROJECTION_SOURCES.flatMap((s) => Object.keys(sources[s])),
       ...Object.keys(reembMonth),
