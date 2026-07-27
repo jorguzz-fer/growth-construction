@@ -25,6 +25,7 @@ import { Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
+import { DespesaSearch } from "@/components/app/despesa-search";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
 
@@ -255,6 +256,9 @@ export default async function DespesasPage({
               />
             )
           )}
+          <div className="mb-3 flex justify-end">
+            <DespesaSearch rows={despesas.map(toDTO)} fornecedores={fornecedores} />
+          </div>
           <DespesasTable
             rows={despesas.map(toDTO)}
             showOrigem={isAll}

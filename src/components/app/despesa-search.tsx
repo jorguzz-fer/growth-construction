@@ -1,0 +1,170 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { DespesaDTO } from "@/components/app/despesas-table";
+import { brl0, dateBR } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+
+const STRIP = new RegExp("[\\u0300-\\u036f]", "g");
+const norm = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(STRIP, "").trim();
+const onlyNum = (s: string) => {
+  const t = s.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(t);
+  return Number.isFinite(n) && t !== "" ? n : null;
+};
+
+/**
+ * Busca de despesas (lupa): filtra por palavra-chave (observação), código
+ * (nº do documento), valor ou fornecedor, e abre uma tela auxiliar com as
+ * opções que batem. Clicar em um resultado abre a edição da despesa.
+ */
+export function DespesaSearch({
+  rows,
+  fornecedores,
+}: {
+  rows: DespesaDTO[];
+  fornecedores: { id: string; nome: string }[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fornById = useMemo(
+    () => new Map(fornecedores.map((f) => [f.id, f.nome])),
+    [fornecedores],
+  );
+
+  const resultados = useMemo(() => {
+    const nq = norm(q);
+    if (nq.length < 1) return [];
+    const qNum = onlyNum(q);
+    const qDigits = q.replace(/\D/g, "");
+    const hit = (d: DespesaDTO): boolean => {
+      const forn = d.fornecedorId ? fornById.get(d.fornecedorId) ?? "" : "";
+      if (d.numDoc && norm(d.numDoc).includes(nq)) return true;
+      if (forn && norm(forn).includes(nq)) return true;
+      if (d.obs && norm(d.obs).includes(nq)) return true;
+      if (d.categoriaDre && norm(d.categoriaDre).includes(nq)) return true;
+      // Valor: casa por número aproximado ou pelos dígitos do valor inteiro.
+      const val = Number(d.valor);
+      if (qNum != null && Math.abs(val - qNum) < 0.005) return true;
+      if (qDigits.length >= 2 && String(Math.round(Math.abs(val))).includes(qDigits))
+        return true;
+      return false;
+    };
+    return rows.filter(hit).slice(0, 60);
+  }, [q, rows, fornById]);
+
+  const abrir = () => {
+    setOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 30);
+  };
+  const fechar = () => {
+    setOpen(false);
+    setQ("");
+  };
+  const editar = (d: DespesaDTO) => {
+    fechar();
+    router.push(
+      `/despesas?tab=lancamentos&proj=${d.projectId}&edit=${d.id}`,
+    );
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  return (
+    <>
+      <button
+        onClick={abrir}
+        className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--color-accent2)]/25 bg-white px-3 py-2 text-[13px] text-[var(--color-ink2)] hover:bg-[var(--color-surface2)]"
+        title="Buscar despesa por palavra-chave, código, valor ou fornecedor"
+      >
+        <span aria-hidden>🔍</span>
+        Buscar despesa
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[8vh]"
+          onClick={fechar}
+        >
+          <div
+            className="w-full max-w-2xl overflow-hidden rounded-[12px] bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 border-b border-[var(--color-accent2)]/12 px-4 py-3">
+              <span aria-hidden className="text-[var(--color-ink3)]">🔍</span>
+              <input
+                ref={inputRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && fechar()}
+                placeholder="Palavra-chave, código (nº doc), valor ou fornecedor…"
+                className="w-full bg-transparent text-[14px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink4)]"
+              />
+              <button
+                onClick={fechar}
+                className="text-[var(--color-ink3)] hover:text-[var(--color-ink)]"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-auto">
+              {q.trim().length === 0 ? (
+                <p className="px-4 py-8 text-center text-[12.5px] text-[var(--color-ink3)]">
+                  Digite para buscar entre {rows.length} despesas.
+                </p>
+              ) : resultados.length === 0 ? (
+                <p className="px-4 py-8 text-center text-[12.5px] text-[var(--color-ink3)]">
+                  Nenhuma despesa encontrada para “{q}”.
+                </p>
+              ) : (
+                <ul className="divide-y divide-[var(--color-accent2)]/8">
+                  {resultados.map((d) => {
+                    const forn = d.fornecedorId ? fornById.get(d.fornecedorId) ?? "—" : "—";
+                    return (
+                      <li key={d.id}>
+                        <button
+                          onClick={() => editar(d)}
+                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--color-surface2)]"
+                        >
+                          <span className="w-16 shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
+                            {d.numDoc ?? "—"}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--color-ink)]">
+                            {forn}
+                            {d.obs ? (
+                              <span className="text-[var(--color-ink3)]"> · {d.obs}</span>
+                            ) : null}
+                          </span>
+                          {d.categoriaDre && (
+                            <Badge tone="neutral">{d.categoriaDre}</Badge>
+                          )}
+                          <span className="w-24 shrink-0 text-right font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--color-ink2)]">
+                            {brl0(Number(d.valor))}
+                          </span>
+                          <span className="w-20 shrink-0 text-right font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">
+                            {dateBR(d.competencia)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {resultados.length > 0 && (
+              <div className="border-t border-[var(--color-accent2)]/12 px-4 py-2 text-[11px] text-[var(--color-ink3)]">
+                {resultados.length} resultado(s) · clique para abrir a edição
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
