@@ -157,7 +157,10 @@ export function ContasPagarTable({
           {/* Altura limitada: a rolagem (horizontal e vertical) acontece dentro
               da tabela, então a barra horizontal fica visível de imediato — sem
               precisar descer até o fim da página. Cabeçalho fixo ao rolar. */}
-          <Table wrapperClassName="max-h-[70vh] !overflow-x-scroll">
+          <Table
+            wrapperClassName="max-h-[70vh] !overflow-x-scroll"
+            className="min-w-[1200px]"
+          >
             <THead className="sticky top-0 z-10">
                 <tr>
                   <TH>Fornecedor</TH>
