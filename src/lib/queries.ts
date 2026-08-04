@@ -2183,3 +2183,20 @@ export async function getStatusProjeto(
     receitaPorM2: razao(receitaAtual, metragem),
   };
 }
+
+/** Todas as versões de um projeto (para o seletor de versões das telas). */
+export async function getVersionsDoProjeto(
+  tenantId: string,
+  projectId: string,
+): Promise<(typeof schema.versions.$inferSelect)[]> {
+  return db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.projectId, projectId),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt));
+}

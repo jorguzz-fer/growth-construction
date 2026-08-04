@@ -7,6 +7,7 @@ import {
   getIndicadoresObra,
   getIndicadoresObraConsolidado,
   getStatusProjeto,
+  getVersionsDoProjeto,
   getContasPagar,
   getReceivables,
 } from "@/lib/queries";
@@ -94,26 +95,34 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
+  // Projeto vem do seletor (?proj=), não do "projeto ativo" da sessão — assim o
+  // filtro do topo realmente troca a obra exibida. "all" consolida a empresa.
+  const isAll = sp.proj === "all";
+  const project =
+    ctx.projects.find((p) => p.id === sp.proj) ?? ctx.project ?? ctx.projects[0];
+
+  // As versões exibidas são as DO PROJETO selecionado (ctx.versions são as do
+  // projeto ativo da sessão, que pode ser outro).
+  const versoesProjeto = await getVersionsDoProjeto(ctx.tenant.id, project.id);
+  const versoes = versoesProjeto.length > 0 ? versoesProjeto : ctx.versions;
+
   const wanted = (sp.vs ?? "").split(",").filter(Boolean);
-  const validWanted = ctx.versions.filter((v) => wanted.includes(v.id)).slice(0, 3);
-  const selected = validWanted.length > 0 ? validWanted : ctx.versions.slice(0, 3);
+  const validWanted = versoes.filter((v) => wanted.includes(v.id)).slice(0, 3);
+  const selected = validWanted.length > 0 ? validWanted : versoes.slice(0, 3);
 
   const summaries = await Promise.all(
-    selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
+    selected.map((v) => versionSummary(project.id, v, de, ate)),
   );
 
-  // Filtro de projeto: uma obra específica ou a visão geral da empresa
-  // ("all" = todos os projetos, matriz e filiais consolidados).
-  const isAll = sp.proj === "all";
   const indicadores = isAll
     ? await getIndicadoresObraConsolidado(
         ctx.tenant.id,
         ctx.projects.map((p) => p.id),
       )
-    : await getIndicadoresObra(ctx.tenant.id, ctx.project.id);
+    : await getIndicadoresObra(ctx.tenant.id, project.id);
   const statusProjeto = await getStatusProjeto(
     ctx.tenant.id,
-    isAll ? ctx.projects.map((p) => p.id) : [ctx.project.id],
+    isAll ? ctx.projects.map((p) => p.id) : [project.id],
   );
 
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
@@ -125,7 +134,7 @@ export default async function DashboardPage({
   const hasRangeDash = !!(de || ate);
   const realReceb = (await getReceivables(ctx.tenant.id)).filter(
     (r) =>
-      (isAll || r.projectId === ctx.project.id) &&
+      (isAll || r.projectId === project.id) &&
       (!hasRangeDash || dateInRange(r.dia, de, ate)),
   );
   const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
@@ -133,7 +142,7 @@ export default async function DashboardPage({
   // Contas a pagar (despesas não pagas) do projeto, com vencimento no período.
   const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
     (c) =>
-      (isAll || c.projectId === ctx.project.id) &&
+      (isAll || c.projectId === project.id) &&
       c.status !== "Pago" &&
       !!c.vencimento &&
       (!hasRangeDash || dateInRange(c.vencimento, de, ate)),
@@ -179,7 +188,7 @@ export default async function DashboardPage({
         eyebrow={
           isAll
             ? `Todos os projetos · ${ctx.tenant.name}`
-            : `${ctx.project.name} · ${ctx.tenant.name}`
+            : `${project.name} · ${ctx.tenant.name}`
         }
         title="Dashboard"
         subtitle={
@@ -191,12 +200,12 @@ export default async function DashboardPage({
           <div className="flex flex-wrap items-end gap-3">
             <ProjectPicker
               projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-              selected={isAll ? "all" : ctx.project.id}
+              selected={isAll ? "all" : project.id}
               allOption
             />
             <DateRangeFilter de={de} ate={ate} />
             <VersionMultiSelect
-              versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+              versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
               selected={selected.map((v) => v.id)}
             />
           </div>
