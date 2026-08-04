@@ -235,6 +235,39 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .orderBy(asc(schema.despesas.competencia));
 }
 
+/**
+ * Uma despesa pelo id, no escopo do TENANT (independente da versão), junto do
+ * projeto a que pertence.
+ *
+ * Por que existe: a lista de Despesas/Lançamentos é escopada à versão "atual"
+ * do projeto, enquanto Contas a Pagar é escopada ao tenant (sem filtro de kind).
+ * Uma despesa gravada numa versão que não é a atual aparecia em Contas a Pagar
+ * mas sumia da tela de Despesas — e o deep link "?edit=" caía silenciosamente
+ * num formulário em branco, deixando o registro sem como ser editado ou
+ * cancelado. Esta consulta é o fallback do deep link: o registro passa a ser
+ * SEMPRE alcançável. Nada é escondido de nenhuma tela.
+ */
+export async function getDespesaNoTenant(
+  tenantId: string,
+  despesaId: string,
+): Promise<(DespesaRow & { projectId: string; versionKind: string }) | undefined> {
+  const [row] = await db
+    .select({
+      d: schema.despesas,
+      projectId: schema.versions.projectId,
+      versionKind: schema.versions.kind,
+    })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .where(
+      and(eq(schema.despesas.id, despesaId), eq(schema.despesas.tenantId, tenantId)),
+    )
+    .limit(1);
+  return row
+    ? { ...row.d, projectId: row.projectId, versionKind: row.versionKind }
+    : undefined;
+}
+
 export type DespesaComOrigem = DespesaRow & {
   projectId: string;
   projectName: string;

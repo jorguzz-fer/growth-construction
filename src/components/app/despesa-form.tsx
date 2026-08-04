@@ -2,7 +2,13 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addDespesa, updateDespesa, extractDespesaFromDoc } from "@/lib/actions/despesas";
+import {
+  addDespesa,
+  updateDespesa,
+  extractDespesaFromDoc,
+  addDespesaDocs,
+  deleteDespesaDoc,
+} from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -63,6 +69,8 @@ export interface EditDespesa {
   valor: string;
   status: string | null;
   formaPagamento?: string | null;
+  /** Descrição/observação da compra (campo separado do nº do pedido). */
+  obs?: string | null;
   /** Documentos anexados à despesa (para visualizar/baixar na edição). */
   documentos?: DespesaAnexo[];
   /** Se o storage (R2) está configurado — habilita os links de download. */
@@ -139,7 +147,60 @@ export function DespesaForm({
   const [vencimento, setVencimento] = useState(edit?.vencimento ?? prefill?.vencimento ?? "");
   const [valor, setValor] = useState(edit?.valor ?? prefill?.valor ?? "");
   const [status, setStatus] = useState(edit?.status ?? "A pagar");
-  const [file, setFile] = useState<File | null>(null);
+  const [obs, setObs] = useState(edit?.obs ?? "");
+  // Vários anexos podem ser enviados no mesmo lançamento. O primeiro arquivo é
+  // o usado pela leitura por IA (que analisa um documento por vez).
+  const [files, setFiles] = useState<File[]>([]);
+  const file = files[0] ?? null;
+
+  // Anexos na EDIÇÃO: enviar novos e remover individualmente, em qualquer
+  // estágio (inclusive com a despesa já paga e/ou conciliada).
+  const addFileRef = useRef<HTMLInputElement>(null);
+  const [novosAnexos, setNovosAnexos] = useState<File[]>([]);
+  const [anexBusy, setAnexBusy] = useState(false);
+  const [anexMsg, setAnexMsg] = useState<string | null>(null);
+  const [anexErro, setAnexErro] = useState<string | null>(null);
+
+  async function enviarAnexos() {
+    if (!edit || novosAnexos.length === 0) return;
+    setAnexBusy(true);
+    setAnexMsg(null);
+    setAnexErro(null);
+    try {
+      const fd = new FormData();
+      fd.set("despesaId", edit.id);
+      for (const f of novosAnexos) fd.append("file", f);
+      const res = await addDespesaDocs(fd);
+      if (res.ok) {
+        setAnexMsg(`${res.added} arquivo(s) anexado(s).`);
+        setNovosAnexos([]);
+        if (addFileRef.current) addFileRef.current.value = "";
+        router.refresh();
+      } else {
+        setAnexErro(res.error ?? "Falha ao anexar.");
+      }
+    } finally {
+      setAnexBusy(false);
+    }
+  }
+
+  async function removerAnexo(documentId: string, filename: string) {
+    if (!window.confirm(`Remover o anexo "${filename}"? Os demais permanecem.`)) return;
+    setAnexBusy(true);
+    setAnexMsg(null);
+    setAnexErro(null);
+    try {
+      const res = await deleteDespesaDoc(documentId);
+      if (res.ok) {
+        setAnexMsg("Anexo removido.");
+        router.refresh();
+      } else {
+        setAnexErro(res.error ?? "Falha ao remover.");
+      }
+    } finally {
+      setAnexBusy(false);
+    }
+  }
 
   // Despesa recorrente: repete o mesmo lançamento nos próximos meses.
   const [recorrente, setRecorrente] = useState(false);
@@ -269,6 +330,7 @@ export function DespesaForm({
         vencimento: string | null;
         valor: string;
         status: string;
+        obs: string | null;
       } = {
         fornecedorId: fornecedorId || null,
         bancoId: bancoId || null,
@@ -278,6 +340,7 @@ export function DespesaForm({
         vencimento: vencimento || null,
         valor: valor || "0",
         status,
+        obs: obs || null,
       };
       // Só envia o número quando o usuário pode editá-lo (owner/admin); assim
       // evitamos o erro de permissão quando o valor não mudou.
@@ -302,6 +365,7 @@ export function DespesaForm({
     fd.set("categoriaDre", categoriaDre);
     fd.set("bancoId", bancoId);
     fd.set("numDoc", numDoc);
+    fd.set("obs", obs);
     fd.set("competencia", competencia);
     fd.set("vencimento", vencimento);
     fd.set("valor", valor || "0");
@@ -337,7 +401,8 @@ export function DespesaForm({
       fd.set("socioDataPagamento", socioData);
       if (socioReembolsavel) fd.set("socioReembolsavel", "1");
     }
-    if (file) fd.set("file", file);
+    // Vários anexos já no lançamento inicial (boleto + NF + comprovante...).
+    for (const f of files) fd.append("file", f);
     startSaving(async () => {
       try {
         await addDespesa(fd);
@@ -351,6 +416,7 @@ export function DespesaForm({
         setVencimento("");
         setValor("");
         setStatus("A pagar");
+        setObs("");
         setRecorrente(false);
         setRecMeses("12");
         setPagoPorSocio(false);
@@ -363,7 +429,7 @@ export function DespesaForm({
         setParcelas([]);
         setBo({ linha: "", barras: "", banco: "" });
         setCh({ numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "" });
-        setFile(null);
+        setFiles([]);
         if (fileRef.current) fileRef.current.value = "";
         setNotice(null);
         router.refresh();
@@ -399,7 +465,7 @@ export function DespesaForm({
                 Nenhum documento anexado a esta despesa.
                 {edit?.r2Configured === false
                   ? " (Storage não configurado — defina as variáveis R2_*.)"
-                  : " Você pode anexar um arquivo pela aba Repositório."}
+                  : " Use o campo abaixo para anexar."}
               </p>
             ) : (
               <ul className="space-y-2">
@@ -420,25 +486,66 @@ export function DespesaForm({
                           : ""}
                       </p>
                     </div>
-                    {doc.url ? (
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener"
-                        download
-                        className="shrink-0 rounded-[6px] border border-[var(--color-accent2)]/30 px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent2)]/8"
+                    <div className="flex shrink-0 items-center gap-2">
+                      {doc.url ? (
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener"
+                          download
+                          className="rounded-[6px] border border-[var(--color-accent2)]/30 px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent2)]/8"
+                        >
+                          Abrir / Baixar
+                        </a>
+                      ) : (
+                        <span className="text-[11px] text-[var(--color-ink4)]">
+                          indisponível
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={anexBusy}
+                        onClick={() => removerAnexo(doc.id, doc.filename)}
+                        className="rounded-[6px] border border-[var(--color-danger)]/30 px-2.5 py-1.5 text-[12px] text-[var(--color-danger)] hover:bg-[var(--color-danger)]/8 disabled:opacity-50"
+                        title="Remover este anexo (os demais permanecem)"
                       >
-                        Abrir / Baixar
-                      </a>
-                    ) : (
-                      <span className="shrink-0 text-[11px] text-[var(--color-ink4)]">
-                        indisponível
-                      </span>
-                    )}
+                        Excluir
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
+
+            {/* Anexar MAIS documentos — disponível em qualquer momento do ciclo
+                de vida: antes/depois do pagamento e antes/depois da conciliação. */}
+            <div className="mt-3 border-t border-[var(--color-accent2)]/12 pt-3">
+              <Label>Anexar mais documentos (vários)</Label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  ref={addFileRef}
+                  type="file"
+                  multiple
+                  accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
+                  className="text-xs"
+                  onChange={(e) => setNovosAnexos(Array.from(e.target.files ?? []))}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={anexBusy || novosAnexos.length === 0}
+                  onClick={enviarAnexos}
+                >
+                  {anexBusy ? "Enviando…" : `Anexar ${novosAnexos.length || ""}`}
+                </Button>
+              </div>
+              {anexMsg && (
+                <p className="mt-1 text-[11.5px] text-[var(--color-success)]">{anexMsg}</p>
+              )}
+              {anexErro && (
+                <p className="mt-1 text-[11.5px] text-[var(--color-danger)]">{anexErro}</p>
+              )}
+            </div>
           </div>
         )}
         {/* Documento + leitura por IA — só no cadastro de uma nova despesa. */}
@@ -446,17 +553,28 @@ export function DespesaForm({
         <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
-              <Label>Documento (PDF ou imagem — NF, boleto, contrato)</Label>
+              <Label>
+                Documentos (PDF ou imagem — NF, boleto, comprovante, foto) — vários
+              </Label>
               <input
                 ref={fileRef}
                 type="file"
+                multiple
                 accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
                 className="text-xs"
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null);
+                  setFiles(Array.from(e.target.files ?? []));
                   setNotice(null);
                 }}
               />
+              {files.length > 0 && (
+                <p className="mt-1 text-[11px] text-[var(--color-ink3)]">
+                  {files.length} arquivo(s): {files.map((f) => f.name).join(", ")}
+                  {files.length > 1 && aiConfigured
+                    ? " — a leitura por IA usa o primeiro."
+                    : ""}
+                </p>
+              )}
             </div>
             {aiConfigured && (
               <Button
@@ -541,7 +659,7 @@ export function DespesaForm({
           </div>
           {canEditNumero ? (
             <div>
-              <Label>Nº Documento (opcional)</Label>
+              <Label>Nº do pedido (opcional)</Label>
               <Input
                 value={numDoc}
                 onChange={(e) => setNumDoc(e.target.value)}
@@ -550,7 +668,7 @@ export function DespesaForm({
             </div>
           ) : (
             <div>
-              <Label>Nº Documento</Label>
+              <Label>Nº do pedido</Label>
               <Input
                 value={isEdit ? numDoc || "—" : "Gerado automaticamente"}
                 disabled
@@ -576,6 +694,16 @@ export function DespesaForm({
               <option>A pagar</option>
               <option>Pago</option>
             </Select>
+          </div>
+          {/* Descrição/observação da compra — campo PRÓPRIO, separado do nº do
+              pedido. Serve para explicar o objeto da compra. */}
+          <div className="col-span-2 sm:col-span-4">
+            <Label>Descrição / observação da compra</Label>
+            <Input
+              value={obs}
+              onChange={(e) => setObs(e.target.value)}
+              placeholder="Objeto da compra (ex.: 20 sacos de cimento CP-II para a laje do 2º pav.)"
+            />
           </div>
           {/* Recorrência, sócio pagador e parcelamento só valem no cadastro
               de uma nova despesa — a edição ajusta apenas os dados da despesa

@@ -4,11 +4,11 @@ import {
   getReembolsos,
   getRevenueBySource,
   getUnits,
+  getMonthlyRevenue,
   reembToCalc,
-  toCalcUnit,
 } from "@/lib/queries";
+import { expandUnitReceivables } from "@/lib/calc/receivables";
 import {
-  calcProjection,
   reembursementsByMonth,
   PROJECTION_SOURCES,
   type MonthlyProjection,
@@ -119,13 +119,32 @@ export default async function ProjecaoPage({
     getInccRows(ctx.project.id),
   ]);
 
-  const perUnit = unitRows.map((u) => ({
-    row: u,
-    proj: calcProjection(toCalcUnit(u), incc),
-  }));
+  // Projeção por unidade a partir dos RECEBÍVEIS do plano de pagamento — mesma
+  // fonte da tela Contas a Receber, da DRE e do Fluxo de Caixa. Antes usava-se
+  // calcProjection, que só soma as parcelas quando a cadeia de flags usar*
+  // está ativa; como as vendas lançadas normalmente não as ativam, a projeção
+  // saía zerada mesmo havendo recebíveis.
+  const perUnit = unitRows.map((u) => {
+    const proj: MonthlyProjection = {};
+    for (const rec of expandUnitReceivables(u.paymentPlan, u.status)) {
+      const p = rec.dia.split("/");
+      if (p.length !== 3) continue;
+      const mk = `${p[0]}/${p[2]}`; // MM/DD/YYYY → MM/YYYY
+      proj[mk] = (proj[mk] || 0) + rec.valor;
+    }
+    return { row: u, proj };
+  });
   const unitsProj: MonthlyProjection = {};
   for (const u of perUnit) {
     for (const [mm, v] of Object.entries(u.proj)) unitsProj[mm] = (unitsProj[mm] || 0) + v;
+  }
+  // Versões Budget/Forecast não guardam unidades — a receita delas vive em
+  // budget_line. Sem isto, selecionar Budget/Forecast aqui zerava a tela.
+  if (version.kind === "budget" || version.kind === "forecast") {
+    const planejada = await getMonthlyRevenue(version.id, ctx.project.id);
+    for (const [mm, v] of Object.entries(planejada)) {
+      unitsProj[mm] = (unitsProj[mm] || 0) + v;
+    }
   }
   const reembMonth = reembursementsByMonth(reembToCalc(reembRows));
 

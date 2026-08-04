@@ -4,6 +4,7 @@ import {
   getChartAccounts,
   getDespesas,
   getDespesasByTenant,
+  getDespesaNoTenant,
   getStakeholders,
   getSocios,
   getBankAccounts,
@@ -25,6 +26,8 @@ import { Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
+import { DespesaSearch } from "@/components/app/despesa-search";
+import { ordenarLancamentos } from "@/lib/despesas-ordering";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
 
@@ -83,6 +86,20 @@ export default async function DespesasPage({
   > = despesasRaw;
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
+
+  // Relação de lançamentos: ordenada pelo MOMENTO ORIGINAL DE CRIAÇÃO
+  // (created_at DESC, id DESC) — a última despesa lançada é sempre a primeira
+  // linha, a penúltima a segunda, e assim por diante. Serve de conferência
+  // imediata para quem está lançando.
+  //
+  // Importante: NÃO se ordena por competência/vencimento/pagamento/conciliação,
+  // e editar uma despesa antiga não a traz para o topo (created_at não muda).
+  // A ordenação é feita aqui, na exibição, e não em getDespesas() — essa query
+  // também alimenta Fluxo de Caixa, Contabilidade, conciliação e exportação,
+  // que não devem ter seu comportamento alterado.
+  const lancamentos = ordenarLancamentos(despesas);
+  // A primeira linha (mais recente) recebe o destaque "Último lançamento".
+  const latestId: string | null = lancamentos[0]?.id ?? null;
 
   // Anexos por despesa: marca na lista (clipe) quais despesas têm documento e
   // permite abri-lo direto. Usa o documento mais recente de cada despesa.
@@ -145,7 +162,17 @@ export default async function DespesasPage({
   };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
   // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
-  const editRow = sp.edit ? despesas.find((d) => d.id === sp.edit) : undefined;
+  //
+  // Fallback por TENANT: a lista acima é escopada à versão "atual" do projeto,
+  // mas Contas a Pagar mostra despesas de qualquer versão. Sem este fallback, o
+  // "Editar" de uma despesa gravada em outra versão abria um formulário em
+  // branco e o registro ficava impossível de editar/cancelar pela interface
+  // (caso do registro relatado como visível em Contas a Pagar e ausente em
+  // Despesas). Agora o registro é sempre alcançável — sem esconder nada.
+  const editRow = sp.edit
+    ? (despesas.find((d) => d.id === sp.edit) ??
+      (await getDespesaNoTenant(ctx.tenant.id, sp.edit)))
+    : undefined;
   const editDocs =
     editRow && canEditar
       ? await getDocumentsByDespesa(ctx.tenant.id, editRow.id)
@@ -173,7 +200,10 @@ export default async function DespesasPage({
     editRow && canEditar
       ? {
           id: editRow.id,
-          projectId: project.id,
+          // Projeto REAL da despesa: quando ela vem do fallback por tenant, pode
+          // pertencer a outro projeto que não o selecionado na tela.
+          projectId:
+            (editRow as { projectId?: string }).projectId ?? project.id,
           projectNome: project.name,
           fornecedorId: editRow.fornecedorId,
           contaCef: editRow.contaCef,
@@ -185,6 +215,7 @@ export default async function DespesasPage({
           valor: String(editRow.valor),
           status: editRow.status,
           formaPagamento: editRow.formaPagamento,
+          obs: editRow.obs,
           documentos: editDocsComUrl,
           r2Configured,
         }
@@ -243,9 +274,13 @@ export default async function DespesasPage({
               />
             )
           )}
+          <div className="mb-3 flex justify-end">
+            <DespesaSearch rows={despesas.map(toDTO)} fornecedores={fornecedores} />
+          </div>
           <DespesasTable
-            rows={despesas.map(toDTO)}
+            rows={lancamentos.map(toDTO)}
             showOrigem={isAll}
+            latestId={latestId}
             canEditar={canEditar}
             canExcluir={canExcluir}
             {...tableRefProps}

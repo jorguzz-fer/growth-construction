@@ -72,18 +72,26 @@ export function DespesasTable({
   bancos,
   venc,
   showOrigem = false,
+  latestId = null,
   canEditar,
   canExcluir,
 }: {
   rows: DespesaDTO[];
   venc?: boolean;
   showOrigem?: boolean;
+  /** id da última despesa lançada — recebe o destaque "Último lançamento". */
+  latestId?: string | null;
   canEditar: boolean;
   canExcluir: boolean;
 } & Ref) {
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const showActions = canEditar || canExcluir;
   const cols = (showActions ? 8 : 7) + (showOrigem ? 1 : 0);
+
+  // A ordem chega pronta de quem monta a lista (a tela de lançamentos ordena
+  // por created_at DESC, id DESC). Aqui não se reordena — apenas se destaca a
+  // linha do último lançamento.
+  const ordered = rows;
 
   return (
     <Table>
@@ -101,7 +109,7 @@ export function DespesasTable({
         </tr>
       </THead>
       <tbody>
-        {rows.map((d) => (
+        {ordered.map((d) => (
           <Row
             key={d.id}
             d={d}
@@ -109,6 +117,7 @@ export function DespesasTable({
             bancos={bancos}
             venc={venc}
             showOrigem={showOrigem}
+            highlight={!!latestId && d.id === latestId}
             canEditar={canEditar}
             canExcluir={canExcluir}
           />
@@ -131,6 +140,7 @@ function Row({
   bancos,
   venc,
   showOrigem = false,
+  highlight = false,
   canEditar,
   canExcluir,
 }: {
@@ -139,6 +149,8 @@ function Row({
   bancos: Ref["bancos"];
   showOrigem?: boolean;
   venc?: boolean;
+  /** Última despesa lançada — linha destacada no topo (conferência). */
+  highlight?: boolean;
   canEditar: boolean;
   canExcluir: boolean;
 }) {
@@ -276,8 +288,22 @@ function Row({
   }
 
   return (
-    <TR className={d.cancelado ? "opacity-60" : undefined}>
+    <TR
+      className={[
+        d.cancelado ? "opacity-60" : "",
+        highlight
+          ? "bg-[var(--color-accent4)] shadow-[inset_3px_0_0_0_var(--color-accent2)]"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ") || undefined}
+    >
       <TD className="font-[family-name:var(--font-mono)]">
+        {highlight && (
+          <span className="mb-0.5 block">
+            <Badge tone="accent">Último lançamento</Badge>
+          </span>
+        )}
         {dateBR(venc ? d.vencimento : d.competencia)}
       </TD>
       {showOrigem && (
