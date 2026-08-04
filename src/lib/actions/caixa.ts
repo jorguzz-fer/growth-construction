@@ -667,6 +667,15 @@ export async function criarContaFromExtrato(cashEntryId: string): Promise<void> 
     .limit(1);
   if (!ver) throw new Error("Versão do movimento não encontrada.");
   const valor = Number(mov.valor);
+  // Trava contra registros de valor ZERO: antes, um movimento de valor 0 caía
+  // no ramo "else" (entrada) e gerava uma conta a receber "Recebido" de valor
+  // zero — exatamente o tipo de receita fantasma relatado. Sem justificativa de
+  // negócio, um lançamento de valor nulo não deve ser criado automaticamente.
+  if (!Number.isFinite(valor) || valor === 0) {
+    throw new Error(
+      "Movimento de valor zero não gera conta a pagar/receber. Corrija o valor do movimento antes de convertê-lo.",
+    );
+  }
   const agora = new Date().toISOString();
 
   if (valor < 0) {

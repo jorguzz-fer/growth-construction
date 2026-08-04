@@ -40,6 +40,11 @@ export async function createContaReceber(formData: FormData) {
   if (tipo === "Outras Receitas" && !descricao) {
     throw new Error('Para "Outras Receitas", informe uma descrição da origem/natureza da receita.');
   }
+  // Trava contra receita de valor ZERO (receita fantasma nos relatórios).
+  const valorCR = Number(normValor(formData.get("valor") as string));
+  if (!Number.isFinite(valorCR) || valorCR === 0) {
+    throw new Error("Informe um valor maior que zero para a conta a receber.");
+  }
   const [row] = await db
     .insert(schema.contasReceber)
     .values({

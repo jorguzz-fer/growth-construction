@@ -4,6 +4,7 @@ import {
   getChartAccounts,
   getDespesas,
   getDespesasByTenant,
+  getDespesaNoTenant,
   getStakeholders,
   getSocios,
   getBankAccounts,
@@ -161,7 +162,17 @@ export default async function DespesasPage({
   };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
   // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
-  const editRow = sp.edit ? despesas.find((d) => d.id === sp.edit) : undefined;
+  //
+  // Fallback por TENANT: a lista acima é escopada à versão "atual" do projeto,
+  // mas Contas a Pagar mostra despesas de qualquer versão. Sem este fallback, o
+  // "Editar" de uma despesa gravada em outra versão abria um formulário em
+  // branco e o registro ficava impossível de editar/cancelar pela interface
+  // (caso do registro relatado como visível em Contas a Pagar e ausente em
+  // Despesas). Agora o registro é sempre alcançável — sem esconder nada.
+  const editRow = sp.edit
+    ? (despesas.find((d) => d.id === sp.edit) ??
+      (await getDespesaNoTenant(ctx.tenant.id, sp.edit)))
+    : undefined;
   const editDocs =
     editRow && canEditar
       ? await getDocumentsByDespesa(ctx.tenant.id, editRow.id)
@@ -189,7 +200,10 @@ export default async function DespesasPage({
     editRow && canEditar
       ? {
           id: editRow.id,
-          projectId: project.id,
+          // Projeto REAL da despesa: quando ela vem do fallback por tenant, pode
+          // pertencer a outro projeto que não o selecionado na tela.
+          projectId:
+            (editRow as { projectId?: string }).projectId ?? project.id,
           projectNome: project.name,
           fornecedorId: editRow.fornecedorId,
           contaCef: editRow.contaCef,

@@ -243,6 +243,16 @@ export async function addDespesa(formData: FormData) {
 
   // Número gerado automaticamente (atômico no banco). Só owner/admin podem
   // informar um número manual — com checagem de duplicidade.
+  // Trava contra lançamentos de valor ZERO. Antes, um valor vazio virava "0" e,
+  // com a opção "recorrente" ligada, era replicado em até 60 cópias — cada uma
+  // consumindo um número de pedido (PED) sequencial e poluindo os relatórios com
+  // lançamentos fantasma. Um lançamento sem valor não tem justificativa de
+  // negócio e passa a ser recusado na origem.
+  const valorNum = Number((formData.get("valor") as string) || "0");
+  if (!Number.isFinite(valorNum) || valorNum === 0) {
+    throw new Error("Informe um valor maior que zero para lançar a despesa.");
+  }
+
   const provided = ((formData.get("numDoc") as string) || "").trim();
   let numDoc: string;
   if (provided && canEditNumero(ctx.role)) {

@@ -66,10 +66,16 @@ export function ContasPagarTable({
       [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) =>
         a.localeCompare(b),
       );
+    // Projetos são identificados pelo ID REAL, nunca pelo nome: duas obras ou
+    // filiais homônimas colapsariam num único filtro e vazariam dados entre si.
+    const porId = new Map<string, string>();
+    for (const r of rows) if (!porId.has(r.projectId)) porId.set(r.projectId, r.projectName);
     return {
       fornecedores: uniq(rows.map((r) => r.fornecedorNome)),
       clientes: uniq(rows.map((r) => r.clienteNome ?? "Empreendimento próprio")),
-      projetos: uniq(rows.map((r) => r.projectName)),
+      projetos: [...porId]
+        .map(([id, nome]) => ({ id, nome }))
+        .sort((a, b) => a.nome.localeCompare(b.nome)),
       categorias: uniq(rows.map((r) => r.categoriaDre)),
       status: uniq(rows.map((r) => r.status)),
     };
@@ -80,7 +86,8 @@ export function ContasPagarTable({
       if (fornecedor && r.fornecedorNome !== fornecedor) return false;
       const cli = r.clienteNome ?? "Empreendimento próprio";
       if (cliente && cli !== cliente) return false;
-      if (projeto && r.projectName !== projeto) return false;
+      // Filtro por ID real do projeto (não pelo nome) — isola obras/filiais.
+      if (projeto && r.projectId !== projeto) return false;
       if (categoria && r.categoriaDre !== categoria) return false;
       if (status && r.status !== status) return false;
       const iso = toISO(r.vencimento);
@@ -133,7 +140,15 @@ export function ContasPagarTable({
           </div>
           <FilterSelect label="Fornecedor" value={fornecedor} onChange={setFornecedor} options={opts.fornecedores} />
           <FilterSelect label="Cliente" value={cliente} onChange={setCliente} options={opts.clientes} />
-          <FilterSelect label="Projeto" value={projeto} onChange={setProjeto} options={opts.projetos} />
+          <div>
+            <Label>Projeto</Label>
+            <Select value={projeto} onChange={(e) => setProjeto(e.target.value)}>
+              <option value="">Todos os projetos</option>
+              {opts.projetos.map((p) => (
+                <option key={p.id} value={p.id}>{p.nome}</option>
+              ))}
+            </Select>
+          </div>
           <FilterSelect label="Categoria" value={categoria} onChange={setCategoria} options={opts.categorias} />
           <FilterSelect label="Status" value={status} onChange={setStatus} options={opts.status} />
         </CardContent>

@@ -24,6 +24,10 @@ export async function criarDespesaTerceiro(formData: FormData) {
   const s = (k: string) => (formData.get(k) as string) || null;
   const valor = (formData.get("valor") as string) || "0";
 
+  // Trava contra despesa de terceiro com valor ZERO.
+  if (!Number.isFinite(Number(valor)) || Number(valor) === 0) {
+    throw new Error("Informe um valor maior que zero para a despesa paga por terceiro.");
+  }
   const numDoc = await reserveDespesaNumber(ctx.tenant.id);
   const [desp] = await db
     .insert(schema.despesas)
@@ -102,6 +106,20 @@ export async function registrarRestituicao(input: RestituicaoInput) {
   if (dt.status === "Cancelado") throw new Error("Obrigação cancelada.");
 
   const valor = Math.abs(input.valor);
+  // A restituição não pode exceder o que ainda se deve ao terceiro: além de
+  // gerar uma saída de caixa indevida, deixaria o saldo devido negativo (hoje
+  // só mascarado pelo clamp na exibição). Tolerância de 1 centavo para
+  // arredondamento.
+  if (valor === 0) throw new Error("Informe um valor maior que zero.");
+  const saldoDevido = Number(dt.valorTotal) - Number(dt.valorRestituido);
+  if (valor > saldoDevido + 0.01) {
+    throw new Error(
+      `Valor acima do saldo devido (${saldoDevido.toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      })}). Ajuste o valor da restituição.`,
+    );
+  }
   const [rest] = await db
     .insert(schema.restituicoes)
     .values({
@@ -261,6 +279,69 @@ export async function getDespesaTerceiros(
       status: r.dt.status,
     };
   });
+}
+
+export interface SaldoTerceiroView {
+  pagadorId: string | null;
+  pagador: string;
+  obrigacoes: number;
+  valorTotal: number;
+  valorRestituido: number;
+  saldoDevido: number;
+}
+
+/**
+ * Extrato CONSOLIDADO por terceiro/sócio: quanto a empresa deve a cada um,
+ * quanto já foi restituído e o saldo remanescente.
+ *
+ * Até aqui só existia a visão por obrigação individual (uma linha por despesa),
+ * sem nenhum lugar que respondesse "quanto ainda devo ao sócio X". Este saldo
+ * NÃO é saldo bancário disponível da empresa — é obrigação com terceiros.
+ */
+export async function getSaldosPorTerceiro(
+  tenantId: string,
+  versionId: string,
+): Promise<SaldoTerceiroView[]> {
+  const rows = await db
+    .select({
+      dt: schema.despesaTerceiros,
+      pagadorId: schema.stakeholders.id,
+      pagador: schema.stakeholders.nome,
+    })
+    .from(schema.despesaTerceiros)
+    .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
+    .leftJoin(
+      schema.stakeholders,
+      eq(schema.despesaTerceiros.pagadorTerceiroId, schema.stakeholders.id),
+    )
+    .where(
+      and(
+        eq(schema.despesaTerceiros.tenantId, tenantId),
+        eq(schema.despesas.versionId, versionId),
+      ),
+    );
+
+  const porPagador = new Map<string, SaldoTerceiroView>();
+  for (const r of rows) {
+    if (r.dt.status === "Cancelado") continue;
+    const chave = r.pagadorId ?? "—";
+    const atual =
+      porPagador.get(chave) ??
+      ({
+        pagadorId: r.pagadorId ?? null,
+        pagador: r.pagador ?? "Não identificado",
+        obrigacoes: 0,
+        valorTotal: 0,
+        valorRestituido: 0,
+        saldoDevido: 0,
+      } satisfies SaldoTerceiroView);
+    atual.obrigacoes += 1;
+    atual.valorTotal += Number(r.dt.valorTotal);
+    atual.valorRestituido += Number(r.dt.valorRestituido);
+    atual.saldoDevido = Math.max(0, atual.valorTotal - atual.valorRestituido);
+    porPagador.set(chave, atual);
+  }
+  return [...porPagador.values()].sort((a, b) => b.saldoDevido - a.saldoDevido);
 }
 
 /** Saldo pendente de restituições por mês previsto (para o fluxo de caixa). */

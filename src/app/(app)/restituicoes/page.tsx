@@ -1,9 +1,10 @@
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
-import { getDespesaTerceiros } from "@/lib/actions/restituicoes";
+import { getDespesaTerceiros, getSaldosPorTerceiro } from "@/lib/actions/restituicoes";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
-import { ymd } from "@/lib/utils";
+import { ymd, brl0 } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { RestituicoesManager } from "@/components/app/restituicoes-manager";
@@ -27,11 +28,12 @@ export default async function RestituicoesPage() {
   if (!ctx) return null;
   if (!can(ctx.perms, "restituicoes", "ver")) return <AccessDenied />;
 
-  const [stakeholders, contas, bancos, lista] = await Promise.all([
+  const [stakeholders, contas, bancos, lista, saldos] = await Promise.all([
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
     getDespesaTerceiros(ctx.tenant.id, ctx.version.id),
+    getSaldosPorTerceiro(ctx.tenant.id, ctx.version.id),
   ]);
   const rows = lista.map((r) => ({
     ...r,
@@ -43,8 +45,58 @@ export default async function RestituicoesPage() {
       <PageHeader
         eyebrow={ctx.version.label}
         title="Restituições — pago por terceiro"
-        subtitle="Despesa reconhecida 1× na DRE; saída de caixa só na restituição."
+        subtitle="Restituição de valores pagos para fornecedores anteriormente. A despesa é reconhecida 1× na DRE; a saída de caixa ocorre só na restituição."
       />
+
+      {/* Extrato consolidado: quanto a empresa ainda deve a cada terceiro.
+          NÃO é saldo bancário disponível — é obrigação com terceiros. */}
+      {saldos.length > 0 && (
+        <Card className="mb-5">
+          <CardContent className="p-4">
+            <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
+              Saldo devido por terceiro
+            </h2>
+            <div className="tbl-scroll overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr className="border-b border-[var(--color-accent2)]/12 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                    <th className="px-2 py-2">Terceiro / sócio</th>
+                    <th className="px-2 py-2 text-right">Obrigações</th>
+                    <th className="px-2 py-2 text-right">Total pago por ele</th>
+                    <th className="px-2 py-2 text-right">Já restituído</th>
+                    <th className="px-2 py-2 text-right">Saldo devido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {saldos.map((s) => (
+                    <tr
+                      key={s.pagadorId ?? s.pagador}
+                      className="border-b border-[var(--color-accent2)]/8"
+                    >
+                      <td className="px-2 py-2 font-medium text-[var(--color-ink)]">
+                        {s.pagador}
+                      </td>
+                      <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                        {s.obrigacoes}
+                      </td>
+                      <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)]">
+                        {brl0(s.valorTotal)}
+                      </td>
+                      <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
+                        {brl0(s.valorRestituido)}
+                      </td>
+                      <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-warning)]">
+                        {brl0(s.saldoDevido)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <RestituicoesManager
         rows={rows}
         stakeholders={stakeholders.map((s) => ({ id: s.id, nome: s.nome }))}
