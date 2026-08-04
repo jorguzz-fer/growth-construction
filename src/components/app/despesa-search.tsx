@@ -75,14 +75,23 @@ export function DespesaSearch({
 
   return (
     <>
-      <button
-        onClick={abrir}
-        className="inline-flex items-center gap-2 rounded-[8px] border border-[var(--color-accent2)]/25 bg-white px-3 py-2 text-[13px] text-[var(--color-ink2)] hover:bg-[var(--color-surface2)]"
-        title="Buscar despesa por palavra-chave, código, valor ou fornecedor"
-      >
-        <span aria-hidden>🔍</span>
-        Buscar despesa
-      </button>
+      {/* Campo de busca VISÍVEL (não um botão discreto): ao focar/digitar abre a
+          tela auxiliar com os resultados, de onde se edita ou exclui a despesa. */}
+      <div className="relative w-full">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-ink3)]"
+        >
+          🔍
+        </span>
+        <input
+          readOnly
+          onFocus={abrir}
+          onClick={abrir}
+          placeholder="Buscar despesa por palavra-chave, nº do pedido, valor ou fornecedor…"
+          className="w-full cursor-pointer rounded-[8px] border border-[var(--color-accent2)]/25 bg-white py-2 pl-9 pr-3 text-[13px] text-[var(--color-ink2)] placeholder:text-[var(--color-ink4)] hover:bg-[var(--color-surface2)] focus:border-[var(--color-accent2)] focus:outline-none"
+        />
+      </div>
 
       {open && (
         <div
@@ -159,7 +168,8 @@ export function DespesaSearch({
 
             {resultados.length > 0 && (
               <div className="border-t border-[var(--color-accent2)]/12 px-4 py-2 text-[11px] text-[var(--color-ink3)]">
-                {resultados.length} resultado(s) · clique para abrir a edição
+                {resultados.length} resultado(s) · clique para abrir a despesa, onde é
+                possível editar, cancelar ou excluir
               </div>
             )}
           </div>

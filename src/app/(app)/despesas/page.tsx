@@ -275,8 +275,8 @@ export default async function DespesasPage({
               />
             )
           )}
-          <div className="mb-3 flex justify-end">
-            <DespesaSearch rows={despesas.map(toDTO)} fornecedores={fornecedores} />
+          <div className="mb-3">
+            <DespesaSearch rows={lancamentos.map(toDTO)} fornecedores={fornecedores} />
           </div>
           <DespesasTable
             rows={lancamentos.map(toDTO)}
