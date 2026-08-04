@@ -5,15 +5,7 @@ import { useRouter } from "next/navigation";
 import type { DespesaDTO } from "@/components/app/despesas-table";
 import { brl0, dateBR } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-
-const STRIP = new RegExp("[\\u0300-\\u036f]", "g");
-const norm = (s: string) =>
-  s.toLowerCase().normalize("NFD").replace(STRIP, "").trim();
-const onlyNum = (s: string) => {
-  const t = s.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
-  const n = Number(t);
-  return Number.isFinite(n) && t !== "" ? n : null;
-};
+import { registroCasa } from "@/lib/busca";
 
 /**
  * Busca de despesas (lupa): filtra por palavra-chave (observação), código
@@ -37,24 +29,26 @@ export function DespesaSearch({
   );
 
   const resultados = useMemo(() => {
-    const nq = norm(q);
-    if (nq.length < 1) return [];
-    const qNum = onlyNum(q);
-    const qDigits = q.replace(/\D/g, "");
-    const hit = (d: DespesaDTO): boolean => {
-      const forn = d.fornecedorId ? fornById.get(d.fornecedorId) ?? "" : "";
-      if (d.numDoc && norm(d.numDoc).includes(nq)) return true;
-      if (forn && norm(forn).includes(nq)) return true;
-      if (d.obs && norm(d.obs).includes(nq)) return true;
-      if (d.categoriaDre && norm(d.categoriaDre).includes(nq)) return true;
-      // Valor: casa por número aproximado ou pelos dígitos do valor inteiro.
-      const val = Number(d.valor);
-      if (qNum != null && Math.abs(val - qNum) < 0.005) return true;
-      if (qDigits.length >= 2 && String(Math.round(Math.abs(val))).includes(qDigits))
-        return true;
-      return false;
-    };
-    return rows.filter(hit).slice(0, 60);
+    if (!q.trim()) return [];
+    // Busca por similaridade em vários campos ao mesmo tempo; vários termos são
+    // combinados (todos precisam casar), em qualquer ordem. Roda a cada tecla.
+    return rows
+      .filter((d) =>
+        registroCasa(
+          q,
+          [
+            d.numDoc,
+            d.fornecedorId ? fornById.get(d.fornecedorId) : null,
+            d.obs,
+            d.categoriaDre,
+            d.contaCef,
+            d.competencia,
+            d.status,
+          ],
+          [Number(d.valor)],
+        ),
+      )
+      .slice(0, 60);
   }, [q, rows, fornById]);
 
   const abrir = () => {
