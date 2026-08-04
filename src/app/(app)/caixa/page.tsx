@@ -348,7 +348,14 @@ export default async function CaixaPage({
         ))}
       </div>
 
-      {tab === "lancamentos" && <Lancamentos cash={cash} contas={contas} aiConfigured={aiConfigured} />}
+      {tab === "lancamentos" && (
+        <Lancamentos
+          cash={cash}
+          contas={contas}
+          aiConfigured={aiConfigured}
+          projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+        />
+      )}
       {tab === "conciliacao" && (
         <Conciliacao
           cash={cash}
@@ -366,10 +373,12 @@ function Lancamentos({
   cash,
   contas,
   aiConfigured,
+  projetos,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   contas: Awaited<ReturnType<typeof getBankAccounts>>;
   aiConfigured: boolean;
+  projetos: { id: string; nome: string }[];
 }) {
   return (
     <>
@@ -377,6 +386,7 @@ function Lancamentos({
         <ImportExtratoButton
           contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
           aiConfigured={aiConfigured}
+          projetos={projetos}
         />
       </div>
       <CaixaEntryForm
