@@ -9,6 +9,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { naturezaDoGrupo } from "./natureza-grupo";
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
@@ -808,6 +809,17 @@ export async function getBudgetPlanning(
       });
     } else {
       if (a.ativo) g.ativo = true;
+      // A natureza do grupo é derivada dos subitens pela MESMA regra do "ativo":
+      // basta UM subitem de receita para o grupo ser de receita
+      // (ver naturezaDoGrupo em src/lib/natureza-grupo.ts).
+      //
+      // Antes, a natureza era fixada pela primeira subconta encontrada e nunca
+      // reavaliada. Como a coluna `natureza` tem default "despesa", um grupo
+      // cuja primeira subconta ainda estivesse no default era classificado como
+      // despesa inteiro e desaparecia do bloco de receitas do Budget/Forecast —
+      // deixando a tela sem nenhuma linha para lançar ("Nenhuma conta de receita
+      // ativa no Plano de Contas"), ou seja, o lançamento travado.
+      g.natureza = naturezaDoGrupo([{ natureza: g.natureza }, { natureza: nat }]);
     }
   }
   const grupos = [...grpMap.values()];
