@@ -10,6 +10,13 @@ import {
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
 import { naturezaDoGrupo } from "./natureza-grupo";
+import {
+  calcBdi,
+  calcEvolucao,
+  calcIncidencias,
+  calcProvisionamento,
+  custoReferencial,
+} from "./calc/medicao-bdi";
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
@@ -852,8 +859,22 @@ export async function getBudgetPlanning(
   const build = (nat: "receita" | "despesa"): import("./planning").PlanningAccountRow[] => {
     const rows: import("./planning").PlanningAccountRow[] = [];
     const seen = new Set<string>();
+    const ativos = grupos.filter((x) => x.ativo);
+    let daNatureza = ativos.filter((x) => x.natureza === nat);
+    // O Plano de Contas é ÚNICO e vale para todos os projetos. A coluna
+    // `natureza` tem default "despesa", então em geral nenhuma conta está
+    // marcada como receita — e o bloco de receitas do Budget/Forecast ficava
+    // sem nenhuma linha para lançar.
+    //
+    // Quando não há nenhum grupo marcado como receita, usam-se os grupos que já
+    // existem no Plano de Contas, em vez de exigir a criação de contas novas.
+    // Se o usuário marcar contas como receita no Plano de Contas, essa marcação
+    // passa a valer e só elas aparecem aqui.
+    if (nat === "receita" && daNatureza.length === 0) {
+      daNatureza = ativos;
+    }
     // Grupos ativos da natureza (fonte oficial das linhas).
-    for (const g of grupos.filter((x) => x.natureza === nat && x.ativo)) {
+    for (const g of daNatureza) {
       const key = `${nat}|${g.groupCode}`;
       seen.add(g.groupCode);
       rows.push({
@@ -1068,13 +1089,21 @@ export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
 }
 
 /**
- * Receita projetada mês a mês de uma versão. Para Budget/Forecast usa o
- * lançamento simplificado (budget_line, receita); para a versão detalhada usa
- * unidades + reembolsos (calcProjection).
+ * Receita projetada mês a mês de uma versão.
+ *
+ * Cada versão respeita o que foi lançado NELA:
+ *  - Budget/Forecast → budget_line (planejamento);
+ *  - Atual → o que está efetivamente lançado, isto é, as CONTAS A RECEBER
+ *    lançadas mais os recebíveis derivados dos planos de pagamento das vendas,
+ *    mais os reembolsos. É daí que sai a projeção de receita futura.
+ *
+ * As duas origens da Atual são complementares, não duplicadas: os recebíveis de
+ * venda são derivados do plano da unidade e não são copiados para conta_receber
+ * (ver comentário do schema em `contasReceber`).
  */
 export async function getMonthlyRevenue(
   versionId: string,
-  _projectId: string,
+  projectId: string,
 ): Promise<MonthlyProjection> {
   const kind = await getVersionKind(versionId);
   if (kind === "budget" || kind === "forecast") {
@@ -1111,6 +1140,29 @@ export async function getMonthlyRevenue(
   }
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+
+  // CONTAS A RECEBER lançadas do projeto — a projeção de receita futura da
+  // versão Atual depende delas. Sem isto, uma receita lançada à mão (fora de um
+  // plano de venda) aparecia em Contas a Receber e sumia da DRE, do Fluxo de
+  // Caixa e do Dashboard. Agrega pelo mês do vencimento e ignora as canceladas.
+  const crRows = await db
+    .select({
+      valor: schema.contasReceber.valor,
+      vencimento: schema.contasReceber.vencimento,
+    })
+    .from(schema.contasReceber)
+    .where(
+      and(
+        eq(schema.contasReceber.projectId, projectId),
+        eq(schema.contasReceber.cancelado, false),
+      ),
+    );
+  for (const c of crRows) {
+    const p = (c.vencimento ?? "").split("/");
+    if (p.length !== 3) continue;
+    const mk = `${p[0]}/${p[2]}`;
+    out[mk] = (out[mk] || 0) + Number(c.valor);
+  }
   return out;
 }
 
@@ -1774,4 +1826,146 @@ export async function getContasReceber(tenantId: string): Promise<ContaReceberRo
     origemCashEntryId: r.c.origemCashEntryId,
     createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
   }));
+}
+
+// ───────────── Indicadores físico-financeiros da obra (Dashboard) ─────────────
+
+export interface IndicadoresObra {
+  /** Parâmetros vindos do cadastro do projeto. */
+  financiamentoConstrucao: number;
+  financiamentoTerreno: number;
+  totalAquisicao: number;
+  cub: number;
+  metragem: number;
+  custoReferencial: number;
+  parcelaReferencia: number;
+  pctBdi: number;
+  pctTaxa: number;
+  tipoExecutor: string | null;
+  /** Serviços e medição. */
+  custoTotalServicos: number;
+  valorBdi: number;
+  custoTotalComBdi: number;
+  servicosForaDosLimites: number;
+  qtdServicos: number;
+  /** Evolução física. */
+  evolucaoAcumulada: number;
+  evolucaoMes: number;
+  /** Provisionamento/liberação (último mês medido). */
+  liberacaoMes: number;
+  liberacaoAcumulada: number;
+  saldoFinanciamento: number;
+  custoEstimadoMes: number;
+  geracaoCaixaMes: number;
+  pctRecebido: number;
+  /** Há dados de medição cadastrados? */
+  temMedicao: boolean;
+  /** Os parâmetros do projeto (CUB, financiamento, BDI) estão preenchidos? */
+  temParametros: boolean;
+}
+
+/**
+ * Indicadores físico-financeiros de um projeto: BDI, evolução da obra,
+ * liberação e saldo de financiamento. Base do painel do Dashboard.
+ *
+ * Todos os parâmetros vêm do cadastro do projeto — nada é fixado em código.
+ * Quando o projeto ainda não tem serviços/medição cadastrados, os indicadores
+ * voltam zerados com `temMedicao: false`, para a tela explicar o que falta em
+ * vez de mostrar número inventado.
+ */
+export async function getIndicadoresObra(
+  tenantId: string,
+  projectId: string,
+): Promise<IndicadoresObra> {
+  const [proj] = await db
+    .select()
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, tenantId)))
+    .limit(1);
+
+  const servicoRows = proj
+    ? await db
+        .select()
+        .from(schema.servicos)
+        .where(eq(schema.servicos.projectId, projectId))
+        .orderBy(asc(schema.servicos.ordem))
+    : [];
+  const servicoIds = servicoRows.map((s) => s.id);
+  const medRows =
+    servicoIds.length > 0
+      ? await db
+          .select()
+          .from(schema.medicaoServicos)
+          .where(eq(schema.medicaoServicos.tenantId, tenantId))
+      : [];
+
+  const num = (v: unknown) => Number(v) || 0;
+  const financiamentoConstrucao = num(proj?.financiamentoConstrucao);
+  const financiamentoTerreno = num(proj?.financiamentoTerreno);
+  const cub = num(proj?.cub);
+  const metragem = num(proj?.metragem);
+  const pctBdi = num(proj?.pctBdi);
+  const pctTaxa = num(proj?.pctTaxaLiberacao);
+  const parcelaReferencia = num(proj?.parcelaReferencia);
+
+  const servicos = servicoRows.map((s) => ({
+    id: s.id,
+    nome: s.nome,
+    custoProposto: num(s.custoProposto),
+    limiteMin: s.limiteMin == null ? null : num(s.limiteMin),
+    limiteMax: s.limiteMax == null ? null : num(s.limiteMax),
+  }));
+
+  const incid = calcIncidencias(servicos);
+  const bdi = calcBdi(servicos, pctBdi);
+  const custoRef = custoReferencial(cub, metragem);
+
+  const medicoes = medRows
+    .filter((m) => servicoIds.includes(m.servicoId))
+    .map((m) => ({
+      servicoId: m.servicoId,
+      competencia: m.competencia,
+      pctExecutadoAcum: num(m.pctExecutadoAcum),
+    }));
+  const evolucao = calcEvolucao(servicos, medicoes);
+  const provis = calcProvisionamento(evolucao, {
+    financiamentoConstrucao,
+    financiamentoTerreno,
+    custoReferencial: custoRef,
+    parcelaReferencia,
+    pctTaxa,
+  });
+  const ultimo = provis[provis.length - 1];
+  const ultimaEvol = evolucao[evolucao.length - 1];
+
+  return {
+    financiamentoConstrucao,
+    financiamentoTerreno,
+    totalAquisicao: financiamentoConstrucao + financiamentoTerreno,
+    cub,
+    metragem,
+    custoReferencial: custoRef,
+    parcelaReferencia,
+    pctBdi,
+    pctTaxa,
+    tipoExecutor: proj?.tipoExecutor ?? null,
+    custoTotalServicos: bdi.custoTotalServicos,
+    valorBdi: bdi.valorBdi,
+    custoTotalComBdi: bdi.custoTotalComBdi,
+    servicosForaDosLimites: incid.filter(
+      (s) => s.status === "Abaixo do mínimo" || s.status === "Acima do máximo",
+    ).length,
+    qtdServicos: servicos.length,
+    evolucaoAcumulada: ultimaEvol?.acumulado ?? 0,
+    evolucaoMes: ultimaEvol?.variacao ?? 0,
+    liberacaoMes: ultimo?.liberacao ?? 0,
+    liberacaoAcumulada: ultimo?.liberacaoAcumulada ?? financiamentoTerreno,
+    saldoFinanciamento:
+      ultimo?.saldoFinanciamento ?? financiamentoConstrucao,
+    custoEstimadoMes: ultimo?.custoEstimado ?? 0,
+    geracaoCaixaMes: ultimo?.caixa ?? 0,
+    pctRecebido: ultimo?.pctRecebido ?? 0,
+    temMedicao: evolucao.length > 0,
+    temParametros: financiamentoConstrucao > 0 || cub > 0 || pctBdi > 0,
+  };
 }
