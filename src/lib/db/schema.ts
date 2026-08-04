@@ -159,6 +159,10 @@ export const stakeholderTypeEnum = pgEnum("stakeholder_type", ["PJ", "PF"]);
 export const bankAccountTypeEnum = pgEnum("bank_account_type", [
   "Imobiliária",
   "Construtora",
+  // Conta de TERCEIRO (sócio, mestre de obra, funcionário): controla o valor
+  // devido a essa pessoa. NÃO é saldo bancário disponível da empresa e por isso
+  // é excluída do saldo consolidado do caixa.
+  "Terceiros",
 ]);
 
 /** Origem do subitem do plano de contas. Ver docs/SPEC.md §8.3. */
@@ -236,6 +240,29 @@ export const projects = pgTable("project", {
   longitude: numeric("longitude", { precision: 10, scale: 7 }),
   /** raio permitido para registro de ponto, em metros (padrão 100). */
   pontoRaioMetros: integer("ponto_raio_metros").notNull().default(100),
+  // ── Medição / BDI / provisionamento (ver docs/BDI-PROVISIONAMENTO.md) ───
+  // Todos OPCIONAIS: projetos existentes seguem funcionando sem preenchê-los.
+  /** CUB de referência (R$/m²) e metragem — custo referencial = CUB × metragem. */
+  cub: numeric("cub", { precision: 15, scale: 2 }),
+  metragem: numeric("metragem", { precision: 12, scale: 2 }),
+  /** Parcela de referência do caixa (base do cálculo de E.V.O). */
+  parcelaReferencia: numeric("parcela_referencia", { precision: 15, scale: 2 }),
+  /**
+   * Percentual de BDI do projeto. CONFIGURÁVEL — a alíquota varia conforme o
+   * tipo de executor da obra e não é presumida pelo sistema. A planilha de
+   * referência do cliente traz 6% para "Profissional Autônomo"; a regra para
+   * construtora depende de confirmação e por isso não há valor padrão.
+   */
+  pctBdi: numeric("pct_bdi", { precision: 8, scale: 4 }),
+  /** Executor da obra — "Profissional Autônomo" | "Construtora" (texto livre). */
+  tipoExecutor: text("tipo_executor"),
+  /** Percentual de taxas incidentes sobre a liberação (ex.: 1,5). */
+  pctTaxaLiberacao: numeric("pct_taxa_liberacao", { precision: 8, scale: 4 }),
+  /**
+   * Tipo de obra: regras e nomenclaturas de construção individual e de
+   * empreendimento não devem ser reaproveitadas automaticamente entre si.
+   */
+  tipoObra: text("tipo_obra"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -687,6 +714,59 @@ export const documents = pgTable("document", {
  * Medição de obra lançada pelo engenheiro, por competência (MM/YYYY) e grupo
  * de obra (CEF). A soma das medições alimenta o Custo Variável da DRE.
  */
+/**
+ * Catálogo de SERVIÇOS do projeto (orçamento de obra). Cada serviço tem um
+ * custo proposto; a incidência é derivada (custo ÷ custo total dos serviços) e
+ * os limites mínimo/máximo permitem sinalizar quando a incidência está fora da
+ * faixa aceitável. Ver docs/BDI-PROVISIONAMENTO.md §2.
+ *
+ * Tabela NOVA e independente: não altera nem substitui `medicao`, que continua
+ * válida e em uso (Custo Variável da DRE).
+ */
+export const servicos = pgTable("servico", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  /** ordem de exibição (1..N), como na planilha de referência. */
+  ordem: integer("ordem").notNull().default(0),
+  nome: text("nome").notNull(),
+  custoProposto: numeric("custo_proposto", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** faixa aceitável de incidência (%), opcional. */
+  limiteMin: numeric("limite_min", { precision: 8, scale: 4 }),
+  limiteMax: numeric("limite_max", { precision: 8, scale: 4 }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Medição de um serviço numa competência: o usuário informa APENAS o percentual
+ * EXECUTADO ACUMULADO do serviço ao final do mês. A variação mensal e o valor
+ * medido são derivados pelo sistema (nunca digitados) — ver
+ * docs/BDI-PROVISIONAMENTO.md §4.
+ */
+export const medicaoServicos = pgTable("medicao_servico", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  servicoId: uuid("servico_id")
+    .notNull()
+    .references(() => servicos.id, { onDelete: "cascade" }),
+  /** "MM/YYYY". */
+  competencia: text("competencia").notNull(),
+  /** % executado ACUMULADO do serviço até o fim desta competência (0..100). */
+  pctExecutadoAcum: numeric("pct_executado_acum", { precision: 8, scale: 4 })
+    .notNull()
+    .default("0"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 export const medicoes = pgTable("medicao", {
   id: uuid("id").primaryKey().defaultRandom(),
   versionId: uuid("version_id")
