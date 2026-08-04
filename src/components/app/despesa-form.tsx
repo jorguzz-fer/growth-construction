@@ -8,6 +8,8 @@ import {
   extractDespesaFromDoc,
   addDespesaDocs,
   deleteDespesaDoc,
+  deleteDespesa,
+  cancelarDespesa,
 } from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,6 +113,7 @@ export function DespesaForm({
   aiConfigured,
   r2Configured,
   canEditNumero = false,
+  canExcluir = false,
   edit = null,
   prefill = null,
 }: {
@@ -124,6 +127,8 @@ export function DespesaForm({
   aiConfigured: boolean;
   r2Configured: boolean;
   canEditNumero?: boolean;
+  /** Habilita cancelar/excluir a despesa a partir da tela de edição. */
+  canExcluir?: boolean;
   /** Quando presente, o formulário abre em modo EDIÇÃO da despesa informada. */
   edit?: EditDespesa | null;
   /** Pré-preenchimento de nova despesa (ignorado em modo edição). */
@@ -182,6 +187,62 @@ export function DespesaForm({
     } finally {
       setAnexBusy(false);
     }
+  }
+
+  /** Volta para a lista removendo o ?edit= da URL. */
+  function voltarParaLista() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("edit");
+    router.push(`${url.pathname}${url.search}`);
+    router.refresh();
+  }
+
+  /**
+   * Cancelamento LÓGICO: a despesa para de contar nos relatórios, mas o
+   * registro e todo o histórico permanecem no banco. É a via recomendada.
+   */
+  function cancelarDespesaAtual() {
+    if (!edit) return;
+    const motivo = window.prompt(
+      `Motivo do cancelamento da despesa ${edit.numDoc ?? ""}:`,
+    );
+    if (motivo === null) return;
+    setError(null);
+    startSaving(async () => {
+      try {
+        await cancelarDespesa(edit.id, motivo);
+        voltarParaLista();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao cancelar a despesa.");
+      }
+    });
+  }
+
+  /**
+   * Exclusão FÍSICA: apaga a despesa definitivamente. Irreversível, por isso a
+   * confirmação é explícita e mostra o que está sendo apagado.
+   */
+  function excluirDespesa() {
+    if (!edit) return;
+    const anexos = edit.documentos?.length ?? 0;
+    const aviso =
+      `Excluir DEFINITIVAMENTE a despesa ${edit.numDoc ?? ""} ` +
+      `(${Number(edit.valor).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      })})?` +
+      (anexos > 0 ? `\n\nOs ${anexos} anexo(s) vinculados também serão desvinculados.` : "") +
+      `\n\nEsta ação NÃO pode ser desfeita. Para manter o histórico, use "Cancelar despesa".`;
+    if (!window.confirm(aviso)) return;
+    setError(null);
+    startSaving(async () => {
+      try {
+        await deleteDespesa(edit.id);
+        voltarParaLista();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao excluir a despesa.");
+      }
+    });
   }
 
   async function removerAnexo(documentId: string, filename: string) {
@@ -940,8 +1001,33 @@ export function DespesaForm({
                   router.push(`${url.pathname}${url.search}`);
                 }}
               >
-                Cancelar
+                Voltar
               </Button>
+            )}
+            {isEdit && canExcluir && (
+              <div className="ml-auto flex items-center gap-2">
+                {/* Cancelamento LÓGICO — preserva o histórico. É a via segura e
+                    por isso vem antes da exclusão física. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={cancelarDespesaAtual}
+                  title="Cancelamento lógico: a despesa deixa de contar nos relatórios, mas o histórico é preservado"
+                >
+                  Cancelar despesa
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={excluirDespesa}
+                  className="border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/8"
+                  title="Exclusão física: apaga a despesa definitivamente"
+                >
+                  Excluir
+                </Button>
+              </div>
             )}
           </div>
         </div>

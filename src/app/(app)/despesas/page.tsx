@@ -159,6 +159,7 @@ export default async function DespesasPage({
     aiConfigured,
     r2Configured,
     canEditNumero,
+    canExcluir,
   };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
   // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
