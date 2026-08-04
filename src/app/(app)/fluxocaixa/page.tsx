@@ -1,4 +1,5 @@
 import { getActiveContext } from "@/lib/context";
+import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getBankAccounts,
   getDespesas,
@@ -163,7 +164,8 @@ export default async function FluxoCaixaPage({
   ]);
 
   // Saldo inicial = soma dos saldos das contas correntes.
-  const saldoInicial = contas.reduce((a, c) => a + Number(c.saldo), 0);
+  // Saldo inicial = só contas da empresa (contas "Terceiros" são obrigações).
+  const saldoInicial = saldoDisponivel(contas);
 
   // Eixo = INCC + meses com movimentação (âncora nos dados reais).
   const axis = [
