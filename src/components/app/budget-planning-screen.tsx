@@ -735,8 +735,26 @@ function Bloco({
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={4 + months.length * 2} className="px-3 py-6 text-center text-[var(--color-ink3)]">
-                    Nenhuma conta de {bloco === "receita" ? "receita" : "despesa"} ativa no Plano de Contas.
+                  <td colSpan={4 + months.length * 2} className="px-3 py-6 text-center">
+                    {/* Estado vazio ACIONÁVEL: sem isto a tela virava um beco sem
+                        saída — nenhuma linha para lançar e nenhuma indicação do
+                        que fazer para destravar. */}
+                    <p className="text-[var(--color-ink2)]">
+                      Nenhuma conta de {bloco === "receita" ? "receita" : "despesa"} ativa
+                      no Plano de Contas.
+                    </p>
+                    <p className="mt-1 text-[12px] text-[var(--color-ink3)]">
+                      As linhas desta tabela vêm dos grupos do Plano de Contas. Para
+                      destravar o lançamento, marque ao menos uma conta como{" "}
+                      <strong>{bloco === "receita" ? "receita" : "despesa"}</strong> e{" "}
+                      <strong>ativa</strong>.
+                    </p>
+                    <Link
+                      href="/planocontas"
+                      className="mt-2 inline-block rounded-[6px] border border-[var(--color-accent2)]/40 px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent4)]"
+                    >
+                      Abrir Plano de Contas
+                    </Link>
                   </td>
                 </tr>
               )}

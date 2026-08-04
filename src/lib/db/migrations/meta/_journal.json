@@ -232,6 +232,13 @@
       "when": 1785117556050,
       "tag": "0032_planejamento_recursos_proprios",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785808866174,
+      "tag": "0033_medicao_servicos_bdi",
+      "breakpoints": true
     }
   ]
 }

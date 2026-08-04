@@ -25,7 +25,7 @@ export async function addConta(formData: FormData) {
     op: (formData.get("op") as string) || null,
     cc: (formData.get("cc") as string) || null,
     tipo:
-      (formData.get("tipo") as "Imobiliária" | "Construtora") || "Construtora",
+      (formData.get("tipo") as "Imobiliária" | "Construtora" | "Terceiros") || "Construtora",
     saldo: (formData.get("saldo") as string) || "0",
     saldoSource:
       (formData.get("saldoSource") as string) === "auto" ? "auto" : "manual",
@@ -60,7 +60,8 @@ export async function updateConta(
   if (patch.ag !== undefined) set.ag = patch.ag || null;
   if (patch.op !== undefined) set.op = patch.op || null;
   if (patch.cc !== undefined) set.cc = patch.cc || null;
-  if (patch.tipo === "Imobiliária" || patch.tipo === "Construtora") set.tipo = patch.tipo;
+  if (patch.tipo === "Imobiliária" || patch.tipo === "Construtora" || patch.tipo === "Terceiros")
+    set.tipo = patch.tipo;
   if (patch.saldo !== undefined) {
     set.saldo = patch.saldo || "0";
     set.lastSync = new Date();

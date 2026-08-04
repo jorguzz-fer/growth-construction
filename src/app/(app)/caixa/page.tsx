@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getActiveContext } from "@/lib/context";
+import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getBankAccounts,
   getCash,
@@ -138,7 +139,9 @@ export default async function CaixaPage({
   // Filtro de período (item 3): entradas/saídas dentro do intervalo.
   const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
-  const saldoTotal = contas.reduce((a, c) => a + Number(c.saldo), 0);
+  // Exclui contas do tipo "Terceiros": são obrigações com sócios/terceiros,
+  // não dinheiro disponível da empresa.
+  const saldoTotal = saldoDisponivel(contas);
   const conciliados = cash.filter((c) => c.rec).length;
 
   // Janela de caixa: 2 dias realizados, hoje e 7 de projeção (uma semana à

@@ -159,6 +159,7 @@ export default async function DespesasPage({
     aiConfigured,
     r2Configured,
     canEditNumero,
+    canExcluir,
   };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
   // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
@@ -274,8 +275,8 @@ export default async function DespesasPage({
               />
             )
           )}
-          <div className="mb-3 flex justify-end">
-            <DespesaSearch rows={despesas.map(toDTO)} fornecedores={fornecedores} />
+          <div className="mb-3">
+            <DespesaSearch rows={lancamentos.map(toDTO)} fornecedores={fornecedores} />
           </div>
           <DespesasTable
             rows={lancamentos.map(toDTO)}

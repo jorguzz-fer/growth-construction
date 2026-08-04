@@ -1,4 +1,5 @@
 import { getActiveContext } from "@/lib/context";
+import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getContasPagar,
   getReceivables,
@@ -23,7 +24,7 @@ export default async function FechamentoPage() {
     getCashByTenant(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
   ]);
-  const saldoContas = contas.reduce((a, c) => a + Number(c.saldo), 0);
+  const saldoContas = saldoDisponivel(contas);
 
   const now = new Date();
   const hojeInternal = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(

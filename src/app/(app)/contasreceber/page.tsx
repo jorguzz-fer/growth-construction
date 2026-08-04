@@ -10,6 +10,7 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { ContasReceberManager } from "@/components/app/contas-receber-manager";
+import { ReceitaSearch, type ReceitaBuscavel } from "@/components/app/receita-search";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,34 @@ export default async function ContasReceberPage() {
     getUnitCodesByTenant(ctx.tenant.id),
   ]);
 
+  // Lista unificada para a busca (contas lançadas + recebíveis das vendas).
+  const receitasBuscaveis: ReceitaBuscavel[] = [
+    ...contas.map((c) => ({
+      id: c.id,
+      origem: "conta" as const,
+      descricao: c.descricao,
+      clienteNome: c.clienteNome,
+      projectName: c.projectName,
+      unitCode: c.unitCode,
+      tipo: c.tipo,
+      valor: Number(c.valor),
+      vencimento: c.vencimento,
+      status: c.status,
+    })),
+    ...receivables.map((r) => ({
+      id: r.refId,
+      origem: "recebivel" as const,
+      descricao: r.descricao,
+      clienteNome: r.clienteNome,
+      projectName: r.projectName,
+      unitCode: r.unitCode,
+      tipo: null,
+      valor: r.valor,
+      vencimento: r.dia,
+      status: r.status,
+    })),
+  ];
+
   return (
     <>
       <PageHeader
@@ -33,6 +62,12 @@ export default async function ContasReceberPage() {
         title="Contas a Receber"
         subtitle="Recebíveis das vendas (Unidades) e contas a receber lançadas manualmente — vinculadas a um projeto."
       />
+      {/* Busca de receitas: cobre as duas origens da tela — contas a receber
+          lançadas e recebíveis derivados dos planos de venda. */}
+      <div className="mb-3">
+        <ReceitaSearch rows={receitasBuscaveis} />
+      </div>
+
       <ContasReceberManager
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
