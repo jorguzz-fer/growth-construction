@@ -1969,3 +1969,217 @@ export async function getIndicadoresObra(
     temParametros: financiamentoConstrucao > 0 || cub > 0 || pctBdi > 0,
   };
 }
+
+/**
+ * Indicadores consolidados de VÁRIOS projetos (visão geral da empresa —
+ * matriz e filiais).
+ *
+ * Valores monetários são somados. PERCENTUAIS NÃO SÃO SOMADOS: a evolução
+ * física é ponderada pelo custo total dos serviços de cada obra (uma obra de
+ * R$ 1 mi a 50% pesa mais que uma de R$ 100 mil a 50%), e o % recebido é
+ * recalculado a partir dos totais consolidados. O %BDI consolidado é a razão
+ * entre o valor total de BDI e o custo total dos serviços.
+ */
+export async function getIndicadoresObraConsolidado(
+  tenantId: string,
+  projectIds: string[],
+): Promise<IndicadoresObra> {
+  const todos = await Promise.all(
+    projectIds.map((id) => getIndicadoresObra(tenantId, id)),
+  );
+  const soma = (f: (i: IndicadoresObra) => number) =>
+    todos.reduce((a, i) => a + f(i), 0);
+
+  const custoTotalServicos = soma((i) => i.custoTotalServicos);
+  const valorBdi = soma((i) => i.valorBdi);
+  const totalAquisicao = soma((i) => i.totalAquisicao);
+  const liberacaoAcumulada = soma((i) => i.liberacaoAcumulada);
+
+  // Média ponderada pelo custo dos serviços; sem base, cai para média simples.
+  const ponderada = (f: (i: IndicadoresObra) => number) => {
+    const base = custoTotalServicos;
+    if (base > 0) {
+      return todos.reduce((a, i) => a + f(i) * i.custoTotalServicos, 0) / base;
+    }
+    const comDados = todos.filter((i) => i.temMedicao);
+    if (comDados.length === 0) return 0;
+    return comDados.reduce((a, i) => a + f(i), 0) / comDados.length;
+  };
+
+  return {
+    financiamentoConstrucao: soma((i) => i.financiamentoConstrucao),
+    financiamentoTerreno: soma((i) => i.financiamentoTerreno),
+    totalAquisicao,
+    // CUB e metragem não se somam entre obras — não têm leitura consolidada.
+    cub: 0,
+    metragem: soma((i) => i.metragem),
+    custoReferencial: soma((i) => i.custoReferencial),
+    parcelaReferencia: soma((i) => i.parcelaReferencia),
+    pctBdi: custoTotalServicos > 0 ? (valorBdi / custoTotalServicos) * 100 : 0,
+    pctTaxa: 0,
+    tipoExecutor: null,
+    custoTotalServicos,
+    valorBdi,
+    custoTotalComBdi: soma((i) => i.custoTotalComBdi),
+    servicosForaDosLimites: soma((i) => i.servicosForaDosLimites),
+    qtdServicos: soma((i) => i.qtdServicos),
+    evolucaoAcumulada: ponderada((i) => i.evolucaoAcumulada),
+    evolucaoMes: ponderada((i) => i.evolucaoMes),
+    liberacaoMes: soma((i) => i.liberacaoMes),
+    liberacaoAcumulada,
+    saldoFinanciamento: soma((i) => i.saldoFinanciamento),
+    custoEstimadoMes: soma((i) => i.custoEstimadoMes),
+    geracaoCaixaMes: soma((i) => i.geracaoCaixaMes),
+    pctRecebido: totalAquisicao > 0 ? liberacaoAcumulada / totalAquisicao : 0,
+    temMedicao: todos.some((i) => i.temMedicao),
+    temParametros: todos.some((i) => i.temParametros),
+  };
+}
+
+export interface StatusProjeto {
+  /** Receita prevista — valor global de venda do CADASTRO do projeto. */
+  receitaPrevista: number;
+  /** Entradas de caixa já realizadas. */
+  recebido: number;
+  /** recebido ÷ receita prevista (0..1). */
+  pctRecebido: number;
+  /** Despesa prevista — total planejado na versão BUDGET do projeto. */
+  despesaPrevista: number;
+  /** Despesas lançadas (executadas), excluindo canceladas. */
+  executado: number;
+  /** executado ÷ despesa prevista (0..1). */
+  pctExecutado: number;
+  /**
+   * Margem de contribuição = Receita − Custo Variável − Despesa Variável.
+   * O percentual é sobre a RECEITA TOTAL DO PROJETO (valor global do cadastro),
+   * não sobre a receita já realizada.
+   */
+  margemContribuicao: number;
+  pctMargem: number;
+  /** Receita e custos que compõem a margem (versão Atual). */
+  receitaAtual: number;
+  custoVariavel: number;
+  despesaVariavel: number;
+  /** Indicadores por metro quadrado (metragem do cadastro do projeto). */
+  metragem: number;
+  custoPorM2: number;
+  receitaPorM2: number;
+}
+
+/**
+ * Status atual de um projeto: quanto já entrou frente ao previsto no cadastro,
+ * quanto já foi gasto frente ao planejado no Budget, e a margem de contribuição.
+ *
+ * Quando `projectIds` traz mais de um projeto, os valores são somados e os
+ * percentuais recalculados a partir dos totais — nunca somando percentuais.
+ */
+export async function getStatusProjeto(
+  tenantId: string,
+  projectIds: string[],
+): Promise<StatusProjeto> {
+  if (projectIds.length === 0) {
+    return {
+      receitaPrevista: 0, recebido: 0, pctRecebido: 0,
+      despesaPrevista: 0, executado: 0, pctExecutado: 0,
+      margemContribuicao: 0, pctMargem: 0,
+      receitaAtual: 0, custoVariavel: 0, despesaVariavel: 0,
+      metragem: 0, custoPorM2: 0, receitaPorM2: 0,
+    };
+  }
+
+  const [projs, versoes] = await Promise.all([
+    db.select().from(schema.projects).where(eq(schema.projects.tenantId, tenantId)),
+    db.select().from(schema.versions).where(eq(schema.versions.tenantId, tenantId)),
+  ]);
+  const doProjeto = <T extends { projectId: string }>(xs: T[]) =>
+    xs.filter((x) => projectIds.includes(x.projectId));
+
+  const num = (v: unknown) => Number(v) || 0;
+
+  // Receita prevista = valor global de venda informado no cadastro do projeto.
+  const receitaPrevista = projs
+    .filter((p) => projectIds.includes(p.id))
+    .reduce((a, p) => a + num(p.valorConstrucao) + num(p.valorTerreno), 0);
+
+  const versoesProj = doProjeto(versoes);
+  const idsAtual = versoesProj.filter((v) => v.kind === "atual").map((v) => v.id);
+  const idsBudget = versoesProj.filter((v) => v.kind === "budget").map((v) => v.id);
+  const todosIds = versoesProj.map((v) => v.id);
+
+  const [cashRows, despRows, budgetRows] = await Promise.all([
+    todosIds.length
+      ? db.select({ valor: schema.cashEntries.valor, versionId: schema.cashEntries.versionId })
+          .from(schema.cashEntries)
+          .where(eq(schema.cashEntries.tenantId, tenantId))
+      : Promise.resolve([]),
+    db.select({
+        valor: schema.despesas.valor,
+        categoriaDre: schema.despesas.categoriaDre,
+        cancelado: schema.despesas.cancelado,
+        versionId: schema.despesas.versionId,
+      })
+      .from(schema.despesas)
+      .where(eq(schema.despesas.tenantId, tenantId)),
+    db.select({ valor: schema.budgetLines.valor, versionId: schema.budgetLines.versionId })
+      .from(schema.budgetLines)
+      .where(and(eq(schema.budgetLines.tenantId, tenantId), eq(schema.budgetLines.kind, "despesa")))
+      .catch(() => []),
+  ]);
+
+  // Recebido = entradas de caixa das versões do projeto.
+  const recebido = cashRows
+    .filter((c) => todosIds.includes(c.versionId) && num(c.valor) > 0)
+    .reduce((a, c) => a + num(c.valor), 0);
+
+  // Despesa prevista = planejamento da versão Budget.
+  const despesaPrevista = budgetRows
+    .filter((b) => idsBudget.includes(b.versionId))
+    .reduce((a, b) => a + num(b.valor), 0);
+
+  // Executado = despesas lançadas na versão Atual, exceto canceladas.
+  const daAtual = despRows.filter(
+    (d) => idsAtual.includes(d.versionId) && !d.cancelado,
+  );
+  const executado = daAtual.reduce((a, d) => a + num(d.valor), 0);
+  const porCat = (cat: string) =>
+    daAtual.filter((d) => d.categoriaDre === cat).reduce((a, d) => a + num(d.valor), 0);
+  const custoVariavel = porCat("Custo Variável");
+  const despesaVariavel = porCat("Despesa Variável");
+
+  // Receita realizada da versão Atual (mesma fonte da DRE).
+  let receitaAtual = 0;
+  for (const pid of projectIds) {
+    const vid = versoesProj.find((v) => v.projectId === pid && v.kind === "atual")?.id;
+    if (!vid) continue;
+    const mensal = await getMonthlyRevenue(vid, pid);
+    receitaAtual += Object.values(mensal).reduce((a, v) => a + v, 0);
+  }
+
+  // Definição de negócio confirmada pelo cliente:
+  // Margem de Contribuição = Receita − Custo Variável − Despesa Variável.
+  const margemContribuicao = receitaAtual - custoVariavel - despesaVariavel;
+  const razao = (n: number, d: number) => (d > 0 ? n / d : 0);
+
+  // Metragem total dos projetos selecionados (cadastro do projeto).
+  const metragem = projs
+    .filter((p) => projectIds.includes(p.id))
+    .reduce((a, p) => a + num(p.metragem), 0);
+
+  return {
+    receitaPrevista,
+    recebido,
+    pctRecebido: razao(recebido, receitaPrevista),
+    despesaPrevista,
+    executado,
+    pctExecutado: razao(executado, despesaPrevista),
+    margemContribuicao,
+    // %MC = MC ÷ Receita Total do Projeto (cadastro).
+    pctMargem: razao(margemContribuicao, receitaPrevista),
+    receitaAtual,
+    custoVariavel,
+    despesaVariavel,
+    metragem,
+    custoPorM2: razao(executado, metragem),
+    receitaPorM2: razao(receitaAtual, metragem),
+  };
+}

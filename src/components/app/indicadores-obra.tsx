@@ -1,5 +1,4 @@
-import Link from "next/link";
-import type { IndicadoresObra } from "@/lib/queries";
+import type { IndicadoresObra, StatusProjeto } from "@/lib/queries";
 import { brl0 } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,32 +50,6 @@ function KPI({
  * painel diz o que falta em vez de exibir valor inventado.
  */
 export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
-  const semDados = !ind.temParametros && !ind.temMedicao;
-
-  if (semDados) {
-    return (
-      <Card className="mt-6">
-        <CardContent className="p-6 text-center">
-          <h2 className="text-sm font-semibold text-[var(--color-ink)]">
-            Indicadores da obra
-          </h2>
-          <p className="mx-auto mt-2 max-w-xl text-[13px] text-[var(--color-ink3)]">
-            Para calcular evolução física, BDI e liberação do financiamento, informe no
-            cadastro do projeto o valor financiado da construção e do terreno, o CUB, a
-            metragem e o percentual de BDI — e cadastre os serviços da obra com seus
-            custos propostos.
-          </p>
-          <Link
-            href="/projeto"
-            className="mt-3 inline-block rounded-[6px] border border-[var(--color-accent2)]/40 px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent4)]"
-          >
-            Abrir cadastro do projeto
-          </Link>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="mt-6 space-y-4">
       {/* Aquisição e financiamento */}
@@ -182,6 +155,95 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
             value={String(ind.servicosForaDosLimites)}
             hint="incidência fora da faixa aceitável"
             tone={ind.servicosForaDosLimites > 0 ? "warn" : "good"}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Status atual do projeto: quanto já entrou frente ao previsto no cadastro,
+ * quanto já foi gasto frente ao planejado no Budget, margem de contribuição e
+ * indicadores por metro quadrado.
+ *
+ * Definições de negócio confirmadas com o cliente:
+ *   MC  = Receita − Custo Variável − Despesa Variável
+ *   %MC = MC ÷ Receita Total do Projeto (valor global do cadastro)
+ */
+export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
+  return (
+    <div className="mt-6 space-y-4">
+      <div>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
+          Status atual
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KPI
+            label="Recebido"
+            value={brl0(st.recebido)}
+            hint={`de ${brl0(st.receitaPrevista)} previstos`}
+          />
+          <KPI
+            label="% recebido"
+            value={st.receitaPrevista > 0 ? pct(st.pctRecebido * 100) : "—"}
+            hint="sobre a receita do cadastro"
+            tone={st.receitaPrevista > 0 ? "good" : "muted"}
+          />
+          <KPI
+            label="Executado"
+            value={brl0(st.executado)}
+            hint={`de ${brl0(st.despesaPrevista)} no Budget`}
+          />
+          <KPI
+            label="% executado"
+            value={st.despesaPrevista > 0 ? pct(st.pctExecutado * 100) : "—"}
+            hint="sobre a despesa planejada"
+            tone={
+              st.despesaPrevista === 0
+                ? "muted"
+                : st.pctExecutado > 1
+                  ? "warn"
+                  : "normal"
+            }
+          />
+        </div>
+      </div>
+
+      <div>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
+          Margem e produtividade
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KPI
+            label="Margem de contribuição"
+            value={brl0(st.margemContribuicao)}
+            hint="receita − custo var. − despesa var."
+            tone={st.margemContribuicao >= 0 ? "good" : "warn"}
+          />
+          <KPI
+            label="% margem de contribuição"
+            value={st.receitaPrevista > 0 ? pct(st.pctMargem * 100) : "—"}
+            hint="sobre a receita total do projeto"
+            tone={
+              st.receitaPrevista === 0
+                ? "muted"
+                : st.pctMargem >= 0
+                  ? "good"
+                  : "warn"
+            }
+          />
+          <KPI
+            label="Custo por m²"
+            value={st.metragem > 0 ? brl0(st.custoPorM2) : "—"}
+            hint={st.metragem > 0 ? `${st.metragem} m²` : "informe a metragem"}
+            tone={st.metragem > 0 ? "normal" : "muted"}
+          />
+          <KPI
+            label="Receita por m²"
+            value={st.metragem > 0 ? brl0(st.receitaPorM2) : "—"}
+            hint={st.metragem > 0 ? `${st.metragem} m²` : "informe a metragem"}
+            tone={st.metragem > 0 ? "normal" : "muted"}
           />
         </div>
       </div>

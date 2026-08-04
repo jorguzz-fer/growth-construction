@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext, type Version } from "@/lib/context";
@@ -6,16 +5,17 @@ import {
   getMonthlyRevenue,
   getUnits,
   getIndicadoresObra,
+  getIndicadoresObraConsolidado,
+  getStatusProjeto,
   getContasPagar,
   getReceivables,
 } from "@/lib/queries";
 import { parseDate } from "@/lib/calc";
-import { brlk, brl0, monthInRange, dateInRange, dateBR } from "@/lib/utils";
+import { brlk, monthInRange, dateInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
+import { ProjectPicker } from "@/components/app/project-picker";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { IndicadoresObraPanel } from "@/components/app/indicadores-obra";
-import { buttonVariants } from "@/components/ui/button";
+import { IndicadoresObraPanel, StatusProjetoPanel } from "@/components/app/indicadores-obra";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 
@@ -82,21 +82,11 @@ async function versionSummary(
   };
 }
 
-interface Venc {
-  ord: number;
-  dateLabel: string;
-  unitCode: string;
-  label: string;
-  value: number;
-  overdue: boolean;
-  /** "receber" (entrada) ou "pagar" (saída/contas a pagar). */
-  tipo: "receber" | "pagar";
-}
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ vs?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ vs?: string; de?: string; ate?: string; proj?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -112,9 +102,19 @@ export default async function DashboardPage({
     selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
   );
 
-  // Indicadores físico-financeiros da obra (BDI, evolução, liberação). Vêm do
-  // cadastro do projeto e das medições por serviço — nada é fixado em código.
-  const indicadores = await getIndicadoresObra(ctx.tenant.id, ctx.project.id);
+  // Filtro de projeto: uma obra específica ou a visão geral da empresa
+  // ("all" = todos os projetos, matriz e filiais consolidados).
+  const isAll = sp.proj === "all";
+  const indicadores = isAll
+    ? await getIndicadoresObraConsolidado(
+        ctx.tenant.id,
+        ctx.projects.map((p) => p.id),
+      )
+    : await getIndicadoresObra(ctx.tenant.id, ctx.project.id);
+  const statusProjeto = await getStatusProjeto(
+    ctx.tenant.id,
+    isAll ? ctx.projects.map((p) => p.id) : [ctx.project.id],
+  );
 
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
   // Budget/Forecast permanecem estritamente em suas seções. A versão Atual
@@ -124,14 +124,16 @@ export default async function DashboardPage({
   // projetadas / contas a pagar).
   const hasRangeDash = !!(de || ate);
   const realReceb = (await getReceivables(ctx.tenant.id)).filter(
-    (r) => r.projectId === ctx.project.id && (!hasRangeDash || dateInRange(r.dia, de, ate)),
+    (r) =>
+      (isAll || r.projectId === ctx.project.id) &&
+      (!hasRangeDash || dateInRange(r.dia, de, ate)),
   );
   const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
 
   // Contas a pagar (despesas não pagas) do projeto, com vencimento no período.
   const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
     (c) =>
-      c.projectId === ctx.project.id &&
+      (isAll || c.projectId === ctx.project.id) &&
       c.status !== "Pago" &&
       !!c.vencimento &&
       (!hasRangeDash || dateInRange(c.vencimento, de, ate)),
@@ -159,45 +161,6 @@ export default async function DashboardPage({
     s.aPagar = totalPagar; // despesas ainda não pagas
   }
 
-  const now = new Date();
-  const todayOrd = now.getFullYear() * 12 + now.getMonth();
-
-  // Próximos vencimentos = recebíveis das unidades (entrada) + contas a pagar
-  // reais do projeto (saída). Quando há período selecionado, mostra todos os
-  // vencimentos do intervalo; sem período, mostra os próximos (a partir de ~3
-  // meses atrás). Datas sempre no padrão brasileiro DD/MM/AAAA.
-  const pagarVenc: Venc[] = contasPagarProj.map((c) => {
-    const d = parseDate(c.vencimento as string);
-    const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
-    return {
-      ord,
-      dateLabel: dateBR(c.vencimento),
-      unitCode: c.fornecedorNome ?? c.numDoc ?? "Conta a pagar",
-      label: c.descricao ?? c.numDoc ?? "Conta a pagar",
-      value: c.valor,
-      overdue: ord < todayOrd,
-      tipo: "pagar",
-    };
-  });
-  // Recebíveis reais (entrada) — independentes da versão, refletindo as vendas.
-  const receberVenc: Venc[] = realReceb.map((r) => {
-    const d = parseDate(r.dia);
-    const ord = d ? d.yr * 12 + (d.mo - 1) : todayOrd;
-    return {
-      ord,
-      dateLabel: dateBR(r.dia),
-      unitCode: r.unitCode,
-      label: r.descricao,
-      value: r.valor,
-      overdue: ord < todayOrd,
-      tipo: "receber",
-    };
-  });
-  const vencimentos = [...receberVenc, ...pagarVenc]
-    .filter((v) => (hasRangeDash ? true : v.ord >= todayOrd - 3))
-    .sort((a, b) => a.ord - b.ord)
-    .slice(0, hasRangeDash ? 60 : 10);
-
   const kpis = [
     { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
     { icon: "↗", label: "Realizado acum.", get: (s: Summary) => brlk(s.realizado) },
@@ -213,11 +176,24 @@ export default async function DashboardPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · ${ctx.tenant.name}`}
+        eyebrow={
+          isAll
+            ? `Todos os projetos · ${ctx.tenant.name}`
+            : `${ctx.project.name} · ${ctx.tenant.name}`
+        }
         title="Dashboard"
-        subtitle="Visão geral do projeto — independente da versão ativa"
+        subtitle={
+          isAll
+            ? "Visão geral da empresa — matriz e filiais consolidados"
+            : "Visão geral do projeto — independente da versão ativa"
+        }
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            <ProjectPicker
+              projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+              selected={isAll ? "all" : ctx.project.id}
+              allOption
+            />
             <DateRangeFilter de={de} ate={ate} />
             <VersionMultiSelect
               versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
@@ -259,54 +235,9 @@ export default async function DashboardPage({
       </section>
 
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
+      <StatusProjetoPanel st={statusProjeto} />
       <IndicadoresObraPanel ind={indicadores} />
 
-      {/* Próximos vencimentos */}
-      <section className="mt-6">
-        <Card>
-          <CardContent className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[var(--color-ink)]">
-                Próximos vencimentos
-              </h2>
-              <Link href="/caixa" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                ver caixa
-              </Link>
-            </div>
-            {vencimentos.length ? (
-              <ul className="divide-y divide-[var(--color-accent2)]/8">
-                {vencimentos.map((v, i) => (
-                  <li key={i} className="flex items-center gap-3 py-2.5">
-                    <span className="w-24 font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink3)]">
-                      {v.dateLabel}
-                    </span>
-                    <span className="flex-1 text-[13px] text-[var(--color-ink2)]">
-                      {v.unitCode} — {v.label}
-                    </span>
-                    <Badge tone={v.tipo === "pagar" ? "warning" : "success"}>
-                      {v.tipo === "pagar" ? "a pagar" : "a receber"}
-                    </Badge>
-                    <span
-                      className={`font-[family-name:var(--font-mono)] text-[13px] font-semibold ${
-                        v.tipo === "pagar"
-                          ? "text-[var(--color-danger)]"
-                          : "text-[var(--color-success)]"
-                      }`}
-                    >
-                      {v.tipo === "pagar" ? "−" : "+"}{brl0(v.value)}
-                    </span>
-                    {v.overdue && <Badge tone="danger">Atraso</Badge>}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="py-10 text-center text-sm text-[var(--color-ink4)]">
-                Sem vencimentos próximos nesta versão.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
     </>
   );
 }
