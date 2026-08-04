@@ -5,27 +5,22 @@ import { getActiveContext, type Version } from "@/lib/context";
 import {
   getMonthlyRevenue,
   getUnits,
-  getPermutas,
-  getReembolsos,
+  getIndicadoresObra,
   getContasPagar,
   getReceivables,
-  permToCalc,
-  reembToCalc,
-  toCalcUnit,
 } from "@/lib/queries";
-import { calcTotals, parseDate } from "@/lib/calc";
+import { parseDate } from "@/lib/calc";
 import { brlk, brl0, monthInRange, dateInRange, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { IndicadoresObraPanel } from "@/components/app/indicadores-obra";
 import { buttonVariants } from "@/components/ui/button";
-import { BarChart, DoughnutChart, CHART_COLORS } from "@/components/app/charts";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 
 export const dynamic = "force-dynamic";
 
-const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 interface Summary {
   version: Version;
@@ -117,6 +112,10 @@ export default async function DashboardPage({
     selected.map((v) => versionSummary(ctx.project.id, v, de, ate)),
   );
 
+  // Indicadores físico-financeiros da obra (BDI, evolução, liberação). Vêm do
+  // cadastro do projeto e das medições por serviço — nada é fixado em código.
+  const indicadores = await getIndicadoresObra(ctx.tenant.id, ctx.project.id);
+
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
   // Budget/Forecast permanecem estritamente em suas seções. A versão Atual
   // reflete o caixa real do período: (a) fechamentos já realizados (entradas
@@ -159,41 +158,6 @@ export default async function DashboardPage({
     s.aReceber = totalReceb; // recebíveis ainda não recebidos
     s.aPagar = totalPagar; // despesas ainda não pagas
   }
-
-  // Ano do comparativo: o que concentra mais receita projetada nas versões.
-  const yearTotals = new Map<number, number>();
-  for (const s of summaries) {
-    for (const [mm, val] of Object.entries(s.monthly)) {
-      const y = Number(mm.split("/")[1]);
-      if (y) yearTotals.set(y, (yearTotals.get(y) || 0) + val);
-    }
-  }
-  const year =
-    [...yearTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ??
-    new Date().getFullYear();
-
-  // Fontes de receita + próximos vencimentos: da versão primária (1ª selecionada).
-  const primary = selected[0];
-  const [primUnits, primPerm, primReemb] = await Promise.all([
-    getUnits(primary.id),
-    getPermutas(primary.id),
-    getReembolsos(primary.id),
-  ]);
-  const totals = calcTotals(
-    primUnits.map(toCalcUnit),
-    permToCalc(primPerm),
-    reembToCalc(primReemb),
-  );
-  const fontes = [
-    { label: "Sinais / Atos", value: totals.sinais },
-    { label: "Mensais", value: totals.mens },
-    { label: "Semestrais", value: totals.sem },
-    { label: "Anuais", value: totals.anu },
-    { label: "FGTS", value: totals.fgts },
-    { label: "Subsídio", value: totals.sub },
-    { label: "Permuta", value: totals.permRec },
-    { label: "Financiamento", value: totals.banco },
-  ].filter((f) => f.value > 0);
 
   const now = new Date();
   const todayOrd = now.getFullYear() * 12 + now.getMonth();
@@ -294,64 +258,11 @@ export default async function DashboardPage({
         ))}
       </section>
 
-      {/* Comparativo mensal por versão */}
-      <Card className="mt-6">
-        <CardContent className="p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
-              Comparativo de versões — {year}
-            </h2>
-          </div>
-          <BarChart
-            height={320}
-            currency
-            data={{
-              labels: MESES,
-              datasets: summaries.map((s) => ({
-                label: s.version.label,
-                data: Array.from(
-                  { length: 12 },
-                  (_, i) => s.monthly[`${String(i + 1).padStart(2, "0")}/${year}`] || 0,
-                ),
-                backgroundColor: s.version.color,
-                borderRadius: 4,
-              })),
-            }}
-          />
-        </CardContent>
-      </Card>
+      {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
+      <IndicadoresObraPanel ind={indicadores} />
 
-      {/* Fontes de receita + próximos vencimentos */}
-      <section className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardContent className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-              Fontes de receita
-              <span className="ml-2 font-normal text-[var(--color-ink3)]">
-                · {primary.label}
-              </span>
-            </h2>
-            {fontes.length ? (
-              <DoughnutChart
-                data={{
-                  labels: fontes.map((f) => f.label),
-                  datasets: [
-                    {
-                      data: fontes.map((f) => f.value),
-                      backgroundColor: Object.values(CHART_COLORS),
-                      borderWidth: 0,
-                    },
-                  ],
-                }}
-              />
-            ) : (
-              <p className="py-10 text-center text-sm text-[var(--color-ink4)]">
-                Sem receita contratada nesta versão.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
+      {/* Próximos vencimentos */}
+      <section className="mt-6">
         <Card>
           <CardContent className="p-5">
             <div className="mb-3 flex items-center justify-between">

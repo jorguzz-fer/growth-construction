@@ -10,6 +10,13 @@ import {
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
 import { naturezaDoGrupo } from "./natureza-grupo";
+import {
+  calcBdi,
+  calcEvolucao,
+  calcIncidencias,
+  calcProvisionamento,
+  custoReferencial,
+} from "./calc/medicao-bdi";
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import type {
@@ -1819,4 +1826,146 @@ export async function getContasReceber(tenantId: string): Promise<ContaReceberRo
     origemCashEntryId: r.c.origemCashEntryId,
     createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
   }));
+}
+
+// ───────────── Indicadores físico-financeiros da obra (Dashboard) ─────────────
+
+export interface IndicadoresObra {
+  /** Parâmetros vindos do cadastro do projeto. */
+  financiamentoConstrucao: number;
+  financiamentoTerreno: number;
+  totalAquisicao: number;
+  cub: number;
+  metragem: number;
+  custoReferencial: number;
+  parcelaReferencia: number;
+  pctBdi: number;
+  pctTaxa: number;
+  tipoExecutor: string | null;
+  /** Serviços e medição. */
+  custoTotalServicos: number;
+  valorBdi: number;
+  custoTotalComBdi: number;
+  servicosForaDosLimites: number;
+  qtdServicos: number;
+  /** Evolução física. */
+  evolucaoAcumulada: number;
+  evolucaoMes: number;
+  /** Provisionamento/liberação (último mês medido). */
+  liberacaoMes: number;
+  liberacaoAcumulada: number;
+  saldoFinanciamento: number;
+  custoEstimadoMes: number;
+  geracaoCaixaMes: number;
+  pctRecebido: number;
+  /** Há dados de medição cadastrados? */
+  temMedicao: boolean;
+  /** Os parâmetros do projeto (CUB, financiamento, BDI) estão preenchidos? */
+  temParametros: boolean;
+}
+
+/**
+ * Indicadores físico-financeiros de um projeto: BDI, evolução da obra,
+ * liberação e saldo de financiamento. Base do painel do Dashboard.
+ *
+ * Todos os parâmetros vêm do cadastro do projeto — nada é fixado em código.
+ * Quando o projeto ainda não tem serviços/medição cadastrados, os indicadores
+ * voltam zerados com `temMedicao: false`, para a tela explicar o que falta em
+ * vez de mostrar número inventado.
+ */
+export async function getIndicadoresObra(
+  tenantId: string,
+  projectId: string,
+): Promise<IndicadoresObra> {
+  const [proj] = await db
+    .select()
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, tenantId)))
+    .limit(1);
+
+  const servicoRows = proj
+    ? await db
+        .select()
+        .from(schema.servicos)
+        .where(eq(schema.servicos.projectId, projectId))
+        .orderBy(asc(schema.servicos.ordem))
+    : [];
+  const servicoIds = servicoRows.map((s) => s.id);
+  const medRows =
+    servicoIds.length > 0
+      ? await db
+          .select()
+          .from(schema.medicaoServicos)
+          .where(eq(schema.medicaoServicos.tenantId, tenantId))
+      : [];
+
+  const num = (v: unknown) => Number(v) || 0;
+  const financiamentoConstrucao = num(proj?.financiamentoConstrucao);
+  const financiamentoTerreno = num(proj?.financiamentoTerreno);
+  const cub = num(proj?.cub);
+  const metragem = num(proj?.metragem);
+  const pctBdi = num(proj?.pctBdi);
+  const pctTaxa = num(proj?.pctTaxaLiberacao);
+  const parcelaReferencia = num(proj?.parcelaReferencia);
+
+  const servicos = servicoRows.map((s) => ({
+    id: s.id,
+    nome: s.nome,
+    custoProposto: num(s.custoProposto),
+    limiteMin: s.limiteMin == null ? null : num(s.limiteMin),
+    limiteMax: s.limiteMax == null ? null : num(s.limiteMax),
+  }));
+
+  const incid = calcIncidencias(servicos);
+  const bdi = calcBdi(servicos, pctBdi);
+  const custoRef = custoReferencial(cub, metragem);
+
+  const medicoes = medRows
+    .filter((m) => servicoIds.includes(m.servicoId))
+    .map((m) => ({
+      servicoId: m.servicoId,
+      competencia: m.competencia,
+      pctExecutadoAcum: num(m.pctExecutadoAcum),
+    }));
+  const evolucao = calcEvolucao(servicos, medicoes);
+  const provis = calcProvisionamento(evolucao, {
+    financiamentoConstrucao,
+    financiamentoTerreno,
+    custoReferencial: custoRef,
+    parcelaReferencia,
+    pctTaxa,
+  });
+  const ultimo = provis[provis.length - 1];
+  const ultimaEvol = evolucao[evolucao.length - 1];
+
+  return {
+    financiamentoConstrucao,
+    financiamentoTerreno,
+    totalAquisicao: financiamentoConstrucao + financiamentoTerreno,
+    cub,
+    metragem,
+    custoReferencial: custoRef,
+    parcelaReferencia,
+    pctBdi,
+    pctTaxa,
+    tipoExecutor: proj?.tipoExecutor ?? null,
+    custoTotalServicos: bdi.custoTotalServicos,
+    valorBdi: bdi.valorBdi,
+    custoTotalComBdi: bdi.custoTotalComBdi,
+    servicosForaDosLimites: incid.filter(
+      (s) => s.status === "Abaixo do mínimo" || s.status === "Acima do máximo",
+    ).length,
+    qtdServicos: servicos.length,
+    evolucaoAcumulada: ultimaEvol?.acumulado ?? 0,
+    evolucaoMes: ultimaEvol?.variacao ?? 0,
+    liberacaoMes: ultimo?.liberacao ?? 0,
+    liberacaoAcumulada: ultimo?.liberacaoAcumulada ?? financiamentoTerreno,
+    saldoFinanciamento:
+      ultimo?.saldoFinanciamento ?? financiamentoConstrucao,
+    custoEstimadoMes: ultimo?.custoEstimado ?? 0,
+    geracaoCaixaMes: ultimo?.caixa ?? 0,
+    pctRecebido: ultimo?.pctRecebido ?? 0,
+    temMedicao: evolucao.length > 0,
+    temParametros: financiamentoConstrucao > 0 || cub > 0 || pctBdi > 0,
+  };
 }
