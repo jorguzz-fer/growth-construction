@@ -26,6 +26,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
 import { DespesaSearch } from "@/components/app/despesa-search";
+import { ordenarLancamentos } from "@/lib/despesas-ordering";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
 
@@ -85,17 +86,19 @@ export default async function DespesasPage({
   const fornById = new Map(fornecedores.map((f) => [f.id, f.nome]));
   const total = despesas.reduce((a, d) => a + Number(d.valor), 0);
 
-  // Última despesa lançada (maior createdAt): fica fixada no topo da listagem,
-  // destacada, para servir de conferência do que acabou de ser cadastrado.
-  let latestId: string | null = null;
-  let latestT = -1;
-  for (const d of despesas) {
-    const t = d.createdAt ? d.createdAt.getTime() : 0;
-    if (t >= latestT) {
-      latestT = t;
-      latestId = d.id;
-    }
-  }
+  // Relação de lançamentos: ordenada pelo MOMENTO ORIGINAL DE CRIAÇÃO
+  // (created_at DESC, id DESC) — a última despesa lançada é sempre a primeira
+  // linha, a penúltima a segunda, e assim por diante. Serve de conferência
+  // imediata para quem está lançando.
+  //
+  // Importante: NÃO se ordena por competência/vencimento/pagamento/conciliação,
+  // e editar uma despesa antiga não a traz para o topo (created_at não muda).
+  // A ordenação é feita aqui, na exibição, e não em getDespesas() — essa query
+  // também alimenta Fluxo de Caixa, Contabilidade, conciliação e exportação,
+  // que não devem ter seu comportamento alterado.
+  const lancamentos = ordenarLancamentos(despesas);
+  // A primeira linha (mais recente) recebe o destaque "Último lançamento".
+  const latestId: string | null = lancamentos[0]?.id ?? null;
 
   // Anexos por despesa: marca na lista (clipe) quais despesas têm documento e
   // permite abri-lo direto. Usa o documento mais recente de cada despesa.
@@ -198,6 +201,7 @@ export default async function DespesasPage({
           valor: String(editRow.valor),
           status: editRow.status,
           formaPagamento: editRow.formaPagamento,
+          obs: editRow.obs,
           documentos: editDocsComUrl,
           r2Configured,
         }
@@ -260,7 +264,7 @@ export default async function DespesasPage({
             <DespesaSearch rows={despesas.map(toDTO)} fornecedores={fornecedores} />
           </div>
           <DespesasTable
-            rows={despesas.map(toDTO)}
+            rows={lancamentos.map(toDTO)}
             showOrigem={isAll}
             latestId={latestId}
             canEditar={canEditar}

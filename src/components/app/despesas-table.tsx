@@ -79,7 +79,7 @@ export function DespesasTable({
   rows: DespesaDTO[];
   venc?: boolean;
   showOrigem?: boolean;
-  /** id da última despesa lançada — fixada e destacada no topo (conferência). */
+  /** id da última despesa lançada — recebe o destaque "Último lançamento". */
   latestId?: string | null;
   canEditar: boolean;
   canExcluir: boolean;
@@ -88,12 +88,10 @@ export function DespesasTable({
   const showActions = canEditar || canExcluir;
   const cols = (showActions ? 8 : 7) + (showOrigem ? 1 : 0);
 
-  // Move a última despesa lançada para o topo (sem duplicar), preservando a
-  // ordem das demais.
-  const latest = latestId ? rows.find((r) => r.id === latestId) : undefined;
-  const ordered = latest
-    ? [latest, ...rows.filter((r) => r.id !== latestId)]
-    : rows;
+  // A ordem chega pronta de quem monta a lista (a tela de lançamentos ordena
+  // por created_at DESC, id DESC). Aqui não se reordena — apenas se destaca a
+  // linha do último lançamento.
+  const ordered = rows;
 
   return (
     <Table>
@@ -119,7 +117,7 @@ export function DespesasTable({
             bancos={bancos}
             venc={venc}
             showOrigem={showOrigem}
-            highlight={!!latest && d.id === latestId}
+            highlight={!!latestId && d.id === latestId}
             canEditar={canEditar}
             canExcluir={canExcluir}
           />

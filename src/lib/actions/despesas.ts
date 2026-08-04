@@ -271,6 +271,9 @@ export async function addDespesa(formData: FormData) {
     competencia: s("competencia"),
     vencimento: pagoPorSocioId ? socioDataPagamento : s("vencimento"),
     valor: (formData.get("valor") as string) || "0",
+    // Descrição/observação da compra — campo PRÓPRIO, separado do nº do pedido
+    // (numDoc). O objeto da compra não deve ser guardado no número do pedido.
+    obs: s("obs"),
     status: pagoPorSocioId ? "Pago" : s("status") || "A pagar",
     // Não gera saída de caixa da empresa no momento do cadastro.
     pagoPorTerceiro: !!pagoPorSocioId,
@@ -338,25 +341,34 @@ export async function addDespesa(formData: FormData) {
     );
   }
 
-  // Documento anexado (opcional): armazena no R2 e vincula à despesa criada.
-  const file = formData.get("file") as File | null;
-  if (file && file.size > 0 && isR2Configured()) {
-    const safe = file.name.replace(/[^\w.\-]+/g, "_");
-    const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${safe}`;
-    await putObject(
-      key,
-      new Uint8Array(await file.arrayBuffer()),
-      file.type || "application/octet-stream",
-    );
-    await db.insert(schema.documents).values({
-      tenantId: ctx.tenant.id,
-      despesaId: row.id,
-      storageKey: key,
-      filename: file.name,
-      contentType: file.type || null,
-      size: file.size,
-      uploadedBy: ctx.userEmail || ctx.userId || null,
-    });
+  // Documentos anexados (opcional): VÁRIOS arquivos podem ser enviados já no
+  // lançamento inicial (boleto, nota fiscal, comprovante, foto...). Cada um vira
+  // uma linha em `document` vinculada à mesma despesa — a existência de um anexo
+  // nunca impede os demais.
+  const files = formData
+    .getAll("file")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > 0 && isR2Configured()) {
+    for (const file of files) {
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 8)}_${safe}`;
+      await putObject(
+        key,
+        new Uint8Array(await file.arrayBuffer()),
+        file.type || "application/octet-stream",
+      );
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        despesaId: row.id,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+    }
   }
 
   await logAudit({
@@ -764,4 +776,125 @@ export async function uploadDespesaDoc(formData: FormData) {
     meta: { filename: file.name, despesaId, tipo: (formData.get("tipo") as string) || null },
   });
   revalidatePath("/despesas");
+}
+
+/**
+ * Anexa VÁRIOS arquivos a uma despesa existente — funciona em qualquer momento
+ * do ciclo de vida: na edição, antes ou depois da conciliação e depois de a
+ * despesa estar paga. Nunca substitui nem remove os anexos já existentes.
+ * Retorna o erro (em vez de lançar) para a mensagem chegar à tela em produção.
+ */
+export async function addDespesaDocs(
+  formData: FormData,
+): Promise<{ ok: boolean; added?: number; error?: string }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "editar")) {
+    return { ok: false, error: "Sem permissão para anexar documentos." };
+  }
+  if (!isR2Configured()) {
+    return { ok: false, error: "Storage (R2) não configurado — defina as variáveis R2_*." };
+  }
+  const despesaId = (formData.get("despesaId") as string) || "";
+  if (!despesaId) return { ok: false, error: "Despesa não informada." };
+
+  // A despesa precisa existir NO TENANT — não se checa status: anexar é
+  // permitido inclusive depois de paga/conciliada.
+  const [desp] = await db
+    .select({ id: schema.despesas.id })
+    .from(schema.despesas)
+    .where(and(eq(schema.despesas.id, despesaId), eq(schema.despesas.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!desp) return { ok: false, error: "Despesa não encontrada." };
+
+  const files = formData
+    .getAll("file")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) return { ok: false, error: "Selecione ao menos um arquivo." };
+  for (const f of files) {
+    if (f.size > 10 * 1024 * 1024) {
+      return { ok: false, error: `"${f.name}" excede 10 MB.` };
+    }
+  }
+  const tipo = ((formData.get("tipo") as string) || "").trim() || null;
+
+  try {
+    for (const file of files) {
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 8)}_${safe}`;
+      await putObject(
+        key,
+        new Uint8Array(await file.arrayBuffer()),
+        file.type || "application/octet-stream",
+      );
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        despesaId,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo,
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+    }
+  } catch (e) {
+    console.error("[despesa] falha ao anexar documentos:", e);
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Falha ao enviar os arquivos.",
+    };
+  }
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "document.upload",
+    entity: "despesa",
+    entityId: despesaId,
+    meta: { arquivos: files.map((f) => f.name), qtd: files.length, tipo },
+  });
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+  return { ok: true, added: files.length };
+}
+
+/**
+ * Desvincula UM anexo da despesa, sem afetar os demais.
+ *
+ * ZERO PERDA DE DADOS: remove-se apenas a linha de `document` (o vínculo). O
+ * objeto NÃO é apagado do storage (R2), de modo que o arquivo continua
+ * recuperável pela storageKey registrada na auditoria. Mesmo critério já
+ * adotado na exclusão de documentos de projeto.
+ */
+export async function deleteDespesaDoc(
+  documentId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "despesas", "editar")) {
+    return { ok: false, error: "Sem permissão para remover anexos." };
+  }
+  const [doc] = await db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.id, documentId), eq(schema.documents.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!doc) return { ok: false, error: "Anexo não encontrado." };
+
+  await db.delete(schema.documents).where(eq(schema.documents.id, doc.id));
+
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "document.unlink",
+    entity: "despesa",
+    entityId: doc.despesaId ?? "—",
+    // storageKey fica registrada: o arquivo permanece no storage e pode ser
+    // revinculado se a remoção tiver sido indevida.
+    meta: { documentId: doc.id, filename: doc.filename, storageKey: doc.storageKey },
+  });
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+  return { ok: true };
 }
