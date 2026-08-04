@@ -173,7 +173,27 @@ async function main() {
     "totais iguais nas duas telas",
   );
 
-  // ── 9. VERSÕES Budget e Forecast: fonte diferente da Atual ───────────────
+  // ── 9. CONTA A RECEBER lançada compõe a projeção da versão Atual ─────────
+  // A projeção de receita futura da Atual depende das contas a receber
+  // lançadas — não só dos planos de pagamento das vendas.
+  const VALOR_CR = 2500;
+  await db.insert(schema.contasReceber).values({
+    tenantId: tenant.id,
+    projectId: project.id,
+    descricao: "Receita avulsa lançada",
+    tipo: "Outros",
+    valor: String(VALOR_CR),
+    vencimento: VENC_DESPESA, // 07/15/2026 → competência 07/2026
+    status: "A receber",
+  });
+  const receitaComCR = await getMonthlyRevenue(atual.id, project.id);
+  check(
+    "Conta a receber lançada entra na projeção da Atual",
+    (receitaComCR["07/2026"] ?? 0) === VALOR_PARCELA + VALOR_CR,
+    `07/2026 = R$ ${receitaComCR["07/2026"] ?? 0} (venda ${VALOR_PARCELA} + conta ${VALOR_CR})`,
+  );
+
+  // ── 10. VERSÕES Budget e Forecast: fonte diferente da Atual ──────────────
   // Atual  → despesas (tabela despesa) + recebíveis do plano de venda.
   // Budget/Forecast → budget_line (kind receita/despesa). São planejamento; NÃO
   // devem enxergar as despesas/vendas lançadas na Atual.
@@ -194,7 +214,7 @@ async function main() {
     // "vazar" os lançamentos da Atual.
     const semLinhas = await getMonthlyRevenue(v.id, project.id);
     check(
-      `Receita ${kind} sem planejamento = 0 (não vaza da Atual)`,
+      `Receita ${kind} = 0 sem planejamento (não herda venda nem conta a receber)`,
       Object.values(semLinhas).reduce((a, x) => a + x, 0) === 0,
       `total R$ ${Object.values(semLinhas).reduce((a, x) => a + x, 0)}`,
     );
@@ -216,12 +236,14 @@ async function main() {
       `${COMPETENCIA} = R$ ${comLinhas[COMPETENCIA] ?? 0}`,
     );
 
-    // A Atual não pode ser contaminada pelo planejamento.
+    // A Atual não pode ser contaminada pelo planejamento. O esperado é a soma
+    // do que foi lançado NA ATUAL: recebível da venda + conta a receber.
+    const esperadoAtual = VALOR_PARCELA + VALOR_CR;
     const atualDepois = await getMonthlyRevenue(atual.id, project.id);
     check(
       `Atual não é afetada pelo ${kind}`,
-      (atualDepois[COMPETENCIA] ?? 0) === VALOR_PARCELA,
-      `Atual ${COMPETENCIA} = R$ ${atualDepois[COMPETENCIA] ?? 0}`,
+      (atualDepois[COMPETENCIA] ?? 0) === esperadoAtual,
+      `Atual ${COMPETENCIA} = R$ ${atualDepois[COMPETENCIA] ?? 0} (esperado ${esperadoAtual})`,
     );
   }
 

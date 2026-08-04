@@ -1082,13 +1082,21 @@ export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
 }
 
 /**
- * Receita projetada mês a mês de uma versão. Para Budget/Forecast usa o
- * lançamento simplificado (budget_line, receita); para a versão detalhada usa
- * unidades + reembolsos (calcProjection).
+ * Receita projetada mês a mês de uma versão.
+ *
+ * Cada versão respeita o que foi lançado NELA:
+ *  - Budget/Forecast → budget_line (planejamento);
+ *  - Atual → o que está efetivamente lançado, isto é, as CONTAS A RECEBER
+ *    lançadas mais os recebíveis derivados dos planos de pagamento das vendas,
+ *    mais os reembolsos. É daí que sai a projeção de receita futura.
+ *
+ * As duas origens da Atual são complementares, não duplicadas: os recebíveis de
+ * venda são derivados do plano da unidade e não são copiados para conta_receber
+ * (ver comentário do schema em `contasReceber`).
  */
 export async function getMonthlyRevenue(
   versionId: string,
-  _projectId: string,
+  projectId: string,
 ): Promise<MonthlyProjection> {
   const kind = await getVersionKind(versionId);
   if (kind === "budget" || kind === "forecast") {
@@ -1125,6 +1133,29 @@ export async function getMonthlyRevenue(
   }
   const reemb = reembursementsByMonth(reembToCalc(reembRows));
   for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+
+  // CONTAS A RECEBER lançadas do projeto — a projeção de receita futura da
+  // versão Atual depende delas. Sem isto, uma receita lançada à mão (fora de um
+  // plano de venda) aparecia em Contas a Receber e sumia da DRE, do Fluxo de
+  // Caixa e do Dashboard. Agrega pelo mês do vencimento e ignora as canceladas.
+  const crRows = await db
+    .select({
+      valor: schema.contasReceber.valor,
+      vencimento: schema.contasReceber.vencimento,
+    })
+    .from(schema.contasReceber)
+    .where(
+      and(
+        eq(schema.contasReceber.projectId, projectId),
+        eq(schema.contasReceber.cancelado, false),
+      ),
+    );
+  for (const c of crRows) {
+    const p = (c.vencimento ?? "").split("/");
+    if (p.length !== 3) continue;
+    const mk = `${p[0]}/${p[2]}`;
+    out[mk] = (out[mk] || 0) + Number(c.valor);
+  }
   return out;
 }
 
