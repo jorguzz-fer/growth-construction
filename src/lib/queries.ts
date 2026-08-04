@@ -852,8 +852,22 @@ export async function getBudgetPlanning(
   const build = (nat: "receita" | "despesa"): import("./planning").PlanningAccountRow[] => {
     const rows: import("./planning").PlanningAccountRow[] = [];
     const seen = new Set<string>();
+    const ativos = grupos.filter((x) => x.ativo);
+    let daNatureza = ativos.filter((x) => x.natureza === nat);
+    // O Plano de Contas é ÚNICO e vale para todos os projetos. A coluna
+    // `natureza` tem default "despesa", então em geral nenhuma conta está
+    // marcada como receita — e o bloco de receitas do Budget/Forecast ficava
+    // sem nenhuma linha para lançar.
+    //
+    // Quando não há nenhum grupo marcado como receita, usam-se os grupos que já
+    // existem no Plano de Contas, em vez de exigir a criação de contas novas.
+    // Se o usuário marcar contas como receita no Plano de Contas, essa marcação
+    // passa a valer e só elas aparecem aqui.
+    if (nat === "receita" && daNatureza.length === 0) {
+      daNatureza = ativos;
+    }
     // Grupos ativos da natureza (fonte oficial das linhas).
-    for (const g of grupos.filter((x) => x.natureza === nat && x.ativo)) {
+    for (const g of daNatureza) {
       const key = `${nat}|${g.groupCode}`;
       seen.add(g.groupCode);
       rows.push({
