@@ -2,13 +2,13 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import * as XLSX from "xlsx";
 import {
   importCash,
   extractExtratoPdf,
   matchCandidatosMovimento,
   pairMovimento,
+  criarLancamentoDoExtrato,
   type ImportCashRow,
   type CandidatoMatch,
 } from "@/lib/actions/caixa";
@@ -186,9 +186,11 @@ function parseSheet(aoa: unknown[][]): ParseResult {
 export function ImportExtratoButton({
   contas,
   aiConfigured = false,
+  projetos = [],
 }: {
   contas: Conta[];
   aiConfigured?: boolean;
+  projetos?: { id: string; nome: string }[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -206,6 +208,14 @@ export function ImportExtratoButton({
   const [loadingCands, startCands] = useTransition();
   const [pairing, startPairing] = useTransition();
   const [modalErro, setModalErro] = useState<string | null>(null);
+  // Busca manual dentro do modal de pareamento.
+  const [buscaPar, setBuscaPar] = useState("");
+  // Modal "Adicionar": cria o lançamento JÁ CONCILIADO (pago/recebido).
+  const [adicionando, setAdicionando] = useState<PreviewRow | null>(null);
+  const [addProjeto, setAddProjeto] = useState("");
+  const [addObs, setAddObs] = useState("");
+  const [addErro, setAddErro] = useState<string | null>(null);
+  const [addBusy, startAdd] = useTransition();
 
   const isPdfOrImage = (file: File) =>
     file.type === "application/pdf" || file.type.startsWith("image/");
@@ -289,39 +299,63 @@ export function ImportExtratoButton({
       return next && next.length ? next : null;
     });
 
-  /** Link "Adicionar": abre o cadastro pré-preenchido (nova aba). */
-  function addHref(r: PreviewRow): string {
-    if (r.tipo === "saida") {
-      const p = new URLSearchParams({ tab: "lancamentos", novo: "1" });
-      p.set("pf_valor", String(Math.abs(r.valor)));
-      if (r.data) {
-        p.set("pf_venc", r.data);
-        const parts = r.data.split("/");
-        if (parts.length === 3) p.set("pf_comp", `${parts[0]}/${parts[2]}`);
+  function carregarCandidatos(r: PreviewRow, termo: string) {
+    startCands(async () => {
+      try {
+        const res = await matchCandidatosMovimento(
+          { data: r.data, descricao: r.descricao, valor: r.valor, doc: r.doc },
+          termo,
+        );
+        setCands(res.candidatos);
+      } catch {
+        setModalErro("Falha ao buscar candidatos de conciliação.");
+        setCands([]);
       }
-      if (r.doc) p.set("pf_doc", r.doc);
-      return `/despesas?${p.toString()}`;
-    }
-    // Entrada → cadastro de contas a receber.
-    return "/contasreceber";
+    });
   }
 
   function abrirParear(r: PreviewRow) {
     setModalErro(null);
     setCands(null);
+    setBuscaPar("");
     setMatching(r);
-    startCands(async () => {
-      try {
-        const res = await matchCandidatosMovimento({
-          data: r.data,
-          descricao: r.descricao,
-          valor: r.valor,
-          doc: r.doc,
-        });
-        setCands(res.candidatos);
-      } catch {
-        setModalErro("Falha ao buscar candidatos de conciliação.");
-        setCands([]);
+    carregarCandidatos(r, "");
+  }
+
+  /** Abre o cadastro rápido que cria o lançamento JÁ conciliado. */
+  function abrirAdicionar(r: PreviewRow) {
+    setAddErro(null);
+    setAddObs(r.descricao);
+    setAddProjeto(projetos[0]?.id ?? "");
+    setAdicionando(r);
+  }
+
+  function confirmarAdicionar() {
+    const r = adicionando;
+    if (!r) return;
+    if (!addProjeto) {
+      setAddErro("Selecione o projeto.");
+      return;
+    }
+    setAddErro(null);
+    startAdd(async () => {
+      const res = await criarLancamentoDoExtrato({
+        mov: { data: r.data, descricao: r.descricao, valor: r.valor, doc: r.doc },
+        bankAccountId: bankAccountId || null,
+        projectId: addProjeto,
+        obs: addObs || null,
+      });
+      if (res.ok) {
+        setAdicionando(null);
+        removeRow(r);
+        setMsg(
+          r.tipo === "saida"
+            ? "Despesa criada e já marcada como PAGA (conciliada com o extrato)."
+            : "Conta a receber criada e já marcada como RECEBIDA (conciliada com o extrato).",
+        );
+        router.refresh();
+      } else {
+        setAddErro(res.error ?? "Falha ao criar o lançamento.");
       }
     });
   }
@@ -506,19 +540,17 @@ export function ImportExtratoButton({
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                          <Link
-                            href={addHref(r)}
-                            target="_blank"
-                            onClick={() => removeRow(r)}
+                          <button
+                            onClick={() => abrirAdicionar(r)}
                             className="rounded-[6px] bg-[var(--color-accent2)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90"
                             title={
                               r.tipo === "saida"
-                                ? "Abrir cadastro de despesa pré-preenchido (nova aba)"
-                                : "Abrir contas a receber (nova aba)"
+                                ? "Cadastrar a despesa já PAGA (conciliada com o extrato)"
+                                : "Cadastrar a conta a receber já RECEBIDA (conciliada com o extrato)"
                             }
                           >
                             Adicionar
-                          </Link>
+                          </button>
                           <button
                             onClick={() => abrirParear(r)}
                             className="rounded-[6px] border border-[var(--color-accent2)]/40 px-2 py-1 text-[11px] font-medium text-[var(--color-accent2)] hover:bg-[var(--color-accent4)]"
@@ -614,6 +646,27 @@ export function ImportExtratoButton({
               </strong>
             </p>
 
+            {/* Busca inteligente entre os lançamentos JÁ LANÇADOS: o usuário
+                encontra qualquer despesa/receita, mesmo quando o valor do
+                extrato não bate exatamente com o previsto. */}
+            <div className="mb-3 flex items-center gap-2 rounded-[8px] border border-[var(--color-accent2)]/20 px-3 py-2">
+              <span aria-hidden className="text-[var(--color-ink3)]">🔍</span>
+              <input
+                value={buscaPar}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBuscaPar(v);
+                  if (matching) carregarCandidatos(matching, v);
+                }}
+                placeholder={
+                  matching?.tipo === "saida"
+                    ? "Buscar despesa lançada por fornecedor, nº do pedido, projeto ou valor…"
+                    : "Buscar conta a receber por cliente, descrição, projeto ou valor…"
+                }
+                className="w-full bg-transparent text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink4)]"
+              />
+            </div>
+
             {loadingCands && (
               <p className="py-6 text-center text-[12px] text-[var(--color-ink3)]">
                 Buscando candidatos…
@@ -669,6 +722,88 @@ export function ImportExtratoButton({
             {modalErro && (
               <p className="mt-3 text-xs text-[var(--color-danger)]">{modalErro}</p>
             )}
+          </div>
+        </div>
+      )}
+      {/* Modal ADICIONAR: cria a despesa/conta a receber com os dados do extrato
+          e JÁ A DEIXA CONCILIADA (paga/recebida), pois o movimento já ocorreu
+          no banco. */}
+      {adicionando && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !addBusy && setAdicionando(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-[12px] bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 text-sm font-semibold text-[var(--color-ink)]">
+              {adicionando.tipo === "saida"
+                ? "Nova despesa a partir do extrato"
+                : "Nova conta a receber a partir do extrato"}
+            </h3>
+            <p className="mb-3 text-[12px] text-[var(--color-ink3)]">
+              {adicionando.data ? dateBR(adicionando.data) : "—"} ·{" "}
+              <strong
+                className={
+                  adicionando.valor < 0
+                    ? "text-[var(--color-danger)]"
+                    : "text-[var(--color-success)]"
+                }
+              >
+                {brl(adicionando.valor)}
+              </strong>
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <Label>Projeto (obra)</Label>
+                <Select
+                  value={addProjeto}
+                  onChange={(e) => setAddProjeto(e.target.value)}
+                >
+                  <option value="">Selecione…</option>
+                  {projetos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Descrição</Label>
+                <Input value={addObs} onChange={(e) => setAddObs(e.target.value)} />
+              </div>
+            </div>
+
+            <p className="mt-3 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[11.5px] text-[var(--color-ink2)]">
+              Como o lançamento foi identificado no extrato, ele será gravado já{" "}
+              <strong>
+                {adicionando.tipo === "saida" ? "PAGO" : "RECEBIDO"} e conciliado
+              </strong>{" "}
+              na data do movimento.
+            </p>
+
+            {addErro && (
+              <p className="mt-2 text-xs text-[var(--color-danger)]">{addErro}</p>
+            )}
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={addBusy}
+                onClick={() => setAdicionando(null)}
+              >
+                Cancelar
+              </Button>
+              <Button disabled={addBusy} onClick={confirmarAdicionar}>
+                {addBusy
+                  ? "Criando…"
+                  : adicionando.tipo === "saida"
+                    ? "Criar despesa paga"
+                    : "Criar receita recebida"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

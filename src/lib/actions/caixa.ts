@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
+import { registroCasa } from "@/lib/busca";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import {
@@ -14,6 +15,7 @@ import {
   getContasReceber,
 } from "@/lib/queries";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
+import { getAtualVersion } from "@/lib/queries";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import {
@@ -796,6 +798,8 @@ function dayNum(d?: string | null): number | null {
  */
 export async function matchCandidatosMovimento(
   mov: MovimentoTriage,
+  /** termo de busca manual (opcional) — permite achar QUALQUER lançamento. */
+  q?: string,
 ): Promise<{ tipo: "saida" | "entrada"; candidatos: CandidatoMatch[] }> {
   const tipo: "saida" | "entrada" = Number(mov.valor) < 0 ? "saida" : "entrada";
   const ctx = await getActiveContext();
@@ -806,7 +810,17 @@ export async function matchCandidatosMovimento(
   const descNorm = normNome(mov.descricao ?? "");
   const movDay = dayNum(mov.data);
   const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
+  const busca = (q ?? "").trim();
 
+  /**
+   * Avalia um lançamento em aberto como candidato.
+   *
+   * IMPORTANTE: nenhum candidato é DESCARTADO por diferença de valor. Antes, um
+   * lançamento cujo valor diferisse mais de 2% era eliminado, e a tela auxiliar
+   * aparecia vazia sempre que o extrato não batia ao centavo — que é o caso
+   * comum (juros, desconto, tarifa, pagamento parcial). Agora a diferença apenas
+   * REBAIXA o grau de compatibilidade, e o usuário decide.
+   */
   function avaliar(
     id: string,
     kind: "despesa" | "receita",
@@ -816,12 +830,19 @@ export async function matchCandidatosMovimento(
     valorPrev: number,
     restante: number,
     vencimento: string | null,
-  ): (CandidatoMatch & { _prox: number }) | null {
+  ): (CandidatoMatch & { _prox: number; _score: number }) | null {
+    // Busca manual: quando há termo, ele filtra (busca inteligente por
+    // similaridade em nome, descrição, projeto e valor).
+    if (
+      busca &&
+      !registroCasa(busca, [nome, descricao, projectName, vencimento], [valorPrev])
+    ) {
+      return null;
+    }
     const candCents = cents(Math.abs(restante > 0 ? restante : valorPrev));
     const diff = Math.abs(candCents - alvoCents);
     const exato = diff === 0;
     const aprox = diff <= tol;
-    if (!exato && !aprox) return null; // valor incompatível → descarta
     const primeiro = normNome(nome ?? "").split(/\s+/)[0] ?? "";
     const nomeMatch = primeiro.length >= 3 && descNorm.includes(primeiro);
     const vd = dayNum(vencimento);
@@ -832,6 +853,9 @@ export async function matchCandidatosMovimento(
     if (exato && (dataProx || nomeMatch)) grau = "alta";
     else if (exato || (aprox && (dataProx || nomeMatch))) grau = "media";
     else grau = "baixa";
+    // Score de ordenação: menor = mais relevante. A diferença de valor pesa,
+    // mas não elimina.
+    const _score = diff / 100 + (nomeMatch ? -1000 : 0) + Math.min(prox, 365);
     return {
       id,
       tipo: kind,
@@ -842,10 +866,11 @@ export async function matchCandidatosMovimento(
       vencimento,
       grau,
       _prox: prox,
+      _score,
     };
   }
 
-  const out: (CandidatoMatch & { _prox: number })[] = [];
+  const out: (CandidatoMatch & { _prox: number; _score: number })[] = [];
   if (tipo === "saida") {
     const contas = await getContasPagar(ctx.tenant.id);
     for (const c of contas) {
@@ -884,9 +909,11 @@ export async function matchCandidatosMovimento(
   out.sort((a, b) => {
     const g = rankGrau[a.grau] - rankGrau[b.grau];
     if (g !== 0) return g;
-    return a._prox - b._prox;
+    return a._score - b._score;
   });
-  const candidatos: CandidatoMatch[] = out.slice(0, 8).map((c) => ({
+  // Limite maior: como nada é descartado por valor, a lista precisa caber os
+  // casos em que o usuário procura manualmente.
+  const candidatos: CandidatoMatch[] = out.slice(0, 40).map((c) => ({
     id: c.id,
     tipo: c.tipo,
     nome: c.nome,
@@ -995,6 +1022,191 @@ export async function pairMovimento(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Falha ao conciliar o movimento.",
+    };
+  }
+}
+
+/**
+ * "Adicionar" a partir do extrato: cria uma NOVA despesa (saída) ou conta a
+ * receber (entrada) com os dados identificados no extrato e JÁ A DEIXA
+ * CONCILIADA — paga (despesa) ou recebida (conta a receber).
+ *
+ * A conciliação é automática porque o lançamento nasce de um movimento que já
+ * ocorreu no banco: se está no extrato, o dinheiro já entrou/saiu. Também grava
+ * a movimentação de caixa e a vincula ao registro criado, para auditoria.
+ *
+ * Diferença para `criarContaFromExtrato`: aquela converte um movimento JÁ
+ * IMPORTADO; esta recebe a linha do extrato ainda em conferência, junto dos
+ * dados que o usuário revisou/completou na tela de cadastro.
+ */
+export async function criarLancamentoDoExtrato(input: {
+  mov: MovimentoTriage;
+  bankAccountId?: string | null;
+  projectId: string;
+  /** despesa (saída) */
+  fornecedorId?: string | null;
+  contaCef?: string | null;
+  categoriaDre?: string | null;
+  competencia?: string | null;
+  obs?: string | null;
+  /** conta a receber (entrada) */
+  clienteId?: string | null;
+  tipoReceita?: string | null;
+}): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
+    return { ok: false, error: "Sem permissão." };
+  }
+  if (ctx.version.locked) return { ok: false, error: "Versão congelada." };
+
+  const valor = Number(input.mov.valor);
+  if (!Number.isFinite(valor) || valor === 0) {
+    return { ok: false, error: "Movimento sem valor válido." };
+  }
+  const contas = await db
+    .select({ id: schema.bankAccounts.id })
+    .from(schema.bankAccounts)
+    .where(eq(schema.bankAccounts.tenantId, ctx.tenant.id));
+  const bankAccountId =
+    input.bankAccountId && contas.some((c) => c.id === input.bankAccountId)
+      ? input.bankAccountId
+      : null;
+
+  try {
+    // Movimentação bancária correspondente (reaproveita se já existir pendente).
+    const sig = importSignature(bankAccountId, input.mov.data, valor, input.mov.doc);
+    const existentes = await db
+      .select()
+      .from(schema.cashEntries)
+      .where(
+        and(
+          eq(schema.cashEntries.tenantId, ctx.tenant.id),
+          eq(schema.cashEntries.importHash, sig),
+        ),
+      );
+    if (
+      existentes.some((e) => e.rec || e.conciliadoDespesaId || e.conciliadoContaReceberId)
+    ) {
+      return { ok: false, error: "Este movimento já foi conciliado antes." };
+    }
+    const agora = new Date().toISOString();
+    const pend = existentes[0];
+    let cashId: string;
+    if (pend) {
+      cashId = pend.id;
+    } else {
+      const [row] = await db
+        .insert(schema.cashEntries)
+        .values({
+          versionId: ctx.version.id,
+          tenantId: ctx.tenant.id,
+          bankAccountId,
+          data: input.mov.data || null,
+          descricao: input.mov.descricao || null,
+          valor: String(valor),
+          cat: valor < 0 ? "despesa" : "receita",
+          doc: input.mov.doc || null,
+          importHash: sig,
+          rec: false,
+        })
+        .returning();
+      cashId = row.id;
+    }
+
+    if (valor < 0) {
+      // ── SAÍDA → nova despesa, já PAGA na data do movimento ────────────────
+      const versao = await getAtualVersion(ctx.tenant.id, input.projectId);
+      if (!versao) return { ok: false, error: "Versão atual do projeto não encontrada." };
+      const numDoc = input.mov.doc?.trim()
+        ? input.mov.doc.trim()
+        : await reserveDespesaNumber(ctx.tenant.id);
+      const [desp] = await db
+        .insert(schema.despesas)
+        .values({
+          versionId: versao.id,
+          tenantId: ctx.tenant.id,
+          numDoc,
+          fornecedorId: input.fornecedorId || null,
+          contaCef: input.contaCef || null,
+          categoriaDre: (input.categoriaDre as never) || null,
+          competencia: input.competencia || monthKeyFrom(input.mov.data),
+          vencimento: input.mov.data || null,
+          valor: String(Math.abs(valor)),
+          // Identificada no extrato ⇒ já paga.
+          status: "Pago",
+          dataCaixa: input.mov.data || null,
+          bancoId: bankAccountId,
+          obs: input.obs || input.mov.descricao || null,
+        })
+        .returning();
+      await db
+        .update(schema.cashEntries)
+        .set({
+          rec: true,
+          conciliadoDespesaId: desp.id,
+          conciliadoPor: ctx.userEmail || ctx.userId || null,
+          conciliadoEm: agora,
+        })
+        .where(eq(schema.cashEntries.id, cashId));
+      await logAudit({
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "extrato.criarDespesaConciliada",
+        entity: "despesa",
+        entityId: desp.id,
+        meta: { cashEntryId: cashId, valor: desp.valor, numDoc },
+      });
+      revalidatePath("/despesas");
+      revalidatePath("/contaspagar");
+      revalidatePath("/caixa");
+      return { ok: true, id: desp.id };
+    }
+
+    // ── ENTRADA → nova conta a receber, já RECEBIDA na data do movimento ────
+    const [cr] = await db
+      .insert(schema.contasReceber)
+      .values({
+        tenantId: ctx.tenant.id,
+        projectId: input.projectId,
+        clienteId: input.clienteId || null,
+        descricao: input.obs || input.mov.descricao || "Identificado no extrato",
+        tipo: input.tipoReceita || "Outros",
+        valor: String(valor),
+        vencimento: input.mov.data || null,
+        // Identificada no extrato ⇒ já recebida.
+        dataRecebimento: input.mov.data || null,
+        valorRecebido: String(valor),
+        status: "Recebido",
+        bancoId: bankAccountId,
+        origemCashEntryId: cashId,
+        createdBy: ctx.userEmail || ctx.userId || null,
+      })
+      .returning();
+    await db
+      .update(schema.cashEntries)
+      .set({
+        rec: true,
+        conciliadoContaReceberId: cr.id,
+        conciliadoPor: ctx.userEmail || ctx.userId || null,
+        conciliadoEm: agora,
+      })
+      .where(eq(schema.cashEntries.id, cashId));
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "extrato.criarContaReceberConciliada",
+      entity: "conta_receber",
+      entityId: cr.id,
+      meta: { cashEntryId: cashId, valor: cr.valor },
+    });
+    revalidatePath("/contasreceber");
+    revalidatePath("/caixa");
+    return { ok: true, id: cr.id };
+  } catch (e) {
+    console.error("[extrato] falha ao criar lançamento conciliado:", e);
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Falha ao criar o lançamento.",
     };
   }
 }
