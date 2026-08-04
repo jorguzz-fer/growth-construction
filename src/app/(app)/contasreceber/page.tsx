@@ -11,21 +11,39 @@ import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { ContasReceberManager } from "@/components/app/contas-receber-manager";
 import { ReceitaSearch, type ReceitaBuscavel } from "@/components/app/receita-search";
+import { ProjectPicker } from "@/components/app/project-picker";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContasReceberPage() {
+export default async function ContasReceberPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string }>;
+}) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "contasreceber", "ver")) return <AccessDenied />;
 
-  const [contas, receivables, clientes, bancos, unidades] = await Promise.all([
+  const sp = await searchParams;
+
+  const [contasAll, receivablesAll, clientes, bancos, unidades] = await Promise.all([
     getContasReceber(ctx.tenant.id),
     getReceivables(ctx.tenant.id),
     getClientes(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
     getUnitCodesByTenant(ctx.tenant.id),
   ]);
+
+  // Filtro por projeto (?proj=): "all" mostra todos. As DUAS listagens — contas
+  // lançadas e recebíveis das vendas — respeitam o projeto escolhido.
+  const isAll = !sp.proj || sp.proj === "all";
+  const projSel = isAll
+    ? null
+    : (ctx.projects.find((p) => p.id === sp.proj) ?? null);
+  const contas = projSel ? contasAll.filter((c) => c.projectId === projSel.id) : contasAll;
+  const receivables = projSel
+    ? receivablesAll.filter((r) => r.projectId === projSel.id)
+    : receivablesAll;
 
   // Lista unificada para a busca (contas lançadas + recebíveis das vendas).
   const receitasBuscaveis: ReceitaBuscavel[] = [
@@ -58,8 +76,15 @@ export default async function ContasReceberPage() {
   return (
     <>
       <PageHeader
-        eyebrow={ctx.tenant.name}
+        eyebrow={projSel ? `${projSel.name} · ${ctx.tenant.name}` : `Todos os projetos · ${ctx.tenant.name}`}
         title="Contas a Receber"
+        actions={
+          <ProjectPicker
+            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            selected={projSel ? projSel.id : "all"}
+            allOption
+          />
+        }
         subtitle="Recebíveis das vendas (Unidades) e contas a receber lançadas manualmente — vinculadas a um projeto."
       />
       {/* Busca de receitas: cobre as duas origens da tela — contas a receber
