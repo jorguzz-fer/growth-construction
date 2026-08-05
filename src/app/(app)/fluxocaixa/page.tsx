@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { getActiveContext } from "@/lib/context";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
@@ -24,10 +25,6 @@ import { ProjecaoYearSelect } from "@/components/app/projecao-controls";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { ProjectPicker } from "@/components/app/project-picker";
-import {
-  VersionCompareTable,
-  type CompareRow,
-} from "@/components/app/version-compare";
 import { resolveCompareVersions } from "@/lib/report-versions";
 import type { Version } from "@/lib/context";
 
@@ -129,7 +126,6 @@ export default async function FluxoCaixaPage({
   // selecionar/comparar outras versões pelo seletor.
   const atualVersion = versoes.find((v) => v.kind === "atual") ?? versoes[0] ?? ctx.version;
   const compareVersions = resolveCompareVersions(sp.vs, versoes, atualVersion);
-  const multi = compareVersions.length > 1 && !isAll;
   const projectSelect = (
     <ProjectPicker
       projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
@@ -167,54 +163,20 @@ export default async function FluxoCaixaPage({
     return { entradas, saidas };
   }
 
-  // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
-  if (multi) {
-    const inFilter = (mm: string) => !hasRange || monthInRange(mm, de, ate);
-    const perVersion = await Promise.all(
-      compareVersions.map((v) => flowMaps(v, project.id)),
-    );
-    const sumMap = (map: Record<string, number>) =>
-      Object.entries(map)
-        .filter(([m]) => inFilter(m))
-        .reduce((a, [, val]) => a + val, 0);
-    const rows: CompareRow[] = [
-      { label: "Entradas", values: perVersion.map((p) => sumMap(p.entradas)) },
-      { label: "(−) Saídas", values: perVersion.map((p) => sumMap(p.saidas)) },
-      {
-        label: "= Saldo do período",
-        emphasis: "final",
-        values: perVersion.map((p) => sumMap(p.entradas) - sumMap(p.saidas)),
-      },
-    ];
-    return (
-      <>
-        <PageHeader
-          title="Fluxo de Caixa Mensal"
-          subtitle="Comparativo de versões · entradas, saídas e saldo do período"
-          actions={
-            <div className="flex flex-wrap items-end gap-3">
-              {projectSelect}
-              <DateRangeFilter de={de} ate={ate} />
-              {versionSelect}
-            </div>
-          }
-        />
-        <VersionCompareTable
-          firstColLabel="Indicador"
-          columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
-          rows={rows}
-        />
-      </>
-    );
-  }
-
-  // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
-  const version = compareVersions[0];
-  const [{ entradas, saidas }, incc, contas] = await Promise.all([
-    isAll ? flowMapsConsolidado() : flowMaps(version, project.id),
+  // ── Fluxo mensal, com UMA COLUNA POR VERSÃO ──────────────────────────────
+  // A comparação acontece dentro da própria tabela de fechamentos mensais: o
+  // usuário nunca troca de tela para comparar versões.
+  const versoesTabela = isAll ? [atualVersion] : compareVersions;
+  const [fluxos, incc, contas] = await Promise.all([
+    isAll
+      ? flowMapsConsolidado().then((m) => [m])
+      : Promise.all(compareVersions.map((v) => flowMaps(v, project.id))),
     getInccRows(project.id),
     getBankAccounts(ctx.tenant.id),
   ]);
+  // A primeira versão selecionada é a de referência (entradas/saídas/saldo
+  // acumulado dos cartões do topo).
+  const { entradas, saidas } = fluxos[0];
 
   // Saldo inicial = soma dos saldos das contas correntes.
   // Saldo inicial = só contas da empresa (contas "Terceiros" são obrigações).
@@ -224,8 +186,7 @@ export default async function FluxoCaixaPage({
   const axis = [
     ...new Set([
       ...incc.map((r) => r.m),
-      ...Object.keys(entradas),
-      ...Object.keys(saidas),
+      ...fluxos.flatMap((f) => [...Object.keys(f.entradas), ...Object.keys(f.saidas)]),
     ]),
   ].sort(sortMonthKey);
   // Recortes por ano-calendário (2025, 2026, … até o ano atual + 5).
@@ -264,7 +225,11 @@ export default async function FluxoCaixaPage({
     <>
       <PageHeader
         title="Fluxo de Caixa Mensal"
-        subtitle="Por data de vencimento/pagamento · saldo acumulado"
+        subtitle={
+          versoesTabela.length > 1
+            ? "Comparando versões mês a mês · por data de vencimento/pagamento"
+            : "Por data de vencimento/pagamento · saldo acumulado"
+        }
         actions={
           <div className="flex flex-wrap items-end gap-3">
             {projectSelect}
@@ -277,21 +242,89 @@ export default async function FluxoCaixaPage({
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Kpi icon="↓" label="Total entradas" value={brlk(totE)} tone="success" />
-        <Kpi icon="↑" label="Total saídas" value={brlk(totS)} tone="danger" />
-        <Kpi icon="⚖" label="Saldo do período" value={brlk(totE - totS)} tone="accent" />
-      </div>
+      {versoesTabela.length > 1 ? (
+        // Comparando versões: um cartão de saldo por versão, com a diferença
+        // em relação à primeira (referência) — sem trocar de tela.
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {fluxos.map((f, i) => {
+            const te = yearMonths.reduce((a, m) => a + (f.entradas[m] || 0), 0);
+            const ts = yearMonths.reduce((a, m) => a + (f.saidas[m] || 0), 0);
+            const saldo = te - ts;
+            const ref =
+              yearMonths.reduce((a, m) => a + (fluxos[0].entradas[m] || 0), 0) -
+              yearMonths.reduce((a, m) => a + (fluxos[0].saidas[m] || 0), 0);
+            const dif = saldo - ref;
+            return (
+              <Card key={versoesTabela[i]?.id ?? i}>
+                <CardContent className="p-5">
+                  <p className="flex items-center gap-1.5 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                    <span
+                      className="inline-block h-2 w-2 rounded-full"
+                      style={{ backgroundColor: versoesTabela[i]?.color }}
+                    />
+                    {versoesTabela[i]?.label}
+                  </p>
+                  <p className="mt-1 font-[family-name:var(--font-mono)] text-[22px] font-semibold text-[var(--color-accent)]">
+                    {brlk(saldo)}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[var(--color-ink4)]">
+                    {brlk(te)} entradas · {brlk(ts)} saídas
+                    {i > 0 && (
+                      <span
+                        className={
+                          dif >= 0
+                            ? " text-[var(--color-success)]"
+                            : " text-[var(--color-danger)]"
+                        }
+                      >
+                        {" "}· {dif >= 0 ? "+" : "−"}
+                        {brlk(Math.abs(dif))} vs {versoesTabela[0]?.label}
+                      </span>
+                    )}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Kpi icon="↓" label="Total entradas" value={brlk(totE)} tone="success" />
+          <Kpi icon="↑" label="Total saídas" value={brlk(totS)} tone="danger" />
+          <Kpi icon="⚖" label="Saldo do período" value={brlk(totE - totS)} tone="accent" />
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
           <Table>
             <THead>
+              {versoesTabela.length > 1 && (
+                <tr>
+                  <TH />
+                  {versoesTabela.map((v) => (
+                    <TH key={v.id} colSpan={3} className="text-center">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ backgroundColor: v.color }}
+                        />
+                        {v.label}
+                      </span>
+                    </TH>
+                  ))}
+                  <TH />
+                </tr>
+              )}
               <tr>
                 <TH>Mês</TH>
-                <TH className="text-right">Entradas</TH>
-                <TH className="text-right">Saídas</TH>
-                <TH className="text-right">Saldo do mês</TH>
+                {versoesTabela.map((v) => (
+                  <Fragment key={v.id}>
+                    <TH className="text-right">Entradas</TH>
+                    <TH className="text-right">Saídas</TH>
+                    <TH className="text-right">Saldo do mês</TH>
+                  </Fragment>
+                ))}
                 <TH className="text-right">Saldo acumulado</TH>
               </tr>
             </THead>
@@ -301,15 +334,23 @@ export default async function FluxoCaixaPage({
                   <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
                     {l.mm}
                   </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
-                    {l.e > 0 ? brl0(l.e) : "—"}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]">
-                    {l.s > 0 ? brl0(l.s) : "—"}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] font-medium text-[var(--color-success)]">
-                    {brl0(l.liquido)}
-                  </TD>
+                  {fluxos.map((f, i) => {
+                    const e = f.entradas[l.mm] || 0;
+                    const sa = f.saidas[l.mm] || 0;
+                    return (
+                      <Fragment key={versoesTabela[i]?.id ?? i}>
+                        <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
+                          {e > 0 ? brl0(e) : "—"}
+                        </TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]">
+                          {sa > 0 ? brl0(sa) : "—"}
+                        </TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)] font-medium text-[var(--color-success)]">
+                          {brl0(e - sa)}
+                        </TD>
+                      </Fragment>
+                    );
+                  })}
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
                     {brl0(l.saldo)}
                   </TD>
@@ -317,22 +358,33 @@ export default async function FluxoCaixaPage({
               ))}
               {linhas.length === 0 ? (
                 <TR>
-                  <TD colSpan={5} className="py-8 text-center text-[var(--color-ink4)]">
+                  <TD
+                    colSpan={2 + versoesTabela.length * 3}
+                    className="py-8 text-center text-[var(--color-ink4)]"
+                  >
                     Sem movimentação neste período.
                   </TD>
                 </TR>
               ) : (
                 <TR className="bg-[var(--color-surface2)]">
                   <TD className="font-semibold text-[var(--color-ink)]">TOTAL</TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
-                    {brl0(totE)}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-danger)]">
-                    {brl0(totS)}
-                  </TD>
-                  <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
-                    {brl0(totE - totS)}
-                  </TD>
+                  {fluxos.map((f, i) => {
+                    const te = yearMonths.reduce((a, m) => a + (f.entradas[m] || 0), 0);
+                    const ts = yearMonths.reduce((a, m) => a + (f.saidas[m] || 0), 0);
+                    return (
+                      <Fragment key={versoesTabela[i]?.id ?? i}>
+                        <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
+                          {brl0(te)}
+                        </TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-danger)]">
+                          {brl0(ts)}
+                        </TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
+                          {brl0(te - ts)}
+                        </TD>
+                      </Fragment>
+                    );
+                  })}
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
                     {brl0(saldoAcumFinal)}
                   </TD>
