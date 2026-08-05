@@ -59,6 +59,7 @@ export function Sidebar({
       items: [
         { href: "/budget", label: "Lançamento Budget" },
         { href: "/forecast", label: "Lançamento Forecast" },
+        { href: "/planocontas", label: "Plano de Contas" },
       ],
     },
     {
@@ -82,7 +83,6 @@ export function Sidebar({
         { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
         { href: "/contas", label: "Contas Correntes" },
-        { href: "/planocontas", label: "Plano de Contas" },
       ],
     },
     {
