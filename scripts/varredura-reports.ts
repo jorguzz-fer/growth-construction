@@ -332,6 +332,96 @@ async function main() {
     );
   }
 
+  // ── 12. DIA A DIA DA EMPRESA: só contas a pagar e a receber lançadas ─────
+  // Cenário puro: um projeto SEM nenhuma venda de unidade, apenas o que a
+  // empresa lança no dia a dia. É como o cliente enxerga a "versão atual".
+  console.log("\n--- Dia a dia: só contas a pagar e a receber ---");
+
+  const [proj2] = await db
+    .insert(schema.projects)
+    .values({ tenantId: tenant.id, name: "OBRA DIA A DIA", kind: "proj" })
+    .returning();
+  const [atual2] = await db
+    .insert(schema.versions)
+    .values({
+      tenantId: tenant.id,
+      projectId: proj2.id,
+      key: "atual",
+      label: "Atual",
+      color: "#3b82f6",
+      kind: "atual",
+      isDefault: true,
+    })
+    .returning();
+
+  check(
+    "Existe UMA única versão atual no projeto",
+    (
+      await db
+        .select()
+        .from(schema.versions)
+        .where(eq(schema.versions.projectId, proj2.id))
+    ).filter((v) => v.kind === "atual").length === 1,
+    "1 versão atual",
+  );
+
+  // CONTA A RECEBER lançada (sem venda de unidade nenhuma).
+  await db.insert(schema.contasReceber).values({
+    tenantId: tenant.id,
+    projectId: proj2.id,
+    descricao: "Recebimento de cliente",
+    tipo: "Outros",
+    valor: "18000",
+    vencimento: "03/10/2027", // março/2027
+    status: "A receber",
+  });
+  // CONTA A PAGAR lançada (despesa comum do dia a dia).
+  await db.insert(schema.despesas).values({
+    versionId: atual2.id,
+    tenantId: tenant.id,
+    numDoc: "PED-DIADIA",
+    valor: "4200",
+    status: "A pagar",
+    competencia: "03/2027",
+    vencimento: "03/25/2027",
+    categoriaDre: "Custo Fixo",
+  });
+
+  const fxDia = await flowMaps(atual2, proj2.id);
+  check(
+    "Conta a receber lançada VIRA ENTRADA no Fluxo (sem venda de unidade)",
+    (fxDia.entradas["03/2027"] ?? 0) === 18000,
+    `03/2027 entradas = R$ ${fxDia.entradas["03/2027"] ?? 0}`,
+  );
+  check(
+    "Conta a pagar lançada VIRA SAÍDA no Fluxo",
+    (fxDia.saidas["03/2027"] ?? 0) === 4200,
+    `03/2027 saídas = R$ ${fxDia.saidas["03/2027"] ?? 0}`,
+  );
+  check(
+    "Saldo do mês = receber − pagar",
+    (fxDia.entradas["03/2027"] ?? 0) - (fxDia.saidas["03/2027"] ?? 0) === 13800,
+    `03/2027 saldo = R$ ${(fxDia.entradas["03/2027"] ?? 0) - (fxDia.saidas["03/2027"] ?? 0)}`,
+  );
+
+  // A mesma receita precisa chegar a DRE/Dashboard pela via oficial.
+  const recDia = await getMonthlyRevenue(atual2.id, proj2.id);
+  check(
+    "A mesma conta a receber chega à DRE/Dashboard",
+    (recDia["03/2027"] ?? 0) === 18000,
+    `03/2027 = R$ ${recDia["03/2027"] ?? 0}`,
+  );
+
+  // E precisa aparecer na tela Contas a Pagar.
+  const cpDia = (await getContasPagar(tenant.id)).filter(
+    (c) => c.projectId === proj2.id,
+  );
+  check(
+    "A conta a pagar aparece na tela Contas a Pagar",
+    cpDia.length === 1 && cpDia[0].valor === 4200,
+    `${cpDia.length} conta(s), R$ ${cpDia[0]?.valor ?? 0}`,
+  );
+
   // ── Encerramento ─────────────────────────────────────────────────────────
   await limpar();
   console.log(
