@@ -27,6 +27,10 @@ const ACTIONS: { key: PermAction; label: string }[] = [
   { key: "excluir", label: "Excluir" },
 ];
 const MODULOS: Modulo[] = [
+  // A ordem espelha o menu lateral. "Planejamento" estava faltando: as telas de
+  // Budget, Forecast e Plano de Contas não apareciam na matriz, e não havia como
+  // conceder ou revogar acesso a elas por aqui.
+  "Planejamento",
   "Receitas",
   "Despesas",
   "Conciliação de Caixa",
