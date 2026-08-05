@@ -119,9 +119,25 @@ export default async function FluxoCaixaPage({
     months: y.months,
   }));
   const curYear = new Date().getFullYear();
+  // Ano padrão: o ano atual SÓ se ele tiver movimentação. O seletor mostra um
+  // ano por vez, e o horizonte vai até o ano atual + 5 — então abrir sempre no
+  // ano corrente fazia parecer que os recebíveis "não apareciam", quando na
+  // verdade estavam nos anos seguintes. Sem movimento no ano atual, abre no
+  // primeiro ano que tem.
+  const anosComMovimento = [
+    ...new Set(
+      [...Object.keys(entradas), ...Object.keys(saidas)]
+        .filter((m) => (entradas[m] ?? 0) !== 0 || (saidas[m] ?? 0) !== 0)
+        .map((m) => Number(m.split("/")[1]))
+        .filter((y) => Number.isFinite(y)),
+    ),
+  ].sort((a, b) => a - b);
+  const anoPadrao = anosComMovimento.includes(curYear)
+    ? curYear
+    : anosComMovimento[0] ?? curYear;
   const selectedYear = years.some((y) => y.value === Number(sp.ano))
     ? Number(sp.ano)
-    : curYear;
+    : anoPadrao;
   // Com período informado, o intervalo de datas tem prioridade sobre o ano.
   const yearMonths = hasRange
     ? axis.filter((mm) => monthInRange(mm, de, ate))
@@ -140,6 +156,10 @@ export default async function FluxoCaixaPage({
     const s = saidas[mm] || 0;
     return { mm, e, s, liquido: e - s, saldo: acumMap[mm] ?? saldoInicial };
   });
+  // Totais de TODO o horizonte (não só do ano selecionado) — assim o usuário vê
+  // de imediato que o restante do dinheiro está em outros anos, e em quais.
+  const horizonteE = Object.values(entradas).reduce((a, v) => a + v, 0);
+  const horizonteS = Object.values(saidas).reduce((a, v) => a + v, 0);
   const totE = linhas.reduce((a, l) => a + l.e, 0);
   const totS = linhas.reduce((a, l) => a + l.s, 0);
   const saldoAcumFinal = linhas.length ? linhas[linhas.length - 1].saldo : saldoInicial;
@@ -212,9 +232,39 @@ export default async function FluxoCaixaPage({
         </div>
       ) : (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Kpi icon="↓" label="Total entradas" value={brlk(totE)} tone="success" />
-          <Kpi icon="↑" label="Total saídas" value={brlk(totS)} tone="danger" />
-          <Kpi icon="⚖" label="Saldo do período" value={brlk(totE - totS)} tone="accent" />
+          <Kpi
+            icon="↓"
+            label="Total entradas"
+            value={brlk(totE)}
+            tone="success"
+            hint={
+              horizonteE !== totE
+                ? `${brlk(horizonteE)} em todo o horizonte`
+                : undefined
+            }
+          />
+          <Kpi
+            icon="↑"
+            label="Total saídas"
+            value={brlk(totS)}
+            tone="danger"
+            hint={
+              horizonteS !== totS
+                ? `${brlk(horizonteS)} em todo o horizonte`
+                : undefined
+            }
+          />
+          <Kpi
+            icon="⚖"
+            label="Saldo do período"
+            value={brlk(totE - totS)}
+            tone="accent"
+            hint={
+              anosComMovimento.length > 1
+                ? `movimento em ${anosComMovimento.join(", ")}`
+                : undefined
+            }
+          />
         </div>
       )}
 
@@ -326,11 +376,14 @@ function Kpi({
   label,
   value,
   tone,
+  hint,
 }: {
   icon: string;
   label: string;
   value: string;
   tone: "success" | "danger" | "accent";
+  /** Contexto abaixo do número (ex.: total de todo o horizonte). */
+  hint?: string;
 }) {
   const color =
     tone === "success"
@@ -353,6 +406,9 @@ function Kpi({
         <p className="mt-1 text-2xl font-semibold" style={{ color }}>
           {value}
         </p>
+        {hint && (
+          <p className="mt-0.5 text-[11px] text-[var(--color-ink4)]">{hint}</p>
+        )}
       </CardContent>
     </Card>
   );
