@@ -21,6 +21,7 @@ import {
   getReceivables,
   getExpenseRows,
 } from "../src/lib/queries";
+import { flowMaps } from "../src/lib/fluxo-caixa";
 
 const TENANT = "VARREDURA_TESTE";
 const VALOR_DESPESA = 1234.56;
@@ -217,6 +218,7 @@ async function main() {
   // Atual  → despesas (tabela despesa) + recebíveis do plano de venda.
   // Budget/Forecast → budget_line (kind receita/despesa). São planejamento; NÃO
   // devem enxergar as despesas/vendas lançadas na Atual.
+  const versoesPlan: Record<string, typeof schema.versions.$inferSelect> = {};
   for (const kind of ["budget", "forecast"] as const) {
     const [v] = await db
       .insert(schema.versions)
@@ -229,6 +231,7 @@ async function main() {
         kind,
       })
       .returning();
+    versoesPlan[kind] = v;
 
     // Sem budget_line, a versão de planejamento nasce zerada — e não pode
     // "vazar" os lançamentos da Atual.
@@ -264,6 +267,68 @@ async function main() {
       `Atual não é afetada pelo ${kind}`,
       (atualDepois[COMPETENCIA] ?? 0) === esperadoAtual,
       `Atual ${COMPETENCIA} = R$ ${atualDepois[COMPETENCIA] ?? 0} (esperado ${esperadoAtual})`,
+    );
+  }
+
+  // ── 11. FLUXO DE CAIXA: números reais lançados em CADA versão ────────────
+  console.log("\n--- Fluxo de Caixa por versão ---");
+
+  // (a) Versão ATUAL: entradas = receita lançada; saídas = despesa lançada,
+  //     no mês do VENCIMENTO (07/15/2026 → 07/2026).
+  const fxAtual = await flowMaps(atual, project.id);
+  check(
+    "Fluxo Atual — entradas = receita lançada",
+    (fxAtual.entradas["07/2026"] ?? 0) === VALOR_PARCELA + VALOR_CR,
+    `07/2026 entradas = R$ ${fxAtual.entradas["07/2026"] ?? 0}`,
+  );
+  check(
+    "Fluxo Atual — saídas = despesa lançada (mês do vencimento)",
+    (fxAtual.saidas["07/2026"] ?? 0) === VALOR_DESPESA,
+    `07/2026 saídas = R$ ${fxAtual.saidas["07/2026"] ?? 0}`,
+  );
+  check(
+    "Fluxo Atual — parcelas futuras nos meses corretos",
+    ["01/2027", "02/2027", "06/2027"].every((m) => (fxAtual.entradas[m] ?? 0) === 324),
+    `01/2027=${fxAtual.entradas["01/2027"] ?? 0} 06/2027=${fxAtual.entradas["06/2027"] ?? 0}`,
+  );
+
+  // (b) Despesa CANCELADA não pode gerar saída.
+  const [despCancel] = await db
+    .insert(schema.despesas)
+    .values({
+      versionId: atual.id,
+      tenantId: tenant.id,
+      numDoc: "PED-CANCELADA",
+      valor: "9999",
+      status: "A pagar",
+      competencia: COMPETENCIA,
+      vencimento: VENC_DESPESA,
+      categoriaDre: "Custo Fixo",
+      cancelado: true,
+    })
+    .returning();
+  const fxCancel = await flowMaps(atual, project.id);
+  check(
+    "Fluxo Atual — despesa CANCELADA não vira saída",
+    (fxCancel.saidas["07/2026"] ?? 0) === VALOR_DESPESA,
+    `07/2026 saídas = R$ ${fxCancel.saidas["07/2026"] ?? 0} (cancelada de 9.999 fora)`,
+  );
+  await db.delete(schema.despesas).where(eq(schema.despesas.id, despCancel.id));
+
+  // (c) Budget/Forecast: o Fluxo traz o PLANEJAMENTO da versão, não os
+  //     lançamentos da Atual.
+  for (const kind of ["budget", "forecast"] as const) {
+    const v = versoesPlan[kind];
+    const fx = await flowMaps(v, project.id);
+    check(
+      `Fluxo ${kind} — entradas vêm do planejamento da própria versão`,
+      (fx.entradas[COMPETENCIA] ?? 0) === 7777,
+      `${COMPETENCIA} entradas = R$ ${fx.entradas[COMPETENCIA] ?? 0}`,
+    );
+    check(
+      `Fluxo ${kind} — não herda as saídas lançadas na Atual`,
+      (fx.saidas["07/2026"] ?? 0) === 0,
+      `07/2026 saídas = R$ ${fx.saidas["07/2026"] ?? 0}`,
     );
   }
 
