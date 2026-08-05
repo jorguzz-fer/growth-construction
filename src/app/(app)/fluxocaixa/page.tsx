@@ -3,6 +3,7 @@ import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getBankAccounts,
   getDespesas,
+  getVersionsDoProjeto,
   getInccRows,
   getExpenseRows,
   getMonthlyRevenue,
@@ -22,6 +23,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ProjecaoYearSelect } from "@/components/app/projecao-controls";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import { ProjectPicker } from "@/components/app/project-picker";
 import {
   VersionCompareTable,
   type CompareRow,
@@ -73,13 +75,22 @@ async function flowMaps(
       await getRestituicoesPendentesByVersion(version.id);
     const excluir = new Set(terceiroIds);
     const comParcela = new Set(parcelas.map((p) => p.despesaId));
+    // Despesas CANCELADAS não geram saída. Antes só as parcelas canceladas eram
+    // puladas, então uma despesa cancelada seguia inflando o fluxo — enquanto
+    // sumia de Contas a Pagar, que filtra cancelado.
+    const canceladas = new Set(despesas.filter((d) => d.cancelado).map((d) => d.id));
     for (const p of parcelas) {
-      if (p.status === "Cancelado" || excluir.has(p.despesaId)) continue;
+      if (
+        p.status === "Cancelado" ||
+        excluir.has(p.despesaId) ||
+        canceladas.has(p.despesaId)
+      )
+        continue;
       const mm = vencMonth(p.vencimento);
       if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
     }
     for (const d of despesas) {
-      if (comParcela.has(d.id) || excluir.has(d.id)) continue;
+      if (comParcela.has(d.id) || excluir.has(d.id) || d.cancelado) continue;
       const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
       if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
     }
@@ -93,7 +104,7 @@ async function flowMaps(
 export default async function FluxoCaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string }>;
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
@@ -103,23 +114,64 @@ export default async function FluxoCaixaPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
+  // Projeto vem do seletor (?proj=), não do "projeto ativo" da sessão. Sem isto
+  // a tela mostrava apenas o projeto ativo, e os recebíveis das demais obras
+  // simplesmente não apareciam. "all" consolida todos os projetos da empresa.
+  const isAll = sp.proj === "all";
+  const project =
+    ctx.projects.find((p) => p.id === sp.proj) ?? ctx.project ?? ctx.projects[0];
+
+  // Versões DO PROJETO selecionado (ctx.versions são as do projeto ativo).
+  const versoesProj = await getVersionsDoProjeto(ctx.tenant.id, project.id);
+  const versoes = versoesProj.length > 0 ? versoesProj : ctx.versions;
+
   // Por padrão, o Fluxo abre na versão ATUAL (dados reais); o usuário pode
   // selecionar/comparar outras versões pelo seletor.
-  const atualVersion = ctx.versions.find((v) => v.kind === "atual") ?? ctx.version;
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, atualVersion);
-  const multi = compareVersions.length > 1;
-  const versionSelect = (
+  const atualVersion = versoes.find((v) => v.kind === "atual") ?? versoes[0] ?? ctx.version;
+  const compareVersions = resolveCompareVersions(sp.vs, versoes, atualVersion);
+  const multi = compareVersions.length > 1 && !isAll;
+  const projectSelect = (
+    <ProjectPicker
+      projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+      selected={isAll ? "all" : project.id}
+      allOption
+    />
+  );
+  const versionSelect = isAll ? null : (
     <VersionMultiSelect
-      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
       selected={compareVersions.map((v) => v.id)}
     />
   );
+
+  /**
+   * Fluxo consolidado da empresa: soma os mapas de entradas/saídas da versão
+   * ATUAL de cada projeto. Sem isto, "Todos os projetos" mostraria apenas a obra
+   * ativa.
+   */
+  async function flowMapsConsolidado() {
+    const porProjeto = await Promise.all(
+      ctx!.projects.map(async (p) => {
+        const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
+        const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
+        if (!atual) return { entradas: {}, saidas: {} };
+        return flowMaps(atual, p.id);
+      }),
+    );
+    const entradas: Record<string, number> = {};
+    const saidas: Record<string, number> = {};
+    for (const m of porProjeto) {
+      for (const [mm, v] of Object.entries(m.entradas)) entradas[mm] = (entradas[mm] || 0) + v;
+      for (const [mm, v] of Object.entries(m.saidas)) saidas[mm] = (saidas[mm] || 0) + v;
+    }
+    return { entradas, saidas };
+  }
 
   // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
   if (multi) {
     const inFilter = (mm: string) => !hasRange || monthInRange(mm, de, ate);
     const perVersion = await Promise.all(
-      compareVersions.map((v) => flowMaps(v, ctx.project.id)),
+      compareVersions.map((v) => flowMaps(v, project.id)),
     );
     const sumMap = (map: Record<string, number>) =>
       Object.entries(map)
@@ -141,6 +193,7 @@ export default async function FluxoCaixaPage({
           subtitle="Comparativo de versões · entradas, saídas e saldo do período"
           actions={
             <div className="flex flex-wrap items-end gap-3">
+              {projectSelect}
               <DateRangeFilter de={de} ate={ate} />
               {versionSelect}
             </div>
@@ -158,8 +211,8 @@ export default async function FluxoCaixaPage({
   // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
   const version = compareVersions[0];
   const [{ entradas, saidas }, incc, contas] = await Promise.all([
-    flowMaps(version, ctx.project.id),
-    getInccRows(ctx.project.id),
+    isAll ? flowMapsConsolidado() : flowMaps(version, project.id),
+    getInccRows(project.id),
     getBankAccounts(ctx.tenant.id),
   ]);
 
@@ -214,6 +267,7 @@ export default async function FluxoCaixaPage({
         subtitle="Por data de vencimento/pagamento · saldo acumulado"
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            {projectSelect}
             <DateRangeFilter de={de} ate={ate} />
             {!hasRange && years.length > 1 && (
               <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />

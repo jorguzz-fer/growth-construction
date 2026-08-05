@@ -193,6 +193,26 @@ async function main() {
     `07/2026 = R$ ${receitaComCR["07/2026"] ?? 0} (venda ${VALOR_PARCELA} + conta ${VALOR_CR})`,
   );
 
+  // ── 9b. Recebível FUTURO cai no mês do vencimento (Fluxo de Caixa) ───────
+  // Uma parcela com vencimento em 2027 precisa aparecer em 2027 — não sumir.
+  await db.insert(schema.units).values({
+    versionId: atual.id,
+    tenantId: tenant.id,
+    code: "APT-202",
+    status: "Vendido",
+    paymentPlan: {
+      Mensais: { venc: "01/20/2027", val: 324, n: 6, usarS1: false },
+    } as never,
+  });
+  const receitaFut = await getMonthlyRevenue(atual.id, project.id);
+  const meses2027 = ["01/2027", "02/2027", "03/2027", "04/2027", "05/2027", "06/2027"];
+  const todosMeses = meses2027.every((m) => (receitaFut[m] ?? 0) === 324);
+  check(
+    "Parcelas futuras aparecem em CADA mês de vencimento",
+    todosMeses,
+    `${meses2027.map((m) => `${m}=${receitaFut[m] ?? 0}`).join(" ")}`,
+  );
+
   // ── 10. VERSÕES Budget e Forecast: fonte diferente da Atual ──────────────
   // Atual  → despesas (tabela despesa) + recebíveis do plano de venda.
   // Budget/Forecast → budget_line (kind receita/despesa). São planejamento; NÃO
