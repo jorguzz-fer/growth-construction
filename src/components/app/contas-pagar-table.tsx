@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
+import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
 
 /** "MM/DD/YYYY" → "YYYY-MM-DD" para comparação de intervalo. */
 function toISO(d: string | null): string {
@@ -116,10 +118,43 @@ export function ContasPagarTable({
     });
   }, [rows, fornecedor, cliente, projeto, categoria, status, de, ate, hojeISO]);
 
-  const total = filtered.reduce((a, r) => a + r.valor, 0);
-  const totalPend = filtered
+  // §5 — ordenação estilo planilha. Aplicada SOBRE o conjunto já filtrado, na
+  // íntegra (não só sobre a parte visível). Sem clique de cabeçalho, vale a
+  // ordenação padrão acima (vencidas → a vencer → pagas).
+  const colunas = useMemo<ColunaOrdenavel<ContaPagarRow>[]>(
+    () => [
+      { key: "fornecedor", tipo: "texto", get: (r) => r.fornecedorNome },
+      { key: "descricao", tipo: "texto", get: (r) => r.descricao },
+      { key: "categoria", tipo: "texto", get: (r) => r.categoriaDre },
+      { key: "projeto", tipo: "texto", get: (r) => r.projectName },
+      { key: "cliente", tipo: "texto", get: (r) => r.clienteNome ?? "Próprio" },
+      { key: "valor", tipo: "valor", get: (r) => r.valor },
+      { key: "vencimento", tipo: "data", get: (r) => r.vencimento },
+      { key: "pagamento", tipo: "data", get: (r) => r.dataPagamento },
+      { key: "forma", tipo: "texto", get: (r) => r.formaPagamento },
+      // Ordena pelo status EXIBIDO (inclui "Vencida", que é derivado da data).
+      { key: "status", tipo: "texto", get: (r) => displayStatus(r.status, r.vencimento, hojeISO) },
+    ],
+    [hojeISO],
+  );
+  const { rows: visiveis, estado, onSort } = useOrdenacaoTabela(
+    filtered,
+    colunas,
+    (r) => r.id,
+  );
+
+  // Totais — uma obrigação de restituição NÃO é despesa nova: a despesa dela já
+  // está listada (como "Pago", porque quem pagou o fornecedor foi o terceiro).
+  // Por isso "Total" soma só as despesas, enquanto "Pendente" e "A restituir"
+  // mostram o que de fato ainda vai sair do caixa da empresa. Somar as duas
+  // coisas em "Total" contaria o mesmo fato duas vezes.
+  const despesasFiltradas = filtered.filter((r) => r.origem !== "obrigacao");
+  const obrigacoesFiltradas = filtered.filter((r) => r.origem === "obrigacao");
+  const total = despesasFiltradas.reduce((a, r) => a + r.valor, 0);
+  const totalPend = despesasFiltradas
     .filter((r) => r.status !== "Pago")
     .reduce((a, r) => a + r.valor, 0);
+  const totalRestituir = obrigacoesFiltradas.reduce((a, r) => a + r.valor, 0);
 
   const limpar = () => {
     setFornecedor(""); setCliente(""); setProjeto("");
@@ -162,6 +197,17 @@ export function ContasPagarTable({
         <span className="text-[var(--color-ink3)]">
           Pendente <strong className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">{brl0(totalPend)}</strong>
         </span>
+        {obrigacoesFiltradas.length > 0 && (
+          <span
+            className="text-[var(--color-ink3)]"
+            title="Saldo devido a terceiros que pagaram fornecedores pela empresa. Não é despesa nova — a despesa já está listada acima."
+          >
+            A restituir{" "}
+            <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent2)]">
+              {brl0(totalRestituir)}
+            </strong>
+          </span>
+        )}
         <button onClick={limpar} className="ml-auto text-[12px] text-[var(--color-accent2)] hover:underline">
           Limpar filtros
         </button>
@@ -178,21 +224,21 @@ export function ContasPagarTable({
           >
             <THead className="sticky top-0 z-10">
                 <tr>
-                  <TH>Fornecedor</TH>
-                  <TH>Descrição</TH>
-                  <TH>Categoria</TH>
-                  <TH>Projeto (Obra)</TH>
-                  <TH>Cliente</TH>
-                  <TH className="text-right">Valor</TH>
-                  <TH>Vencimento</TH>
-                  <TH>Pagamento</TH>
-                  <TH>Forma</TH>
-                  <TH>Status</TH>
+                  <SortTH coluna="fornecedor" estado={estado} onSort={onSort}>Fornecedor</SortTH>
+                  <SortTH coluna="descricao" estado={estado} onSort={onSort}>Descrição</SortTH>
+                  <SortTH coluna="categoria" estado={estado} onSort={onSort}>Categoria</SortTH>
+                  <SortTH coluna="projeto" estado={estado} onSort={onSort}>Projeto (Obra)</SortTH>
+                  <SortTH coluna="cliente" estado={estado} onSort={onSort}>Cliente</SortTH>
+                  <SortTH coluna="valor" estado={estado} onSort={onSort} className="text-right">Valor</SortTH>
+                  <SortTH coluna="vencimento" estado={estado} onSort={onSort}>Vencimento</SortTH>
+                  <SortTH coluna="pagamento" estado={estado} onSort={onSort}>Pagamento</SortTH>
+                  <SortTH coluna="forma" estado={estado} onSort={onSort}>Forma</SortTH>
+                  <SortTH coluna="status" estado={estado} onSort={onSort}>Status</SortTH>
                   {canEditar && <TH className="text-right">Ações</TH>}
                 </tr>
               </THead>
               <tbody>
-                {filtered.map((r) => (
+                {visiveis.map((r) => (
                   <TR key={r.id}>
                     <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
                       {r.fornecedorNome ?? "—"}
@@ -212,24 +258,40 @@ export function ContasPagarTable({
                     </TD>
                     <TD>{r.formaPagamento ?? "—"}</TD>
                     <TD>
-                      {(() => {
-                        const st = displayStatus(r.status, r.vencimento, hojeISO);
-                        return <Badge tone={statusTone(st)}>{st}</Badge>;
-                      })()}
+                      {r.origem === "obrigacao" ? (
+                        // Status da obrigação já vem no vocabulário da tela de
+                        // Restituições; não passa por "Vencida" (a data aqui é
+                        // uma previsão de restituição, não um vencimento).
+                        <Badge tone="info">{r.status ?? "—"}</Badge>
+                      ) : (
+                        (() => {
+                          const st = displayStatus(r.status, r.vencimento, hojeISO);
+                          return <Badge tone={statusTone(st)}>{st}</Badge>;
+                        })()
+                      )}
                     </TD>
                     {canEditar && (
                       <TD className="text-right">
-                        <Link
-                          href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
-                          className="text-sm text-[var(--color-accent2)] hover:underline"
-                        >
-                          Editar
-                        </Link>
+                        {r.origem === "obrigacao" ? (
+                          <Link
+                            href="/restituicoes"
+                            className="text-sm text-[var(--color-accent2)] hover:underline"
+                          >
+                            Restituir
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
+                            className="text-sm text-[var(--color-accent2)] hover:underline"
+                          >
+                            Editar
+                          </Link>
+                        )}
                       </TD>
                     )}
                   </TR>
                 ))}
-                {filtered.length === 0 && (
+                {visiveis.length === 0 && (
                   <TR>
                     <TD colSpan={canEditar ? 11 : 10} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a pagar com os filtros aplicados.

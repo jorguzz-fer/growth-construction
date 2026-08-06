@@ -584,9 +584,22 @@ export const despesaTerceiros = pgTable("despesa_terceiro", {
   valorRestituido: numeric("valor_restituido", { precision: 15, scale: 2 }).notNull().default("0"),
   dataPagamentoOriginal: text("data_pagamento_original"),
   dataPrevistaRestituicao: text("data_prevista_restituicao"),
-  /** Aguardando restituição | Parcialmente restituído | Restituído | Cancelado */
+  /**
+   * Aguardando restituição | Parcialmente restituído | Restituído | Cancelado
+   *
+   * "Aguardando restituição" é o valor histórico e continua sendo gravado —
+   * nenhum registro antigo é reclassificado. Na interface ele é exibido como
+   * "Pendente" (ver `rotuloStatusObrigacao`), que é o vocabulário pedido.
+   */
   status: text("status").notNull().default("Aguardando restituição"),
   obs: text("obs"),
+  /**
+   * Chave de idempotência (§16): duas submissões do MESMO fato (duplo clique,
+   * reenvio de formulário, refresh) colidem aqui em vez de criar duas
+   * obrigações. Nulo nos registros anteriores à trava — por isso o índice é
+   * parcial (WHERE NOT NULL).
+   */
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -606,6 +619,16 @@ export const restituicoes = pgTable("restituicao", {
   }),
   comprovante: text("comprovante"),
   obs: text("obs"),
+  /**
+   * Item do extrato que pagou esta restituição (§14). A conciliação vincula o
+   * pagamento ao lançamento do extrato SEM criar nova despesa: a despesa já foi
+   * reconhecida na competência original.
+   */
+  cashEntryId: uuid("cash_entry_id").references((): AnyPgColumn => cashEntries.id, {
+    onDelete: "set null",
+  }),
+  /** Chave de idempotência (§16) — ver `despesaTerceiros.idempotencyKey`. */
+  idempotencyKey: text("idempotency_key"),
   usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
