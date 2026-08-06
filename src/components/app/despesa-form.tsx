@@ -166,11 +166,32 @@ export function DespesaForm({
   const [anexMsg, setAnexMsg] = useState<string | null>(null);
   const [anexErro, setAnexErro] = useState<string | null>(null);
 
+  /** Limite de corpo das Server Actions (next.config: bodySizeLimit 12 MB). */
+  const LIMITE_ENVIO = 11 * 1024 * 1024;
+
   async function enviarAnexos() {
     if (!edit || novosAnexos.length === 0) return;
-    setAnexBusy(true);
     setAnexMsg(null);
     setAnexErro(null);
+
+    // O envio inteiro (soma dos arquivos) precisa caber no corpo da Server
+    // Action. Acima disso o Next rejeita a requisição ANTES da action rodar, e
+    // sem este aviso o clique simplesmente não fazia nada.
+    const total = novosAnexos.reduce((a, f) => a + f.size, 0);
+    if (total > LIMITE_ENVIO) {
+      setAnexErro(
+        `Os arquivos somam ${(total / 1024 / 1024).toFixed(1)} MB e o limite por envio é 11 MB. ` +
+          "Anexe em partes — os arquivos já enviados são preservados.",
+      );
+      return;
+    }
+    const grande = novosAnexos.find((f) => f.size > 10 * 1024 * 1024);
+    if (grande) {
+      setAnexErro(`"${grande.name}" excede 10 MB.`);
+      return;
+    }
+
+    setAnexBusy(true);
     try {
       const fd = new FormData();
       fd.set("despesaId", edit.id);
@@ -184,6 +205,16 @@ export function DespesaForm({
       } else {
         setAnexErro(res.error ?? "Falha ao anexar.");
       }
+    } catch (e) {
+      // Sem este catch, uma exceção (corpo grande demais, rede, sessão expirada)
+      // rejeitava a promessa em silêncio: o botão voltava ao normal e nada
+      // acontecia na tela.
+      console.error("[despesa] falha ao anexar:", e);
+      setAnexErro(
+        e instanceof Error
+          ? `Falha ao anexar: ${e.message}`
+          : "Falha ao anexar os arquivos. Tente novamente ou envie um por vez.",
+      );
     } finally {
       setAnexBusy(false);
     }
@@ -581,13 +612,18 @@ export function DespesaForm({
             {/* Anexar MAIS documentos — disponível em qualquer momento do ciclo
                 de vida: antes/depois do pagamento e antes/depois da conciliação. */}
             <div className="mt-3 border-t border-[var(--color-accent2)]/12 pt-3">
-              <Label>Anexar mais documentos (vários)</Label>
+              <Label>
+                Anexar mais documentos — quantos forem necessários
+              </Label>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                {/* Sem restrição de tipo: além de PDF e imagem, a despesa pode
+                    receber planilha, XML da nota, e-mail, contrato etc. O
+                    `accept` anterior filtrava esses arquivos no seletor e o
+                    usuário via "Nenhum arquivo escolhido" sem entender por quê. */}
                 <input
                   ref={addFileRef}
                   type="file"
                   multiple
-                  accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
                   className="text-xs"
                   onChange={(e) => setNovosAnexos(Array.from(e.target.files ?? []))}
                 />
@@ -597,9 +633,23 @@ export function DespesaForm({
                   disabled={anexBusy || novosAnexos.length === 0}
                   onClick={enviarAnexos}
                 >
-                  {anexBusy ? "Enviando…" : `Anexar ${novosAnexos.length || ""}`}
+                  {anexBusy
+                    ? "Enviando…"
+                    : novosAnexos.length > 0
+                      ? `Anexar ${novosAnexos.length} arquivo(s)`
+                      : "Anexar"}
                 </Button>
               </div>
+              {novosAnexos.length > 0 ? (
+                <p className="mt-1 text-[11.5px] text-[var(--color-ink3)]">
+                  Selecionado(s): {novosAnexos.map((f) => f.name).join(", ")}
+                </p>
+              ) : (
+                <p className="mt-1 text-[11.5px] text-[var(--color-ink4)]">
+                  Escolha um ou mais arquivos (até 10 MB cada) e clique em Anexar. Os
+                  anexos já existentes são preservados.
+                </p>
+              )}
               {anexMsg && (
                 <p className="mt-1 text-[11.5px] text-[var(--color-success)]">{anexMsg}</p>
               )}
@@ -621,7 +671,6 @@ export function DespesaForm({
                 ref={fileRef}
                 type="file"
                 multiple
-                accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
                 className="text-xs"
                 onChange={(e) => {
                   setFiles(Array.from(e.target.files ?? []));
