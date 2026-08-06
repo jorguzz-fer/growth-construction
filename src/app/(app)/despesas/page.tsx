@@ -72,10 +72,25 @@ export default async function DespesasPage({
   const isAll = sp.proj === "all";
   const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
   const version = await getAtualVersion(ctx.tenant.id, project.id);
+
+  // §15 — quando o projeto escolhido NÃO tem versão "Atual" (ex.: a versão foi
+  // apagada em Versões), o código anterior caía silenciosamente em
+  // `ctx.version.id`, que é a versão Atual de OUTRO projeto (o do cookie).
+  // Efeito visível para o usuário: a tela abria listando as despesas da obra
+  // errada e um lançamento novo era gravado no projeto errado — e a despesa
+  // procurada "não abria" nem era editável, porque simplesmente não estava
+  // naquela lista. Agora o projeto sem Atual é sinalizado, não mascarado.
+  const semVersaoAtual = !isAll && !version;
   const versionId = version?.id ?? ctx.version.id;
 
   const [despesasRaw, fornecedores, contas, bancos, socios] = await Promise.all([
-    isAll ? getDespesasByTenant(ctx.tenant.id) : getDespesas(versionId),
+    // Sem versão Atual não se lista nada: mostrar a versão de outro projeto
+    // seria exibir dados de outra obra sob o nome desta.
+    isAll
+      ? getDespesasByTenant(ctx.tenant.id)
+      : semVersaoAtual
+        ? Promise.resolve([] as Awaited<ReturnType<typeof getDespesas>>)
+        : getDespesas(versionId),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
@@ -237,11 +252,35 @@ export default async function DespesasPage({
         }
       />
 
+      {/* §15 — projeto sem versão "Atual": em vez de cair na versão de outro
+          projeto (o que fazia a tela listar a obra errada e impedia abrir/editar
+          a despesa procurada), o estado é explicitado. Nenhum dado é alterado. */}
+      {semVersaoAtual && (
+        <Card className="mb-5 border-[var(--color-warning)]/40">
+          <CardContent className="p-4 text-[13px] text-[var(--color-ink2)]">
+            <strong className="text-[var(--color-ink)]">
+              {project.name} não possui versão “Atual”.
+            </strong>{" "}
+            Os lançamentos do dia a dia ficam na versão Atual do projeto. Sem ela
+            não há o que listar aqui, e novos lançamentos não podem ser gravados
+            com segurança. Crie a versão Atual deste projeto em{" "}
+            <Link href="/versao" className="text-[var(--color-accent2)] hover:underline">
+              Versões
+            </Link>{" "}
+            — nenhum dado existente foi alterado.
+          </CardContent>
+        </Card>
+      )}
+
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/despesas?tab=${t.key}`}
+            // O projeto selecionado (?proj=) PRECISA sobreviver à troca de aba.
+            // Antes o link era `/despesas?tab=...` puro: clicar em qualquer aba
+            // devolvia a tela ao primeiro projeto do tenant, dando a impressão
+            // de que a obra escolhida "não abria".
+            href={`/despesas?tab=${t.key}&proj=${isAll ? "all" : project.id}`}
             className={`rounded-[6px] px-3 py-1.5 text-xs transition-colors ${
               t.key === tab
                 ? "bg-white text-[var(--color-ink)] shadow-sm"

@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
+import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
 
 /** "MM/DD/YYYY" → "YYYY-MM-DD" para comparação de intervalo. */
 function toISO(d: string | null): string {
@@ -116,6 +118,31 @@ export function ContasPagarTable({
     });
   }, [rows, fornecedor, cliente, projeto, categoria, status, de, ate, hojeISO]);
 
+  // §5 — ordenação estilo planilha. Aplicada SOBRE o conjunto já filtrado, na
+  // íntegra (não só sobre a parte visível). Sem clique de cabeçalho, vale a
+  // ordenação padrão acima (vencidas → a vencer → pagas).
+  const colunas = useMemo<ColunaOrdenavel<ContaPagarRow>[]>(
+    () => [
+      { key: "fornecedor", tipo: "texto", get: (r) => r.fornecedorNome },
+      { key: "descricao", tipo: "texto", get: (r) => r.descricao },
+      { key: "categoria", tipo: "texto", get: (r) => r.categoriaDre },
+      { key: "projeto", tipo: "texto", get: (r) => r.projectName },
+      { key: "cliente", tipo: "texto", get: (r) => r.clienteNome ?? "Próprio" },
+      { key: "valor", tipo: "valor", get: (r) => r.valor },
+      { key: "vencimento", tipo: "data", get: (r) => r.vencimento },
+      { key: "pagamento", tipo: "data", get: (r) => r.dataPagamento },
+      { key: "forma", tipo: "texto", get: (r) => r.formaPagamento },
+      // Ordena pelo status EXIBIDO (inclui "Vencida", que é derivado da data).
+      { key: "status", tipo: "texto", get: (r) => displayStatus(r.status, r.vencimento, hojeISO) },
+    ],
+    [hojeISO],
+  );
+  const { rows: visiveis, estado, onSort } = useOrdenacaoTabela(
+    filtered,
+    colunas,
+    (r) => r.id,
+  );
+
   const total = filtered.reduce((a, r) => a + r.valor, 0);
   const totalPend = filtered
     .filter((r) => r.status !== "Pago")
@@ -178,21 +205,21 @@ export function ContasPagarTable({
           >
             <THead className="sticky top-0 z-10">
                 <tr>
-                  <TH>Fornecedor</TH>
-                  <TH>Descrição</TH>
-                  <TH>Categoria</TH>
-                  <TH>Projeto (Obra)</TH>
-                  <TH>Cliente</TH>
-                  <TH className="text-right">Valor</TH>
-                  <TH>Vencimento</TH>
-                  <TH>Pagamento</TH>
-                  <TH>Forma</TH>
-                  <TH>Status</TH>
+                  <SortTH coluna="fornecedor" estado={estado} onSort={onSort}>Fornecedor</SortTH>
+                  <SortTH coluna="descricao" estado={estado} onSort={onSort}>Descrição</SortTH>
+                  <SortTH coluna="categoria" estado={estado} onSort={onSort}>Categoria</SortTH>
+                  <SortTH coluna="projeto" estado={estado} onSort={onSort}>Projeto (Obra)</SortTH>
+                  <SortTH coluna="cliente" estado={estado} onSort={onSort}>Cliente</SortTH>
+                  <SortTH coluna="valor" estado={estado} onSort={onSort} className="text-right">Valor</SortTH>
+                  <SortTH coluna="vencimento" estado={estado} onSort={onSort}>Vencimento</SortTH>
+                  <SortTH coluna="pagamento" estado={estado} onSort={onSort}>Pagamento</SortTH>
+                  <SortTH coluna="forma" estado={estado} onSort={onSort}>Forma</SortTH>
+                  <SortTH coluna="status" estado={estado} onSort={onSort}>Status</SortTH>
                   {canEditar && <TH className="text-right">Ações</TH>}
                 </tr>
               </THead>
               <tbody>
-                {filtered.map((r) => (
+                {visiveis.map((r) => (
                   <TR key={r.id}>
                     <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
                       {r.fornecedorNome ?? "—"}
@@ -229,7 +256,7 @@ export function ContasPagarTable({
                     )}
                   </TR>
                 ))}
-                {filtered.length === 0 && (
+                {visiveis.length === 0 && (
                   <TR>
                     <TD colSpan={canEditar ? 11 : 10} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a pagar com os filtros aplicados.

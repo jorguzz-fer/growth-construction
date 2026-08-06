@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   createContaReceber,
   updateContaReceber,
@@ -18,6 +18,8 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
+import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
 
 interface Opt {
   id: string;
@@ -286,6 +288,41 @@ export function ContasReceberManager({
 }) {
   const totalManual = contas.reduce((a, c) => a + c.valor, 0);
   const totalVendas = unitReceb.reduce((a, r) => a + r.valor, 0);
+
+  // §5 — ordenação estilo planilha nas DUAS listagens desta tela. Sem clique de
+  // cabeçalho, cada tabela mantém a ordem que já vinha do servidor.
+  const colContas = useMemo<ColunaOrdenavel<ContaReceberRow>[]>(
+    () => [
+      { key: "projeto", tipo: "texto", get: (c) => c.projectName },
+      { key: "tipo", tipo: "texto", get: (c) => c.tipo },
+      { key: "descricao", tipo: "texto", get: (c) => c.descricao ?? c.unitCode },
+      { key: "valor", tipo: "valor", get: (c) => c.valor },
+      { key: "vencimento", tipo: "data", get: (c) => c.vencimento },
+      { key: "status", tipo: "texto", get: (c) => c.status },
+    ],
+    [],
+  );
+  const contasOrd = useOrdenacaoTabela(contas, colContas, (c) => c.id);
+
+  const colReceb = useMemo<ColunaOrdenavel<UnitReceb>[]>(
+    () => [
+      { key: "unidade", tipo: "texto", get: (r) => r.unitCode },
+      { key: "projeto", tipo: "texto", get: (r) => r.projectName },
+      { key: "cliente", tipo: "texto", get: (r) => r.clienteNome },
+      { key: "descricao", tipo: "texto", get: (r) => r.descricao },
+      { key: "previsto", tipo: "data", get: (r) => r.dia },
+      { key: "valor", tipo: "valor", get: (r) => r.valor },
+    ],
+    [],
+  );
+  // Recebíveis não têm ID próprio (são derivados do plano de pagamento); a
+  // chave estável é unidade + data + valor, suficiente para desempate fixo.
+  const recebOrd = useOrdenacaoTabela(
+    unitReceb,
+    colReceb,
+    (r) => `${r.unitCode}|${r.dia}|${r.valor}|${r.descricao}`,
+  );
+
   return (
     <div>
       {canCriar && <NovaConta projetos={projetos} clientes={clientes} bancos={bancos} unidades={unidades} />}
@@ -302,20 +339,20 @@ export function ContasReceberManager({
           <Table wrapperClassName="scroll-x-always" className="min-w-[900px]">
               <THead>
                 <tr>
-                  <TH>Projeto</TH>
-                  <TH>Tipo</TH>
-                  <TH>Descrição</TH>
-                  <TH className="text-right">Valor</TH>
-                  <TH>Vencimento</TH>
-                  <TH>Status</TH>
+                  <SortTH coluna="projeto" estado={contasOrd.estado} onSort={contasOrd.onSort}>Projeto</SortTH>
+                  <SortTH coluna="tipo" estado={contasOrd.estado} onSort={contasOrd.onSort}>Tipo</SortTH>
+                  <SortTH coluna="descricao" estado={contasOrd.estado} onSort={contasOrd.onSort}>Descrição</SortTH>
+                  <SortTH coluna="valor" estado={contasOrd.estado} onSort={contasOrd.onSort} className="text-right">Valor</SortTH>
+                  <SortTH coluna="vencimento" estado={contasOrd.estado} onSort={contasOrd.onSort}>Vencimento</SortTH>
+                  <SortTH coluna="status" estado={contasOrd.estado} onSort={contasOrd.onSort}>Status</SortTH>
                   <TH className="text-right">Ações</TH>
                 </tr>
               </THead>
               <tbody>
-                {contas.map((c) => (
+                {contasOrd.rows.map((c) => (
                   <ContaRow key={c.id} c={c} projetos={projetos} canEditar={canEditar} canExcluir={canExcluir} />
                 ))}
-                {contas.length === 0 && (
+                {contasOrd.rows.length === 0 && (
                   <TR>
                     <TD colSpan={7} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a receber lançada. Recebíveis das vendas aparecem abaixo.
@@ -336,16 +373,16 @@ export function ContasReceberManager({
           <Table wrapperClassName="max-h-[420px] scroll-x-always" className="min-w-[900px]">
               <THead>
                 <tr>
-                  <TH>Unidade</TH>
-                  <TH>Projeto</TH>
-                  <TH>Cliente</TH>
-                  <TH>Descrição</TH>
-                  <TH>Previsto</TH>
-                  <TH className="text-right">Valor</TH>
+                  <SortTH coluna="unidade" estado={recebOrd.estado} onSort={recebOrd.onSort}>Unidade</SortTH>
+                  <SortTH coluna="projeto" estado={recebOrd.estado} onSort={recebOrd.onSort}>Projeto</SortTH>
+                  <SortTH coluna="cliente" estado={recebOrd.estado} onSort={recebOrd.onSort}>Cliente</SortTH>
+                  <SortTH coluna="descricao" estado={recebOrd.estado} onSort={recebOrd.onSort}>Descrição</SortTH>
+                  <SortTH coluna="previsto" estado={recebOrd.estado} onSort={recebOrd.onSort}>Previsto</SortTH>
+                  <SortTH coluna="valor" estado={recebOrd.estado} onSort={recebOrd.onSort} className="text-right">Valor</SortTH>
                 </tr>
               </THead>
               <tbody>
-                {unitReceb.map((r, i) => (
+                {recebOrd.rows.map((r, i) => (
                   <TR key={i}>
                     <TD className="font-medium">{r.unitCode}</TD>
                     <TD className="whitespace-nowrap">{r.projectName}</TD>
@@ -359,7 +396,7 @@ export function ContasReceberManager({
                     </TD>
                   </TR>
                 ))}
-                {unitReceb.length === 0 && (
+                {recebOrd.rows.length === 0 && (
                   <TR>
                     <TD colSpan={6} className="py-6 text-center text-[var(--color-ink4)]">
                       Sem recebíveis de vendas (unidades vendidas geram recebíveis pelo plano de pagamento).
