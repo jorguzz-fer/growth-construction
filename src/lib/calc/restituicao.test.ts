@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { statusRestituicao, saldoPendente } from "./restituicao";
+import {
+  statusRestituicao,
+  saldoPendente,
+  rotuloStatusObrigacao,
+  saldoDevidoTerceiro,
+  restituicaoCabe,
+} from "./restituicao";
 
 describe("statusRestituicao / saldoPendente", () => {
   it("sem restituição → aguardando; saldo = total", () => {
@@ -14,6 +20,54 @@ describe("statusRestituicao / saldoPendente", () => {
   it("restituição integral", () => {
     expect(statusRestituicao(10000, 10000)).toBe("Restituído");
     expect(saldoPendente(10000, 10000)).toBe(0);
+  });
+});
+
+describe("rótulo do status na tela (§12)", () => {
+  it('"Aguardando restituição" é exibido como "Pendente"', () => {
+    expect(rotuloStatusObrigacao("Aguardando restituição")).toBe("Pendente");
+  });
+  it("os demais status são exibidos como estão", () => {
+    for (const s of ["Parcialmente restituído", "Restituído", "Cancelado"]) {
+      expect(rotuloStatusObrigacao(s)).toBe(s);
+    }
+  });
+  it("status desconhecido não é escondido nem reescrito", () => {
+    expect(rotuloStatusObrigacao("Status legado qualquer")).toBe("Status legado qualquer");
+  });
+});
+
+describe("saldo devido na conta corrente do terceiro (§13)", () => {
+  it("saldo = total desembolsado − total restituído", () => {
+    expect(saldoDevidoTerceiro(15000, 4000)).toBe(11000);
+    expect(saldoDevidoTerceiro(15000, 15000)).toBe(0);
+  });
+  it("restituição a maior fica NEGATIVA e visível (sem clamp)", () => {
+    // Ao contrário de saldoPendente, aqui um saldo negativo é um sinal de erro
+    // que precisa aparecer, não ser mascarado em zero.
+    expect(saldoDevidoTerceiro(1000, 1500)).toBe(-500);
+    expect(saldoPendente(1000, 1500)).toBe(0);
+  });
+  it("arredonda para centavos", () => {
+    expect(saldoDevidoTerceiro(0.1 + 0.2, 0)).toBe(0.3);
+  });
+});
+
+describe("restituicaoCabe (trava de valor)", () => {
+  it("aceita valor dentro do saldo devido", () => {
+    expect(restituicaoCabe(10000, 4000, 6000)).toBe(true);
+    expect(restituicaoCabe(10000, 0, 1)).toBe(true);
+  });
+  it("recusa valor acima do saldo devido", () => {
+    expect(restituicaoCabe(10000, 4000, 6000.5)).toBe(false);
+    expect(restituicaoCabe(10000, 10000, 1)).toBe(false);
+  });
+  it("tolera 1 centavo de arredondamento", () => {
+    expect(restituicaoCabe(10000, 4000, 6000.01)).toBe(true);
+  });
+  it("recusa zero e negativo", () => {
+    expect(restituicaoCabe(10000, 0, 0)).toBe(false);
+    expect(restituicaoCabe(10000, 0, -100)).toBe(false);
   });
 });
 

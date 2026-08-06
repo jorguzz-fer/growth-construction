@@ -334,6 +334,15 @@ export interface ContaPagarRow {
   projectName: string;
   clienteId: string | null;
   clienteNome: string | null;
+  /**
+   * "obrigacao" identifica as linhas de restituição a terceiros (§11), que a
+   * tela de Contas a Pagar acrescenta às despesas. Ausente/"despesa" para tudo
+   * que vem de `getContasPagar`, cujo retorno não mudou — ela também alimenta
+   * Dashboard, Fechamento e a conciliação do extrato.
+   */
+  origem?: "despesa" | "obrigacao";
+  /** ID da obrigação quando `origem === "obrigacao"`. */
+  obrigacaoId?: string;
 }
 
 /**

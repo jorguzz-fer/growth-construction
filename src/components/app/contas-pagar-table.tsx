@@ -143,10 +143,18 @@ export function ContasPagarTable({
     (r) => r.id,
   );
 
-  const total = filtered.reduce((a, r) => a + r.valor, 0);
-  const totalPend = filtered
+  // Totais — uma obrigação de restituição NÃO é despesa nova: a despesa dela já
+  // está listada (como "Pago", porque quem pagou o fornecedor foi o terceiro).
+  // Por isso "Total" soma só as despesas, enquanto "Pendente" e "A restituir"
+  // mostram o que de fato ainda vai sair do caixa da empresa. Somar as duas
+  // coisas em "Total" contaria o mesmo fato duas vezes.
+  const despesasFiltradas = filtered.filter((r) => r.origem !== "obrigacao");
+  const obrigacoesFiltradas = filtered.filter((r) => r.origem === "obrigacao");
+  const total = despesasFiltradas.reduce((a, r) => a + r.valor, 0);
+  const totalPend = despesasFiltradas
     .filter((r) => r.status !== "Pago")
     .reduce((a, r) => a + r.valor, 0);
+  const totalRestituir = obrigacoesFiltradas.reduce((a, r) => a + r.valor, 0);
 
   const limpar = () => {
     setFornecedor(""); setCliente(""); setProjeto("");
@@ -189,6 +197,17 @@ export function ContasPagarTable({
         <span className="text-[var(--color-ink3)]">
           Pendente <strong className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">{brl0(totalPend)}</strong>
         </span>
+        {obrigacoesFiltradas.length > 0 && (
+          <span
+            className="text-[var(--color-ink3)]"
+            title="Saldo devido a terceiros que pagaram fornecedores pela empresa. Não é despesa nova — a despesa já está listada acima."
+          >
+            A restituir{" "}
+            <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent2)]">
+              {brl0(totalRestituir)}
+            </strong>
+          </span>
+        )}
         <button onClick={limpar} className="ml-auto text-[12px] text-[var(--color-accent2)] hover:underline">
           Limpar filtros
         </button>
@@ -239,19 +258,35 @@ export function ContasPagarTable({
                     </TD>
                     <TD>{r.formaPagamento ?? "—"}</TD>
                     <TD>
-                      {(() => {
-                        const st = displayStatus(r.status, r.vencimento, hojeISO);
-                        return <Badge tone={statusTone(st)}>{st}</Badge>;
-                      })()}
+                      {r.origem === "obrigacao" ? (
+                        // Status da obrigação já vem no vocabulário da tela de
+                        // Restituições; não passa por "Vencida" (a data aqui é
+                        // uma previsão de restituição, não um vencimento).
+                        <Badge tone="info">{r.status ?? "—"}</Badge>
+                      ) : (
+                        (() => {
+                          const st = displayStatus(r.status, r.vencimento, hojeISO);
+                          return <Badge tone={statusTone(st)}>{st}</Badge>;
+                        })()
+                      )}
                     </TD>
                     {canEditar && (
                       <TD className="text-right">
-                        <Link
-                          href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
-                          className="text-sm text-[var(--color-accent2)] hover:underline"
-                        >
-                          Editar
-                        </Link>
+                        {r.origem === "obrigacao" ? (
+                          <Link
+                            href="/restituicoes"
+                            className="text-sm text-[var(--color-accent2)] hover:underline"
+                          >
+                            Restituir
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
+                            className="text-sm text-[var(--color-accent2)] hover:underline"
+                          >
+                            Editar
+                          </Link>
+                        )}
                       </TD>
                     )}
                   </TR>
