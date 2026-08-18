@@ -63,6 +63,7 @@ export function ProjectManager({
   tenantName,
   docsByProject = {},
   r2Configured = false,
+  selecionadoId = "all",
 }: {
   projects: Project[];
   activeId: string;
@@ -71,19 +72,30 @@ export function ProjectManager({
   tenantName: string;
   docsByProject?: Record<string, ProjetoDoc[]>;
   r2Configured?: boolean;
+  /** id vindo do seletor do topo; "all" lista todos (comportamento original). */
+  selecionadoId?: string;
 }) {
-  const empreendimentos = projects.filter((p) => p.kind !== "office");
-  const escritorios = projects.filter((p) => p.kind === "office");
+  const umSo = selecionadoId !== "all";
+  // O seletor filtra o que é EXIBIDO. `projects` continua completo, então a
+  // trava de exclusão (não deixar o tenant sem nenhum projeto) segue olhando o
+  // total real, e não o que está na tela.
+  const visiveis = umSo ? projects.filter((p) => p.id === selecionadoId) : projects;
+  const empreendimentos = visiveis.filter((p) => p.kind !== "office");
+  const escritorios = visiveis.filter((p) => p.kind === "office");
   const canDelete = perms.excluir && projects.length > 1;
 
   return (
     <div className="space-y-8">
       {/* Projetos — empreendimentos imobiliários */}
+      {(!umSo || empreendimentos.length > 0) && (
       <section className="space-y-3">
         <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
           Projetos — empreendimentos imobiliários
         </h2>
-        {perms.criar && (
+        {/* Com um projeto escolhido, o formulário de cadastro só atrapalha:
+            quem selecionou uma obra veio olhar aquela obra. Ele volta ao
+            escolher "Todos" no seletor. */}
+        {perms.criar && !umSo && (
           <NewProjectForm clientes={clientes} tenantName={tenantName} />
         )}
         {empreendimentos.map((p) => (
@@ -100,17 +112,21 @@ export function ProjectManager({
           />
         ))}
       </section>
+      )}
 
       {/* Unidades / escritórios — centros de custo */}
+      {(!umSo || escritorios.length > 0) && (
       <section className="space-y-3">
         <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
           Unidades / Escritórios — centros de custo
         </h2>
-        <p className="text-[12px] text-[var(--color-ink3)]">
-          Matriz e filiais: contas corporativas não vinculadas a um empreendimento
-          específico (despesas administrativas, overhead).
-        </p>
-        {perms.criar && <NewOfficeForm />}
+        {!umSo && (
+          <p className="text-[12px] text-[var(--color-ink3)]">
+            Matriz e filiais: contas corporativas não vinculadas a um
+            empreendimento específico (despesas administrativas, overhead).
+          </p>
+        )}
+        {perms.criar && !umSo && <NewOfficeForm />}
         {escritorios.map((p) => (
           <OfficeRow
             key={p.id}
@@ -126,6 +142,7 @@ export function ProjectManager({
           </p>
         )}
       </section>
+      )}
     </div>
   );
 }
