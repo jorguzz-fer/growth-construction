@@ -11,6 +11,10 @@ import { diffAudit } from "@/lib/audit-diff";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { gerarParcelas } from "@/lib/calc";
 import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
+import {
+  normalizarChaveAcesso,
+  validarDocumentoFiscal,
+} from "@/lib/calc/documento-fiscal";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
 import {
@@ -361,6 +365,34 @@ export async function addDespesa(formData: FormData) {
         status: "Pendente",
       })),
     );
+  }
+
+  // Documento fiscal (item 1.2 / RG-06): campo PRÓPRIO, separado do PED. A
+  // linha só nasce quando há algo a registrar — despesa sem nota simplesmente
+  // não tem documento fiscal, e isso é um estado válido: a nota chega depois.
+  const docTipo = ((formData.get("docTipo") as string) || "SEM_DOC").trim();
+  const docNumero = ((formData.get("docNumero") as string) || "").trim();
+  const docSerie = ((formData.get("docSerie") as string) || "").trim();
+  const docChave = (formData.get("docChaveAcesso") as string) || "";
+  const docEmissao = ((formData.get("docDataEmissao") as string) || "").trim();
+  if (docTipo !== "SEM_DOC" || docNumero) {
+    const erroDoc = validarDocumentoFiscal({
+      tipo: docTipo,
+      numero: docNumero,
+      chaveAcesso: docChave,
+    });
+    if (erroDoc) throw new Error(erroDoc);
+    await db.insert(schema.documentosFiscais).values({
+      tenantId: ctx.tenant.id,
+      despesaId: row.id,
+      tipo: docTipo,
+      numero: docNumero || null,
+      serie: docSerie || null,
+      chaveAcesso: normalizarChaveAcesso(docChave),
+      // Sem data de emissão informada, vale a competência — é o que a nota
+      // costuma trazer e evita campo vazio na conferência.
+      dataEmissao: docEmissao || row.competencia,
+    });
   }
 
   // Documentos anexados (opcional): VÁRIOS arquivos podem ser enviados já no
@@ -789,6 +821,11 @@ export async function uploadDespesaDoc(formData: FormData) {
     contentType: file.type || null,
     size: file.size,
     tipo: ((formData.get("tipo") as string) || "").trim() || null,
+    // Item 3.2 — nº da nota no próprio arquivo, para localizá-lo pelo número
+    // sem depender do nome. Vazio herda o documento fiscal da despesa na
+    // listagem do repositório.
+    numeroDocumentoFiscal:
+      ((formData.get("numeroDocumentoFiscal") as string) || "").trim() || null,
     uploadedBy: ctx.userEmail || ctx.userId || null,
   });
   await logAudit({

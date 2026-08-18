@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import { buildTemplateBuffer, parseWorkbook, SHEETS } from "./growth-template";
 import type { InccRow } from "@/lib/calc/types";
+import { PLANO_CONTAS } from "@/lib/calc/constants";
 
 const incc: InccRow[] = [
   { m: "05/2025", mo: 0.26, ac: 0.26 },
@@ -61,10 +62,17 @@ describe("growth-template", () => {
     ]);
   });
 
-  it("Despesas_CEF traz os 91 subitens do plano de contas", () => {
+  it("Despesas_CEF traz TODOS os subitens do plano de contas", () => {
+    // A contagem é derivada de PLANO_CONTAS, não fixada à mão: o plano cresce
+    // (o pacote de Controladoria acrescentou as contas F.6 a F.9 ao grupo
+    // Financeiro/Contábil, para RG-03, RG-04 e RG-07) e um número cravado aqui
+    // quebraria a cada conta nova sem apontar defeito algum.
+    const esperado =
+      PLANO_CONTAS.obra.reduce((a, g) => a + g.sub.length, 0) +
+      PLANO_CONTAS.complementar.reduce((a, g) => a + g.sub.length, 0);
     const wb = XLSX.read(buildTemplateBuffer(incc), { type: "buffer" });
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[SHEETS.despesas], { header: 1 });
-    expect(rows.length).toBe(1 + 91); // cabeçalho + subitens
+    expect(rows.length).toBe(1 + esperado); // cabeçalho + subitens
   });
 
   it("round-trip: parseia unidade + plano de pagamento", () => {
@@ -98,7 +106,6 @@ describe("growth-template", () => {
 
 import { buildExportBuffer, type ExportData } from "./growth-template";
 import { emptyPlan } from "@/lib/calc/plan";
-import { PLANO_CONTAS } from "@/lib/calc/constants";
 
 describe("buildExportBuffer (round-trip export → import)", () => {
   it("exporta dados preenchidos e reimporta recuperando-os", () => {

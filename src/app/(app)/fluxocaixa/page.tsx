@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { getActiveContext } from "@/lib/context";
 import { saldoDisponivel } from "@/lib/contas-saldo";
-import { flowMaps } from "@/lib/fluxo-caixa";
+import { flowMaps, flowMapsRealizado } from "@/lib/fluxo-caixa";
 import {
   getBankAccounts,
   getVersionsDoProjeto,
@@ -86,16 +86,40 @@ export default async function FluxoCaixaPage({
     return { entradas, saidas };
   }
 
+  /** Realizado somado de todas as obras, para a visão consolidada. */
+  async function flowMapsRealizadoConsolidado() {
+    const entradas: Record<string, number> = {};
+    const saidas: Record<string, number> = {};
+    const porProjeto = await Promise.all(
+      ctx!.projects.map(async (p) => {
+        const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
+        const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
+        if (!atual) return { entradas: {}, saidas: {} };
+        return flowMapsRealizado(atual.id);
+      }),
+    );
+    for (const m of porProjeto) {
+      for (const [mm, v] of Object.entries(m.entradas)) entradas[mm] = (entradas[mm] || 0) + v;
+      for (const [mm, v] of Object.entries(m.saidas)) saidas[mm] = (saidas[mm] || 0) + v;
+    }
+    return { entradas, saidas };
+  }
+
   // ── Fluxo mensal, com UMA COLUNA POR VERSÃO ──────────────────────────────
   // A comparação acontece dentro da própria tabela de fechamentos mensais: o
   // usuário nunca troca de tela para comparar versões.
   const versoesTabela = isAll ? [atualVersion] : compareVersions;
-  const [fluxos, incc, contas] = await Promise.all([
+  const [fluxos, incc, contas, realizado] = await Promise.all([
     isAll
       ? flowMapsConsolidado().then((m) => [m])
       : Promise.all(compareVersions.map((v) => flowMaps(v, project.id))),
     getInccRows(project.id),
     getBankAccounts(ctx.tenant.id),
+    // RG-01 — o fluxo acima é PREVISTO (montado pelo vencimento). Este é o
+    // REALIZADO, montado pela data de liquidação: o dinheiro que de fato passou
+    // pela conta. São visões distintas da mesma realidade e aparecem lado a
+    // lado; nenhum número do previsto muda por causa disto.
+    isAll ? flowMapsRealizadoConsolidado() : flowMapsRealizado(compareVersions[0].id),
   ]);
   // A primeira versão selecionada é a de referência (entradas/saídas/saldo
   // acumulado dos cartões do topo).
@@ -298,6 +322,10 @@ export default async function FluxoCaixaPage({
                     <TH className="text-right">Saldo do mês</TH>
                   </Fragment>
                 ))}
+                {/* RG-01 — realizado por data de liquidação, ao lado do
+                    previsto por vencimento. */}
+                <TH className="text-right">Realizado ↑</TH>
+                <TH className="text-right">Realizado ↓</TH>
                 <TH className="text-right">Saldo acumulado</TH>
               </tr>
             </THead>
@@ -324,6 +352,18 @@ export default async function FluxoCaixaPage({
                       </Fragment>
                     );
                   })}
+                  <TD
+                    className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]"
+                    title="Entradas efetivamente liquidadas neste mês (extrato/caixa)"
+                  >
+                    {(realizado.entradas[l.mm] || 0) > 0 ? brl0(realizado.entradas[l.mm]) : "—"}
+                  </TD>
+                  <TD
+                    className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]"
+                    title="Saídas efetivamente liquidadas neste mês (extrato/caixa)"
+                  >
+                    {(realizado.saidas[l.mm] || 0) > 0 ? brl0(realizado.saidas[l.mm]) : "—"}
+                  </TD>
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
                     {brl0(l.saldo)}
                   </TD>

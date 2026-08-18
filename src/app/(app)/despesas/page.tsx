@@ -22,21 +22,29 @@ import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label, Select } from "@/components/ui/input";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { Input, Label, Select } from "@/components/ui/input";
 import { DespesaForm } from "@/components/app/despesa-form";
 import { DespesasTable, type DespesaDTO } from "@/components/app/despesas-table";
 import { DespesaSearch } from "@/components/app/despesa-search";
+import {
+  RepositorioTable,
+  type RepositorioItem,
+} from "@/components/app/repositorio-table";
 import { ordenarLancamentos } from "@/lib/despesas-ordering";
+import { getDocumentosFiscais } from "@/lib/actions/documento-fiscal";
+import { getDocsFiscaisPorDespesa, getRepositorio } from "@/lib/queries";
+import { pendenteDeDocumento } from "@/lib/calc/documento-fiscal";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "apagar" | "parcelas" | "repositorio";
+type Tab = "lancamentos" | "apagar" | "semnf" | "parcelas" | "repositorio";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
   { key: "apagar", label: "A Pagar" },
+  // Item 1.2 — lançar sem nota é permitido; esta aba é a lista de cobrança.
+  { key: "semnf", label: "Pendente de NF" },
   { key: "parcelas", label: "Parcelas" },
   { key: "repositorio", label: "Repositório" },
 ];
@@ -134,6 +142,11 @@ export default async function DespesasPage({
       ),
     );
   }
+  // Documentos fiscais das despesas em tela (item 1.2), para o selo "sem NF".
+  const docsFiscaisPorDespesa = await getDocsFiscaisPorDespesa(
+    ctx.tenant.id,
+    [...despesaIdSet],
+  );
   const contasOrdenadas = [...contas].sort((a, b) =>
     a.code.localeCompare(b.code, undefined, { numeric: true }),
   );
@@ -155,6 +168,9 @@ export default async function DespesasPage({
     origem: d.origem ?? null,
     anexoUrl: anexoUrlByDespesa.get(d.id) ?? null,
     anexoCount: docByDespesa.get(d.id)?.count ?? 0,
+    // Item 1.2 — pendência de nota fiscal. Lançar sem documento é permitido
+    // (a nota chega depois); o selo só torna a pendência visível.
+    semNf: pendenteDeDocumento(docsFiscaisPorDespesa.get(d.id) ?? []),
   });
   // A tabela só precisa de fornecedores (exibição) e bancos (pagamento).
   const tableRefProps = {
@@ -232,6 +248,9 @@ export default async function DespesasPage({
           obs: editRow.obs,
           documentos: editDocsComUrl,
           r2Configured,
+          // Documento fiscal já registrado (item 1.2) — a nota costuma chegar
+          // depois do lançamento e é completada aqui.
+          documentoFiscal: (await getDocumentosFiscais(editRow.id))[0] ?? null,
         }
       : null;
 
@@ -340,6 +359,40 @@ export default async function DespesasPage({
         />
       )}
 
+      {/* Item 1.2 — despesas ainda sem documento fiscal informado. Lançar sem
+          nota é legítimo (ela chega depois); esta aba é o que falta cobrar. */}
+      {tab === "semnf" && (
+        <>
+          {(() => {
+            const pendentes = lancamentos
+              .map(toDTO)
+              .filter((d) => d.semNf && !d.cancelado);
+            return pendentes.length === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+                  Nenhuma despesa pendente de documento fiscal.
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <p className="mb-3 text-[13px] text-[var(--color-ink3)]">
+                  {pendentes.length} lançamento(s) sem documento fiscal informado.
+                  Abra o lançamento para completar a nota — nada aqui está
+                  bloqueado.
+                </p>
+                <DespesasTable
+                  rows={pendentes}
+                  showOrigem={isAll}
+                  canEditar={canEditar}
+                  canExcluir={canExcluir}
+                  {...tableRefProps}
+                />
+              </>
+            );
+          })()}
+        </>
+      )}
+
       {tab === "parcelas" && (
         <ParcelasList
           rows={(await getParcelasByVersion(versionId)).map((p) => ({
@@ -380,27 +433,31 @@ async function Repositorio({
   tenantId: string;
 }) {
   const r2 = isR2Configured();
-  const docs = await getDocuments(tenantId);
-  const withUrls = r2
-    ? await Promise.all(
-        docs.map(async (d) => ({ ...d, url: await readUrl(d.storageKey) })),
-      )
+  // Listagem com o CONTEXTO do lançamento (Módulo 3): PED, obra, fornecedor,
+  // nº da nota, competência e valor — em vez de só "08/2026 · R$ 28".
+  const docs = await getRepositorio(tenantId);
+  const withUrls: RepositorioItem[] = r2
+    ? await Promise.all(docs.map(async (d) => ({ ...d, url: await readUrl(d.storageKey) })))
     : docs.map((d) => ({ ...d, url: null as string | null }));
-  const despById = new Map(despesas.map((d) => [d.id, d]));
 
   return (
     <>
       {canEdit && r2 && (
         <Card className="mb-6">
           <CardContent className="p-5">
-            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-              <div>
+            <form action={uploadDespesaDoc} className="grid grid-cols-1 gap-3 sm:grid-cols-5">
+              <div className="sm:col-span-2">
                 <Label>Despesa (opcional)</Label>
                 <Select name="despesaId" defaultValue="">
                   <option value="">— sem vínculo —</option>
                   {despesas.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {(d.competencia ?? "") + " · " + (d.fornecedorId ? fornById.get(d.fornecedorId) ?? "" : "") + " · " + brl0(Number(d.valor))}
+                      {(d.numDoc ? d.numDoc + " · " : "") +
+                        (d.competencia ?? "") +
+                        " · " +
+                        (d.fornecedorId ? fornById.get(d.fornecedorId) ?? "" : "") +
+                        " · " +
+                        brl0(Number(d.valor))}
                     </option>
                   ))}
                 </Select>
@@ -414,11 +471,18 @@ async function Repositorio({
                   ))}
                 </Select>
               </div>
+              {/* Item 3.2 — o nº da nota entra aqui também: permite achar o
+                  arquivo pelo número, sem depender do nome dele. Vinculando a
+                  uma despesa que já tem NF gravada, ele é herdado na listagem. */}
+              <div>
+                <Label>Nº do documento fiscal</Label>
+                <Input name="numeroDocumentoFiscal" placeholder="opcional" />
+              </div>
               <div>
                 <Label>Arquivo (até 10 MB)</Label>
                 <input type="file" name="file" className="text-xs" required />
               </div>
-              <div className="flex items-end">
+              <div className="flex items-end sm:col-span-5">
                 <Button type="submit">Enviar documento</Button>
               </div>
             </form>
@@ -431,53 +495,7 @@ async function Repositorio({
         </p>
       )}
 
-      <Table>
-        <THead>
-          <tr>
-            <TH>Arquivo</TH>
-            <TH>Tipo</TH>
-            <TH>Despesa vinculada</TH>
-            <TH>Enviado por</TH>
-            <TH>Enviado em</TH>
-            <TH className="text-right">Tamanho</TH>
-            <TH></TH>
-          </tr>
-        </THead>
-        <tbody>
-          {withUrls.map((d) => (
-            <TR key={d.id}>
-              <TD className="font-medium text-[var(--color-ink)]">{d.filename}</TD>
-              <TD className="text-[var(--color-ink2)]">{d.tipo ?? "—"}</TD>
-              <TD>
-                {d.despesaId && despById.get(d.despesaId)
-                  ? `${despById.get(d.despesaId)!.competencia ?? ""} · ${brl0(Number(despById.get(d.despesaId)!.valor))}`
-                  : "—"}
-              </TD>
-              <TD className="text-[var(--color-ink3)]">{d.uploadedBy ?? "—"}</TD>
-              <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                {d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString("pt-BR") : "—"}
-              </TD>
-              <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                {d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—"}
-              </TD>
-              <TD className="text-right">
-                {d.url ? (
-                  <a href={d.url} target="_blank" rel="noopener" className="text-sm text-[var(--color-accent2)] hover:underline">
-                    Abrir
-                  </a>
-                ) : null}
-              </TD>
-            </TR>
-          ))}
-          {withUrls.length === 0 && (
-            <TR>
-              <TD colSpan={7} className="py-6 text-center text-[var(--color-ink3)]">
-                Nenhum documento.
-              </TD>
-            </TR>
-          )}
-        </tbody>
-      </Table>
+      <RepositorioTable rows={withUrls} />
     </>
   );
 }

@@ -4,12 +4,17 @@ import {
   getMonthlyRevenue,
   getParcelasByVersion,
   getPermutas,
+  getCash,
   permToResale,
 } from "@/lib/queries";
 import { permutaCashByMonth } from "@/lib/calc";
 import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
 import type { Version } from "@/lib/context";
+// `vencMonth` vive em módulo puro para poder ser testada sem puxar banco/sessão.
+import { vencMonth } from "@/lib/calc/mes-caixa";
+
+export { vencMonth };
 
 /**
  * Montagem do Fluxo de Caixa mensal.
@@ -25,14 +30,7 @@ import type { Version } from "@/lib/context";
  *  - despesas pagas por terceiro não geram saída na competência (a saída
  *    ocorre na restituição).
  */
-/** "MM/DD/YYYY" → "MM/YYYY" (mês do vencimento). */
-export function vencMonth(d: string | null): string | null {
-  if (!d) return null;
-  const p = d.split("/");
-  if (p.length === 3) return `${p[0]}/${p[2]}`;
-  if (p.length === 2) return d;
-  return null;
-}
+
 
 /** Mapas de entradas e saídas mensais de uma versão (budget-aware). */
 export async function flowMaps(
@@ -93,3 +91,42 @@ export async function flowMaps(
   return { entradas, saidas };
 }
 
+
+/**
+ * Fluxo REALIZADO — RG-01.
+ *
+ * O `flowMaps` acima monta o fluxo PREVISTO: ele projeta pelo VENCIMENTO das
+ * parcelas e das despesas, ou seja, mostra o que se espera pagar e receber.
+ * Isso é uma previsão, e continua valendo — é o que a empresa usa para se
+ * programar.
+ *
+ * O que faltava era o outro lado da RG-01: o fluxo montado pela **data de
+ * liquidação**, isto é, o dinheiro que de fato passou pela conta. É o que esta
+ * função devolve, lendo `cash_entry` (os lançamentos do extrato e as baixas
+ * conciliadas) pela data em que ocorreram.
+ *
+ * As duas visões convivem lado a lado e NENHUM número do previsto muda por
+ * causa desta função: ela lê uma fonte diferente e não toca em `flowMaps`.
+ *
+ * Convenção de sinal de `cash_entry`: positivo entra, negativo sai. Aqui as
+ * saídas são devolvidas em módulo, para somar na mesma escala do previsto.
+ */
+export async function flowMapsRealizado(
+  versionId: string,
+): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
+  const entradas: Record<string, number> = {};
+  const saidas: Record<string, number> = {};
+  const lancamentos = await getCash(versionId);
+  for (const c of lancamentos) {
+    // Sem data não há competência de caixa a atribuir — o lançamento existe,
+    // mas não entra em nenhum mês (e some-lo do total seria pior do que
+    // reportá-lo em mês errado).
+    const mm = vencMonth(c.data);
+    if (!mm) continue;
+    const v = Number(c.valor);
+    if (!Number.isFinite(v) || v === 0) continue;
+    if (v > 0) entradas[mm] = (entradas[mm] || 0) + v;
+    else saidas[mm] = (saidas[mm] || 0) + Math.abs(v);
+  }
+  return { entradas, saidas };
+}
