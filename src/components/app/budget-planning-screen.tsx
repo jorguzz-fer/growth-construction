@@ -99,7 +99,9 @@ export function BudgetPlanningScreen({
               cadastro do projeto para habilitar o Budget e o Forecast.
             </p>
             <Link
-              href="/projeto"
+              // Leva direto ao projeto em questão, já filtrado no seletor —
+              // sem isso o usuário caía na lista inteira e tinha de procurar.
+              href={`/projeto?proj=${data.project.id}`}
               className="mt-3 inline-block rounded-[8px] bg-[var(--color-accent2)] px-4 py-2 text-[13px] font-medium text-white hover:opacity-90"
             >
               Ir para o cadastro do projeto
