@@ -37,6 +37,8 @@ export interface DespesaDTO {
   anexoUrl?: string | null;
   /** quantidade de documentos anexados à despesa. */
   anexoCount?: number;
+  /** Sem documento fiscal registrado (item 1.2) — pendência, não impedimento. */
+  semNf?: boolean;
 }
 
 /** Status exibido: "Vencida" derivado da data; "Cancelada" tem prioridade. */
@@ -325,6 +327,16 @@ function Row({
             >
               📎{(d.anexoCount ?? 0) > 1 ? <span className="ml-0.5 text-[10px]">{d.anexoCount}</span> : null}
             </a>
+          )}
+          {/* Item 1.2 — a nota chega depois; o selo só torna a pendência
+              visível, sem impedir nada. */}
+          {d.semNf && (
+            <span
+              title="Pendente de documento fiscal — a nota ainda não foi informada"
+              className="text-[11px] text-[var(--color-warning)]"
+            >
+              ⚠ Sem NF
+            </span>
           )}
         </span>
       </TD>

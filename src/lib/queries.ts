@@ -2209,3 +2209,111 @@ export async function getVersionsDoProjeto(
     )
     .orderBy(asc(schema.versions.createdAt));
 }
+
+/**
+ * Documentos fiscais das despesas informadas, agrupados por despesa (item 1.2).
+ *
+ * Uma consulta só para toda a listagem — buscar por linha faria N+1 numa tela
+ * que exibe centenas de lançamentos. Devolve mapa vazio para lista vazia.
+ */
+export async function getDocsFiscaisPorDespesa(
+  tenantId: string,
+  despesaIds: string[],
+): Promise<Map<string, { tipo: string; numero: string | null }[]>> {
+  const out = new Map<string, { tipo: string; numero: string | null }[]>();
+  if (despesaIds.length === 0) return out;
+  const rows = await db
+    .select({
+      despesaId: schema.documentosFiscais.despesaId,
+      tipo: schema.documentosFiscais.tipo,
+      numero: schema.documentosFiscais.numero,
+    })
+    .from(schema.documentosFiscais)
+    .where(
+      and(
+        eq(schema.documentosFiscais.tenantId, tenantId),
+        inArray(schema.documentosFiscais.despesaId, despesaIds),
+      ),
+    );
+  for (const r of rows) {
+    const lista = out.get(r.despesaId);
+    if (lista) lista.push({ tipo: r.tipo, numero: r.numero });
+    else out.set(r.despesaId, [{ tipo: r.tipo, numero: r.numero }]);
+  }
+  return out;
+}
+
+export interface RepositorioRow {
+  id: string;
+  filename: string;
+  tipo: string | null;
+  storageKey: string;
+  size: number | null;
+  uploadedBy: string | null;
+  uploadedAt: string | null;
+  /** Nº da nota digitado no upload OU herdado do documento fiscal da despesa. */
+  numeroDocumentoFiscal: string | null;
+  despesaId: string | null;
+  numDoc: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  fornecedorNome: string | null;
+  competencia: string | null;
+  valor: number | null;
+}
+
+/**
+ * Repositório de documentos com o CONTEXTO do lançamento — Módulo 3.
+ *
+ * A listagem antiga mostrava só "08/2026 · R$ 28" na coluna de despesa
+ * vinculada, o que não permite conferir nada. Aqui cada arquivo vem com PED,
+ * obra, fornecedor, nº da nota, competência e valor, numa consulta só (a tela
+ * exibe centenas de linhas; buscar por linha faria N+1).
+ *
+ * Arquivos sem vínculo com despesa continuam aparecendo, com os campos de
+ * contexto nulos — some-los esconderia documento que alguém subiu.
+ */
+export async function getRepositorio(tenantId: string): Promise<RepositorioRow[]> {
+  const rows = await db
+    .select({
+      doc: schema.documents,
+      numDoc: schema.despesas.numDoc,
+      competencia: schema.despesas.competencia,
+      valor: schema.despesas.valor,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      fornecedorNome: schema.stakeholders.nome,
+      numeroFiscal: schema.documentosFiscais.numero,
+    })
+    .from(schema.documents)
+    .leftJoin(schema.despesas, eq(schema.documents.despesaId, schema.despesas.id))
+    .leftJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .leftJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .leftJoin(
+      schema.documentosFiscais,
+      eq(schema.documentosFiscais.despesaId, schema.despesas.id),
+    )
+    .where(eq(schema.documents.tenantId, tenantId))
+    .orderBy(desc(schema.documents.uploadedAt));
+
+  return rows.map((r) => ({
+    id: r.doc.id,
+    filename: r.doc.filename,
+    tipo: r.doc.tipo,
+    storageKey: r.doc.storageKey,
+    size: r.doc.size,
+    uploadedBy: r.doc.uploadedBy,
+    uploadedAt: r.doc.uploadedAt ? r.doc.uploadedAt.toISOString() : null,
+    // O número digitado no upload tem precedência; sem ele, herda o documento
+    // fiscal da despesa vinculada (item 3.2).
+    numeroDocumentoFiscal: r.doc.numeroDocumentoFiscal ?? r.numeroFiscal ?? null,
+    despesaId: r.doc.despesaId,
+    numDoc: r.numDoc,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    fornecedorNome: r.fornecedorNome,
+    competencia: r.competencia,
+    valor: r.valor == null ? null : Number(r.valor),
+  }));
+}

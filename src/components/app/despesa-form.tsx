@@ -15,6 +15,16 @@ import {
   categoriasDeDespesa,
   validarCategoriaDespesa,
 } from "@/lib/calc/natureza-dre";
+import {
+  TIPOS_DOCUMENTO,
+  exigeNumero,
+  validarDocumentoFiscal,
+} from "@/lib/calc/documento-fiscal";
+import {
+  buscarDocumentoDuplicado,
+  salvarDocumentoFiscal,
+  type DuplicidadeDocumento,
+} from "@/lib/actions/documento-fiscal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -81,6 +91,14 @@ export interface EditDespesa {
   documentos?: DespesaAnexo[];
   /** Se o storage (R2) está configurado — habilita os links de download. */
   r2Configured?: boolean;
+  /** Documento fiscal já registrado para esta despesa (item 1.2). */
+  documentoFiscal?: {
+    tipo: string;
+    numero: string | null;
+    serie: string | null;
+    chaveAcesso: string | null;
+    dataEmissao: string | null;
+  } | null;
 }
 
 /**
@@ -160,6 +178,17 @@ export function DespesaForm({
   const [valor, setValor] = useState(edit?.valor ?? prefill?.valor ?? "");
   const [status, setStatus] = useState(edit?.status ?? "A pagar");
   const [obs, setObs] = useState(edit?.obs ?? "");
+  // Bloco Documento Fiscal (item 1.2). Tudo opcional no lançamento: a nota
+  // costuma chegar depois, e travar isso impediria o uso real do sistema.
+  const [docFiscal, setDocFiscal] = useState({
+    tipo: edit?.documentoFiscal?.tipo ?? "SEM_DOC",
+    numero: edit?.documentoFiscal?.numero ?? "",
+    serie: edit?.documentoFiscal?.serie ?? "",
+    chaveAcesso: edit?.documentoFiscal?.chaveAcesso ?? "",
+    dataEmissao: edit?.documentoFiscal?.dataEmissao ?? "",
+  });
+  const [dupAviso, setDupAviso] = useState<DuplicidadeDocumento | null>(null);
+  const [dupConfirmada, setDupConfirmada] = useState(false);
   // Vários anexos podem ser enviados no mesmo lançamento. O primeiro arquivo é
   // o usado pela leitura por IA (que analisa um documento por vez).
   const [files, setFiles] = useState<File[]>([]);
@@ -415,8 +444,44 @@ export function DespesaForm({
     });
   }
 
+  /**
+   * Procura um lançamento anterior com o mesmo documento fiscal do mesmo
+   * fornecedor (CA-04). Só AVISA — quem decide prosseguir é o usuário.
+   */
+  async function conferirDuplicidade() {
+    if (!exigeNumero(docFiscal.tipo) || !docFiscal.numero.trim()) {
+      setDupAviso(null);
+      return;
+    }
+    try {
+      const dup = await buscarDocumentoDuplicado(
+        fornecedorId || null,
+        { tipo: docFiscal.tipo, numero: docFiscal.numero, serie: docFiscal.serie },
+        edit?.id,
+      );
+      setDupAviso(dup);
+      if (!dup) setDupConfirmada(false);
+    } catch {
+      // Falha na consulta não pode travar o lançamento — o alerta é auxiliar.
+      setDupAviso(null);
+    }
+  }
+
   function salvar() {
     setError(null);
+    // Documento fiscal: só recusa o que está claramente errado (chave fora do
+    // formato). Ausência de número NUNCA bloqueia — a nota chega depois.
+    const erroDoc = validarDocumentoFiscal(docFiscal);
+    if (erroDoc) {
+      setError(erroDoc);
+      return;
+    }
+    if (dupAviso && !dupConfirmada) {
+      setError(
+        "Este documento já existe para o mesmo fornecedor. Confirme que é um lançamento diferente para prosseguir.",
+      );
+      return;
+    }
     // Item 1.3 — trava também no cliente, para o usuário ver o erro no campo em
     // vez de só depois do round-trip. A trava que vale é a do servidor, em
     // `addDespesa`/`updateDespesa`: a Server Action é chamável diretamente.
@@ -456,6 +521,20 @@ export function DespesaForm({
       startSaving(async () => {
         try {
           await updateDespesa(edit.id, patch);
+          // O documento fiscal vive em tabela própria (RG-06) e é gravado à
+          // parte — inclusive quando a nota só chegou agora.
+          const resDoc = await salvarDocumentoFiscal({
+            despesaId: edit.id,
+            tipo: docFiscal.tipo,
+            numero: docFiscal.numero,
+            serie: docFiscal.serie,
+            chaveAcesso: docFiscal.chaveAcesso,
+            dataEmissao: docFiscal.dataEmissao,
+          });
+          if (!resDoc.ok) {
+            setError(resDoc.error ?? "Falha ao salvar o documento fiscal.");
+            return;
+          }
           const url = new URL(window.location.href);
           url.searchParams.delete("edit");
           router.push(`${url.pathname}${url.search}`);
@@ -510,6 +589,12 @@ export function DespesaForm({
       fd.set("socioDataPagamento", socioData);
       if (socioReembolsavel) fd.set("socioReembolsavel", "1");
     }
+    // Documento fiscal — campo PRÓPRIO, separado do PED (RG-06).
+    fd.set("docTipo", docFiscal.tipo);
+    fd.set("docNumero", docFiscal.numero);
+    fd.set("docSerie", docFiscal.serie);
+    fd.set("docChaveAcesso", docFiscal.chaveAcesso);
+    fd.set("docDataEmissao", docFiscal.dataEmissao);
     // Vários anexos já no lançamento inicial (boleto + NF + comprovante...).
     for (const f of files) fd.append("file", f);
     startSaving(async () => {
@@ -518,7 +603,7 @@ export function DespesaForm({
         // limpa o formulário
         setFornecedorId("");
         setContaCef("");
-        setCategoriaDre(categorias[0] ?? "Custo Variável");
+        setCategoriaDre("");
         setBancoId("");
         setNumDoc("");
         setCompetencia("");
@@ -526,6 +611,9 @@ export function DespesaForm({
         setValor("");
         setStatus("A pagar");
         setObs("");
+        setDocFiscal({ tipo: "SEM_DOC", numero: "", serie: "", chaveAcesso: "", dataEmissao: "" });
+        setDupAviso(null);
+        setDupConfirmada(false);
         setRecorrente(false);
         setRecMeses("12");
         setPagoPorSocio(false);
@@ -752,6 +840,104 @@ export function DespesaForm({
               ))}
             </Select>
           </div>
+          {/* ── Documento Fiscal (item 1.2 / RG-06) ─────────────────────────
+              O PED acima é numeração INTERNA da empresa; aqui entra o número da
+              nota, que é do emitente. Tudo é opcional: a nota costuma chegar
+              depois do lançamento e pode ser completada a qualquer tempo. */}
+          <div className="sm:col-span-4 rounded-[10px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)]/40 p-3">
+            <p className="mb-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+              Documento fiscal · opcional — a nota pode ser lançada depois
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <div>
+                <Label>Tipo</Label>
+                <Select
+                  value={docFiscal.tipo}
+                  onChange={(e) => {
+                    setDocFiscal((d) => ({ ...d, tipo: e.target.value }));
+                    setDupAviso(null);
+                    setDupConfirmada(false);
+                  }}
+                >
+                  {TIPOS_DOCUMENTO.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Nº do documento</Label>
+                <Input
+                  value={docFiscal.numero}
+                  disabled={!exigeNumero(docFiscal.tipo)}
+                  onChange={(e) => {
+                    setDocFiscal((d) => ({ ...d, numero: e.target.value }));
+                    setDupAviso(null);
+                    setDupConfirmada(false);
+                  }}
+                  onBlur={conferirDuplicidade}
+                  placeholder={exigeNumero(docFiscal.tipo) ? "ex.: 12345" : "—"}
+                />
+              </div>
+              <div>
+                <Label>Série</Label>
+                <Input
+                  value={docFiscal.serie}
+                  disabled={!exigeNumero(docFiscal.tipo)}
+                  onChange={(e) => setDocFiscal((d) => ({ ...d, serie: e.target.value }))}
+                  onBlur={conferirDuplicidade}
+                  placeholder="1"
+                />
+              </div>
+              <div>
+                <Label>Emissão</Label>
+                <DateField
+                  value={docFiscal.dataEmissao}
+                  onChange={(v) => setDocFiscal((d) => ({ ...d, dataEmissao: v }))}
+                  disabled={!exigeNumero(docFiscal.tipo)}
+                />
+              </div>
+              <div>
+                <Label>Chave de acesso (44 dígitos)</Label>
+                <Input
+                  value={docFiscal.chaveAcesso}
+                  disabled={!exigeNumero(docFiscal.tipo)}
+                  onChange={(e) => setDocFiscal((d) => ({ ...d, chaveAcesso: e.target.value }))}
+                  placeholder="opcional"
+                />
+              </div>
+            </div>
+            {/* Duplicidade é AVISO, nunca bloqueio: numeração de NF é sequencial
+                por emitente e série, então repetição pode ser legítima (D2). */}
+            {dupAviso && (
+              <div className="mt-2 rounded-[8px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5 text-[12.5px]">
+                <p className="text-[var(--color-ink)]">
+                  Já existe um lançamento com este documento para o mesmo
+                  fornecedor:{" "}
+                  <a
+                    href={`/despesas?proj=${dupAviso.projectId}&tab=lancamentos&edit=${dupAviso.despesaId}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="font-[family-name:var(--font-mono)] text-[var(--color-accent2)] hover:underline"
+                  >
+                    {dupAviso.numDoc ?? "ver lançamento"}
+                  </a>{" "}
+                  · {dupAviso.projectName}
+                  {dupAviso.competencia ? ` · ${dupAviso.competencia}` : ""}
+                </p>
+                <label className="mt-1.5 flex items-center gap-2 text-[var(--color-ink2)]">
+                  <input
+                    type="checkbox"
+                    checked={dupConfirmada}
+                    onChange={(e) => setDupConfirmada(e.target.checked)}
+                  />
+                  Confirmo que este é um lançamento diferente e quero prosseguir.
+                </label>
+              </div>
+            )}
+          </div>
+
           <div>
             <Label>Conta CEF / Plano de Contas</Label>
             <Select value={contaCef} onChange={(e) => setContaCef(e.target.value)}>

@@ -195,6 +195,25 @@ export const PLANO_CONTAS: {
         { id: "F.3", nome: "Seguros" },
         { id: "F.4", nome: "IOF/juros/multas" },
         { id: "F.5", nome: "Cartório/reconhecimento de firma" },
+        // Contas exigidas pelo pacote de Controladoria. Entram no grupo
+        // Financeiro/Contábil que JÁ EXISTE — não se cria plano de contas novo,
+        // os planos atuais servem a todos os projetos.
+        //
+        // RG-07: juros de mora por atraso são perda operacional do período, não
+        // custo de obra. O CPC 20 só autoriza capitalizar encargos de
+        // financiamento diretamente atribuíveis à construção — juros punitivos
+        // por inadimplência não se enquadram.
+        { id: "F.6", nome: "Despesas financeiras — juros e multas de mora" },
+        // Espelho de F.6: desconto obtido por antecipação/negociação é receita
+        // financeira, também fora do custo da obra.
+        { id: "F.7", nome: "Receitas financeiras — descontos obtidos" },
+        // RG-03: obrigação com quem desembolsou pela empresa. É PASSIVO, baixado
+        // contra caixa na restituição — nunca despesa nova, nunca receita.
+        { id: "F.8", nome: "Terceiros a restituir (passivo)" },
+        // RG-04: espelho do anterior. Dinheiro que o terceiro recebeu do cliente
+        // em nome da empresa e ainda não repassou. É ATIVO; a receita já foi
+        // reconhecida na venda.
+        { id: "F.9", nome: "Valores a receber de terceiros (ativo)" },
       ],
     },
     {
@@ -349,3 +368,21 @@ export const DEFAULT_INCC: InccRow[] = [
   { m: "03/2029", mo: 0.5, ac: 26.51 },
   { m: "04/2029", mo: 0.5, ac: 27.143 },
 ];
+
+/**
+ * Contas do plano usadas pelas regras contábeis do pacote de Controladoria.
+ *
+ * Ficam nomeadas aqui para que o código nunca dependa de string solta espalhada
+ * e para que a correspondência com as RGs seja rastreável. Todas pertencem ao
+ * grupo "Financeiro / Contábil", que já existia.
+ */
+export const CONTAS_CONTROLADORIA = {
+  /** RG-07 — juros e multas de mora. Despesa financeira do período. */
+  jurosMora: "F.6",
+  /** RG-07 — descontos obtidos. Receita financeira do período. */
+  descontosObtidos: "F.7",
+  /** RG-03 — obrigação com quem desembolsou pela empresa (passivo). */
+  terceirosARestituir: "F.8",
+  /** RG-04 — valores que um terceiro recebeu e ainda não repassou (ativo). */
+  valoresAReceberDeTerceiros: "F.9",
+} as const;
