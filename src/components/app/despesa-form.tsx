@@ -11,6 +11,10 @@ import {
   deleteDespesa,
   cancelarDespesa,
 } from "@/lib/actions/despesas";
+import {
+  categoriasDeDespesa,
+  validarCategoriaDespesa,
+} from "@/lib/calc/natureza-dre";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -112,7 +116,6 @@ export function DespesaForm({
   socios = [],
   aiConfigured,
   r2Configured,
-  canEditNumero = false,
   canExcluir = false,
   edit = null,
   prefill = null,
@@ -126,7 +129,6 @@ export function DespesaForm({
   socios?: { id: string; nome: string }[];
   aiConfigured: boolean;
   r2Configured: boolean;
-  canEditNumero?: boolean;
   /** Habilita cancelar/excluir a despesa a partir da tela de edição. */
   canExcluir?: boolean;
   /** Quando presente, o formulário abre em modo EDIÇÃO da despesa informada. */
@@ -145,7 +147,12 @@ export function DespesaForm({
   const [projeto, setProjeto] = useState(edit?.projectId ?? projetoId);
   const [fornecedorId, setFornecedorId] = useState(edit?.fornecedorId ?? "");
   const [contaCef, setContaCef] = useState(edit?.contaCef ?? "");
-  const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? categorias[0] ?? "Custo Variável");
+  // Item 1.3 — o default era `categorias[0]`, e a primeira categoria da lista é
+  // "Receita": toda despesa nova nascia classificada como receita, inflando
+  // receita e resultado na DRE ao mesmo tempo. Agora abre vazio ("Selecione…")
+  // e o dropdown só oferece categorias de natureza devedora.
+  const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? "");
+  const categoriasDespesa = useMemo(() => categoriasDeDespesa(categorias), [categorias]);
   const [bancoId, setBancoId] = useState(edit?.bancoId ?? "");
   const [numDoc, setNumDoc] = useState(edit?.numDoc ?? prefill?.numDoc ?? "");
   const [competencia, setCompetencia] = useState(edit?.competencia ?? prefill?.competencia ?? "");
@@ -376,7 +383,8 @@ export function DespesaForm({
           setContaCef(x.contaCef);
           filled.push("conta");
         }
-        if (x.categoriaDre && categorias.includes(x.categoriaDre)) {
+        // A IA nunca pode sugerir categoria de receita para uma despesa.
+        if (x.categoriaDre && categoriasDespesa.includes(x.categoriaDre)) {
           setCategoriaDre(x.categoriaDre);
           filled.push("categoria DRE");
         }
@@ -409,6 +417,14 @@ export function DespesaForm({
 
   function salvar() {
     setError(null);
+    // Item 1.3 — trava também no cliente, para o usuário ver o erro no campo em
+    // vez de só depois do round-trip. A trava que vale é a do servidor, em
+    // `addDespesa`/`updateDespesa`: a Server Action é chamável diretamente.
+    const erroCategoria = validarCategoriaDespesa(categoriaDre);
+    if (erroCategoria) {
+      setError(erroCategoria);
+      return;
+    }
     // Modo edição: grava as alterações na despesa existente (updateDespesa) e
     // volta para a lista. Não recria parcelas/recorrência nem mexe no caixa.
     if (isEdit && edit) {
@@ -434,9 +450,9 @@ export function DespesaForm({
         status,
         obs: obs || null,
       };
-      // Só envia o número quando o usuário pode editá-lo (owner/admin); assim
-      // evitamos o erro de permissão quando o valor não mudou.
-      if (canEditNumero) patch.numDoc = numDoc;
+      // O PED nunca é enviado na edição: é numeração interna imutável (RG-06).
+      // Renumerar um documento já emitido quebraria a rastreabilidade com a
+      // contabilidade e com os anexos que o referenciam.
       startSaving(async () => {
         try {
           await updateDespesa(edit.id, patch);
@@ -456,7 +472,8 @@ export function DespesaForm({
     fd.set("contaCef", contaCef);
     fd.set("categoriaDre", categoriaDre);
     fd.set("bancoId", bancoId);
-    fd.set("numDoc", numDoc);
+    // `numDoc` não é enviado: o PED é reservado no servidor, na transação de
+    // gravação (RG-06 / item 1.1).
     fd.set("obs", obs);
     fd.set("competencia", competencia);
     fd.set("vencimento", vencimento);
@@ -748,8 +765,11 @@ export function DespesaForm({
           </div>
           <div>
             <Label>Categoria DRE</Label>
+            {/* Só categorias de natureza devedora: uma despesa não pode ser
+                classificada em conta de receita (item 1.3 / RG-01). */}
             <Select value={categoriaDre} onChange={(e) => setCategoriaDre(e.target.value)}>
-              {categorias.map((c) => (
+              <option value="">Selecione...</option>
+              {categoriasDespesa.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -767,25 +787,36 @@ export function DespesaForm({
               ))}
             </Select>
           </div>
-          {canEditNumero ? (
-            <div>
-              <Label>Nº do pedido (opcional)</Label>
+          {/* Item 1.1 — o PED é numeração INTERNA da empresa: gerada no
+              servidor, dentro da transação de gravação, contínua e imutável
+              depois de criada. Nunca foi editável por digitação (isso é papel
+              do bloco Documento Fiscal, onde entra o número da nota). */}
+          <div>
+            <Label>Nº do pedido (interno)</Label>
+            <div className="flex items-center gap-1.5">
               <Input
-                value={numDoc}
-                onChange={(e) => setNumDoc(e.target.value)}
-                placeholder="vazio = automático"
-              />
-            </div>
-          ) : (
-            <div>
-              <Label>Nº do pedido</Label>
-              <Input
-                value={isEdit ? numDoc || "—" : "Gerado automaticamente"}
+                value={isEdit ? numDoc || "—" : "Será gerado ao salvar"}
                 disabled
                 readOnly
+                className={isEdit ? "font-[family-name:var(--font-mono)]" : ""}
               />
+              {isEdit && numDoc && (
+                <button
+                  type="button"
+                  title="Copiar o número"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(numDoc).then(
+                      () => setNotice(`Número ${numDoc} copiado.`),
+                      () => setNotice(null),
+                    );
+                  }}
+                  className="shrink-0 rounded-[6px] border border-[var(--color-accent2)]/20 px-2 py-1.5 text-[11px] text-[var(--color-accent2)] hover:bg-[var(--color-surface2)]"
+                >
+                  Copiar
+                </button>
+              )}
             </div>
-          )}
+          </div>
           <div>
             <Label>Competência</Label>
             <MonthField value={competencia} onChange={setCompetencia} />

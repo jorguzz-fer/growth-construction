@@ -10,6 +10,13 @@ interface NavItem {
   href: string;
   label: string;
   badge?: number;
+  /**
+   * Módulo de permissão que governa o item, quando ele não coincide com o
+   * primeiro segmento da rota (ex.: as telas de /diagnostico, que reaproveitam
+   * as permissões de Despesas e Unidades em vez de criar módulos novos —
+   * módulo novo nasceria negado para todos os papéis já configurados).
+   */
+  perm?: string;
 }
 interface NavSection {
   title: string;
@@ -124,6 +131,16 @@ export function Sidebar({
         { href: "/acoes", label: "Log de Auditoria" },
         { href: "/contabilidade", label: "Acesso Contabilidade" },
         { href: "/diagnosticoia", label: "Diagnóstico de IA" },
+        {
+          href: "/diagnostico/categorias-invertidas",
+          label: "Conferência de lançamentos",
+          perm: "despesas",
+        },
+        {
+          href: "/diagnostico/planos-recebiveis",
+          label: "Conferência de planos",
+          perm: "unidades",
+        },
       ],
     },
     // Backup é sempre o ÚLTIMO módulo do menu.
@@ -137,7 +154,9 @@ export function Sidebar({
   const sections = allSections
     .map((s) => ({
       ...s,
-      items: s.items.filter((it) => can(perms, it.href.replace(/^\//, ""), "ver")),
+      items: s.items.filter((it) =>
+        can(perms, it.perm ?? it.href.replace(/^\//, ""), "ver"),
+      ),
     }))
     .filter((s) => s.items.length > 0);
 
