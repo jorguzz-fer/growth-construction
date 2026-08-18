@@ -922,8 +922,20 @@ export const despesaParcelas = pgTable(
       onDelete: "set null",
     }),
     /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado */
+    /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado.
+     *  Para CHEQUE o ciclo é próprio: Pendente | Compensado | Devolvido |
+     *  Cancelado — "Pago" esconderia a devolução, que é o evento que importa. */
     status: text("status").notNull().default("Pendente"),
     obs: text("obs"),
+    // ── Cheque POR PARCELA (item 2.5) ──────────────────────────────────────
+    // Antes os dados do cheque viviam no cabeçalho da despesa, ou seja, um
+    // cheque para a compra inteira. Talão real tem numeração salteada e cada
+    // parcela é um cheque diferente — por isso estes campos são da PARCELA.
+    numeroCheque: text("numero_cheque"),
+    emitenteCheque: text("emitente_cheque"),
+    dataEmissaoCheque: text("data_emissao_cheque"),
+    /** data acordada de apresentação do cheque pré-datado ("bom para"). */
+    dataBomPara: text("data_bom_para"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (t) => [unique("despesa_parcela_uq").on(t.despesaId, t.numeroParcela)],

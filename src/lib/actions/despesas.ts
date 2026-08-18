@@ -227,16 +227,40 @@ export async function addBankAccount(formData: FormData) {
  * forma tolerante — JSON inválido devolve lista vazia e o fluxo cai na trava de
  * valor obrigatório, em vez de gravar lançamento sem valor.
  */
-function lerParcelasManuais(
-  formData: FormData,
-): { vencimento: string | null; valor: number }[] {
+interface ParcelaRecebida {
+  vencimento: string | null;
+  valor: number;
+  forma: string | null;
+  bancoContaId: string | null;
+  numeroCheque: string | null;
+  emitenteCheque: string | null;
+  dataEmissaoCheque: string | null;
+  dataBomPara: string | null;
+  status: string;
+}
+
+function lerParcelasManuais(formData: FormData): ParcelaRecebida[] {
   const raw = formData.get("parcelasJson");
   if (typeof raw !== "string" || !raw.trim()) return [];
+  const txt = (v: unknown) =>
+    typeof v === "string" && v.trim() !== "" ? v.trim() : null;
   try {
-    const arr = JSON.parse(raw) as { vencimento?: string; valor?: unknown }[];
+    const arr = JSON.parse(raw) as Record<string, unknown>[];
     if (!Array.isArray(arr)) return [];
     return arr
-      .map((p) => ({ vencimento: p.vencimento || null, valor: Number(p.valor) || 0 }))
+      .map((p) => ({
+        vencimento: txt(p.vencimento),
+        valor: Number(p.valor) || 0,
+        forma: txt(p.forma),
+        bancoContaId: txt(p.bancoContaId),
+        numeroCheque: txt(p.numeroCheque),
+        emitenteCheque: txt(p.emitenteCheque),
+        dataEmissaoCheque: txt(p.dataEmissaoCheque),
+        dataBomPara: txt(p.dataBomPara),
+        // Status desconhecido cai em "Pendente": é o lado seguro — marcar uma
+        // parcela como paga por engano esconderia uma conta em aberto.
+        status: txt(p.status) ?? "Pendente",
+      }))
       .filter((p) => p.valor > 0);
   } catch {
     return [];
@@ -338,12 +362,14 @@ export async function addDespesa(formData: FormData) {
   // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
   const valorTotal = Number(row.valor);
   const condicao = row.condicaoPagamento;
-  let parcelas: { vencimento: string | null; valor: number }[] = [];
+  let parcelas: ParcelaRecebida[] = [];
   // Despesa paga por sócio já está quitada pelo sócio — não gera parcelas/contas
   // a pagar da empresa.
   if (pagoPorSocioId) {
     parcelas = [];
   } else if (parcelasManuais.length > 0) {
+    // Vindas do painel auxiliar: cada linha traz forma, cheque, banco e status
+    // próprios (itens 2.1 e 2.5).
     parcelas = parcelasManuais;
   } else if (condicao) {
     parcelas = gerarParcelas({
@@ -351,7 +377,17 @@ export async function addDespesa(formData: FormData) {
       condicao,
       dataBase: row.vencimento || row.dataEmissao || row.competencia || "",
       qtd: row.qtdParcelas ?? undefined,
-    }).map((p) => ({ vencimento: p.vencimento, valor: p.valor }));
+    }).map((p) => ({
+      vencimento: p.vencimento,
+      valor: p.valor,
+      forma: null,
+      bancoContaId: null,
+      numeroCheque: null,
+      emitenteCheque: null,
+      dataEmissaoCheque: null,
+      dataBomPara: null,
+      status: "Pendente",
+    }));
   }
   if (parcelas.length > 0) {
     await db.insert(schema.despesaParcelas).values(
@@ -361,8 +397,17 @@ export async function addDespesa(formData: FormData) {
         numeroParcela: i + 1,
         vencimento: p.vencimento,
         valorOriginal: String(p.valor),
-        formaPagamento: row.formaPagamento,
-        status: "Pendente",
+        // A forma da parcela tem precedência sobre a do cabeçalho: numa mesma
+        // compra pode haver cheque em umas e PIX em outras.
+        formaPagamento: p.forma ?? row.formaPagamento,
+        // Item 2.2 — o banco do cabeçalho é herdado quando a parcela não
+        // informa outro.
+        bankAccountId: p.bancoContaId ?? row.bancoId,
+        numeroCheque: p.numeroCheque,
+        emitenteCheque: p.emitenteCheque,
+        dataEmissaoCheque: p.dataEmissaoCheque,
+        dataBomPara: p.dataBomPara,
+        status: p.status,
       })),
     );
   }

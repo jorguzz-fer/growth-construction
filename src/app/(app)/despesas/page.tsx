@@ -403,6 +403,9 @@ export default async function DespesasPage({
             valorOriginal: Number(p.valorOriginal),
             valorPago: Number(p.valorPago),
             status: p.status,
+            formaPagamento: p.formaPagamento,
+            numeroCheque: p.numeroCheque,
+            dataBomPara: p.dataBomPara,
           }))}
           bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
           canEditar={canEditar}

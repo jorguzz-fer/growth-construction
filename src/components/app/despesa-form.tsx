@@ -25,6 +25,7 @@ import {
   salvarDocumentoFiscal,
   type DuplicidadeDocumento,
 } from "@/lib/actions/documento-fiscal";
+import { dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -32,9 +33,15 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { DateField, MonthField } from "@/components/ui/date-field";
 import {
   gerarParcelas,
+  conflitoRecorrenteParcelado,
   FORMAS_PAGAMENTO,
   CONDICOES_PAGAMENTO,
 } from "@/lib/calc";
+import {
+  ParcelasEditor,
+  parcelaVazia,
+  type ParcelaEditavel,
+} from "@/components/app/parcelas-editor";
 
 interface Projeto {
   id: string;
@@ -346,26 +353,53 @@ export function DespesaForm({
   const [formaDesc, setFormaDesc] = useState("");
   const [condicao, setCondicao] = useState("");
   const [qtdPers, setQtdPers] = useState("2");
-  const [parcelas, setParcelas] = useState<{ vencimento: string; valor: string }[]>([]);
+  // Parcelas com todos os campos (item 2.1): forma, cheque, banco e status por
+  // linha. O painel auxiliar é quem edita — aqui só guardamos o resultado.
+  const [parcelas, setParcelas] = useState<ParcelaEditavel[]>([]);
+  const [painelParcelas, setPainelParcelas] = useState(false);
   const [bo, setBo] = useState({ linha: "", barras: "", banco: "" });
   const [ch, setCh] = useState({
     numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "",
   });
 
-  const regerarParcelas = () => {
-    const total = Number(valor) || 0;
-    if (!condicao || total <= 0) {
-      setParcelas([]);
+  /**
+   * Abre o painel de parcelas já com a série da condição escolhida.
+   *
+   * Antes esta função escrevia direto numa grade de três colunas embutida no
+   * formulário. Agora ela apenas SEMEIA o painel: quem edita vencimento, valor,
+   * forma, cheque, banco e status é a tela auxiliar.
+   */
+  const abrirPainelParcelas = () => {
+    // Simétrico do bloqueio no checkbox: não dá para parcelar uma despesa
+    // marcada como recorrente (item 2.7).
+    if (conflitoRecorrenteParcelado(recorrente, true)) {
+      setError(
+        "Esta despesa está marcada como recorrente. Desmarque para configurar parcelas — recorrente repete o custo em vários meses, parcelado divide o pagamento de uma compra só.",
+      );
       return;
     }
+    setError(null);
+    const total = Number(valor) || 0;
     const base = vencimento || competencia || "";
-    const ger = gerarParcelas({
-      valorTotal: total,
-      condicao,
-      dataBase: base,
-      qtd: condicao === "personalizado" ? Number(qtdPers) || 1 : undefined,
-    });
-    setParcelas(ger.map((p) => ({ vencimento: p.vencimento, valor: String(p.valor) })));
+    // Já existem parcelas configuradas? Reabre para edição, sem regerar —
+    // regerar apagaria os números de cheque já digitados.
+    if (parcelas.length === 0 && condicao && total > 0 && base) {
+      const ger = gerarParcelas({
+        valorTotal: total,
+        condicao,
+        dataBase: base,
+        qtd: condicao === "personalizado" ? Number(qtdPers) || 1 : undefined,
+      });
+      setParcelas(
+        ger.map((p) => ({
+          ...parcelaVazia(formaPagamento, bancoId, ch.emitente),
+          vencimento: p.vencimento,
+          valor: String(p.valor),
+          dataBomPara: formaPagamento === "Cheque" ? p.vencimento : "",
+        })),
+      );
+    }
+    setPainelParcelas(true);
   };
 
   const somaParcelas = parcelas.reduce((a, p) => a + (Number(p.valor) || 0), 0);
@@ -567,6 +601,8 @@ export function DespesaForm({
     if (formaPagamento === "Outro" && formaDesc) fd.set("formaPagamentoDesc", formaDesc);
     if (condicao) fd.set("condicaoPagamento", condicao);
     if (condicao === "personalizado") fd.set("qtdParcelas", qtdPers);
+    // A grade completa vai para o servidor: cada parcela leva sua forma, seu
+    // cheque, seu banco e seu status (item 2.1/2.5).
     if (parcelas.length > 0) fd.set("parcelasJson", JSON.stringify(parcelas));
     if (formaPagamento === "Boleto") {
       fd.set("boletoLinhaDigitavel", bo.linha);
@@ -1043,7 +1079,21 @@ export function DespesaForm({
               <input
                 type="checkbox"
                 checked={recorrente}
-                onChange={(e) => setRecorrente(e.target.checked)}
+                onChange={(e) => {
+                  // Item 2.7 — recorrente e parcelado são coisas diferentes e
+                  // não se combinam: recorrente replica o MESMO custo em várias
+                  // competências; parcelado fraciona o pagamento de um custo
+                  // único. Marcar os dois replicaria a despesa na DRE por
+                  // competência de parcela, que é erro de competência (RG-01).
+                  if (e.target.checked && conflitoRecorrenteParcelado(true, parcelas.length > 0)) {
+                    setError(
+                      "Recorrente e parcelado são coisas diferentes. Recorrente repete o mesmo custo em vários meses (aluguel, salário); parcelado fraciona o pagamento de uma compra única. Limpe as parcelas para marcar recorrente.",
+                    );
+                    return;
+                  }
+                  setError(null);
+                  setRecorrente(e.target.checked);
+                }}
                 className="h-4 w-4 accent-[var(--color-accent2)]"
               />
               Despesa recorrente (repete nos próximos meses)
@@ -1175,13 +1225,13 @@ export function DespesaForm({
                   />
                 </div>
               )}
-              {condicao && (
-                <div className="flex items-end">
-                  <Button type="button" variant="outline" onClick={regerarParcelas}>
-                    Gerar parcelas
-                  </Button>
-                </div>
-              )}
+              <div className="flex items-end">
+                <Button type="button" variant="outline" onClick={abrirPainelParcelas}>
+                  {parcelas.length > 0
+                    ? `Editar ${parcelas.length} parcela(s)`
+                    : "Configurar parcelas"}
+                </Button>
+              </div>
             </div>
 
             {/* Campos de boleto */}
@@ -1206,34 +1256,91 @@ export function DespesaForm({
               </div>
             )}
 
-            {/* Parcelas editáveis */}
+            {/* Tela auxiliar de parcelas (item 2.1) — cada linha com sua forma,
+                seu cheque, seu banco e seu status. */}
+            <ParcelasEditor
+              aberto={painelParcelas}
+              parcelas={parcelas}
+              valorTotal={valor}
+              bancos={bancos}
+              formaPadrao={formaPagamento}
+              bancoPadrao={bancoId}
+              emitentePadrao={ch.emitente}
+              dataBase={vencimento || competencia || ""}
+              onFechar={() => setPainelParcelas(false)}
+              onConfirmar={(linhas, total) => {
+                setParcelas(linhas);
+                // Modo bottom-up: sem total no cabeçalho, o total do pedido
+                // passa a ser a soma das parcelas (item 2.3).
+                if (!(Number(valor) > 0) && total > 0) setValor(String(total));
+                setPainelParcelas(false);
+              }}
+            />
+
+            {/* Resumo das parcelas — o detalhe vive no painel auxiliar. */}
             {parcelas.length > 0 && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-[40px_1fr_1fr] gap-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                  <div>#</div>
-                  <div>Vencimento</div>
-                  <div>Valor</div>
+              <div className="rounded-[8px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)]/50 p-3">
+                <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
+                  <strong className="text-[var(--color-ink)]">
+                    {parcelas.length} parcela(s)
+                  </strong>
+                  <span
+                    className={`font-[family-name:var(--font-mono)] ${
+                      totalOk ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"
+                    }`}
+                  >
+                    soma {somaParcelas.toFixed(2)}
+                    {(Number(valor) || 0) > 0 && ` / total ${(Number(valor) || 0).toFixed(2)}`}
+                    {totalOk ? " ✓" : " — não fecha"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPainelParcelas(true)}
+                    className="text-[12.5px] text-[var(--color-accent2)] hover:underline"
+                  >
+                    Editar parcelas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setParcelas([])}
+                    className="text-[12.5px] text-[var(--color-ink3)] hover:underline"
+                  >
+                    Limpar
+                  </button>
                 </div>
-                {parcelas.map((p, i) => (
-                  <div key={i} className="grid grid-cols-[40px_1fr_1fr] items-center gap-2">
-                    <div className="text-[13px] text-[var(--color-ink3)]">{i + 1}</div>
-                    <DateField
-                      value={p.vencimento}
-                      onChange={(v) =>
-                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, vencimento: v } : x)))
-                      }
-                    />
-                    <MoneyInput
-                      value={p.valor}
-                      onChange={(v) =>
-                        setParcelas((s) => s.map((x, j) => (j === i ? { ...x, valor: v } : x)))
-                      }
-                    />
-                  </div>
-                ))}
-                <div className={`text-[12px] ${totalOk ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
-                  Soma das parcelas: {somaParcelas.toFixed(2)} / total {(Number(valor) || 0).toFixed(2)}
-                  {totalOk ? " ✓" : " — ajuste para bater com o total"}
+                <div className="tbl-scroll overflow-x-auto">
+                  <table className="w-full border-collapse text-[12.5px]">
+                    <thead>
+                      <tr className="text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink4)]">
+                        <th className="py-1 pr-3">#</th>
+                        <th className="py-1 pr-3">Vencimento</th>
+                        <th className="py-1 pr-3 text-right">Valor</th>
+                        <th className="py-1 pr-3">Forma</th>
+                        <th className="py-1 pr-3">Cheque</th>
+                        <th className="py-1">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parcelas.map((p, i) => (
+                        <tr key={i} className="border-t border-[var(--color-accent2)]/8">
+                          <td className="py-1 pr-3 font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                            {i + 1}
+                          </td>
+                          <td className="py-1 pr-3 font-[family-name:var(--font-mono)]">
+                            {p.vencimento ? dateBR(p.vencimento) : "—"}
+                          </td>
+                          <td className="py-1 pr-3 text-right font-[family-name:var(--font-mono)]">
+                            {(Number(p.valor) || 0).toFixed(2)}
+                          </td>
+                          <td className="py-1 pr-3">{p.forma || "—"}</td>
+                          <td className="py-1 pr-3 font-[family-name:var(--font-mono)]">
+                            {p.numeroCheque || "—"}
+                          </td>
+                          <td className="py-1 text-[var(--color-ink3)]">{p.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}

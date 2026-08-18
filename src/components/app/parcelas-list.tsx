@@ -21,6 +21,12 @@ export interface ParcelaDTO {
   valorOriginal: number;
   valorPago: number;
   status: string;
+  /** Forma da parcela — pode diferir da forma do cabeçalho da despesa. */
+  formaPagamento?: string | null;
+  /** Nº do cheque desta parcela (item 2.5). */
+  numeroCheque?: string | null;
+  /** Data acordada de apresentação do cheque pré-datado. */
+  dataBomPara?: string | null;
 }
 
 const statusTone = (s: string) =>
@@ -44,6 +50,8 @@ export function ParcelasList({
             <TH>Documento</TH>
             <TH>Parcela</TH>
             <TH>Vencimento</TH>
+            <TH>Forma</TH>
+            <TH>Cheque</TH>
             <TH className="text-right">Valor</TH>
             <TH className="text-right">Pago</TH>
             <TH>Status</TH>
@@ -58,6 +66,15 @@ export function ParcelasList({
               </TD>
               <TD className="font-[family-name:var(--font-mono)]">#{p.numeroParcela}</TD>
               <TD className="font-[family-name:var(--font-mono)]">{dateBR(p.vencimento)}</TD>
+              <TD className="whitespace-nowrap text-[var(--color-ink2)]">{p.formaPagamento ?? "—"}</TD>
+              {/* Item 2.5 — o cheque é da PARCELA, não da compra. O "bom para"
+                  fica no title porque é o que define quando o dinheiro sai. */}
+              <TD
+                className="whitespace-nowrap font-[family-name:var(--font-mono)]"
+                title={p.dataBomPara ? `Bom para ${dateBR(p.dataBomPara)}` : undefined}
+              >
+                {p.numeroCheque ?? "—"}
+              </TD>
               <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(p.valorOriginal)}</TD>
               <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
                 {p.valorPago > 0 ? brl0(p.valorPago) : "—"}
@@ -81,7 +98,7 @@ export function ParcelasList({
           ))}
           {rows.length === 0 && (
             <TR>
-              <TD colSpan={canEditar ? 7 : 6} className="py-6 text-center text-[var(--color-ink3)]">
+              <TD colSpan={canEditar ? 9 : 8} className="py-6 text-center text-[var(--color-ink3)]">
                 Nenhuma parcela nesta versão.
               </TD>
             </TR>
