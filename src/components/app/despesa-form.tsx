@@ -34,6 +34,7 @@ import { DateField, MonthField } from "@/components/ui/date-field";
 import {
   gerarParcelas,
   conflitoRecorrenteParcelado,
+  statusDisponiveis,
   FORMAS_PAGAMENTO,
   CONDICOES_PAGAMENTO,
 } from "@/lib/calc";
@@ -130,6 +131,9 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 const digits = (s: string) => s.replace(/\D+/g, "");
+
+/** Ciclo próprio do cheque: ele é compensado ou devolvido, nunca só "pago". */
+const STATUS_CHEQUE = statusDisponiveis("Cheque");
 
 export function DespesaForm({
   projetos,
@@ -1242,17 +1246,71 @@ export function DespesaForm({
                 <Input placeholder="Banco emissor" value={bo.banco} onChange={(e) => setBo({ ...bo, banco: e.target.value })} />
               </div>
             )}
-            {/* Campos de cheque */}
+            {/* Campos de cheque — dados de QUEM EMITIU a folha.
+                Este bloco NÃO é a conta da empresa: a conta de onde o dinheiro
+                sai é o campo "Banco" do cabeçalho do lançamento. Aqui vão o
+                banco, a agência e a conta impressos NO CHEQUE, que só coincidem
+                com os da empresa quando é ela quem emite — num cheque de
+                terceiro são de outra pessoa.
+
+                Sem rótulo, o bloco aparecia como "Banco / Agência / Conta" logo
+                abaixo de um seletor "Banco" e era lido como repetição do que já
+                havia sido preenchido. Foi exatamente o que aconteceu na
+                conferência com o Messias. */}
             {formaPagamento === "Cheque" && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Input placeholder="Nº do cheque" value={ch.numero} onChange={(e) => setCh({ ...ch, numero: e.target.value })} />
-                <Input placeholder="Banco" value={ch.banco} onChange={(e) => setCh({ ...ch, banco: e.target.value })} />
-                <Input placeholder="Agência" value={ch.ag} onChange={(e) => setCh({ ...ch, ag: e.target.value })} />
-                <Input placeholder="Conta" value={ch.conta} onChange={(e) => setCh({ ...ch, conta: e.target.value })} />
-                <Input placeholder="Emitente" value={ch.emitente} onChange={(e) => setCh({ ...ch, emitente: e.target.value })} />
-                <div><DateField value={ch.emissao} onChange={(v) => setCh({ ...ch, emissao: v })} /></div>
-                <div><DateField value={ch.compensacao} onChange={(v) => setCh({ ...ch, compensacao: v })} /></div>
-                <Input placeholder="Status do cheque" value={ch.status} onChange={(e) => setCh({ ...ch, status: e.target.value })} />
+              <div className="rounded-[10px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)]/50 p-3">
+                <p className="mb-1 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  Dados do cheque
+                </p>
+                <p className="mb-2.5 text-[11.5px] text-[var(--color-ink3)]">
+                  São os dados de <strong>quem emitiu a folha</strong>, como estão
+                  impressos no cheque — não são os da conta da empresa. A conta de
+                  onde o dinheiro sai é o campo <strong>Banco</strong> lá em cima.
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div>
+                    <Label>Nº do cheque</Label>
+                    <Input value={ch.numero} onChange={(e) => setCh({ ...ch, numero: e.target.value })} placeholder="000450" />
+                  </div>
+                  <div>
+                    <Label>Banco do emitente</Label>
+                    <Input value={ch.banco} onChange={(e) => setCh({ ...ch, banco: e.target.value })} placeholder="impresso no cheque" />
+                  </div>
+                  <div>
+                    <Label>Agência do emitente</Label>
+                    <Input value={ch.ag} onChange={(e) => setCh({ ...ch, ag: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Conta do emitente</Label>
+                    <Input value={ch.conta} onChange={(e) => setCh({ ...ch, conta: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Emitente (titular da folha)</Label>
+                    <Input value={ch.emitente} onChange={(e) => setCh({ ...ch, emitente: e.target.value })} placeholder="razão social ou nome" />
+                  </div>
+                  <div>
+                    <Label>Emissão do cheque</Label>
+                    <DateField value={ch.emissao} onChange={(v) => setCh({ ...ch, emissao: v })} />
+                  </div>
+                  <div>
+                    <Label>Bom para (apresentação)</Label>
+                    <DateField value={ch.compensacao} onChange={(v) => setCh({ ...ch, compensacao: v })} />
+                  </div>
+                  <div>
+                    <Label>Status do cheque</Label>
+                    <Select value={ch.status} onChange={(e) => setCh({ ...ch, status: e.target.value })}>
+                      <option value="">—</option>
+                      {STATUS_CHEQUE.map((st) => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
+                  Vai parcelar em vários cheques? Use{" "}
+                  <strong>Configurar parcelas</strong> — cada parcela tem o seu
+                  número, que raramente segue sequência.
+                </p>
               </div>
             )}
 
