@@ -633,6 +633,101 @@ export const restituicoes = pgTable("restituicao", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
+/**
+ * Documento fiscal de uma despesa — item 1.2 / RG-06.
+ *
+ * Separado da despesa de propósito: o PED é numeração INTERNA da empresa, e o
+ * número da nota é do emitente. Os dois coexistem e nunca se substituem. A nota
+ * costuma chegar depois do lançamento, então tudo aqui é opcional e a linha só
+ * nasce quando há o que registrar — uma despesa sem documento simplesmente não
+ * tem linha nesta tabela.
+ *
+ * É 1:N: uma compra pode ter mais de um documento (nota + recibo complementar).
+ */
+export const documentosFiscais = pgTable("documento_fiscal", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  despesaId: uuid("despesa_id")
+    .notNull()
+    .references(() => despesas.id, { onDelete: "cascade" }),
+  /** NFE | NFSE | NFCE | RECIBO | CUPOM | CONTRATO | SEM_DOC */
+  tipo: text("tipo").notNull().default("SEM_DOC"),
+  numero: text("numero"),
+  serie: text("serie"),
+  /** chave de acesso da NF-e: 44 dígitos, validada quando preenchida. */
+  chaveAcesso: text("chave_acesso"),
+  dataEmissao: text("data_emissao"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Recebimento de um cliente feito POR UM TERCEIRO em nome da empresa — RG-02 e
+ * RG-04.
+ *
+ * A receita já foi reconhecida na venda. Isto aqui é o trânsito do dinheiro: o
+ * terceiro recebeu e ainda não repassou, então a empresa tem um ATIVO com ele
+ * (`1.1.3 — Valores a Receber de Terceiros`). Nem o recebimento nem o repasse
+ * tocam a DRE; reconhecer receita de novo aqui dobraria a receita da venda.
+ *
+ * Espelho de `despesaTerceiros`, do outro lado do balanço.
+ */
+export const recebimentosTerceiros = pgTable("recebimento_terceiro", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** quem recebeu o dinheiro do cliente em nome da empresa. */
+  recebedorTerceiroId: uuid("recebedor_terceiro_id").references(() => stakeholders.id, {
+    onDelete: "set null",
+  }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  /** título de contas a receber que este recebimento baixa (quando houver). */
+  contaReceberId: uuid("conta_receber_id").references((): AnyPgColumn => contasReceber.id, {
+    onDelete: "set null",
+  }),
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "set null",
+  }),
+  unitCode: text("unit_code"),
+  valorTotal: numeric("valor_total", { precision: 15, scale: 2 }).notNull().default("0"),
+  valorRepassado: numeric("valor_repassado", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataRecebimento: text("data_recebimento"),
+  dataPrevistaRepasse: text("data_prevista_repasse"),
+  /** Aguardando repasse | Parcialmente repassado | Repassado | Cancelado */
+  status: text("status").notNull().default("Aguardando repasse"),
+  obs: text("obs"),
+  /** Chave de idempotência: o mesmo fato reenviado não vira dois registros. */
+  idempotencyKey: text("idempotency_key"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Repasse (parcial ou integral) de um recebimento feito por terceiro. RG-04. */
+export const repasses = pgTable("repasse", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  recebimentoTerceiroId: uuid("recebimento_terceiro_id")
+    .notNull()
+    .references(() => recebimentosTerceiros.id, { onDelete: "cascade" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  dataRepasse: text("data_repasse"),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+    onDelete: "set null",
+  }),
+  /** item do extrato que trouxe o dinheiro (conciliação sem receita nova). */
+  cashEntryId: uuid("cash_entry_id").references((): AnyPgColumn => cashEntries.id, {
+    onDelete: "set null",
+  }),
+  comprovante: text("comprovante"),
+  obs: text("obs"),
+  idempotencyKey: text("idempotency_key"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 /** Parcela de uma despesa (conta a pagar). Fase 2. */
 export const despesaParcelas = pgTable(
   "despesa_parcela",
@@ -726,6 +821,11 @@ export const documents = pgTable("document", {
   size: integer("size"),
   /** tipo do documento: Boleto, Nota Fiscal, Recibo, Contrato, Comprovante… */
   tipo: text("tipo"),
+  /**
+   * Nº do documento fiscal a que o arquivo se refere (item 3.2). Permite achar
+   * o anexo pelo número da nota, sem depender do nome do arquivo.
+   */
+  numeroDocumentoFiscal: text("numero_documento_fiscal"),
   /** versão do documento quando substituído (mantém histórico). */
   versao: integer("versao").notNull().default(1),
   /** quem realizou o upload (e-mail/id). */

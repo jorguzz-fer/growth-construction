@@ -246,6 +246,20 @@
       "when": 1786045279055,
       "tag": "0034_terceiro_idempotencia_conciliacao",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1787024031449,
+      "tag": "0035_documento_fiscal_recebimento_terceiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787024032449,
+      "tag": "0036_contas_controladoria",
+      "breakpoints": true
     }
   ]
 }
