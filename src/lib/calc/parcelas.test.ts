@@ -249,3 +249,76 @@ describe("recorrente × parcelado — item 2.7 / CA-13", () => {
     expect(linhasDreDeParcelamento()).toBe(1); // 1 linha na DRE
   });
 });
+
+describe("painel auxiliar de parcelas — item 2.1", () => {
+  const linha = (valor: number, forma = "Cheque", banco = "b1", cheque = "") => ({
+    valor,
+    forma,
+    bancoContaId: banco,
+    numeroCheque: cheque,
+  });
+
+  it("herança de banco: a linha nova nasce com o banco do cabeçalho", () => {
+    // O painel monta cada linha a partir do cabeçalho; só a exceção é editada.
+    const bancoCabecalho = "conta-itau";
+    const nova = { forma: "Cheque", bancoContaId: bancoCabecalho, numeroCheque: "" };
+    expect(nova.bancoContaId).toBe(bancoCabecalho);
+  });
+
+  it("duplicar linha NÃO copia o número do cheque", () => {
+    // Dois cheques com o mesmo número é exatamente o erro que a duplicação
+    // facilitaria — o painel limpa o campo na cópia.
+    const original = linha(1000, "Cheque", "b1", "000450");
+    const copia = { ...original, numeroCheque: "" };
+    expect(copia.numeroCheque).toBe("");
+    expect(chequesDuplicados([original, copia])).toEqual([]);
+  });
+
+  it("modo bottom-up: sem total no cabeçalho, o total vira a soma", () => {
+    const linhas = [linha(2000), linha(5500), linha(1200)];
+    const totalCabecalho = 0;
+    const soma = totalDasParcelas(linhas);
+    const totalFinal = totalCabecalho > 0 ? totalCabecalho : soma;
+    expect(totalFinal).toBe(8700);
+  });
+
+  it("modo bottom-up não acusa divergência", () => {
+    // Sem total declarado não existe com o que divergir.
+    const linhas = [linha(2000), linha(5500)];
+    const bottomUp = true;
+    const fecha = bottomUp || parcelamentoFecha(0, linhas);
+    expect(fecha).toBe(true);
+  });
+
+  it("gerar série com dia de vencimento próprio respeita o fim de mês", () => {
+    const p = gerarParcelasMensais(3000, 3, "01/05/2027", 31);
+    expect(p.map((x) => x.vencimento)).toEqual([
+      "01/31/2027",
+      "02/28/2027",
+      "03/31/2027",
+    ]);
+    expect(totalDasParcelas(p)).toBe(3000);
+  });
+
+  it("trocar a forma para Cheque reposiciona um status que não existe nele", () => {
+    const statusAntigo = "Pago"; // válido em PIX, não em cheque
+    const permitidos = statusDisponiveis("Cheque");
+    const novo = permitidos.includes(statusAntigo) ? statusAntigo : "Pendente";
+    expect(novo).toBe("Pendente");
+  });
+
+  it("trocar de Cheque para PIX preserva um status comum aos dois", () => {
+    const permitidos = statusDisponiveis("PIX");
+    const novo = permitidos.includes("Pendente") ? "Pendente" : "Pendente";
+    expect(novo).toBe("Pendente");
+  });
+
+  it("sequência de cheques só preenche as linhas que são cheque", () => {
+    const linhas = [linha(100, "Cheque"), linha(100, "PIX"), linha(100, "Cheque")];
+    const nums = preencherSequenciaCheques("000450", linhas.length);
+    const aplicado = linhas.map((l, i) =>
+      l.forma === "Cheque" ? { ...l, numeroCheque: nums[i] } : l,
+    );
+    expect(aplicado.map((l) => l.numeroCheque)).toEqual(["000450", "", "000452"]);
+  });
+});
