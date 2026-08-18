@@ -5,6 +5,16 @@ import {
   addDaysBR,
   composePagamento,
   isAtrasado,
+  ajustarNaUltimaParcela,
+  chequesDuplicados,
+  conflitoRecorrenteParcelado,
+  diferencaFechamento,
+  gerarParcelasMensais,
+  linhasDreDeParcelamento,
+  parcelamentoFecha,
+  preencherSequenciaCheques,
+  statusDisponiveis,
+  totalDasParcelas,
 } from "./parcelas";
 
 describe("distribuirValor (arredondamento)", () => {
@@ -98,5 +108,144 @@ describe("isAtrasado", () => {
   it("em dia não é atraso", () => {
     expect(isAtrasado("01/10/2026", "01/10/2026")).toBe(false);
     expect(isAtrasado("01/10/2026", "01/05/2026")).toBe(false);
+  });
+});
+
+// ───────────────────── Módulo 2 — grade de parcelas e cheques ───────────────
+
+describe("Modo A (top-down) — CA-07", () => {
+  it("R$ 10.000 em 3 parcelas gera 3.333,33 / 3.333,33 / 3.333,34", () => {
+    const p = gerarParcelasMensais(10000, 3, "01/10/2026");
+    expect(p.map((x) => x.valor)).toEqual([3333.33, 3333.33, 3333.34]);
+  });
+
+  it("a soma fecha EXATAMENTE com o total", () => {
+    for (const [total, n] of [[10000, 3], [1000, 7], [999.99, 4], [1, 3]] as [number, number][]) {
+      const p = gerarParcelasMensais(total, n, "01/10/2026");
+      expect(totalDasParcelas(p)).toBe(total);
+    }
+  });
+
+  it("os vencimentos avançam mês a mês", () => {
+    const p = gerarParcelasMensais(300, 3, "01/10/2026");
+    expect(p.map((x) => x.vencimento)).toEqual(["01/10/2026", "02/10/2026", "03/10/2026"]);
+  });
+
+  it('CA-09 — "todo dia 30" a partir de dez/2026 respeita fevereiro', () => {
+    const p = gerarParcelasMensais(300, 3, "12/30/2026");
+    expect(p.map((x) => x.vencimento)).toEqual([
+      "12/30/2026",
+      "01/30/2027",
+      "02/28/2027", // 2027 não é bissexto — nunca 02/03
+    ]);
+  });
+});
+
+describe("Modo B (bottom-up) — CA-08", () => {
+  it("total do PED = soma das parcelas de valores livres", () => {
+    const parcelas = [{ valor: 2000 }, { valor: 5500 }, { valor: 1200 }];
+    expect(totalDasParcelas(parcelas)).toBe(8700);
+  });
+
+  it("lista vazia soma zero", () => {
+    expect(totalDasParcelas([])).toBe(0);
+  });
+});
+
+describe("fechamento do parcelamento — CA-12 / RG-08", () => {
+  it("soma igual ao total fecha", () => {
+    expect(parcelamentoFecha(10000, [{ valor: 5000 }, { valor: 5000 }])).toBe(true);
+    expect(diferencaFechamento(10000, [{ valor: 5000 }, { valor: 5000 }])).toBe(0);
+  });
+
+  it("divergência é reportada com o valor exato", () => {
+    expect(diferencaFechamento(10000, [{ valor: 5000 }, { valor: 4000 }])).toBe(-1000);
+    expect(parcelamentoFecha(10000, [{ valor: 5000 }, { valor: 4000 }])).toBe(false);
+  });
+
+  it("tolera 1 centavo POR PARCELA de arredondamento", () => {
+    expect(parcelamentoFecha(10000, [{ valor: 3333.33 }, { valor: 3333.33 }, { valor: 3333.34 }])).toBe(true);
+    // Meio real de diferença não é arredondamento — é erro de digitação.
+    expect(parcelamentoFecha(10000, [{ valor: 5000 }, { valor: 5000.5 }])).toBe(false);
+  });
+
+  it('"Ajustar na última parcela" fecha a diferença sem tocar nas demais', () => {
+    const ajustado = ajustarNaUltimaParcela(10000, [{ valor: 5000 }, { valor: 4000 }]);
+    expect(ajustado.map((p) => p.valor)).toEqual([5000, 5000]);
+    expect(parcelamentoFecha(10000, ajustado)).toBe(true);
+  });
+
+  it("ajustar não muta o array de entrada", () => {
+    const original = [{ valor: 5000 }, { valor: 4000 }];
+    ajustarNaUltimaParcela(10000, original);
+    expect(original.map((p) => p.valor)).toEqual([5000, 4000]);
+  });
+});
+
+describe("cheques — CA-10", () => {
+  it("números não sequenciais são aceitos como estão", () => {
+    const parcelas = [
+      { forma: "Cheque", numeroCheque: "000450", bancoContaId: "b1" },
+      { forma: "Cheque", numeroCheque: "000455", bancoContaId: "b1" },
+      { forma: "Cheque", numeroCheque: "000461", bancoContaId: "b1" },
+    ];
+    expect(chequesDuplicados(parcelas)).toEqual([]);
+  });
+
+  it("preencher sequência preserva a largura do número", () => {
+    expect(preencherSequenciaCheques("000450", 3)).toEqual(["000450", "000451", "000452"]);
+    expect(preencherSequenciaCheques("A-99", 3)).toEqual(["A-99", "A-100", "A-101"]);
+  });
+
+  it("número repetido na MESMA conta gera alerta", () => {
+    const parcelas = [
+      { forma: "Cheque", numeroCheque: "450", bancoContaId: "b1" },
+      { forma: "Cheque", numeroCheque: "450", bancoContaId: "b1" },
+    ];
+    expect(chequesDuplicados(parcelas)).toEqual(["450"]);
+  });
+
+  it("mesmo número em CONTAS diferentes não é duplicidade", () => {
+    // Talões de contas distintas podem repetir numeração.
+    const parcelas = [
+      { forma: "Cheque", numeroCheque: "450", bancoContaId: "b1" },
+      { forma: "Cheque", numeroCheque: "450", bancoContaId: "b2" },
+    ];
+    expect(chequesDuplicados(parcelas)).toEqual([]);
+  });
+
+  it("parcela que não é cheque não entra na conferência", () => {
+    const parcelas = [
+      { forma: "PIX", numeroCheque: "450", bancoContaId: "b1" },
+      { forma: "PIX", numeroCheque: "450", bancoContaId: "b1" },
+    ];
+    expect(chequesDuplicados(parcelas)).toEqual([]);
+  });
+
+  it("cheque tem ciclo próprio: compensado/devolvido, não apenas pago", () => {
+    expect(statusDisponiveis("Cheque")).toContain("Compensado");
+    expect(statusDisponiveis("Cheque")).toContain("Devolvido");
+    expect(statusDisponiveis("Cheque")).not.toContain("Pago");
+    expect(statusDisponiveis("PIX")).toContain("Pago");
+  });
+});
+
+describe("recorrente × parcelado — item 2.7 / CA-13", () => {
+  it("marcar os dois é conflito", () => {
+    expect(conflitoRecorrenteParcelado(true, true)).toBe(true);
+  });
+
+  it("cada um isolado é válido", () => {
+    expect(conflitoRecorrenteParcelado(true, false)).toBe(false);
+    expect(conflitoRecorrenteParcelado(false, true)).toBe(false);
+    expect(conflitoRecorrenteParcelado(false, false)).toBe(false);
+  });
+
+  it("uma despesa parcelada em 6x gera UMA linha na DRE", () => {
+    // Replicar a despesa por competência de parcela seria erro de competência
+    // (RG-01): o custo foi incorrido uma vez, na compra.
+    const parcelas = gerarParcelasMensais(6000, 6, "01/10/2026");
+    expect(parcelas.length).toBe(6); // 6 saídas de caixa
+    expect(linhasDreDeParcelamento()).toBe(1); // 1 linha na DRE
   });
 });

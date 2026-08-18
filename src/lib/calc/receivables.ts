@@ -1,4 +1,5 @@
-import { parseDate, addMonths } from "./projection";
+import { parseDate } from "./projection";
+import { serieVencimentos } from "./carencia";
 import type { PaymentPlan, UnitStatus } from "./types";
 
 export interface Receivable {
@@ -43,10 +44,17 @@ export function expandUnitReceivables(
     const val = Number(s.val) || 0;
     const n = Math.max(1, Number(s.n) || 1);
     if (!d || val <= 0) continue;
+    // Item 6.2 / 2.4 — o dia de vencimento é ENCOLHIDO para o último dia do mês
+    // quando o mês de destino não o tem. Antes a data era montada com o dia
+    // ORIGINAL no mês deslocado, produzindo strings como "04/31/2026" — data
+    // que não existe no calendário e que nenhuma tela conseguia interpretar.
+    //
+    // O dia desejado é sempre o da data-base: encolher em fevereiro NÃO
+    // contamina março (31/01 → 28/02 → 31/03, e não 28/03).
+    const datas = serieVencimentos(s.venc, n, s.step);
     for (let i = 0; i < n; i++) {
-      const a = addMonths(d.mo, d.yr, i * s.step);
       out.push({
-        dia: fmt(a.mo, d.d, a.yr),
+        dia: datas[i] ?? fmt(d.mo, d.d, d.yr),
         valor: val,
         label: n > 1 ? `${s.label} #${i + 1}` : s.label,
       });

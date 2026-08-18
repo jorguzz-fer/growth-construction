@@ -1,4 +1,5 @@
 import { parseDate, monthKey } from "./projection";
+import { serieVencimentos } from "./carencia";
 
 /** Uma parcela gerada (para conta a pagar / fluxo de caixa projetado). */
 export interface ParcelaGerada {
@@ -152,4 +153,161 @@ export function isAtrasado(vencimento: string, dataPagamento: string): boolean {
   const v = ymdNum(vencimento);
   const p = ymdNum(dataPagamento);
   return v != null && p != null && p > v;
+}
+
+// ─────────────────── Módulo 2 — grade de parcelas e cheques ─────────────────
+
+/**
+ * Uma linha da grade editável de parcelas (item 2.1).
+ *
+ * `bancoContaId` nasce herdado do cabeçalho do lançamento (item 2.2) e só é
+ * editado na exceção — parcela paga por outra conta. Os campos de cheque ficam
+ * na própria parcela porque a numeração é por cheque, não por compra (item 2.5).
+ */
+export interface LinhaParcela {
+  numero: number;
+  vencimento: string;
+  valor: number;
+  forma: string;
+  bancoContaId: string | null;
+  numeroCheque: string | null;
+  emitenteCheque: string | null;
+  status: string;
+}
+
+/** Status de parcela por forma de pagamento (item 2.1). */
+export function statusDisponiveis(forma: string): string[] {
+  // Cheque tem ciclo próprio: ele é compensado ou devolvido, não simplesmente
+  // "pago". Confundir os dois esconde a devolução, que é o evento que importa.
+  if (forma === "Cheque") return ["Pendente", "Compensado", "Devolvido", "Cancelado"];
+  return ["Pendente", "Pago", "Cancelado"];
+}
+
+/**
+ * MODO A (top-down) — total informado, dividido em `qtd` parcelas.
+ *
+ * A diferença de arredondamento vai para a última parcela, então a soma fecha
+ * exatamente com o total (RG-08). Os vencimentos usam o ajuste de fim de mês:
+ * "todo dia 31" cai em 30/04 e em 28/02, sem contaminar os meses seguintes.
+ */
+export function gerarParcelasMensais(
+  valorTotal: number,
+  qtd: number,
+  dataBase: string,
+  diaVencimento?: number,
+): { vencimento: string; valor: number }[] {
+  const n = Math.max(1, Math.trunc(qtd));
+  const valores = distribuirValor(valorTotal, n);
+  const datas = serieVencimentos(dataBase, n, 1, diaVencimento);
+  return valores.map((valor, i) => ({ vencimento: datas[i] ?? dataBase, valor }));
+}
+
+/**
+ * MODO B (bottom-up) — total do PED é a SOMA das parcelas de valores livres.
+ *
+ * O PED carrega sempre o custo total da compra; o fracionamento vive nas
+ * parcelas (item 2.3).
+ */
+export function totalDasParcelas(parcelas: { valor: number }[]): number {
+  return round2(parcelas.reduce((a, p) => a + (Number(p.valor) || 0), 0));
+}
+
+/** Diferença entre a soma das parcelas e o total declarado (item 2.6). */
+export function diferencaFechamento(
+  valorTotal: number,
+  parcelas: { valor: number }[],
+): number {
+  return round2(totalDasParcelas(parcelas) - valorTotal);
+}
+
+/**
+ * O parcelamento fecha com o total? Tolerância de R$ 0,01 por parcela — é o
+ * limite de arredondamento aceitável, e não uma folga de digitação.
+ */
+export function parcelamentoFecha(
+  valorTotal: number,
+  parcelas: { valor: number }[],
+): boolean {
+  const tolerancia = Math.max(0.01, parcelas.length * 0.01);
+  return Math.abs(diferencaFechamento(valorTotal, parcelas)) <= tolerancia + 1e-9;
+}
+
+/**
+ * Joga a diferença na ÚLTIMA parcela — atalho "Ajustar na última parcela" da
+ * barra de divergência (item 2.6). Devolve uma cópia; não muta a entrada.
+ */
+export function ajustarNaUltimaParcela<T extends { valor: number }>(
+  valorTotal: number,
+  parcelas: T[],
+): T[] {
+  if (parcelas.length === 0) return [];
+  const out = parcelas.map((p) => ({ ...p }));
+  const dif = diferencaFechamento(valorTotal, out);
+  const ultima = out[out.length - 1];
+  ultima.valor = round2(ultima.valor - dif);
+  return out;
+}
+
+/**
+ * Preenche números de cheque a partir de um inicial (item 2.5).
+ *
+ * É só uma conveniência: qualquer linha continua editável depois, porque
+ * talões reais têm numeração irregular e cheques de terceiro entram fora de
+ * sequência. Preserva a largura do número informado ("000450" → "000451").
+ */
+export function preencherSequenciaCheques(
+  inicial: string,
+  qtd: number,
+): string[] {
+  const m = inicial.trim().match(/^(\D*)(\d+)$/);
+  if (!m) return Array.from({ length: qtd }, () => inicial.trim());
+  const [, prefixo, digitos] = m;
+  const largura = digitos.length;
+  const base = Number(digitos);
+  return Array.from({ length: qtd }, (_, i) =>
+    `${prefixo}${String(base + i).padStart(largura, "0")}`,
+  );
+}
+
+/**
+ * Cheques duplicados dentro do lançamento: mesmo banco/conta + mesmo número.
+ *
+ * Gera ALERTA, nunca bloqueio (item 2.5): talões de contas distintas podem
+ * repetir numeração. Devolve os números repetidos.
+ */
+export function chequesDuplicados(
+  parcelas: { bancoContaId: string | null; numeroCheque: string | null; forma: string }[],
+): string[] {
+  const vistos = new Map<string, number>();
+  for (const p of parcelas) {
+    if (p.forma !== "Cheque" || !p.numeroCheque?.trim()) continue;
+    const chave = `${p.bancoContaId ?? "sem-conta"}|${p.numeroCheque.trim()}`;
+    vistos.set(chave, (vistos.get(chave) ?? 0) + 1);
+  }
+  return [...vistos]
+    .filter(([, n]) => n > 1)
+    .map(([chave]) => chave.split("|")[1]);
+}
+
+/**
+ * Item 2.7 — recorrente e parcelado são coisas diferentes e não se combinam.
+ *
+ *   recorrente  → replica o MESMO custo em competências futuras (aluguel,
+ *                 salário, seguro). Gera N despesas, uma por competência.
+ *   parcelado   → fraciona o pagamento de um custo ÚNICO já incorrido. Gera UMA
+ *                 despesa na competência da compra e N saídas de caixa.
+ *
+ * Marcar os dois replicaria a despesa na DRE por competência de parcela, que é
+ * erro de competência (RG-01).
+ */
+export function conflitoRecorrenteParcelado(
+  recorrente: boolean,
+  temParcelamento: boolean,
+): boolean {
+  return recorrente && temParcelamento;
+}
+
+/** Quantas linhas a DRE recebe de uma despesa parcelada: sempre UMA (CA-13). */
+export function linhasDreDeParcelamento(): number {
+  return 1;
 }

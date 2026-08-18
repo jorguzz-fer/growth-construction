@@ -87,6 +87,8 @@ export function Sidebar({
         { href: "/despesas", label: "Despesas / Lançamentos" },
         { href: "/contaspagar", label: "Contas a Pagar" },
         { href: "/restituicoes", label: "Restituições" },
+        // Módulo 5 — pagamento único quitando várias despesas, de várias obras.
+        { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
         { href: "/medicaolanc", label: "Lançamento de Medição" },
         { href: "/fornecedores", label: "Fornecedores" },
         { href: "/contas", label: "Contas Correntes" },
