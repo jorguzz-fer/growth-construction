@@ -728,6 +728,175 @@ export const repasses = pgTable("repasse", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
+/**
+ * ACERTO CONTÁBIL — Módulo 5.
+ *
+ * Um pagamento único que quita VÁRIAS despesas, possivelmente de obras
+ * diferentes, com um único comprovante. É o caso real do cliente: pedidos
+ * somando R$ 67.000 com o fornecedor, pagos com uma transferência de R$ 70.000
+ * — a diferença sendo juros de atraso.
+ *
+ * A saída de caixa é UMA (RG-08). As despesas vinculadas viram "Pago". A
+ * diferença vai para despesa/receita financeira do período, NUNCA rateada no
+ * custo da obra (RG-07 / CPC 20).
+ */
+export const acertos = pgTable("acerto", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** PED próprio do acerto — é o documento entregue à contabilidade. */
+  numDoc: text("num_doc"),
+  dataPagamento: text("data_pagamento"),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+    onDelete: "set null",
+  }),
+  valorTransferido: numeric("valor_transferido", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  formaPagamento: text("forma_pagamento"),
+  /** favorecido: fornecedor ou terceiro que recebeu a transferência. */
+  favorecidoId: uuid("favorecido_id").references(() => stakeholders.id, {
+    onDelete: "set null",
+  }),
+  /** comprovante ÚNICO, compartilhado por todos os PEDs vinculados. */
+  comprovanteDocumentId: uuid("comprovante_document_id").references(
+    (): AnyPgColumn => documents.id,
+    { onDelete: "set null" },
+  ),
+  /** valor transferido − total vinculado. Positivo = juros; negativo = desconto. */
+  diferencaValor: numeric("diferenca_valor", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** JUROS | DESCONTO | NENHUMA */
+  diferencaTipo: text("diferenca_tipo").notNull().default("NENHUMA"),
+  /** despesa gerada pela diferença financeira (quando houver). */
+  diferencaDespesaId: uuid("diferenca_despesa_id").references(
+    (): AnyPgColumn => despesas.id,
+    { onDelete: "set null" },
+  ),
+  /** lançamento de caixa da saída única. */
+  cashEntryId: uuid("cash_entry_id").references((): AnyPgColumn => cashEntries.id, {
+    onDelete: "set null",
+  }),
+  obs: text("obs"),
+  /** Estorno lógico: reabre as despesas e reverte caixa e diferença. */
+  estornado: boolean("estornado").notNull().default(false),
+  estornadoEm: text("estornado_em"),
+  estornadoPor: text("estornado_por"),
+  idempotencyKey: text("idempotency_key"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Uma despesa abatida por um acerto, com o valor efetivamente abatido. */
+export const acertoItens = pgTable("acerto_item", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  acertoId: uuid("acerto_id")
+    .notNull()
+    .references(() => acertos.id, { onDelete: "cascade" }),
+  despesaId: uuid("despesa_id")
+    .notNull()
+    .references(() => despesas.id, { onDelete: "cascade" }),
+  valorAbatido: numeric("valor_abatido", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** status da despesa ANTES do acerto — permite reabrir no estorno. */
+  statusAnterior: text("status_anterior"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Rateio de um pagamento único entre obras — item 5.3.
+ *
+ * "Um PIX, várias obras, um comprovante": o pagamento gera um PED por obra
+ * (custo correto por centro de custo) e a memória de cálculo fica anexada, que
+ * é o documento que sustenta o custo por obra perante a contabilidade.
+ */
+export const rateiosObra = pgTable("rateio_obra", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** acerto que originou o rateio. */
+  acertoId: uuid("acerto_id").references(() => acertos.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  /** despesa (PED) gerada para esta obra. */
+  despesaId: uuid("despesa_id").references((): AnyPgColumn => despesas.id, {
+    onDelete: "set null",
+  }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  percentual: numeric("percentual", { precision: 9, scale: 4 }).notNull().default("0"),
+  /** base declarada do rateio (ex.: "dias trabalhados", "medição"). */
+  baseRateio: text("base_rateio"),
+  /** memória de cálculo, reimprimível. */
+  memoriaCalculo: jsonb("memoria_calculo"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Vínculo N:N entre uma RESTITUIÇÃO e os PEDs que ela abate — item 4.2.
+ *
+ * O cliente não restitui item a item: ele fecha o combo (paga a fatura inteira
+ * do cartão pessoal e é ressarcido em um único valor). Uma restituição abate
+ * vários PEDs, e um PED pode ser abatido por mais de uma restituição (parciais).
+ *
+ * `valorAbatido` guarda quanto DESTA restituição foi para AQUELE PED — é o que
+ * permite o abatimento parcial do último PED da fila FIFO.
+ */
+export const restituicaoItens = pgTable("restituicao_item", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  restituicaoId: uuid("restituicao_id")
+    .notNull()
+    .references(() => restituicoes.id, { onDelete: "cascade" }),
+  /** obrigação (PED de origem) abatida por esta restituição. */
+  despesaTerceiroId: uuid("despesa_terceiro_id")
+    .notNull()
+    .references(() => despesaTerceiros.id, { onDelete: "cascade" }),
+  valorAbatido: numeric("valor_abatido", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/**
+ * Compensação (encontro de contas) entre o que a empresa deve a um terceiro e o
+ * que ele deve a ela — RG-05.
+ *
+ * Não transita pela DRE: é baixa simultânea de um passivo e de um ativo. Os
+ * dois saldos brutos continuam sendo exibidos antes da compensação.
+ */
+export const compensacoes = pgTable("compensacao", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** PED próprio da compensação. */
+  numDoc: text("num_doc"),
+  terceiroId: uuid("terceiro_id").references(() => stakeholders.id, {
+    onDelete: "set null",
+  }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  data: text("data"),
+  /** saldos BRUTOS no momento da compensação, para a trilha de conferência. */
+  saldoRestituirAntes: numeric("saldo_restituir_antes", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  saldoRepassarAntes: numeric("saldo_repassar_antes", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
+  obs: text("obs"),
+  idempotencyKey: text("idempotency_key"),
+  usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 /** Parcela de uma despesa (conta a pagar). Fase 2. */
 export const despesaParcelas = pgTable(
   "despesa_parcela",

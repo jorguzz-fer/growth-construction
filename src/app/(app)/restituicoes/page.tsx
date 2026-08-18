@@ -3,6 +3,8 @@ import { can } from "@/lib/permissions";
 import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
 import { getContaCorrenteTerceiros, getDespesaTerceiros } from "@/lib/actions/restituicoes";
 import { ContaCorrenteTerceiros } from "@/components/app/conta-corrente-terceiros";
+import { RestituicaoLote } from "@/components/app/restituicao-lote";
+import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-terceiro";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { ymd } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -37,6 +39,8 @@ export default async function RestituicoesPage() {
     // é da empresa e não muda porque o usuário trocou o projeto ativo.
     getContaCorrenteTerceiros(ctx.tenant.id),
   ]);
+  // Saldos dos DOIS lados por terceiro — base do encontro de contas (RG-05).
+  const saldosConsolidados = await getSaldosConsolidadosTerceiros(ctx.tenant.id);
   const rows = lista.map((r) => ({
     ...r,
     diasEmAberto: diasEmAberto(r.dataPrevistaRestituicao ?? r.dataPagamentoOriginal),
@@ -53,6 +57,15 @@ export default async function RestituicoesPage() {
       {/* Conta corrente por terceiro: saldo devido e o extrato dos movimentos
           que o formam. NÃO é saldo bancário disponível — é obrigação. */}
       <ContaCorrenteTerceiros contas={contasCorrentes} />
+
+      {/* Item 4.1 — o cliente não restitui item a item: fecha o combo e paga um
+          valor único, distribuído entre os PEDs em aberto por FIFO. */}
+      <RestituicaoLote
+        terceiros={stakeholders.map((s) => ({ id: s.id, nome: s.nome }))}
+        bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
+        saldos={saldosConsolidados}
+        canEditar={can(ctx.perms, "restituicoes", "editar")}
+      />
 
       <RestituicoesManager
         rows={rows}

@@ -125,3 +125,25 @@ só mudam por decisão humana, item a item, com preview antes e registro de
 auditoria depois.
 
 Nenhuma correção de dado histórico acontece automaticamente. Em nenhuma hipótese.
+
+---
+
+## Onde cada regra vive no sistema
+
+| Regra | Tela / módulo |
+|---|---|
+| RG-01 | DRE (competência) e Fluxo de Caixa (Previsto × Realizado) |
+| RG-02, RG-04 | Restituições → recebimento e repasse por terceiro |
+| RG-03 | Restituições → despesa paga por terceiro |
+| RG-05 | Restituições → encontro de contas |
+| RG-06 | Despesas → nº do pedido (interno) e bloco Documento fiscal |
+| RG-07, RG-08 | Acerto Contábil → painel de fechamento e diferença |
+| RG-09 | Config → Log de Auditoria |
+| RG-10 | Todas — o isolamento é estrutural, não uma opção de tela |
+
+## Acerto contábil, em uma frase
+
+Um pagamento único que quita várias despesas gera **uma saída de caixa**, **N
+baixas** e, quando o valor transferido não bate com a soma das despesas, **uma
+linha de despesa ou receita financeira** com a diferença — nunca um acréscimo ao
+custo das obras.
