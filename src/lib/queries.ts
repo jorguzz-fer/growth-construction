@@ -9,6 +9,7 @@ import {
   type ProjectionSource,
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
+import { origemDaBaixa, saldoAReceber } from "./calc/baixa-receber";
 import { naturezaDoGrupo } from "./natureza-grupo";
 import {
   calcBdi,
@@ -1780,6 +1781,24 @@ export async function getConciliacaoData(
 
 // ─────────────────────────── Contas a Receber ───────────────────────────────
 
+/**
+ * Uma baixa já registrada: o movimento de caixa vinculado à conta a receber.
+ * `origem` distingue a baixa feita na tela de Contas a Receber ("manual") da
+ * conciliação com o extrato no Caixa Diário ("caixa") — a segunda é um
+ * movimento do banco e só se desfaz lá, onde o extrato vive.
+ */
+export interface BaixaReceberRow {
+  cashEntryId: string;
+  data: string | null;
+  valor: number;
+  descricao: string | null;
+  cat: string | null;
+  origem: "manual" | "caixa";
+  bancoNome: string | null;
+  conciliadoPor: string | null;
+  conciliadoEm: string | null;
+}
+
 export interface ContaReceberRow {
   id: string;
   projectId: string;
@@ -1797,6 +1816,10 @@ export interface ContaReceberRow {
   bancoId: string | null;
   origemCashEntryId: string | null;
   createdAt: string | null;
+  /** Movimentos de caixa que baixaram esta conta (mais recente por último). */
+  baixas: BaixaReceberRow[];
+  /** Saldo ainda a receber (valor − recebido), nunca negativo. */
+  saldo: number;
 }
 
 /** Contas a receber criadas manualmente / convertidas do extrato (não canceladas). */
@@ -1817,24 +1840,71 @@ export async function getContasReceber(tenantId: string): Promise<ContaReceberRo
       ),
     )
     .orderBy(asc(schema.contasReceber.vencimento));
-  return rows.map((r) => ({
-    id: r.c.id,
-    projectId: r.c.projectId,
-    projectName: r.projectName,
-    unitCode: r.c.unitCode,
-    clienteId: r.c.clienteId,
-    clienteNome: r.clienteNome,
-    descricao: r.c.descricao,
-    tipo: r.c.tipo,
-    valor: Number(r.c.valor),
-    vencimento: r.c.vencimento,
-    dataRecebimento: r.c.dataRecebimento,
-    valorRecebido: Number(r.c.valorRecebido),
-    status: r.c.status,
-    bancoId: r.c.bancoId,
-    origemCashEntryId: r.c.origemCashEntryId,
-    createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
-  }));
+
+  // Movimentos de caixa que baixaram estas contas. Uma consulta só, agrupada em
+  // memória: a tela precisa mostrar, por conta, se a receita já entrou no caixa
+  // e por qual caminho (baixa manual aqui ou conciliação com o extrato).
+  const ids = rows.map((r) => r.c.id);
+  const porConta = new Map<string, BaixaReceberRow[]>();
+  if (ids.length > 0) {
+    const movs = await db
+      .select({
+        e: schema.cashEntries,
+        bancoNome: schema.bankAccounts.banco,
+        bancoCc: schema.bankAccounts.cc,
+      })
+      .from(schema.cashEntries)
+      .leftJoin(schema.bankAccounts, eq(schema.cashEntries.bankAccountId, schema.bankAccounts.id))
+      .where(
+        and(
+          eq(schema.cashEntries.tenantId, tenantId),
+          inArray(schema.cashEntries.conciliadoContaReceberId, ids),
+        ),
+      )
+      .orderBy(asc(schema.cashEntries.conciliadoEm));
+    for (const m of movs) {
+      const key = m.e.conciliadoContaReceberId;
+      if (!key) continue;
+      const lista = porConta.get(key) ?? [];
+      lista.push({
+        cashEntryId: m.e.id,
+        data: m.e.data,
+        valor: Math.abs(Number(m.e.valor)),
+        descricao: m.e.descricao,
+        cat: m.e.cat,
+        origem: origemDaBaixa(m.e.cat),
+        bancoNome: m.bancoNome ? `${m.bancoNome}${m.bancoCc ? " · " + m.bancoCc : ""}` : null,
+        conciliadoPor: m.e.conciliadoPor,
+        conciliadoEm: m.e.conciliadoEm,
+      });
+      porConta.set(key, lista);
+    }
+  }
+
+  return rows.map((r) => {
+    const valor = Number(r.c.valor);
+    const valorRecebido = Number(r.c.valorRecebido);
+    return {
+      id: r.c.id,
+      projectId: r.c.projectId,
+      projectName: r.projectName,
+      unitCode: r.c.unitCode,
+      clienteId: r.c.clienteId,
+      clienteNome: r.clienteNome,
+      descricao: r.c.descricao,
+      tipo: r.c.tipo,
+      valor,
+      vencimento: r.c.vencimento,
+      dataRecebimento: r.c.dataRecebimento,
+      valorRecebido,
+      status: r.c.status,
+      bancoId: r.c.bancoId,
+      origemCashEntryId: r.c.origemCashEntryId,
+      createdAt: r.c.createdAt ? new Date(r.c.createdAt).toISOString() : null,
+      baixas: porConta.get(r.c.id) ?? [],
+      saldo: saldoAReceber(valor, valorRecebido),
+    };
+  });
 }
 
 // ───────────── Indicadores físico-financeiros da obra (Dashboard) ─────────────
