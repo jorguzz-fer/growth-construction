@@ -63,7 +63,6 @@ export default async function DespesasPage({
   const canEdit = can(ctx.perms, "despesas", "criar");
   const canEditar = can(ctx.perms, "despesas", "editar");
   const canExcluir = can(ctx.perms, "despesas", "excluir");
-  const canEditNumero = ctx.role === "owner" || ctx.role === "admin";
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
@@ -173,7 +172,6 @@ export default async function DespesasPage({
     socios,
     aiConfigured,
     r2Configured,
-    canEditNumero,
     canExcluir,
   };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,

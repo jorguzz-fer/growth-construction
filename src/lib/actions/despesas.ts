@@ -7,8 +7,10 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
+import { diffAudit } from "@/lib/audit-diff";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { gerarParcelas } from "@/lib/calc";
+import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
 import {
@@ -213,22 +215,28 @@ export async function addBankAccount(formData: FormData) {
   revalidatePath("/fornecedores");
 }
 
-/** owner/admin podem definir/alterar o número da despesa manualmente. */
-function canEditNumero(role: string): boolean {
-  return role === "owner" || role === "admin";
-}
-
-/** Verifica se um número de documento já existe no tenant (evita duplicidade). */
-async function numDocExists(
-  tenantId: string,
-  numDoc: string,
-  exceptId?: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: schema.despesas.id })
-    .from(schema.despesas)
-    .where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.numDoc, numDoc)));
-  return rows.some((r) => r.id !== exceptId);
+/**
+ * Parcelas enviadas pelo formulário (preview editável), já normalizadas.
+ *
+ * Base do modo bottom-up do item 1.4: quando o usuário monta parcelas de
+ * valores livres e deixa o total vazio, o total do PED é a soma delas. Lê de
+ * forma tolerante — JSON inválido devolve lista vazia e o fluxo cai na trava de
+ * valor obrigatório, em vez de gravar lançamento sem valor.
+ */
+function lerParcelasManuais(
+  formData: FormData,
+): { vencimento: string | null; valor: number }[] {
+  const raw = formData.get("parcelasJson");
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  try {
+    const arr = JSON.parse(raw) as { vencimento?: string; valor?: unknown }[];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((p) => ({ vencimento: p.vencimento || null, valor: Number(p.valor) || 0 }))
+      .filter((p) => p.valor > 0);
+  } catch {
+    return [];
+  }
 }
 
 export async function addDespesa(formData: FormData) {
@@ -241,28 +249,37 @@ export async function addDespesa(formData: FormData) {
   if (!version) throw new Error("Projeto sem versão Atual.");
   if (version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
 
-  // Número gerado automaticamente (atômico no banco). Só owner/admin podem
-  // informar um número manual — com checagem de duplicidade.
+  // Item 1.3 / RG-01 — uma despesa não pode ser classificada em conta de
+  // natureza credora. Validar só no formulário não protege nada: esta Server
+  // Action é chamável diretamente.
+  const erroCategoria = validarCategoriaDespesa(formData.get("categoriaDre") as string);
+  if (erroCategoria) throw new Error(erroCategoria);
+
   // Trava contra lançamentos de valor ZERO. Antes, um valor vazio virava "0" e,
   // com a opção "recorrente" ligada, era replicado em até 60 cópias — cada uma
   // consumindo um número de pedido (PED) sequencial e poluindo os relatórios com
   // lançamentos fantasma. Um lançamento sem valor não tem justificativa de
   // negócio e passa a ser recusado na origem.
-  const valorNum = Number((formData.get("valor") as string) || "0");
+  //
+  // Exceção do item 1.4 (modo bottom-up): com parcelas de valores livres o
+  // total do PED é a SOMA delas, e o campo de valor chega vazio de propósito.
+  const parcelasManuais = lerParcelasManuais(formData);
+  const somaParcelas = parcelasManuais.reduce((a, p) => a + p.valor, 0);
+  const valorInformado = Number((formData.get("valor") as string) || "0");
+  const valorNum =
+    somaParcelas > 0 && (!Number.isFinite(valorInformado) || valorInformado === 0)
+      ? somaParcelas
+      : valorInformado;
   if (!Number.isFinite(valorNum) || valorNum === 0) {
-    throw new Error("Informe um valor maior que zero para lançar a despesa.");
+    throw new Error(
+      "Informe um valor maior que zero — ou gere as parcelas, que o total é somado a partir delas.",
+    );
   }
 
-  const provided = ((formData.get("numDoc") as string) || "").trim();
-  let numDoc: string;
-  if (provided && canEditNumero(ctx.role)) {
-    if (await numDocExists(ctx.tenant.id, provided)) {
-      throw new Error(`O número "${provided}" já existe.`);
-    }
-    numDoc = provided;
-  } else {
-    numDoc = await reserveDespesaNumber(ctx.tenant.id);
-  }
+  // RG-06 — o PED é numeração interna: sempre reservado aqui, no servidor,
+  // dentro da transação. Nunca vem do formulário, nem para owner/admin. O
+  // número da nota tem campo próprio (bloco Documento Fiscal).
+  const numDoc = await reserveDespesaNumber(ctx.tenant.id);
   const s = (k: string) => (formData.get(k) as string) || null;
   // Despesa paga por sócio (Seção 3): a despesa é reconhecida normalmente na DRE
   // e no projeto, mas NÃO gera saída de caixa da empresa. A obrigação com o
@@ -280,7 +297,10 @@ export async function addDespesa(formData: FormData) {
     categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
     competencia: s("competencia"),
     vencimento: pagoPorSocioId ? socioDataPagamento : s("vencimento"),
-    valor: (formData.get("valor") as string) || "0",
+    // Modo bottom-up: quando o total chega vazio e há parcelas, `valorNum` já é
+    // a soma delas. O PED carrega SEMPRE o custo total da compra; o
+    // fracionamento vive nas parcelas (item 2.3).
+    valor: String(valorNum),
     // Descrição/observação da compra — campo PRÓPRIO, separado do nº do pedido
     // (numDoc). O objeto da compra não deve ser guardado no número do pedido.
     obs: s("obs"),
@@ -312,7 +332,6 @@ export async function addDespesa(formData: FormData) {
 
   // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
   // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
-  const parcelasJson = formData.get("parcelasJson") as string | null;
   const valorTotal = Number(row.valor);
   const condicao = row.condicaoPagamento;
   let parcelas: { vencimento: string | null; valor: number }[] = [];
@@ -320,15 +339,8 @@ export async function addDespesa(formData: FormData) {
   // a pagar da empresa.
   if (pagoPorSocioId) {
     parcelas = [];
-  } else if (parcelasJson) {
-    try {
-      const arr = JSON.parse(parcelasJson) as { vencimento: string; valor: number }[];
-      parcelas = arr
-        .filter((p) => Number(p.valor) > 0)
-        .map((p) => ({ vencimento: p.vencimento || null, valor: Number(p.valor) }));
-    } catch {
-      parcelas = [];
-    }
+  } else if (parcelasManuais.length > 0) {
+    parcelas = parcelasManuais;
   } else if (condicao) {
     parcelas = gerarParcelas({
       valorTotal,
@@ -511,20 +523,21 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.fornecedorId !== undefined) set.fornecedorId = patch.fornecedorId || null;
   if (patch.bancoId !== undefined) set.bancoId = patch.bancoId || null;
   if (patch.contaCef !== undefined) set.contaCef = patch.contaCef || null;
-  if (patch.categoriaDre !== undefined)
-    set.categoriaDre = (patch.categoriaDre || null) as CategoriaDRE | null;
-  // Número da despesa: só owner/admin pode alterar, e sem duplicar.
-  if (patch.numDoc !== undefined) {
-    const novo = patch.numDoc?.trim() || null;
-    if (novo !== existing.numDoc) {
-      if (!canEditNumero(ctx.role)) {
-        throw new Error("Apenas administradores podem alterar o número da despesa.");
-      }
-      if (novo && (await numDocExists(ctx.tenant.id, novo, id))) {
-        throw new Error(`O número "${novo}" já existe.`);
-      }
-      set.numDoc = novo;
-    }
+  if (patch.categoriaDre !== undefined) {
+    // Item 1.3 / RG-01 — nem na edição uma despesa pode passar para conta de
+    // natureza credora.
+    const erro = validarCategoriaDespesa(patch.categoriaDre);
+    if (erro) throw new Error(erro);
+    set.categoriaDre = patch.categoriaDre as CategoriaDRE;
+  }
+  // RG-06 — o PED é imutável depois de criado. Renumerar um documento já
+  // emitido quebraria a conferência com a contabilidade e com os anexos que o
+  // referenciam. Um número enviado igual ao atual é ignorado em silêncio (o
+  // formulário pode reenviá-lo); diferente, é recusado.
+  if (patch.numDoc !== undefined && (patch.numDoc?.trim() || null) !== existing.numDoc) {
+    throw new Error(
+      "O nº do pedido (PED) é numeração interna e não pode ser alterado. Para corrigir o número da nota, use o campo de documento fiscal.",
+    );
   }
   if (patch.competencia !== undefined) set.competencia = patch.competencia || null;
   if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
@@ -534,13 +547,13 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   if (patch.formaPagamento !== undefined) set.formaPagamento = patch.formaPagamento || null;
   if (Object.keys(set).length === 0) return;
 
-  // Auditoria campo a campo: valor anterior × novo.
-  const changes: Record<string, { de: unknown; para: unknown }> = {};
-  for (const k of Object.keys(set)) {
-    const antes = (existing as Record<string, unknown>)[k];
-    const depois = (set as Record<string, unknown>)[k];
-    if (antes !== depois) changes[k] = { de: antes ?? null, para: depois ?? null };
-  }
+  // Auditoria campo a campo (RG-09): valor anterior × novo. O helper normaliza
+  // nulo/vazio e numeric-como-string, senão reeditar sem mudar nada registraria
+  // "alterações" que não houve.
+  const changes = diffAudit(
+    existing as unknown as Record<string, unknown>,
+    set as Record<string, unknown>,
+  );
 
   await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
   await logAudit({

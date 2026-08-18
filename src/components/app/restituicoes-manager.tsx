@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   buscarDespesasPorPed,
@@ -10,6 +10,7 @@ import {
   type DespesaTerceiroView,
 } from "@/lib/actions/restituicoes";
 import { rotuloStatusObrigacao } from "@/lib/calc/restituicao";
+import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ export function RestituicoesManager({
   // Uma chave por tentativa. Só é renovada depois de um registro bem-sucedido —
   // assim o reenvio do MESMO preenchimento nunca vira dois registros.
   const chave = useRef(novaChave());
+  const categoriasDespesa = useMemo(() => categoriasDeDespesa(categorias), [categorias]);
 
   const submit = (fd: FormData) => {
     if (saving) return; // trava de duplo clique antes mesmo de chamar o servidor
@@ -157,13 +159,17 @@ export function RestituicoesManager({
               </div>
               <div>
                 <Label>Categoria DRE</Label>
+                {/* Item 4.6 — mesmo bug do formulário de despesa: a lista
+                    completa oferecia "Receita" para um lançamento de despesa.
+                    Só naturezas devedoras, e sem default silencioso. */}
                 <Select
                   name="categoriaDre"
                   key={`cat-${ped?.id ?? "novo"}`}
-                  defaultValue={ped?.categoriaDre ?? categorias[1] ?? "Custo Variável"}
+                  defaultValue={ped?.categoriaDre ?? ""}
                   disabled={!!ped}
                 >
-                  {categorias.map((c) => (
+                  <option value="">Selecione...</option>
+                  {categoriasDespesa.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </Select>

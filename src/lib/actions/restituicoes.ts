@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { statusRestituicao } from "@/lib/calc";
 import { restituicaoCabe } from "@/lib/calc/restituicao";
+import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
 /**
@@ -215,6 +216,10 @@ export async function criarDespesaTerceiro(
         valorObrigacao = String(d.valor);
       } else {
         // ── Modo despesa nova ─────────────────────────────────────────────
+        // Item 4.6 / RG-01 — a despesa criada aqui é despesa como qualquer
+        // outra: não pode nascer classificada em conta de natureza credora.
+        const erroCat = validarCategoriaDespesa(formData.get("categoriaDre") as string);
+        if (erroCat) throw new Error(erroCat);
         const valor = (formData.get("valor") as string) || "0";
         if (!Number.isFinite(Number(valor)) || Number(valor) <= 0) {
           throw new Error("Informe um valor maior que zero para a despesa paga por terceiro.");
