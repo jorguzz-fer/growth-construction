@@ -9,6 +9,7 @@ de produção para deploy em **VPS + Coolify**.
 
 - Especificação funcional: [`docs/SPEC.md`](./docs/SPEC.md)
 - Stack e roadmap de produção: [`docs/STACK.md`](./docs/STACK.md)
+- Emissão de NFS-e (cadastro fiscal, cálculo e provedor): [`docs/EMISSAO-NF.md`](./docs/EMISSAO-NF.md)
 
 ## Stack
 
