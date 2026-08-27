@@ -94,12 +94,55 @@ export const verificationTokens = pgTable(
 
 // ────────────────────────── Multi-tenancy ───────────────────────────
 
-/** Empresa cliente (incorporadora). Ver docs/SPEC.md §1. */
+/**
+ * Empresa cliente (incorporadora). Ver docs/SPEC.md §1.
+ *
+ * O bloco fiscal existe para a EMISSÃO de nota (ver docs/EMISSAO-NF.md): são os
+ * dados do prestador que a prefeitura exige na NFS-e e que o provedor de
+ * emissão exige no cadastro da empresa. Todos NULÁVEIS — tenant que não emite
+ * nota segue funcionando sem preencher nada, e `checarProntidaoFiscal`
+ * (src/lib/calc/emitente-fiscal.ts) é quem diz se já dá para emitir.
+ *
+ * O token do provedor NÃO mora aqui: credencial de emissão vale dinheiro e vai
+ * em variável de ambiente/secret, não em coluna de banco lida por toda query de
+ * tenant.
+ */
 export const tenants = pgTable("tenant", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** razão social — é o que vai no corpo da nota. */
   name: text("name").notNull(),
   /** chave do logo no storage R2. */
   logoKey: text("logo_key"),
+  // ── Identificação fiscal do emitente ───────────────────────────────────
+  nomeFantasia: text("nome_fantasia"),
+  /** aceita CNPJ alfanumérico (IN RFB 2.229/2024). Gravado sem máscara. */
+  cnpj: text("cnpj"),
+  inscricaoMunicipal: text("inscricao_municipal"),
+  inscricaoEstadual: text("inscricao_estadual"),
+  /** SIMPLES | SIMPLES_EXCESSO | LUCRO_PRESUMIDO | LUCRO_REAL | MEI. */
+  regimeTributario: text("regime_tributario"),
+  /** regime especial da nota (1..6), quando o município exigir. */
+  regimeEspecial: text("regime_especial"),
+  /** item da lista da LC 116/2003 — 7.02 / 7.05 na construção civil. */
+  itemListaServico: text("item_lista_servico"),
+  codigoTributarioMunicipio: text("codigo_tributario_municipio"),
+  cnae: text("cnae"),
+  /** alíquota de ISS em % (até 4 casas: alguns municípios usam). */
+  aliquotaIss: numeric("aliquota_iss", { precision: 8, scale: 4 }),
+  // ── Endereço do prestador ──────────────────────────────────────────────
+  logradouro: text("logradouro"),
+  numeroEndereco: text("numero_endereco"),
+  complemento: text("complemento"),
+  bairro: text("bairro"),
+  /** código IBGE de 7 dígitos — é assim que a API identifica o município. */
+  codigoMunicipio: text("codigo_municipio"),
+  municipio: text("municipio"),
+  uf: text("uf"),
+  cep: text("cep"),
+  telefone: text("telefone"),
+  emailFiscal: text("email_fiscal"),
+  /** ambiente de emissão: "homologacao" (padrão) | "producao". */
+  fiscalAmbiente: text("fiscal_ambiente").notNull().default("homologacao"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
@@ -238,6 +281,19 @@ export const projects = pgTable("project", {
   endereco: text("endereco"),
   latitude: numeric("latitude", { precision: 10, scale: 7 }),
   longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  // ── Dados fiscais da obra (emissão de NFS-e) ────────────────────────────
+  // Na construção civil o ISS é devido no município da OBRA (LC 116/2003,
+  // art. 3º, III), que nem sempre é o da sede. Por isso o município de
+  // incidência sai do projeto e não do tenant. Opcionais: projeto que não
+  // fatura serviço nunca precisa deles.
+  /** código IBGE (7 dígitos) do município onde a obra é executada. */
+  codigoMunicipioObra: text("codigo_municipio_obra"),
+  municipioObra: text("municipio_obra"),
+  ufObra: text("uf_obra"),
+  /** matrícula CNO/CEI da obra — vai no campo `codigo_obra` da NFS-e. */
+  codigoObra: text("codigo_obra"),
+  /** número da ART/RRT do responsável técnico. */
+  art: text("art"),
   /** raio permitido para registro de ponto, em metros (padrão 100). */
   pontoRaioMetros: integer("ponto_raio_metros").notNull().default(100),
   // ── Medição / BDI / provisionamento (ver docs/BDI-PROVISIONAMENTO.md) ───
