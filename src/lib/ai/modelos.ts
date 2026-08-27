@@ -33,17 +33,28 @@ export const MODELOS_CLAUDE = [
 
 export type IdModelo = (typeof MODELOS_CLAUDE)[number]["id"];
 
-/** Padrão do app quando `ANTHROPIC_MODEL` não está definida. */
-export const MODELO_PADRAO: IdModelo = "claude-opus-5";
+/**
+ * Padrão do app quando `ANTHROPIC_MODEL` não está definida.
+ *
+ * O uso da API é cobrado por token e a leitura de documento é o que mais roda
+ * aqui — então o padrão é o modelo mais barato. Ele dá conta de PDF nítido
+ * (DANFE, comprovante de Pix, boleto), que é a maior parte do volume.
+ *
+ * Se a leitura de FOTO (cupom amassado, papel desbotado, imagem torta) vier
+ * fraca, subir um degrau resolve sem tocar em código: basta
+ * `ANTHROPIC_MODEL=claude-sonnet-5` (ou `claude-opus-5`, o mais capaz). O que
+ * a IA não entender continua chegando na tela como alerta de campo, então uma
+ * leitura pior custa conferência, não erro silencioso.
+ */
+export const MODELO_PADRAO: IdModelo = "claude-haiku-4-5";
 
 /**
  * Alternativos, em ordem, quando o modelo escolhido não está liberado para a
- * conta. Documentos de obra são fotos tortas e cupons desbotados: vale ter um
- * degrau capaz (Opus 4.8) antes de cair para o mais barato.
+ * conta. Segue a mesma lógica do padrão: sobe o mínimo necessário.
  */
 export const MODELOS_FALLBACK: IdModelo[] = [
-  "claude-opus-4-8",
   "claude-sonnet-5",
+  "claude-opus-4-8",
 ];
 
 const IDS = new Set<string>(MODELOS_CLAUDE.map((m) => m.id));

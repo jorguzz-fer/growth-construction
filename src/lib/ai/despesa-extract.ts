@@ -13,6 +13,11 @@ import {
   type ExtractedDespesa,
   type NaturezaArquivo,
 } from "@/lib/ai/despesa-doc";
+import {
+  instrucaoLeituraDespesa,
+  promptSistemaDespesa,
+  type ContextoLeituraDespesa,
+} from "@/lib/ai/despesa-prompt";
 
 /**
  * Leitura por IA dos documentos de uma despesa (NF, cupom, boleto, comprovante,
@@ -45,15 +50,7 @@ export interface DocumentoParaLeitura {
   filename: string;
 }
 
-export interface ContextoLeituraDespesa {
-  fornecedores: { nome: string; doc: string | null }[];
-  contas: { code: string; name: string }[];
-  projetos: { nome: string }[];
-  categorias: readonly string[];
-  tiposDocumento: readonly { id: string; label: string }[];
-  /** A própria empresa — para NÃO ser confundida com o fornecedor. */
-  empresa: { nome: string; cnpj: string | null };
-}
+export type { ContextoLeituraDespesa };
 
 /** Sub-schema de um campo lido: valor + confiança + nota para o usuário. */
 function campoSchema(
@@ -103,20 +100,6 @@ export async function extractDespesaFromDocument(
   }
   if (docs.length === 0) throw new Error("Selecione ao menos um documento.");
   const client = aiClient();
-
-  const fornList =
-    ctx.fornecedores
-      .slice(0, 200)
-      .map((f) => `- ${f.nome}${f.doc ? ` (${f.doc})` : ""}`)
-      .join("\n") || "(nenhum cadastrado)";
-  const contaList =
-    ctx.contas
-      .slice(0, 400)
-      .map((c) => `- ${c.code} — ${c.name}`)
-      .join("\n") || "(nenhum cadastrado)";
-  const projList =
-    ctx.projetos.map((p) => `- ${p.nome}`).join("\n") || "(nenhum cadastrado)";
-  const tipoList = ctx.tiposDocumento.map((t) => `- ${t.id} = ${t.label}`).join("\n");
 
   const tool: Anthropic.ToolUnion = {
     name: "preencher_despesa",
@@ -223,32 +206,22 @@ export async function extractDespesaFromDocument(
     strict: true,
   };
 
-  const instrucoes =
-    `Você está lendo ${docs.length === 1 ? "o documento anexado" : `os ${docs.length} arquivos anexados`} ` +
-    "para lançar UMA despesa no sistema de uma construtora. " +
-    (docs.length > 1
-      ? "Os arquivos se referem à mesma compra (ex.: a nota e o comprovante do pagamento): combine as informações. Se perceber que tratam de despesas diferentes, use os dados do documento principal e registre isso em observacoes.\n\n"
-      : "\n\n") +
-    `EMPRESA QUE ESTÁ LANÇANDO (é a PAGADORA — nunca a fornecedora): ${ctx.empresa.nome}` +
-    (ctx.empresa.cnpj ? ` — CNPJ ${ctx.empresa.cnpj}` : "") +
-    ".\nEm comprovante de Pix/TED, o fornecedor é o RECEBEDOR, não o pagador. Nunca devolva os dados da empresa acima como fornecedor.\n\n" +
-    `OBRAS/PROJETOS cadastrados:\n${projList}\n\n` +
-    `FORNECEDORES já cadastrados (use exatamente o nome quando corresponder):\n${fornList}\n\n` +
-    `PLANO DE CONTAS (escolha o código mais adequado):\n${contaList}\n\n` +
-    `TIPOS DE DOCUMENTO FISCAL aceitos:\n${tipoList}\n\n` +
-    "REGRAS:\n" +
-    "- Datas SEMPRE em ISO: YYYY-MM-DD (e YYYY-MM na competência). O documento brasileiro escreve DD/MM/AAAA — converta.\n" +
-    "- Valor numérico em reais, com ponto decimal, já líquido de desconto (se o cupom mostra Mercadorias, Desconto e Total, use o Total).\n" +
-    "- Nunca invente: o que não estiver no documento volta vazio, com confianca=baixa e a nota explicando.\n" +
-    '- Use confianca="alta" só para o que está escrito e legível; "media" para o que você deduziu; "baixa" para o que está ilegível, cortado, mascarado ou é palpite.\n' +
-    "- A nota é lida pelo usuário na tela, em português, curta e útil (ex.: 'CPF mascarado no comprovante', 'competência deduzida da data do Pix').\n" +
-    "- Comprovante de pagamento não é nota fiscal: docFiscalTipo=SEM_DOC, e pago=true.\n" +
-    "Chame a ferramenta preencher_despesa.";
-
+  // Ordem que a API usa para o cache: tools → system → messages. O ponto de
+  // cache no fim do `system` cobre, portanto, a ferramenta E todo o contexto do
+  // tenant (fornecedores, plano de contas, obras, regras) — que é a maior parte
+  // dos tokens e não muda entre uma leitura e a seguinte. O documento vem
+  // depois, em `messages`, porque é o único pedaço realmente volátil.
   const message = await createMessageWithFallback(client, {
     max_tokens: 2048,
     tools: [tool],
     tool_choice: { type: "tool", name: "preencher_despesa" },
+    system: [
+      {
+        type: "text",
+        text: promptSistemaDespesa(ctx),
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -258,7 +231,7 @@ export async function extractDespesaFromDocument(
               ? [{ type: "text", text: `Arquivo: ${d.filename}` }, blocoDoDocumento(d)]
               : [blocoDoDocumento(d)],
           ),
-          { type: "text", text: instrucoes },
+          { type: "text", text: instrucaoLeituraDespesa(docs.length) },
         ],
       },
     ],

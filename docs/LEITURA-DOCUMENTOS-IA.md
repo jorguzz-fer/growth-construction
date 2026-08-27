@@ -135,13 +135,37 @@ IA) diz qual delas está faltando:
 | Variável | Papel | Sem ela |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | autentica o app na API | leitura desativada; upload e vínculo do arquivo seguem funcionando |
-| `ANTHROPIC_MODEL` | escolhe o modelo (opcional) | usa `claude-opus-5` |
+| `ANTHROPIC_MODEL` | escolhe o modelo (opcional) | usa `claude-haiku-4-5` |
 | `R2_*` | guarda os arquivos | nada é armazenado — só a leitura acontece |
 
 Além das variáveis, a conta da API precisa ter **créditos**: o uso é cobrado
 por token e, sem saldo, a API responde 400 com "credit balance is too low".
 Isso não é erro de chave nem de modelo, e o diagnóstico diz isso com todas as
 letras (`src/lib/ai/erros.ts`).
+
+### Custo: modelo econômico + cache do que não muda
+
+O uso é cobrado por token e a leitura de documento é o que mais roda no app, então:
+
+- **o padrão é o modelo mais barato** (`claude-haiku-4-5`), que dá conta de PDF
+  nítido — DANFE, comprovante de Pix, boleto. Foto amassada pede um degrau
+  acima (`claude-sonnet-5`, `claude-opus-5`), e trocar é só mudar a variável;
+- **a maior parte do prompt é cacheada.** Fornecedores, plano de contas, obras
+  e regras não mudam entre uma leitura e a seguinte: vão no `system`, com ponto
+  de cache, e passam a custar uma fração nas leituras seguintes. Só o documento
+  fica fora do cache (`src/lib/ai/despesa-prompt.ts`).
+
+Duas consequências para quem mexer nisso:
+
+1. **A ordem das listas é fixada no código, não na consulta.** O cache casa por
+   prefixo byte a byte — uma lista que muda de ordem invalida tudo em silêncio,
+   e só a fatura denuncia.
+2. **O que é volátil fica depois do ponto de cache** (o documento e a instrução
+   curta). Qualquer coisa que varie por leitura — data, nome de arquivo,
+   contador — colocada antes desse ponto anula o cache.
+
+Uma leitura pior nunca vira erro silencioso: o que a IA não entender continua
+chegando na tela como alerta de campo.
 
 ### `ANTHROPIC_MODEL` aceita o identificador, não o nome comercial
 
