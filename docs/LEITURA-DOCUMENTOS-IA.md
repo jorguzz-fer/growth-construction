@@ -21,8 +21,42 @@ Alerta é sinal, nunca trava: um cupom rasurado continua virando lançamento.
 | Despesas → Lançamentos | `src/components/app/despesa-form.tsx` | projeto, fornecedor, documento fiscal (tipo, nº, série, emissão, chave), conta, categoria DRE, competência, vencimento, valor, status, descrição, forma de pagamento |
 | Fornecedores → cadastro | `src/components/app/fornecedor-form.tsx` | razão social, fantasia, tipo, CNPJ/CPF, contato, e-mail, telefones, endereço completo, papéis |
 
-Em ambas a leitura dispara **sozinha ao subir o arquivo** — o botão
-"Ler novamente" só existe para quem trocou/acrescentou documento.
+Em ambas a leitura dispara **sozinha ao subir o arquivo**; o botão de preencher
+fica ali para refazer (trocou o arquivo, corrigiu a foto) e para quem prefere
+disparar na mão.
+
+### O bloco de upload
+
+`src/components/ui/upload-documentos.tsx` — dois botões nomeados, na ordem em
+que se usa:
+
+```
+DOCUMENTOS DA DESPESA
+Suba a nota, o cupom, o boleto ou o comprovante — PDF ou imagem. …
+
+[ Subir arquivos ]  [ Preencher formulário ]
+
+  nota.pdf                    36 KB   ✕
+  comprovante.jpeg            50 KB   ✕
+```
+
+O `<input type="file">` fica escondido atrás do primeiro botão: o controle
+nativo mostrava "Escolher arquivos / Nenhum arquivo escolhido" — texto do
+navegador, fora do idioma e do visual do app — e não dizia o que viria depois.
+Cada arquivo vira uma linha com nome, tamanho e remover, então dá para conferir
+antes de agir.
+
+Regras de comunicação que o bloco segue:
+
+- **um assunto por aviso.** Leitura por IA, chave de ambiente e armazenamento
+  são três coisas diferentes e não cabem no mesmo parágrafo cinza;
+- **indisponível ≠ erro.** Sem `ANTHROPIC_API_KEY` o botão de preencher fica
+  desabilitado e um aviso explica o que ainda funciona (subir e anexar) com
+  link para o Diagnóstico de IA — em vez de uma frase técnica solta;
+- **o erro aparece onde a pessoa clicou**, dentro do bloco, junto dos arquivos
+  — não no rodapé do formulário;
+- **motivo não se repete.** O texto ao lado do botão só aparece quando é algo
+  que a pessoa resolve ali ("suba um PDF").
 
 ## Como está montado
 
@@ -84,9 +118,10 @@ componente da tela  ──►  Server Action  ──►  *-extract.ts   (server-
    reaproveitando `createMessageWithFallback` e `campoSchema`.
 3. Exponha uma Server Action que carrega os cadastros do tenant, chama o
    extract e devolve o resultado do módulo puro já pronto para aplicar.
-4. Na tela, troque `<div><Label/>…</div>` por `<CampoIA label alerta>` e
-   dispare a leitura no `onChange` do input de arquivo. O `ResumoLeituraIA`
-   entra no topo.
+4. Na tela, use `<UploadDocumentos>` para o upload (ele já traz os dois botões,
+   a lista de arquivos e os avisos), troque `<div><Label/>…</div>` por
+   `<CampoIA label alerta>` nos campos e ponha o `ResumoLeituraIA` logo abaixo
+   do bloco de upload.
 
 Candidatos naturais: Contas a Pagar (baixa por comprovante), Caixa/Extrato
 (já tem leitura própria, sem alertas por campo), Medição, Reembolso,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addStakeholder,
@@ -8,7 +8,8 @@ import {
 } from "@/lib/actions/despesas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
+import { UploadDocumentos } from "@/components/ui/upload-documentos";
 import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
 import { legivelPelaIa, type Alerta } from "@/lib/ai/campos";
 import {
@@ -25,11 +26,12 @@ export function FornecedorForm({
   aiConfigured: boolean;
 }) {
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [reading, startReading] = useTransition();
   const [saving, startSaving] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Falha da leitura por IA — mostrada no próprio bloco de upload. */
+  const [erroLeitura, setErroLeitura] = useState<string | null>(null);
 
   const [nome, setNome] = useState("");
   const [nomeFantasia, setNomeFantasia] = useState("");
@@ -68,6 +70,7 @@ export function FornecedorForm({
   const limparLeitura = () => {
     setAlertas({});
     setLeitura(null);
+    setErroLeitura(null);
   };
 
   const toggle = (p: string) => {
@@ -90,10 +93,10 @@ export function FornecedorForm({
 
   function ler(arquivo: File | null = file) {
     if (!arquivo) {
-      setError("Selecione um documento (PDF ou imagem) primeiro.");
+      setErroLeitura("Suba um PDF ou uma imagem para preencher o cadastro.");
       return;
     }
-    setError(null);
+    setErroLeitura(null);
     setNotice(null);
     const fd = new FormData();
     fd.set("file", arquivo);
@@ -146,7 +149,9 @@ export function FornecedorForm({
         setLeitura({ preenchidos: res.preenchidos });
         setNotice(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao ler o documento.");
+        // Erro da leitura aparece no bloco de upload, não no rodapé do
+        // formulário — é onde a pessoa acabou de clicar.
+        setErroLeitura(e instanceof Error ? e.message : "Falha ao ler o documento.");
       }
     });
   }
@@ -198,7 +203,6 @@ export function FornecedorForm({
         setSelected(new Set());
         limparLeitura();
         setFile(null);
-        if (fileRef.current) fileRef.current.value = "";
         setNotice(null);
         router.refresh();
       } catch (e) {
@@ -213,48 +217,75 @@ export function FornecedorForm({
     <Card className="mb-6">
       <CardContent className="space-y-4 p-5">
         {/* Documento + leitura por IA */}
-        <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1">
-              <Label>
-                Documento (PDF ou imagem — cartão CNPJ, contrato, cartão de visita)
-              </Label>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
-                className="text-xs"
-                onChange={(e) => {
-                  const escolhido = e.target.files?.[0] ?? null;
-                  setFile(escolhido);
-                  setNotice(null);
-                  setError(null);
-                  limparLeitura();
-                  // Subiu → já lê (mesmo comportamento da tela de despesas).
-                  if (aiConfigured && escolhido && legivelPelaIa(escolhido.type)) {
-                    ler(escolhido);
-                  }
-                }}
-              />
-            </div>
-            {aiConfigured && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !file}
-                onClick={() => ler()}
-                title="Refazer a leitura do arquivo selecionado"
-              >
-                {reading ? "Lendo documento…" : leitura ? "Ler novamente" : "Ler com IA"}
-              </Button>
-            )}
-          </div>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-            {aiConfigured
-              ? "Ao subir, a IA lê o documento e preenche os campos abaixo. O que ela não achar — ou achar com dúvida — fica marcado com alerta para você conferir."
-              : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
-          </p>
-        </div>
+        <UploadDocumentos
+          titulo="Documento do fornecedor"
+          descricao={
+            aiConfigured
+              ? "Suba o cartão CNPJ, o contrato social, o cabeçalho de uma nota ou até um cartão de visita — PDF ou imagem. A IA lê e preenche o cadastro abaixo."
+              : "Suba o cartão CNPJ, o contrato social ou o cabeçalho de uma nota — PDF ou imagem. O arquivo fica vinculado ao cadastro."
+          }
+          arquivos={file ? [file] : []}
+          multiplo={false}
+          accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
+          onArquivos={(lista, adicionados) => {
+            const escolhido = lista[0] ?? null;
+            setFile(escolhido);
+            setNotice(null);
+            setError(null);
+            limparLeitura();
+            // Subiu → já preenche (mesmo comportamento da tela de despesas).
+            if (aiConfigured && adicionados.length > 0 && escolhido && legivelPelaIa(escolhido.type)) {
+              ler(escolhido);
+            }
+          }}
+          desabilitado={busy}
+          acao={{
+            label: "Preencher cadastro",
+            labelOcupado: "Lendo documento…",
+            labelRepetir: "Preencher novamente",
+            repetiu: !!leitura,
+            ocupado: reading,
+            desabilitada: !aiConfigured || !file,
+            motivoVisivel: aiConfigured,
+            motivo: !aiConfigured
+              ? "Preenchimento automático indisponível neste servidor."
+              : !file
+                ? "Suba um PDF ou uma imagem para preencher o cadastro."
+                : "Ler o documento e preencher os campos abaixo",
+            onClick: () => ler(),
+          }}
+          avisos={
+            erroLeitura
+              ? [{ tom: "erro", texto: erroLeitura }]
+              : aiConfigured
+              ? [
+                  {
+                    tom: "info",
+                    texto:
+                      "O que a IA não achar — ou achar com dúvida — fica marcado com alerta no campo. Nada é gravado antes de você conferir e cadastrar.",
+                  },
+                ]
+              : [
+                  {
+                    tom: "atencao",
+                    texto: (
+                      <>
+                        <strong>Preenchimento automático indisponível.</strong> A chave
+                        de IA não está configurada neste servidor
+                        (ANTHROPIC_API_KEY), então os campos precisam ser preenchidos
+                        à mão.{" "}
+                        <a
+                          href="/diagnosticoia"
+                          className="font-medium text-[var(--color-accent2)] underline"
+                        >
+                          Abrir Diagnóstico de IA
+                        </a>
+                      </>
+                    ),
+                  },
+                ]
+          }
+        />
 
         {leitura && (
           <ResumoLeituraIA

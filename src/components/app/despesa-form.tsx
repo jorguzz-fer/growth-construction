@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addDespesa,
@@ -16,6 +16,7 @@ import {
   validarCategoriaDespesa,
 } from "@/lib/calc/natureza-dre";
 import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
+import { UploadDocumentos } from "@/components/ui/upload-documentos";
 import { AI_MAX_DOCS, legivelPelaIa, type Alerta } from "@/lib/ai/campos";
 import {
   ROTULO_CAMPO,
@@ -161,11 +162,12 @@ export function DespesaForm({
 }) {
   const router = useRouter();
   const isEdit = !!edit;
-  const fileRef = useRef<HTMLInputElement>(null);
   const [reading, startReading] = useTransition();
   const [saving, startSaving] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Falha da leitura por IA — mostrada no próprio bloco de upload. */
+  const [erroLeitura, setErroLeitura] = useState<string | null>(null);
 
   const [projeto, setProjeto] = useState(edit?.projectId ?? projetoId);
   const [fornecedorId, setFornecedorId] = useState(edit?.fornecedorId ?? "");
@@ -231,11 +233,11 @@ export function DespesaForm({
   const limparLeitura = () => {
     setAlertas({});
     setLeitura(null);
+    setErroLeitura(null);
   };
 
   // Anexos na EDIÇÃO: enviar novos e remover individualmente, em qualquer
   // estágio (inclusive com a despesa já paga e/ou conciliada).
-  const addFileRef = useRef<HTMLInputElement>(null);
   const [novosAnexos, setNovosAnexos] = useState<File[]>([]);
   const [anexBusy, setAnexBusy] = useState(false);
   const [anexMsg, setAnexMsg] = useState<string | null>(null);
@@ -275,7 +277,6 @@ export function DespesaForm({
       if (res.ok) {
         setAnexMsg(`${res.added} arquivo(s) anexado(s).`);
         setNovosAnexos([]);
-        if (addFileRef.current) addFileRef.current.value = "";
         router.refresh();
       } else {
         setAnexErro(res.error ?? "Falha ao anexar.");
@@ -484,10 +485,10 @@ export function DespesaForm({
    */
   function ler(lista: File[] = legiveis) {
     if (lista.length === 0) {
-      setError("Selecione um documento legível (PDF ou imagem) primeiro.");
+      setErroLeitura("Suba um PDF ou uma imagem para preencher o formulário.");
       return;
     }
-    setError(null);
+    setErroLeitura(null);
     setNotice(null);
     const enviados = lista.slice(0, AI_MAX_DOCS);
     const fd = new FormData();
@@ -497,7 +498,10 @@ export function DespesaForm({
         const res = await extractDespesaFromDoc(fd);
         aplicarLeitura(res, enviados.length);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao ler o documento.");
+        // A falha da leitura aparece DENTRO do bloco de upload, ao lado dos
+        // arquivos: no rodapé do formulário, longe de onde a pessoa acabou de
+        // clicar, ela simplesmente não era vista.
+        setErroLeitura(e instanceof Error ? e.message : "Falha ao ler o documento.");
       }
     });
   }
@@ -690,7 +694,6 @@ export function DespesaForm({
         setBo({ linha: "", barras: "", banco: "" });
         setCh({ numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "" });
         setFiles([]);
-        if (fileRef.current) fileRef.current.value = "";
         limparLeitura();
         setNotice(null);
         router.refresh();
@@ -779,118 +782,139 @@ export function DespesaForm({
             )}
 
             {/* Anexar MAIS documentos — disponível em qualquer momento do ciclo
-                de vida: antes/depois do pagamento e antes/depois da conciliação. */}
+                de vida: antes/depois do pagamento e antes/depois da conciliação.
+                Sem restrição de tipo: além de PDF e imagem, a despesa pode
+                receber planilha, XML da nota, e-mail, contrato etc. */}
             <div className="mt-3 border-t border-[var(--color-accent2)]/12 pt-3">
-              <Label>
-                Anexar mais documentos — quantos forem necessários
-              </Label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                {/* Sem restrição de tipo: além de PDF e imagem, a despesa pode
-                    receber planilha, XML da nota, e-mail, contrato etc. O
-                    `accept` anterior filtrava esses arquivos no seletor e o
-                    usuário via "Nenhum arquivo escolhido" sem entender por quê. */}
-                <input
-                  ref={addFileRef}
-                  type="file"
-                  multiple
-                  className="text-xs"
-                  onChange={(e) => setNovosAnexos(Array.from(e.target.files ?? []))}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={anexBusy || novosAnexos.length === 0}
-                  onClick={enviarAnexos}
-                >
-                  {anexBusy
-                    ? "Enviando…"
-                    : novosAnexos.length > 0
+              <UploadDocumentos
+                className="border-0 bg-transparent p-0"
+                titulo="Anexar mais documentos"
+                descricao="Quantos forem necessários, em qualquer formato (até 10 MB cada). Os anexos já existentes são preservados."
+                arquivos={novosAnexos}
+                onArquivos={(lista) => {
+                  setNovosAnexos(lista);
+                  setAnexMsg(null);
+                  setAnexErro(null);
+                }}
+                desabilitado={anexBusy}
+                limiteTotalBytes={LIMITE_ENVIO}
+                acao={{
+                  label:
+                    novosAnexos.length > 0
                       ? `Anexar ${novosAnexos.length} arquivo(s)`
-                      : "Anexar"}
-                </Button>
-              </div>
-              {novosAnexos.length > 0 ? (
-                <p className="mt-1 text-[11.5px] text-[var(--color-ink3)]">
-                  Selecionado(s): {novosAnexos.map((f) => f.name).join(", ")}
-                </p>
-              ) : (
-                <p className="mt-1 text-[11.5px] text-[var(--color-ink4)]">
-                  Escolha um ou mais arquivos (até 10 MB cada) e clique em Anexar. Os
-                  anexos já existentes são preservados.
-                </p>
-              )}
-              {anexMsg && (
-                <p className="mt-1 text-[11.5px] text-[var(--color-success)]">{anexMsg}</p>
-              )}
-              {anexErro && (
-                <p className="mt-1 text-[11.5px] text-[var(--color-danger)]">{anexErro}</p>
-              )}
+                      : "Anexar ao lançamento",
+                  labelOcupado: "Enviando…",
+                  ocupado: anexBusy,
+                  desabilitada: novosAnexos.length === 0,
+                  motivo:
+                    novosAnexos.length === 0
+                      ? "Suba ao menos um arquivo para anexar."
+                      : undefined,
+                  onClick: enviarAnexos,
+                }}
+                avisos={[
+                  ...(anexMsg ? ([{ tom: "ok" as const, texto: anexMsg }] as const) : []),
+                  ...(anexErro ? ([{ tom: "erro" as const, texto: anexErro }] as const) : []),
+                ]}
+              />
             </div>
           </div>
         )}
         {/* Documento + leitura por IA — só no cadastro de uma nova despesa. */}
         {!isEdit && (
-        <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1">
-              <Label>
-                Documentos (PDF ou imagem — NF, boleto, comprovante, foto) — vários
-              </Label>
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                className="text-xs"
-                onChange={(e) => {
-                  const escolhidos = Array.from(e.target.files ?? []);
-                  setFiles(escolhidos);
-                  setNotice(null);
-                  setError(null);
-                  limparLeitura();
-                  // Subiu → já lê. Esperar um segundo clique em "Ler com IA"
-                  // era um passo sem propósito: quem anexa a nota quer os
-                  // campos preenchidos.
-                  const paraLer = escolhidos.filter((f) => legivelPelaIa(f.type));
-                  if (aiConfigured && paraLer.length > 0) ler(paraLer);
-                }}
-              />
-              {files.length > 0 && (
-                <p className="mt-1 text-[11px] text-[var(--color-ink3)]">
-                  {files.length} arquivo(s): {files.map((f) => f.name).join(", ")}
-                  {aiConfigured && legiveis.length > AI_MAX_DOCS
-                    ? ` — a leitura usa os ${AI_MAX_DOCS} primeiros legíveis.`
-                    : ""}
-                  {aiConfigured && legiveis.length === 0
-                    ? " — nenhum é PDF/imagem, então não há o que ler; serão apenas anexados."
-                    : ""}
-                </p>
-              )}
-            </div>
-            {aiConfigured && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || legiveis.length === 0}
-                onClick={() => ler()}
-                title="Refazer a leitura dos arquivos selecionados"
-              >
-                {reading
-                  ? "Lendo documento…"
-                  : leitura
-                    ? "Ler novamente"
-                    : "Ler com IA"}
-              </Button>
-            )}
-          </div>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-            {aiConfigured
-              ? "Ao subir, a IA lê os documentos e preenche os campos abaixo. O que ela não achar — ou achar com dúvida — fica marcado com alerta para você conferir. Nada é gravado antes de você lançar."
-              : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
-            {r2Configured
-              ? " Os arquivos são anexados e vinculados à despesa ao lançar."
-              : " Configure as variáveis R2_* para armazenar o arquivo."}
-          </p>
-        </div>
+          <UploadDocumentos
+            titulo="Documentos da despesa"
+            descricao={
+              aiConfigured
+                ? "Suba a nota, o cupom, o boleto ou o comprovante — PDF ou imagem. Pode subir mais de um arquivo da mesma compra (a nota e o comprovante, por exemplo) que a IA lê tudo junto e preenche o formulário abaixo."
+                : "Suba a nota, o cupom, o boleto ou o comprovante — em qualquer formato. Os arquivos ficam anexados à despesa quando você lançar."
+            }
+            arquivos={files}
+            onArquivos={(lista, adicionados) => {
+              setFiles(lista);
+              setNotice(null);
+              setError(null);
+              limparLeitura();
+              // Subiu → já preenche. O botão "Preencher formulário" continua
+              // ali para refazer a leitura (trocou o arquivo, corrigiu a foto)
+              // e para quando a pessoa preferir disparar na mão.
+              const paraLer = adicionados.filter((f) => legivelPelaIa(f.type));
+              if (aiConfigured && paraLer.length > 0) {
+                ler(lista.filter((f) => legivelPelaIa(f.type)));
+              }
+            }}
+            desabilitado={busy}
+            marcarLegibilidade={aiConfigured}
+            limiteTotalBytes={LIMITE_ENVIO}
+            acao={{
+              label: "Preencher formulário",
+              labelOcupado: "Lendo documentos…",
+              labelRepetir: "Preencher novamente",
+              repetiu: !!leitura,
+              ocupado: reading,
+              desabilitada: !aiConfigured || legiveis.length === 0,
+              // O motivo só se repete ao lado do botão quando é algo que a
+              // pessoa resolve ali (subir um arquivo). Falta de chave já está
+              // explicada no aviso abaixo — repetir só polui.
+              motivoVisivel: aiConfigured,
+              motivo: !aiConfigured
+                ? "Preenchimento automático indisponível neste servidor."
+                : legiveis.length === 0
+                  ? "Suba um PDF ou uma imagem para preencher o formulário."
+                  : "Ler os documentos e preencher os campos abaixo",
+              onClick: () => ler(),
+            }}
+            avisos={[
+              ...(erroLeitura
+                ? ([{ tom: "erro" as const, texto: erroLeitura }] as const)
+                : []),
+              ...(aiConfigured
+                ? ([
+                    {
+                      tom: "info" as const,
+                      texto:
+                        "O que a IA não achar — ou achar com dúvida — fica marcado com alerta no campo. Nada é gravado antes de você conferir e lançar.",
+                    },
+                  ] as const)
+                : ([
+                    {
+                      tom: "atencao" as const,
+                      texto: (
+                        <>
+                          <strong>Preenchimento automático indisponível.</strong> A
+                          chave de IA não está configurada neste servidor
+                          (ANTHROPIC_API_KEY), então os campos precisam ser
+                          preenchidos à mão. O upload e o vínculo dos arquivos com a
+                          despesa continuam funcionando normalmente.{" "}
+                          <a
+                            href="/diagnosticoia"
+                            className="font-medium text-[var(--color-accent2)] underline"
+                          >
+                            Abrir Diagnóstico de IA
+                          </a>
+                        </>
+                      ),
+                    },
+                  ] as const)),
+              ...(aiConfigured && legiveis.length > AI_MAX_DOCS
+                ? ([
+                    {
+                      tom: "info" as const,
+                      texto: `A leitura usa os ${AI_MAX_DOCS} primeiros PDFs/imagens da lista; o restante é apenas anexado.`,
+                    },
+                  ] as const)
+                : []),
+              ...(r2Configured
+                ? []
+                : ([
+                    {
+                      tom: "atencao" as const,
+                      texto:
+                        "Armazenamento de arquivos não configurado (variáveis R2_*) — os documentos não ficarão guardados no lançamento.",
+                    },
+                  ] as const)),
+            ]}
+          />
         )}
 
         {/* Placar da leitura: o que foi preenchido e o que ficou pendente. */}
