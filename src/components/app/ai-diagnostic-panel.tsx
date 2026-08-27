@@ -5,6 +5,7 @@ import { testAiConnection, type AiDiagnosticResult } from "@/lib/actions/ai";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { MODELO_PADRAO, rotuloModelo } from "@/lib/ai/modelos";
 
 function Item({ label, ok, hint }: { label: string; ok: boolean; hint?: string }) {
   return (
@@ -79,28 +80,53 @@ export function AiDiagnosticPanel() {
                   : "Opcional para a leitura; necessário para anexar/baixar documentos"
               }
             />
-            <div className="mt-3 space-y-1 text-[11.5px] text-[var(--color-ink3)]">
+            <div className="mt-3 space-y-1.5 text-[11.5px] text-[var(--color-ink3)]">
               <div>
                 Modelo configurado:{" "}
                 <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
                   {res.configuredModel}
                 </span>{" "}
-                (defina <code>ANTHROPIC_MODEL</code> para trocar sem alterar código)
+                ({res.configuredModelLabel}) — defina <code>ANTHROPIC_MODEL</code> para
+                trocar sem alterar código
               </div>
+              {/* A variável tem que levar o IDENTIFICADOR do modelo, não o nome
+                  comercial. Sem este aviso, um valor errado some no fallback e a
+                  configuração parece valer quando não vale. */}
+              {res.modelWarning && (
+                <div className="rounded-[8px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-2.5 py-2 leading-relaxed text-[#92400e]">
+                  {res.modelWarning}
+                </div>
+              )}
               {res.error && (
-                <div className="text-[var(--color-danger)]">Detalhe: {res.error}</div>
+                <div className="rounded-[8px] border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/8 px-2.5 py-2 leading-relaxed text-[var(--color-danger)]">
+                  {res.error}
+                </div>
               )}
             </div>
           </div>
         )}
 
-        <div className="text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-          <strong className="text-[var(--color-ink)]">Como habilitar:</strong> defina{" "}
-          <code>ANTHROPIC_API_KEY</code> no ambiente do servidor (ex.: variáveis do
-          Coolify) e reinicie/redeploy o app. Opcional: <code>ANTHROPIC_MODEL</code>{" "}
-          para escolher o modelo. Com a chave ativa, a leitura de NF/boleto,
-          cadastro de fornecedor por imagem/PDF e extratos (inclusive escaneados)
-          passa a funcionar.
+        <div className="space-y-1.5 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+          <p>
+            <strong className="text-[var(--color-ink)]">Como habilitar:</strong> defina{" "}
+            <code>ANTHROPIC_API_KEY</code> no ambiente do servidor (ex.: variáveis do
+            Coolify) e reinicie/redeploy o app. Com a chave ativa e créditos na conta,
+            a leitura de NF/boleto, cadastro de fornecedor por imagem/PDF e extratos
+            (inclusive escaneados) passa a funcionar.
+          </p>
+          <p>
+            <strong className="text-[var(--color-ink)]">Escolher o modelo:</strong>{" "}
+            <code>ANTHROPIC_MODEL</code> é opcional e aceita o{" "}
+            <em>identificador</em>, não o nome comercial — ex.:{" "}
+            <code>claude-sonnet-5</code>, e não &ldquo;Sonnet 5&rdquo;. Sem ela, o app
+            usa {rotuloModelo(MODELO_PADRAO)} (<code>{MODELO_PADRAO}</code>).
+          </p>
+          <p>
+            <strong className="text-[var(--color-ink)]">Créditos:</strong> chave e
+            modelo corretos, mas a chamada falha por saldo? O consumo é cobrado por
+            uso — adicione créditos em <code>console.anthropic.com</code> (Plans &amp;
+            Billing).
+          </p>
         </div>
       </CardContent>
     </Card>

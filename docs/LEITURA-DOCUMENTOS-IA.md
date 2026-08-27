@@ -129,8 +129,27 @@ Restituições, Contas a Receber e o Repositório de documentos.
 
 ## Configuração
 
-Depende de `ANTHROPIC_API_KEY` (e opcionalmente `ANTHROPIC_MODEL`). Sem a
-chave, a leitura é desativada e a tela avisa — o upload e o vínculo do arquivo
-continuam funcionando normalmente. Diagnóstico ao vivo em
-**Config → Diagnóstico de IA**. O armazenamento dos arquivos depende das
-variáveis `R2_*`.
+Três coisas independentes, e o **Diagnóstico de IA** (Config → Diagnóstico de
+IA) diz qual delas está faltando:
+
+| Variável | Papel | Sem ela |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | autentica o app na API | leitura desativada; upload e vínculo do arquivo seguem funcionando |
+| `ANTHROPIC_MODEL` | escolhe o modelo (opcional) | usa `claude-opus-5` |
+| `R2_*` | guarda os arquivos | nada é armazenado — só a leitura acontece |
+
+Além das variáveis, a conta da API precisa ter **créditos**: o uso é cobrado
+por token e, sem saldo, a API responde 400 com "credit balance is too low".
+Isso não é erro de chave nem de modelo, e o diagnóstico diz isso com todas as
+letras (`src/lib/ai/erros.ts`).
+
+### `ANTHROPIC_MODEL` aceita o identificador, não o nome comercial
+
+`claude-sonnet-5` funciona; "Sonnet 5" é o nome de marketing. Quem configura o
+servidor lê o nome comercial e é isso que digita — então `src/lib/ai/modelos.ts`
+traduz o que dá para traduzir, cai no padrão quando o valor não faz sentido, e
+**sempre avisa na tela** o que foi entendido. Sem esse aviso, um valor inválido
+sumia no fallback de modelo e a configuração parecia valer quando não valia.
+
+Catálogo, padrão e cadeia de fallback ficam nesse mesmo módulo (puro e
+testado): trocar o modelo padrão do app é editar uma constante.
