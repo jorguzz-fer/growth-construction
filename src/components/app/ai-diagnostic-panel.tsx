@@ -119,7 +119,10 @@ export function AiDiagnosticPanel() {
             <code>ANTHROPIC_MODEL</code> é opcional e aceita o{" "}
             <em>identificador</em>, não o nome comercial — ex.:{" "}
             <code>claude-sonnet-5</code>, e não &ldquo;Sonnet 5&rdquo;. Sem ela, o app
-            usa {rotuloModelo(MODELO_PADRAO)} (<code>{MODELO_PADRAO}</code>).
+            usa {rotuloModelo(MODELO_PADRAO)} (<code>{MODELO_PADRAO}</code>), que é o
+            mais econômico e dá conta de PDF nítido. Se a leitura de foto (cupom
+            amassado, papel desbotado) vier fraca, suba um degrau:{" "}
+            <code>claude-sonnet-5</code> ou <code>claude-opus-5</code>.
           </p>
           <p>
             <strong className="text-[var(--color-ink)]">Créditos:</strong> chave e
