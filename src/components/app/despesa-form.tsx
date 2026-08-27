@@ -15,6 +15,14 @@ import {
   categoriasDeDespesa,
   validarCategoriaDespesa,
 } from "@/lib/calc/natureza-dre";
+import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
+import { AI_MAX_DOCS, legivelPelaIa, type Alerta } from "@/lib/ai/campos";
+import {
+  ROTULO_CAMPO,
+  ROTULO_NATUREZA,
+  type CampoDespesa,
+  type PreenchimentoDespesa,
+} from "@/lib/ai/despesa-doc";
 import {
   TIPOS_DOCUMENTO,
   exigeNumero,
@@ -121,16 +129,6 @@ export interface PrefillDespesa {
   numDoc?: string | null;
 }
 
-const STRIP_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
-const norm = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(STRIP_MARKS, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-const digits = (s: string) => s.replace(/\D+/g, "");
-
 export function DespesaForm({
   projetos,
   projetoId,
@@ -196,10 +194,44 @@ export function DespesaForm({
   });
   const [dupAviso, setDupAviso] = useState<DuplicidadeDocumento | null>(null);
   const [dupConfirmada, setDupConfirmada] = useState(false);
-  // Vários anexos podem ser enviados no mesmo lançamento. O primeiro arquivo é
-  // o usado pela leitura por IA (que analisa um documento por vez).
+  // Vários anexos podem ser enviados no mesmo lançamento — e a leitura por IA
+  // usa TODOS os legíveis de uma vez: a mesma compra costuma chegar em partes
+  // (a nota E o comprovante do Pix), e é o cruzamento delas que diz "já paga,
+  // por PIX, em 20/07".
   const [files, setFiles] = useState<File[]>([]);
-  const file = files[0] ?? null;
+  const legiveis = useMemo(() => files.filter((f) => legivelPelaIa(f.type)), [files]);
+
+  // ── Alertas da leitura por IA ─────────────────────────────────────────
+  // Campo marcado = a IA não achou o dado, ou achou sem certeza. A marca some
+  // quando o usuário mexe no campo: quem editou já conferiu.
+  const [alertas, setAlertas] = useState<Partial<Record<CampoDespesa, Alerta>>>({});
+  const [leitura, setLeitura] = useState<{
+    titulo: string;
+    resumo: string;
+    preenchidos: string[];
+    observacoes: string[];
+  } | null>(null);
+
+  const limparAlerta = (campo: CampoDespesa) =>
+    setAlertas((prev) => {
+      if (!prev[campo]) return prev;
+      const next = { ...prev };
+      delete next[campo];
+      return next;
+    });
+
+  /** Envolve um setter para limpar o alerta do campo assim que ele é editado. */
+  function editando<T>(campo: CampoDespesa, setter: (v: T) => void) {
+    return (v: T) => {
+      setter(v);
+      limparAlerta(campo);
+    };
+  }
+
+  const limparLeitura = () => {
+    setAlertas({});
+    setLeitura(null);
+  };
 
   // Anexos na EDIÇÃO: enviar novos e remover individualmente, em qualquer
   // estágio (inclusive com a despesa já paga e/ou conciliada).
@@ -405,73 +437,65 @@ export function DespesaForm({
   const somaParcelas = parcelas.reduce((a, p) => a + (Number(p.valor) || 0), 0);
   const totalOk = Math.abs(somaParcelas - (Number(valor) || 0)) < 0.01;
 
-  const contaCodes = useMemo(() => new Set(contas.map((c) => c.code)), [contas]);
+  /** Aplica no formulário o que voltou da leitura, com os alertas por campo. */
+  function aplicarLeitura(res: PreenchimentoDespesa, qtdArquivos: number) {
+    const v = res.valores;
+    if (v.projetoId) setProjeto(v.projetoId);
+    if (v.fornecedorId) setFornecedorId(v.fornecedorId);
+    if (v.contaCef) setContaCef(v.contaCef);
+    if (v.categoriaDre) setCategoriaDre(v.categoriaDre);
+    if (v.competencia) setCompetencia(v.competencia);
+    if (v.vencimento) setVencimento(v.vencimento);
+    if (v.valor) setValor(v.valor);
+    if (v.status) setStatus(v.status);
+    if (v.obs) setObs(v.obs);
+    if (v.formaPagamento) setFormaPagamento(v.formaPagamento);
+    if (v.docFiscal) setDocFiscal(v.docFiscal);
+    // A data do comprovante serve de sugestão para "despesa paga por sócio" —
+    // o caso mais comum de comprovante avulso vindo da obra. Só é usada se a
+    // opção for marcada; ficar preenchida no estado não muda nada até lá.
+    if (v.dataPagamento) setSocioData(v.dataPagamento);
 
-  function matchFornecedor(nome: string, doc: string): string | null {
-    const d = digits(doc);
-    if (d) {
-      const byDoc = fornecedores.find((f) => f.doc && digits(f.doc) === d);
-      if (byDoc) return byDoc.id;
+    setAlertas(res.alertas);
+    setLeitura({
+      titulo:
+        ROTULO_NATUREZA[res.natureza] +
+        (qtdArquivos > 1 ? ` · ${qtdArquivos} arquivos` : ""),
+      resumo: res.resumo,
+      preenchidos: res.preenchidos,
+      observacoes: res.observacoes,
+    });
+    setNotice(null);
+    // Subir duas vezes o mesmo documento é o erro mais fácil de cometer neste
+    // fluxo (a nota chega por e-mail E por foto do WhatsApp). Como o número da
+    // nota acabou de ser lido, a conferência de duplicidade roda sozinha, com
+    // os valores recém-lidos — o estado ainda não foi atualizado neste tick.
+    setDupAviso(null);
+    setDupConfirmada(false);
+    if (v.docFiscal) {
+      void conferirDuplicidade(v.docFiscal, v.fornecedorId ?? fornecedorId);
     }
-    const n = norm(nome);
-    if (!n) return null;
-    const exact = fornecedores.find((f) => norm(f.nome) === n);
-    if (exact) return exact.id;
-    const partial = fornecedores.find(
-      (f) => norm(f.nome).includes(n) || n.includes(norm(f.nome)),
-    );
-    return partial?.id ?? null;
   }
 
-  function ler() {
-    const f = file;
-    if (!f) {
-      setError("Selecione um documento (PDF ou imagem) primeiro.");
+  /**
+   * Lê os documentos escolhidos. Roda sozinha logo após o upload (é o que o
+   * usuário espera: subiu, preencheu) e pode ser repetida pelo botão quando a
+   * pessoa troca ou acrescenta um arquivo.
+   */
+  function ler(lista: File[] = legiveis) {
+    if (lista.length === 0) {
+      setError("Selecione um documento legível (PDF ou imagem) primeiro.");
       return;
     }
     setError(null);
     setNotice(null);
+    const enviados = lista.slice(0, AI_MAX_DOCS);
     const fd = new FormData();
-    fd.set("file", f);
+    for (const f of enviados) fd.append("file", f);
     startReading(async () => {
       try {
-        const x = await extractDespesaFromDoc(fd);
-        const filled: string[] = [];
-        const fid = matchFornecedor(x.fornecedorNome, x.fornecedorDoc);
-        if (fid) {
-          setFornecedorId(fid);
-          filled.push("fornecedor");
-        }
-        if (x.contaCef && contaCodes.has(x.contaCef)) {
-          setContaCef(x.contaCef);
-          filled.push("conta");
-        }
-        // A IA nunca pode sugerir categoria de receita para uma despesa.
-        if (x.categoriaDre && categoriasDespesa.includes(x.categoriaDre)) {
-          setCategoriaDre(x.categoriaDre);
-          filled.push("categoria DRE");
-        }
-        if (x.valor > 0) {
-          setValor(String(x.valor));
-          filled.push("valor");
-        }
-        if (x.competencia) {
-          setCompetencia(x.competencia);
-          filled.push("competência");
-        }
-        if (x.vencimento) {
-          setVencimento(x.vencimento);
-          filled.push("vencimento");
-        }
-        if (x.numDoc) {
-          setNumDoc(x.numDoc);
-          filled.push("nº doc");
-        }
-        setNotice(
-          filled.length
-            ? `Campos preenchidos pela IA: ${filled.join(", ")}. Revise e ajuste antes de lançar.`
-            : "A IA não conseguiu identificar campos com confiança — preencha manualmente.",
-        );
+        const res = await extractDespesaFromDoc(fd);
+        aplicarLeitura(res, enviados.length);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao ler o documento.");
       }
@@ -482,15 +506,18 @@ export function DespesaForm({
    * Procura um lançamento anterior com o mesmo documento fiscal do mesmo
    * fornecedor (CA-04). Só AVISA — quem decide prosseguir é o usuário.
    */
-  async function conferirDuplicidade() {
-    if (!exigeNumero(docFiscal.tipo) || !docFiscal.numero.trim()) {
+  async function conferirDuplicidade(
+    doc: { tipo: string; numero: string; serie: string } = docFiscal,
+    fornId: string = fornecedorId,
+  ) {
+    if (!exigeNumero(doc.tipo) || !doc.numero.trim()) {
       setDupAviso(null);
       return;
     }
     try {
       const dup = await buscarDocumentoDuplicado(
-        fornecedorId || null,
-        { tipo: docFiscal.tipo, numero: docFiscal.numero, serie: docFiscal.serie },
+        fornId || null,
+        { tipo: doc.tipo, numero: doc.numero, serie: doc.serie },
         edit?.id,
       );
       setDupAviso(dup);
@@ -664,6 +691,7 @@ export function DespesaForm({
         setCh({ numero: "", banco: "", ag: "", conta: "", emitente: "", emissao: "", compensacao: "", status: "" });
         setFiles([]);
         if (fileRef.current) fileRef.current.value = "";
+        limparLeitura();
         setNotice(null);
         router.refresh();
       } catch (e) {
@@ -814,15 +842,26 @@ export function DespesaForm({
                 multiple
                 className="text-xs"
                 onChange={(e) => {
-                  setFiles(Array.from(e.target.files ?? []));
+                  const escolhidos = Array.from(e.target.files ?? []);
+                  setFiles(escolhidos);
                   setNotice(null);
+                  setError(null);
+                  limparLeitura();
+                  // Subiu → já lê. Esperar um segundo clique em "Ler com IA"
+                  // era um passo sem propósito: quem anexa a nota quer os
+                  // campos preenchidos.
+                  const paraLer = escolhidos.filter((f) => legivelPelaIa(f.type));
+                  if (aiConfigured && paraLer.length > 0) ler(paraLer);
                 }}
               />
               {files.length > 0 && (
                 <p className="mt-1 text-[11px] text-[var(--color-ink3)]">
                   {files.length} arquivo(s): {files.map((f) => f.name).join(", ")}
-                  {files.length > 1 && aiConfigured
-                    ? " — a leitura por IA usa o primeiro."
+                  {aiConfigured && legiveis.length > AI_MAX_DOCS
+                    ? ` — a leitura usa os ${AI_MAX_DOCS} primeiros legíveis.`
+                    : ""}
+                  {aiConfigured && legiveis.length === 0
+                    ? " — nenhum é PDF/imagem, então não há o que ler; serão apenas anexados."
                     : ""}
                 </p>
               )}
@@ -831,31 +870,51 @@ export function DespesaForm({
               <Button
                 type="button"
                 variant="outline"
-                disabled={busy || !file}
-                onClick={ler}
+                disabled={busy || legiveis.length === 0}
+                onClick={() => ler()}
+                title="Refazer a leitura dos arquivos selecionados"
               >
-                {reading ? "Lendo documento…" : "Ler com IA"}
+                {reading
+                  ? "Lendo documento…"
+                  : leitura
+                    ? "Ler novamente"
+                    : "Ler com IA"}
               </Button>
             )}
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
             {aiConfigured
-              ? "A IA lê o documento e preenche os campos abaixo — revise antes de lançar."
+              ? "Ao subir, a IA lê os documentos e preenche os campos abaixo. O que ela não achar — ou achar com dúvida — fica marcado com alerta para você conferir. Nada é gravado antes de você lançar."
               : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
             {r2Configured
-              ? " O arquivo é anexado e vinculado à despesa ao lançar."
+              ? " Os arquivos são anexados e vinculados à despesa ao lançar."
               : " Configure as variáveis R2_* para armazenar o arquivo."}
           </p>
         </div>
         )}
 
+        {/* Placar da leitura: o que foi preenchido e o que ficou pendente. */}
+        {leitura && (
+          <ResumoLeituraIA
+            titulo={leitura.titulo}
+            resumo={leitura.resumo}
+            preenchidos={leitura.preenchidos}
+            alertas={alertas as Record<string, Alerta>}
+            rotulos={ROTULO_CAMPO}
+            observacoes={leitura.observacoes}
+            onFechar={limparLeitura}
+          />
+        )}
+
         {/* Campos da despesa */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="sm:col-span-2">
-            <Label>Projeto</Label>
+          <CampoIA label="Projeto" alerta={alertas.projeto} className="sm:col-span-2">
             <Select
               value={projeto}
-              onChange={(e) => setProjeto(e.target.value)}
+              onChange={(e) => {
+                setProjeto(e.target.value);
+                limparAlerta("projeto");
+              }}
               disabled={isEdit}
             >
               {projetos.map((p) => (
@@ -864,10 +923,15 @@ export function DespesaForm({
                 </option>
               ))}
             </Select>
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Fornecedor</Label>
-            <Select value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+          </CampoIA>
+          <CampoIA label="Fornecedor" alerta={alertas.fornecedor} className="sm:col-span-2">
+            <Select
+              value={fornecedorId}
+              onChange={(e) => {
+                setFornecedorId(e.target.value);
+                limparAlerta("fornecedor");
+              }}
+            >
               <option value="">Selecione...</option>
               {fornecedores.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -875,7 +939,7 @@ export function DespesaForm({
                 </option>
               ))}
             </Select>
-          </div>
+          </CampoIA>
           {/* ── Documento Fiscal (item 1.2 / RG-06) ─────────────────────────
               O PED acima é numeração INTERNA da empresa; aqui entra o número da
               nota, que é do emitente. Tudo é opcional: a nota costuma chegar
@@ -885,12 +949,12 @@ export function DespesaForm({
               Documento fiscal · opcional — a nota pode ser lançada depois
             </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div>
-                <Label>Tipo</Label>
+              <CampoIA label="Tipo" alerta={alertas.docFiscalTipo}>
                 <Select
                   value={docFiscal.tipo}
                   onChange={(e) => {
                     setDocFiscal((d) => ({ ...d, tipo: e.target.value }));
+                    limparAlerta("docFiscalTipo");
                     setDupAviso(null);
                     setDupConfirmada(false);
                   }}
@@ -901,48 +965,53 @@ export function DespesaForm({
                     </option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label>Nº do documento</Label>
+              </CampoIA>
+              <CampoIA label="Nº do documento" alerta={alertas.docFiscalNumero}>
                 <Input
                   value={docFiscal.numero}
                   disabled={!exigeNumero(docFiscal.tipo)}
                   onChange={(e) => {
                     setDocFiscal((d) => ({ ...d, numero: e.target.value }));
+                    limparAlerta("docFiscalNumero");
                     setDupAviso(null);
                     setDupConfirmada(false);
                   }}
-                  onBlur={conferirDuplicidade}
+                  onBlur={() => conferirDuplicidade()}
                   placeholder={exigeNumero(docFiscal.tipo) ? "ex.: 12345" : "—"}
                 />
-              </div>
-              <div>
-                <Label>Série</Label>
+              </CampoIA>
+              <CampoIA label="Série" alerta={alertas.docFiscalSerie}>
                 <Input
                   value={docFiscal.serie}
                   disabled={!exigeNumero(docFiscal.tipo)}
-                  onChange={(e) => setDocFiscal((d) => ({ ...d, serie: e.target.value }))}
-                  onBlur={conferirDuplicidade}
+                  onChange={(e) => {
+                    setDocFiscal((d) => ({ ...d, serie: e.target.value }));
+                    limparAlerta("docFiscalSerie");
+                  }}
+                  onBlur={() => conferirDuplicidade()}
                   placeholder="1"
                 />
-              </div>
-              <div>
-                <Label>Emissão</Label>
+              </CampoIA>
+              <CampoIA label="Emissão" alerta={alertas.docFiscalEmissao}>
                 <DateField
                   value={docFiscal.dataEmissao}
-                  onChange={(v) => setDocFiscal((d) => ({ ...d, dataEmissao: v }))}
+                  onChange={editando("docFiscalEmissao", (v: string) =>
+                    setDocFiscal((d) => ({ ...d, dataEmissao: v })),
+                  )}
                   disabled={!exigeNumero(docFiscal.tipo)}
                 />
-              </div>
-              <div>
-                <Label>Chave de acesso (44 dígitos)</Label>
+              </CampoIA>
+              <CampoIA label="Chave de acesso (44 dígitos)" alerta={alertas.docFiscalChave}>
                 <Input
                   value={docFiscal.chaveAcesso}
                   disabled={!exigeNumero(docFiscal.tipo)}
-                  onChange={(e) => setDocFiscal((d) => ({ ...d, chaveAcesso: e.target.value }))}
+                  onChange={(e) => {
+                    setDocFiscal((d) => ({ ...d, chaveAcesso: e.target.value }));
+                    limparAlerta("docFiscalChave");
+                  }}
                   placeholder="opcional"
                 />
-              </div>
+              </CampoIA>
             </div>
             {/* Duplicidade é AVISO, nunca bloqueio: numeração de NF é sequencial
                 por emitente e série, então repetição pode ser legítima (D2). */}
@@ -974,9 +1043,14 @@ export function DespesaForm({
             )}
           </div>
 
-          <div>
-            <Label>Conta CEF / Plano de Contas</Label>
-            <Select value={contaCef} onChange={(e) => setContaCef(e.target.value)}>
+          <CampoIA label="Conta CEF / Plano de Contas" alerta={alertas.contaCef}>
+            <Select
+              value={contaCef}
+              onChange={(e) => {
+                setContaCef(e.target.value);
+                limparAlerta("contaCef");
+              }}
+            >
               <option value="">Selecione...</option>
               {contas.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -984,12 +1058,17 @@ export function DespesaForm({
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>Categoria DRE</Label>
-            {/* Só categorias de natureza devedora: uma despesa não pode ser
-                classificada em conta de receita (item 1.3 / RG-01). */}
-            <Select value={categoriaDre} onChange={(e) => setCategoriaDre(e.target.value)}>
+          </CampoIA>
+          {/* Só categorias de natureza devedora: uma despesa não pode ser
+              classificada em conta de receita (item 1.3 / RG-01). */}
+          <CampoIA label="Categoria DRE" alerta={alertas.categoriaDre}>
+            <Select
+              value={categoriaDre}
+              onChange={(e) => {
+                setCategoriaDre(e.target.value);
+                limparAlerta("categoriaDre");
+              }}
+            >
               <option value="">Selecione...</option>
               {categoriasDespesa.map((c) => (
                 <option key={c} value={c}>
@@ -997,7 +1076,7 @@ export function DespesaForm({
                 </option>
               ))}
             </Select>
-          </div>
+          </CampoIA>
           <div>
             <Label>Banco</Label>
             <Select value={bancoId} onChange={(e) => setBancoId(e.target.value)}>
@@ -1039,35 +1118,46 @@ export function DespesaForm({
               )}
             </div>
           </div>
-          <div>
-            <Label>Competência</Label>
-            <MonthField value={competencia} onChange={setCompetencia} />
-          </div>
-          <div>
-            <Label>Vencimento</Label>
-            <DateField value={vencimento} onChange={setVencimento} />
-          </div>
-          <div>
-            <Label>Valor</Label>
-            <MoneyInput value={valor} onChange={setValor} />
-          </div>
-          <div>
-            <Label>Status</Label>
-            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <CampoIA label="Competência" alerta={alertas.competencia}>
+            <MonthField
+              value={competencia}
+              onChange={editando("competencia", setCompetencia)}
+            />
+          </CampoIA>
+          <CampoIA label="Vencimento" alerta={alertas.vencimento}>
+            <DateField value={vencimento} onChange={editando("vencimento", setVencimento)} />
+          </CampoIA>
+          <CampoIA label="Valor" alerta={alertas.valor}>
+            <MoneyInput value={valor} onChange={editando("valor", setValor)} />
+          </CampoIA>
+          <CampoIA label="Status" alerta={alertas.status}>
+            <Select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                limparAlerta("status");
+              }}
+            >
               <option>A pagar</option>
               <option>Pago</option>
             </Select>
-          </div>
+          </CampoIA>
           {/* Descrição/observação da compra — campo PRÓPRIO, separado do nº do
               pedido. Serve para explicar o objeto da compra. */}
-          <div className="col-span-2 sm:col-span-4">
-            <Label>Descrição / observação da compra</Label>
+          <CampoIA
+            label="Descrição / observação da compra"
+            alerta={alertas.obs}
+            className="col-span-2 sm:col-span-4"
+          >
             <Input
               value={obs}
-              onChange={(e) => setObs(e.target.value)}
+              onChange={(e) => {
+                setObs(e.target.value);
+                limparAlerta("obs");
+              }}
               placeholder="Objeto da compra (ex.: 20 sacos de cimento CP-II para a laje do 2º pav.)"
             />
-          </div>
+          </CampoIA>
           {/* Recorrência, sócio pagador e parcelamento só valem no cadastro
               de uma nova despesa — a edição ajusta apenas os dados da despesa
               existente, sem recriar lançamentos, parcelas ou caixa. */}
@@ -1183,11 +1273,13 @@ export function DespesaForm({
               Pagamento & parcelamento
             </h3>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div>
-                <Label>Forma de pagamento</Label>
+              <CampoIA label="Forma de pagamento" alerta={alertas.formaPagamento}>
                 <Select
                   value={formaPagamento}
-                  onChange={(e) => setFormaPagamento(e.target.value)}
+                  onChange={(e) => {
+                    setFormaPagamento(e.target.value);
+                    limparAlerta("formaPagamento");
+                  }}
                 >
                   <option value="">—</option>
                   {FORMAS_PAGAMENTO.map((f) => (
@@ -1196,7 +1288,7 @@ export function DespesaForm({
                     </option>
                   ))}
                 </Select>
-              </div>
+              </CampoIA>
               {formaPagamento === "Outro" && (
                 <div>
                   <Label>Descrição da forma</Label>
