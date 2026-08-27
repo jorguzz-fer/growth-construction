@@ -10,6 +10,7 @@ de produção para deploy em **VPS + Coolify**.
 - Especificação funcional: [`docs/SPEC.md`](./docs/SPEC.md)
 - Stack e roadmap de produção: [`docs/STACK.md`](./docs/STACK.md)
 - Emissão de NFS-e (cadastro fiscal, cálculo e provedor): [`docs/EMISSAO-NF.md`](./docs/EMISSAO-NF.md)
+- Leitura de documentos por IA (subir NF/cupom/comprovante e preencher o formulário, com alerta nos campos duvidosos): [`docs/LEITURA-DOCUMENTOS-IA.md`](./docs/LEITURA-DOCUMENTOS-IA.md)
 
 ## Stack
 

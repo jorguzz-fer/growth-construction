@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { PAPEIS_STAKEHOLDER } from "@/lib/calc/constants";
 import { aiClient, createMessageWithFallback, isAiConfigured } from "@/lib/ai/client";
+import type { DadosFornecedorLidos } from "@/lib/ai/fornecedor-doc";
 
 /**
  * Leitura de documentos (cartão CNPJ, contrato social, cabeçalho de NF, cartão
@@ -10,27 +11,12 @@ import { aiClient, createMessageWithFallback, isAiConfigured } from "@/lib/ai/cl
  * (ANTHROPIC_API_KEY) da leitura de despesas.
  */
 
-export interface ExtractedFornecedor {
-  nome: string;
-  nomeFantasia: string;
-  tipo: "PJ" | "PF" | "";
-  doc: string;
-  contato: string;
-  email: string;
-  tel: string;
-  whatsapp: string;
-  site: string;
-  endereco: string;
-  numero: string;
-  complemento: string;
-  bairro: string;
-  cidade: string;
-  estado: string;
-  cep: string;
-  papeis: string[];
-  /** Nomes de campos que a IA identificou com BAIXA confiança (para sinalizar). */
-  baixaConfianca: string[];
-}
+/**
+ * O contrato (campos lidos) mora em `fornecedor-doc.ts`, módulo puro, junto da
+ * regra que decide o que preencher e o que marcar com alerta — este arquivo
+ * cuida só da conversa com a IA.
+ */
+export type ExtractedFornecedor = DadosFornecedorLidos;
 
 type ImageMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 

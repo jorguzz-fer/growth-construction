@@ -9,6 +9,13 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
+import { legivelPelaIa, type Alerta } from "@/lib/ai/campos";
+import {
+  ROTULO_CAMPO_FORNECEDOR,
+  montarPreenchimentoFornecedor,
+  type CampoFornecedor,
+} from "@/lib/ai/fornecedor-doc";
 
 export function FornecedorForm({
   papeis,
@@ -42,85 +49,102 @@ export function FornecedorForm({
   const [cep, setCep] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [file, setFile] = useState<File | null>(null);
-  /** Campos que a IA sinalizou como baixa confiança (para o usuário conferir). */
-  const [lowConf, setLowConf] = useState<Set<string>>(new Set());
+  /**
+   * Alertas por campo (mesma regra da tela de despesas): o que a IA não achou
+   * fica "faltando", o que ela leu sem certeza fica "conferir". A marca some
+   * quando o usuário edita o campo.
+   */
+  const [alertas, setAlertas] = useState<Partial<Record<CampoFornecedor, Alerta>>>({});
+  const [leitura, setLeitura] = useState<{ preenchidos: string[] } | null>(null);
 
-  const toggle = (p: string) =>
+  const limparAlerta = (campo: CampoFornecedor) =>
+    setAlertas((prev) => {
+      if (!prev[campo]) return prev;
+      const next = { ...prev };
+      delete next[campo];
+      return next;
+    });
+
+  const limparLeitura = () => {
+    setAlertas({});
+    setLeitura(null);
+  };
+
+  const toggle = (p: string) => {
+    limparAlerta("papeis");
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(p)) next.delete(p);
       else next.add(p);
       return next;
     });
+  };
 
-  /** Marca de "baixa confiança" ao lado do rótulo de um campo lido pela IA. */
-  const lc = (field: string) =>
-    lowConf.has(field) ? (
-      <span
-        className="ml-1 text-[10px] font-normal text-[var(--color-warning)]"
-        title="Preenchido com baixa confiança pela IA — confira"
-      >
-        ⚠ conferir
-      </span>
-    ) : null;
+  /** Setter que limpa o alerta do campo assim que ele é editado. */
+  const editando =
+    (campo: CampoFornecedor, setter: (v: string) => void) =>
+    (e: { target: { value: string } }) => {
+      setter(e.target.value);
+      limparAlerta(campo);
+    };
 
-  function ler() {
-    if (!file) {
+  function ler(arquivo: File | null = file) {
+    if (!arquivo) {
       setError("Selecione um documento (PDF ou imagem) primeiro.");
       return;
     }
     setError(null);
     setNotice(null);
     const fd = new FormData();
-    fd.set("file", file);
+    fd.set("file", arquivo);
     startReading(async () => {
       try {
         const x = await extractFornecedorFromDoc(fd);
-        const filled: string[] = [];
-        // Não sobrescreve campos já preenchidos manualmente sem necessidade:
-        // só preenche o que a IA trouxe E o campo está vazio.
-        const set = (
-          val: string,
-          cur: string,
-          setter: (v: string) => void,
-          label: string,
-        ) => {
-          if (val && !cur.trim()) {
-            setter(val);
-            filled.push(label);
-          }
-        };
-        set(x.nome, nome, setNome, "nome");
-        set(x.nomeFantasia, nomeFantasia, setNomeFantasia, "nome fantasia");
-        if (x.tipo && tipo === "PJ") {
-          setTipo(x.tipo);
-        }
-        set(x.doc, doc, setDoc, "documento");
-        set(x.contato, contato, setContato, "contato");
-        set(x.email, email, setEmail, "e-mail");
-        set(x.tel, tel, setTel, "telefone");
-        set(x.whatsapp, whatsapp, setWhatsapp, "whatsapp");
-        set(x.site, site, setSite, "site");
-        set(x.endereco, endereco, setEndereco, "endereço");
-        set(x.numero, numero, setNumero, "número");
-        set(x.complemento, complemento, setComplemento, "complemento");
-        set(x.bairro, bairro, setBairro, "bairro");
-        set(x.cidade, cidade, setCidade, "cidade");
-        set(x.estado, estado, setEstado, "estado");
-        set(x.cep, cep, setCep, "CEP");
-        if (x.papeis.length && selected.size === 0) {
-          setSelected(new Set(x.papeis));
-          filled.push("papéis");
-        }
-        setLowConf(new Set(x.baixaConfianca ?? []));
-        setNotice(
-          filled.length
-            ? `Campos preenchidos pela IA: ${filled.join(", ")}. Revise e ajuste antes de cadastrar.` +
-                (x.baixaConfianca?.length
-                  ? ` Confira os campos com baixa confiança: ${x.baixaConfianca.join(", ")}.`
-                  : "")
-            : "A IA não conseguiu identificar campos com confiança — preencha manualmente.",
+        // A regra de "não sobrescrever o que o usuário digitou" e a decisão do
+        // que vira alerta moram em `fornecedor-doc.ts` (puro e testado).
+        const res = montarPreenchimentoFornecedor(
+          x,
+          {
+            nome,
+            nomeFantasia,
+            tipo: tipo === "PJ" ? "" : tipo,
+            doc,
+            contato,
+            email,
+            tel,
+            whatsapp,
+            site,
+            endereco,
+            numero,
+            complemento,
+            bairro,
+            cidade,
+            estado,
+            cep,
+          },
+          [...selected],
         );
+        const v = res.valores;
+        if (v.nome) setNome(v.nome);
+        if (v.nomeFantasia) setNomeFantasia(v.nomeFantasia);
+        if (v.tipo) setTipo(v.tipo);
+        if (v.doc) setDoc(v.doc);
+        if (v.contato) setContato(v.contato);
+        if (v.email) setEmail(v.email);
+        if (v.tel) setTel(v.tel);
+        if (v.whatsapp) setWhatsapp(v.whatsapp);
+        if (v.site) setSite(v.site);
+        if (v.endereco) setEndereco(v.endereco);
+        if (v.numero) setNumero(v.numero);
+        if (v.complemento) setComplemento(v.complemento);
+        if (v.bairro) setBairro(v.bairro);
+        if (v.cidade) setCidade(v.cidade);
+        if (v.estado) setEstado(v.estado);
+        if (v.cep) setCep(v.cep);
+        if (res.papeis) setSelected(new Set(res.papeis));
+        setAlertas(res.alertas);
+        setLeitura({ preenchidos: res.preenchidos });
+        setNotice(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao ler o documento.");
       }
@@ -172,7 +196,7 @@ export function FornecedorForm({
         setEstado("");
         setCep("");
         setSelected(new Set());
-        setLowConf(new Set());
+        limparLeitura();
         setFile(null);
         if (fileRef.current) fileRef.current.value = "";
         setNotice(null);
@@ -201,8 +225,15 @@ export function FornecedorForm({
                 accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
                 className="text-xs"
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null);
+                  const escolhido = e.target.files?.[0] ?? null;
+                  setFile(escolhido);
                   setNotice(null);
+                  setError(null);
+                  limparLeitura();
+                  // Subiu → já lê (mesmo comportamento da tela de despesas).
+                  if (aiConfigured && escolhido && legivelPelaIa(escolhido.type)) {
+                    ler(escolhido);
+                  }
                 }}
               />
             </div>
@@ -211,96 +242,90 @@ export function FornecedorForm({
                 type="button"
                 variant="outline"
                 disabled={busy || !file}
-                onClick={ler}
+                onClick={() => ler()}
+                title="Refazer a leitura do arquivo selecionado"
               >
-                {reading ? "Lendo documento…" : "Ler com IA"}
+                {reading ? "Lendo documento…" : leitura ? "Ler novamente" : "Ler com IA"}
               </Button>
             )}
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
             {aiConfigured
-              ? "A IA lê o documento e preenche os campos abaixo — revise antes de cadastrar."
+              ? "Ao subir, a IA lê o documento e preenche os campos abaixo. O que ela não achar — ou achar com dúvida — fica marcado com alerta para você conferir."
               : "Leitura automática por IA desativada — verifique em Config → Diagnóstico de IA (defina ANTHROPIC_API_KEY)."}
           </p>
         </div>
 
+        {leitura && (
+          <ResumoLeituraIA
+            titulo="Cadastro de fornecedor"
+            preenchidos={leitura.preenchidos}
+            alertas={alertas as Record<string, Alerta>}
+            rotulos={ROTULO_CAMPO_FORNECEDOR}
+            onFechar={limparLeitura}
+          />
+        )}
+
         {/* Campos do fornecedor */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="sm:col-span-2">
-            <Label>Nome</Label>
+          <CampoIA label="Nome" alerta={alertas.nome} className="sm:col-span-2">
             <Input
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={editando("nome", setNome)}
               placeholder="Razão social / nome"
             />
-          </div>
-          <div>
-            <Label>Tipo</Label>
-            <Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+          </CampoIA>
+          <CampoIA label="Tipo" alerta={alertas.tipo}>
+            <Select value={tipo} onChange={editando("tipo", setTipo)}>
               <option>PJ</option>
               <option>PF</option>
             </Select>
-          </div>
-          <div>
-            <Label>CNPJ / CPF</Label>
-            <Input value={doc} onChange={(e) => setDoc(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Nome fantasia{lc("nomeFantasia")}</Label>
-            <Input value={nomeFantasia} onChange={(e) => setNomeFantasia(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Pessoa de contato{lc("contato")}</Label>
-            <Input value={contato} onChange={(e) => setContato(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>E-mail{lc("email")}</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div>
-            <Label>Telefone{lc("tel")}</Label>
-            <Input value={tel} onChange={(e) => setTel(e.target.value)} />
-          </div>
-          <div>
-            <Label>WhatsApp{lc("whatsapp")}</Label>
-            <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Site{lc("site")}</Label>
-            <Input value={site} onChange={(e) => setSite(e.target.value)} />
-          </div>
-          <div className="sm:col-span-3">
-            <Label>Endereço{lc("endereco")}</Label>
-            <Input value={endereco} onChange={(e) => setEndereco(e.target.value)} />
-          </div>
-          <div>
-            <Label>Número{lc("numero")}</Label>
-            <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Complemento{lc("complemento")}</Label>
-            <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Bairro{lc("bairro")}</Label>
-            <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Cidade{lc("cidade")}</Label>
-            <Input value={cidade} onChange={(e) => setCidade(e.target.value)} />
-          </div>
-          <div>
-            <Label>Estado{lc("estado")}</Label>
-            <Input value={estado} onChange={(e) => setEstado(e.target.value)} maxLength={2} />
-          </div>
-          <div>
-            <Label>CEP{lc("cep")}</Label>
-            <Input value={cep} onChange={(e) => setCep(e.target.value)} />
-          </div>
+          </CampoIA>
+          <CampoIA label="CNPJ / CPF" alerta={alertas.doc}>
+            <Input value={doc} onChange={editando("doc", setDoc)} />
+          </CampoIA>
+          <CampoIA label="Nome fantasia" alerta={alertas.nomeFantasia} className="sm:col-span-2">
+            <Input value={nomeFantasia} onChange={editando("nomeFantasia", setNomeFantasia)} />
+          </CampoIA>
+          <CampoIA label="Pessoa de contato" alerta={alertas.contato} className="sm:col-span-2">
+            <Input value={contato} onChange={editando("contato", setContato)} />
+          </CampoIA>
+          <CampoIA label="E-mail" alerta={alertas.email} className="sm:col-span-2">
+            <Input type="email" value={email} onChange={editando("email", setEmail)} />
+          </CampoIA>
+          <CampoIA label="Telefone" alerta={alertas.tel}>
+            <Input value={tel} onChange={editando("tel", setTel)} />
+          </CampoIA>
+          <CampoIA label="WhatsApp" alerta={alertas.whatsapp}>
+            <Input value={whatsapp} onChange={editando("whatsapp", setWhatsapp)} />
+          </CampoIA>
+          <CampoIA label="Site" alerta={alertas.site} className="sm:col-span-2">
+            <Input value={site} onChange={editando("site", setSite)} />
+          </CampoIA>
+          <CampoIA label="Endereço" alerta={alertas.endereco} className="sm:col-span-3">
+            <Input value={endereco} onChange={editando("endereco", setEndereco)} />
+          </CampoIA>
+          <CampoIA label="Número" alerta={alertas.numero}>
+            <Input value={numero} onChange={editando("numero", setNumero)} />
+          </CampoIA>
+          <CampoIA label="Complemento" alerta={alertas.complemento} className="sm:col-span-2">
+            <Input value={complemento} onChange={editando("complemento", setComplemento)} />
+          </CampoIA>
+          <CampoIA label="Bairro" alerta={alertas.bairro} className="sm:col-span-2">
+            <Input value={bairro} onChange={editando("bairro", setBairro)} />
+          </CampoIA>
+          <CampoIA label="Cidade" alerta={alertas.cidade} className="sm:col-span-2">
+            <Input value={cidade} onChange={editando("cidade", setCidade)} />
+          </CampoIA>
+          <CampoIA label="Estado" alerta={alertas.estado}>
+            <Input value={estado} onChange={editando("estado", setEstado)} maxLength={2} />
+          </CampoIA>
+          <CampoIA label="CEP" alerta={alertas.cep}>
+            <Input value={cep} onChange={editando("cep", setCep)} />
+          </CampoIA>
         </div>
 
-        <div>
-          <Label>Papéis</Label>
+        <CampoIA label="Papéis" alerta={alertas.papeis}>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">
             {papeis.map((p) => (
               <label
@@ -316,7 +341,7 @@ export function FornecedorForm({
               </label>
             ))}
           </div>
-        </div>
+        </CampoIA>
 
         <div className="flex items-center gap-3">
           <Button type="button" disabled={busy} onClick={salvar}>
