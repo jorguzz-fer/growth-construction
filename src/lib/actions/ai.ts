@@ -5,15 +5,24 @@ import {
   aiClient,
   createMessageWithFallback,
   isAiConfigured,
+  modelWarning,
   primaryModel,
 } from "@/lib/ai/client";
+import { rotuloModelo } from "@/lib/ai/modelos";
 import { isR2Configured } from "@/lib/storage/r2";
 
 export interface AiDiagnosticResult {
   /** ANTHROPIC_API_KEY presente no ambiente? */
   keyPresent: boolean;
-  /** Modelo primário configurado (env ANTHROPIC_MODEL ou padrão). */
+  /** Identificador do modelo que será usado (já resolvido a partir do env). */
   configuredModel: string;
+  /** Nome comercial do modelo, para exibir junto do identificador. */
+  configuredModelLabel: string;
+  /**
+   * O que há de errado na ANTHROPIC_MODEL do ambiente (nome comercial em vez
+   * do identificador, valor sem sentido...). Vazio = nada a corrigir.
+   */
+  modelWarning: string;
   /** O teste real de chamada funcionou? */
   ok: boolean;
   /** Modelo que efetivamente respondeu (pode ser um fallback). */
@@ -37,12 +46,16 @@ export async function testAiConnection(): Promise<AiDiagnosticResult> {
   }
   const keyPresent = isAiConfigured();
   const configuredModel = primaryModel();
+  const configuredModelLabel = rotuloModelo(configuredModel);
+  const avisoModelo = modelWarning();
   const r2Configured = isR2Configured();
 
   if (!keyPresent) {
     return {
       keyPresent: false,
       configuredModel,
+      configuredModelLabel,
+      modelWarning: avisoModelo,
       ok: false,
       modelUsed: null,
       error:
@@ -59,6 +72,8 @@ export async function testAiConnection(): Promise<AiDiagnosticResult> {
     return {
       keyPresent: true,
       configuredModel,
+      configuredModelLabel,
+      modelWarning: avisoModelo,
       ok: true,
       modelUsed: msg.model ?? null,
       error: null,
@@ -68,6 +83,8 @@ export async function testAiConnection(): Promise<AiDiagnosticResult> {
     return {
       keyPresent: true,
       configuredModel,
+      configuredModelLabel,
+      modelWarning: avisoModelo,
       ok: false,
       modelUsed: null,
       error: e instanceof Error ? e.message : String(e),

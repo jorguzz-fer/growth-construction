@@ -1,5 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import { cadeiaDeModelos, resolverModelo } from "@/lib/ai/modelos";
+import { mensagemDeErroIa } from "@/lib/ai/erros";
 
 /**
  * Camada compartilhada das leituras por IA (despesa, fornecedor, extrato).
@@ -17,19 +19,28 @@ export function isAiConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
-const DEFAULT_MODEL = "claude-opus-4-8";
-/** Alternativos, em ordem, caso o primário não esteja liberado na conta. */
-const FALLBACK_MODELS = ["claude-opus-4-5", "claude-sonnet-4-5"];
-
-/** Modelo primário: override por env (ANTHROPIC_MODEL) ou padrão. */
+/**
+ * Modelo primário: o que veio em `ANTHROPIC_MODEL`, já traduzido para o
+ * identificador que a API aceita (ver `modelos.ts` — quem configura costuma
+ * digitar o nome comercial, "Sonnet 5", e a API só entende `claude-sonnet-5`).
+ */
 export function primaryModel(): string {
-  return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
+  return resolverModelo(process.env.ANTHROPIC_MODEL).id;
+}
+
+/**
+ * O que há de errado (ou de digno de nota) na `ANTHROPIC_MODEL` do ambiente.
+ * Vazio quando está tudo certo. É o que a tela de Diagnóstico de IA mostra —
+ * sem isso, um valor inválido some no fallback e a configuração parece valer
+ * quando não vale.
+ */
+export function modelWarning(): string {
+  return resolverModelo(process.env.ANTHROPIC_MODEL).aviso;
 }
 
 /** Ordem de tentativa (primário + alternativos, sem repetir). */
 export function modelChain(): string[] {
-  const p = primaryModel();
-  return [p, ...FALLBACK_MODELS.filter((m) => m !== p)];
+  return cadeiaDeModelos(primaryModel());
 }
 
 export function aiClient(): Anthropic {
@@ -69,30 +80,17 @@ export async function createMessageWithFallback(
   throw enrichAiError(lastErr);
 }
 
-/** Traduz erros da API da IA em mensagens acionáveis (pt-BR). */
+/**
+ * Traduz erros da API da IA em mensagens acionáveis (pt-BR). A regra de
+ * tradução mora em `erros.ts` (puro e testado); aqui só se extrai do erro do
+ * SDK o que ela precisa saber.
+ */
 export function enrichAiError(e: unknown): Error {
-  const status = statusOf(e);
-  if (status === 401 || status === 403) {
-    return new Error(
-      "Chave de IA inválida ou sem permissão (verifique ANTHROPIC_API_KEY).",
-    );
-  }
-  if (status === 404) {
-    return new Error(
-      "Nenhum modelo de IA disponível para esta conta. Defina ANTHROPIC_MODEL com um modelo acessível.",
-    );
-  }
-  if (status === 429) {
-    return new Error("Limite de uso da IA atingido — tente novamente em instantes.");
-  }
-  if (e instanceof Anthropic.APIConnectionError) {
-    return new Error(
-      "Sem conexão com a API da IA — verifique a rede/egress do servidor.",
-    );
-  }
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(msg)) {
-    return new Error("Sem conexão com a API da IA — verifique a rede/egress do servidor.");
-  }
-  return new Error(`Falha na leitura por IA: ${msg}`);
+  return new Error(
+    mensagemDeErroIa({
+      status: statusOf(e),
+      mensagem: e instanceof Error ? e.message : String(e),
+      semConexao: e instanceof Anthropic.APIConnectionError,
+    }),
+  );
 }
