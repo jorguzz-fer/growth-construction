@@ -102,11 +102,17 @@ export function FornecedorForm({
     fd.set("file", arquivo);
     startReading(async () => {
       try {
-        const x = await extractFornecedorFromDoc(fd);
+        // A action RETORNA o erro em vez de lançar: em produção o Next.js
+        // esconde a mensagem de erro lançado por Server Action.
+        const lido = await extractFornecedorFromDoc(fd);
+        if (!lido.ok) {
+          setErroLeitura(lido.error);
+          return;
+        }
         // A regra de "não sobrescrever o que o usuário digitou" e a decisão do
         // que vira alerta moram em `fornecedor-doc.ts` (puro e testado).
         const res = montarPreenchimentoFornecedor(
-          x,
+          lido.data,
           {
             nome,
             nomeFantasia,
@@ -148,10 +154,9 @@ export function FornecedorForm({
         setAlertas(res.alertas);
         setLeitura({ preenchidos: res.preenchidos });
         setNotice(null);
-      } catch (e) {
-        // Erro da leitura aparece no bloco de upload, não no rodapé do
-        // formulário — é onde a pessoa acabou de clicar.
-        setErroLeitura(e instanceof Error ? e.message : "Falha ao ler o documento.");
+      } catch {
+        // Só resta o caso que a action não alcança (rede, sessão expirada).
+        setErroLeitura("Falha ao ler o documento — verifique a conexão e tente novamente.");
       }
     });
   }
