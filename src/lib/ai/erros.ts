@@ -28,6 +28,17 @@ export function mensagemDeErroIa({ status, mensagem, semConexao }: FalhaIa): str
       "adicione créditos em console.anthropic.com (Plans & Billing) e teste novamente."
     );
   }
+  // Chave vinculada a identidade (service account): a API exige saber em qual
+  // workspace a requisição age. Também vem como 400 — sem esta tradução,
+  // parece problema no código.
+  if (/anthropic-workspace-id is required|identity-linked/i.test(mensagem)) {
+    return (
+      "A chave de IA é vinculada a identidade e exige o workspace: defina " +
+      "ANTHROPIC_WORKSPACE_ID no ambiente do servidor com o ID do workspace " +
+      "(console.anthropic.com → Settings → Workspaces, começa com wrkspc_) e " +
+      "redeploy. Alternativa: gere uma chave de API comum, que dispensa isso."
+    );
+  }
   if (status === 401 || status === 403) {
     return "Chave de IA inválida ou sem permissão (verifique ANTHROPIC_API_KEY).";
   }
