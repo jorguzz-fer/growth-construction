@@ -187,26 +187,37 @@ export async function deleteStakeholder(id: string) {
 /**
  * Lê um documento (PDF/imagem) com IA e devolve os dados do fornecedor para o
  * cliente pré-preencher o formulário (o usuário revisa antes de cadastrar).
+ *
+ * Erros são RETORNADOS (não lançados): em produção o Next.js esconde a
+ * mensagem de erro lançado por Server Action — ver `extractDespesaFromDoc`.
  */
 export async function extractFornecedorFromDoc(
   formData: FormData,
-): Promise<ExtractedFornecedor> {
+): Promise<
+  { ok: true; data: ExtractedFornecedor } | { ok: false; error: string }
+> {
+  const falha = (error: string) => ({ ok: false as const, error });
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) {
-    throw new Error("Sem permissão.");
+    return falha("Sem permissão para cadastrar fornecedores.");
   }
   if (!isAiConfigured()) {
-    throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
+    return falha("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
   const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo deve ter até 10 MB.");
+  if (!file || file.size === 0) return falha("Selecione um arquivo.");
+  if (file.size > 10 * 1024 * 1024) return falha("Arquivo deve ter até 10 MB.");
   const mime = file.type || "";
   if (!(AI_ACCEPTED_MIME as readonly string[]).includes(mime)) {
-    throw new Error("Envie um PDF ou imagem (PNG, JPG ou WebP).");
+    return falha("Envie um PDF ou imagem (PNG, JPG ou WebP).");
   }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  return extractFornecedorFromDocument(bytes, mime);
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return { ok: true, data: await extractFornecedorFromDocument(bytes, mime) };
+  } catch (e) {
+    console.error("[fornecedor] falha na leitura por IA:", e);
+    return falha(e instanceof Error ? e.message : "Falha ao ler o documento.");
+  }
 }
 
 export async function addBankAccount(formData: FormData) {
@@ -824,21 +835,31 @@ export async function pagarDespesa(input: PagarDespesaInput) {
  * O casamento com os cadastros (fornecedor, conta, categoria, obra) acontece
  * aqui no servidor, onde as listas já estão carregadas — o cliente recebe
  * pronto o que aplicar e o que sinalizar.
+ *
+ * IMPORTANTE: em produção o Next.js redige (esconde) a mensagem de qualquer
+ * erro LANÇADO por uma Server Action, substituindo por um texto genérico em
+ * inglês ("An error occurred in the Server Components render…"). Por isso os
+ * erros são RETORNADOS em `{ ok: false, error }` — é o único jeito de a
+ * mensagem real ("a conta está sem créditos", "arquivo grande demais") chegar
+ * ao usuário. Mesmo padrão de `extractExtratoPdf` e `addDespesaDocs`.
  */
 export async function extractDespesaFromDoc(
   formData: FormData,
-): Promise<PreenchimentoDespesa> {
+): Promise<
+  { ok: true; data: PreenchimentoDespesa } | { ok: false; error: string }
+> {
+  const falha = (error: string) => ({ ok: false as const, error });
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) {
-    throw new Error("Sem permissão.");
+    return falha("Sem permissão para lançar despesas.");
   }
   if (!isAiConfigured()) {
-    throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
+    return falha("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
   const files = formData
     .getAll("file")
     .filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) throw new Error("Selecione um arquivo.");
+  if (files.length === 0) return falha("Selecione um arquivo.");
 
   // Só PDF/imagem vão para a IA. Os demais anexos (XML, planilha, e-mail)
   // continuam podendo ser anexados à despesa — só não são lidos.
@@ -846,49 +867,59 @@ export async function extractDespesaFromDoc(
     (AI_ACCEPTED_MIME as readonly string[]).includes(f.type || ""),
   );
   if (legiveis.length === 0) {
-    throw new Error(
+    return falha(
       "Nenhum arquivo legível pela IA — envie PDF ou imagem (PNG, JPG, WebP ou GIF).",
     );
   }
   const selecionados = legiveis.slice(0, AI_MAX_DOCS);
   for (const f of selecionados) {
     if (f.size > 10 * 1024 * 1024) {
-      throw new Error(`"${f.name}" tem mais de 10 MB — envie um arquivo menor.`);
+      return falha(`"${f.name}" tem mais de 10 MB — envie um arquivo menor.`);
     }
   }
 
-  const [fornecedores, contas] = await Promise.all([
-    getStakeholders(ctx.tenant.id),
-    getChartAccounts(ctx.tenant.id),
-  ]);
-  const categorias = categoriasDeDespesa(CATEGORIAS_DRE);
-  const projetos = ctx.projects.map((p) => ({ id: p.id, nome: p.name }));
+  try {
+    const [fornecedores, contas] = await Promise.all([
+      getStakeholders(ctx.tenant.id),
+      getChartAccounts(ctx.tenant.id),
+    ]);
+    const categorias = categoriasDeDespesa(CATEGORIAS_DRE);
+    const projetos = ctx.projects.map((p) => ({ id: p.id, nome: p.name }));
 
-  const docs = await Promise.all(
-    selecionados.map(async (f) => ({
-      bytes: new Uint8Array(await f.arrayBuffer()),
-      mime: f.type,
-      filename: f.name,
-    })),
-  );
+    const docs = await Promise.all(
+      selecionados.map(async (f) => ({
+        bytes: new Uint8Array(await f.arrayBuffer()),
+        mime: f.type,
+        filename: f.name,
+      })),
+    );
 
-  const extraido = await extractDespesaFromDocument(docs, {
-    fornecedores: fornecedores.map((f) => ({ nome: f.nome, doc: f.doc })),
-    contas: contas.map((c) => ({ code: c.code, name: c.name })),
-    projetos: projetos.map((p) => ({ nome: p.nome })),
-    categorias,
-    tiposDocumento: TIPOS_DOCUMENTO,
-    empresa: { nome: ctx.tenant.name, cnpj: ctx.tenant.cnpj },
-  });
+    const extraido = await extractDespesaFromDocument(docs, {
+      fornecedores: fornecedores.map((f) => ({ nome: f.nome, doc: f.doc })),
+      contas: contas.map((c) => ({ code: c.code, name: c.name })),
+      projetos: projetos.map((p) => ({ nome: p.nome })),
+      categorias,
+      tiposDocumento: TIPOS_DOCUMENTO,
+      empresa: { nome: ctx.tenant.name, cnpj: ctx.tenant.cnpj },
+    });
 
-  return montarPreenchimentoDespesa(extraido, {
-    fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome, doc: f.doc })),
-    contas: contas.map((c) => c.code),
-    categorias,
-    projetos,
-    formasPagamento: FORMAS_PAGAMENTO,
-    tiposDocumento: TIPOS_DOCUMENTO.map((t) => t.id),
-  });
+    return {
+      ok: true,
+      data: montarPreenchimentoDespesa(extraido, {
+        fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome, doc: f.doc })),
+        contas: contas.map((c) => c.code),
+        categorias,
+        projetos,
+        formasPagamento: FORMAS_PAGAMENTO,
+        tiposDocumento: TIPOS_DOCUMENTO.map((t) => t.id),
+      }),
+    };
+  } catch (e) {
+    // O log fica no servidor (com stack); para a tela vai a mensagem já
+    // traduzida por enrichAiError ("sem créditos", "chave inválida"...).
+    console.error("[despesa] falha na leitura por IA:", e);
+    return falha(e instanceof Error ? e.message : "Falha ao ler o documento.");
+  }
 }
 
 /** Anexa um documento (NF/contrato) a uma despesa, no R2. */

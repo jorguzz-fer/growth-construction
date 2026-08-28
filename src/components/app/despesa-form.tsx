@@ -494,14 +494,17 @@ export function DespesaForm({
     const fd = new FormData();
     for (const f of enviados) fd.append("file", f);
     startReading(async () => {
+      // A falha da leitura aparece DENTRO do bloco de upload, ao lado dos
+      // arquivos. A action RETORNA o erro em vez de lançar: em produção o
+      // Next.js esconde a mensagem de erro lançado por Server Action e o
+      // usuário via só um texto genérico em inglês.
       try {
         const res = await extractDespesaFromDoc(fd);
-        aplicarLeitura(res, enviados.length);
-      } catch (e) {
-        // A falha da leitura aparece DENTRO do bloco de upload, ao lado dos
-        // arquivos: no rodapé do formulário, longe de onde a pessoa acabou de
-        // clicar, ela simplesmente não era vista.
-        setErroLeitura(e instanceof Error ? e.message : "Falha ao ler o documento.");
+        if (res.ok) aplicarLeitura(res.data, enviados.length);
+        else setErroLeitura(res.error);
+      } catch {
+        // Só resta o caso que a action não alcança (rede, sessão expirada).
+        setErroLeitura("Falha ao ler o documento — verifique a conexão e tente novamente.");
       }
     });
   }
