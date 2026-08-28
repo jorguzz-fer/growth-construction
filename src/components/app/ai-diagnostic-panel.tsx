@@ -130,6 +130,13 @@ export function AiDiagnosticPanel() {
             uso — adicione créditos em <code>console.anthropic.com</code> (Plans &amp;
             Billing).
           </p>
+          <p>
+            <strong className="text-[var(--color-ink)]">Chave vinculada a identidade:</strong>{" "}
+            se a chave foi criada para uma service account, defina também{" "}
+            <code>ANTHROPIC_WORKSPACE_ID</code> com o ID do workspace
+            (Settings → Workspaces, começa com <code>wrkspc_</code>). Chave comum
+            dispensa isso.
+          </p>
         </div>
       </CardContent>
     </Card>

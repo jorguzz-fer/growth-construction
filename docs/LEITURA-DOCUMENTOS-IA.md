@@ -135,6 +135,7 @@ IA) diz qual delas está faltando:
 | Variável | Papel | Sem ela |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | autentica o app na API | leitura desativada; upload e vínculo do arquivo seguem funcionando |
+| `ANTHROPIC_WORKSPACE_ID` | workspace da chave, **só para chave vinculada a identidade** (service account) | chave comum funciona sem; chave identity-linked falha com 400 "anthropic-workspace-id is required" |
 | `ANTHROPIC_MODEL` | escolhe o modelo (opcional) | usa `claude-haiku-4-5` |
 | `R2_*` | guarda os arquivos | nada é armazenado — só a leitura acontece |
 

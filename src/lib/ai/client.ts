@@ -43,8 +43,26 @@ export function modelChain(): string[] {
   return cadeiaDeModelos(primaryModel());
 }
 
+/**
+ * Workspace da chave de IA, quando exigido.
+ *
+ * Chave de API "vinculada a identidade" (identity-linked, criada para uma
+ * service account no Console da Anthropic) só funciona se cada requisição
+ * disser em QUAL workspace está agindo — header `anthropic-workspace-id`.
+ * Sem ele a API responde 400 "anthropic-workspace-id is required".
+ *
+ * Chave comum não precisa disso; a variável é opcional e só entra no header
+ * quando definida.
+ */
+export function workspaceId(): string | null {
+  return process.env.ANTHROPIC_WORKSPACE_ID?.trim() || null;
+}
+
 export function aiClient(): Anthropic {
-  return new Anthropic();
+  const ws = workspaceId();
+  return new Anthropic(
+    ws ? { defaultHeaders: { "anthropic-workspace-id": ws } } : undefined,
+  );
 }
 
 function statusOf(e: unknown): number | undefined {

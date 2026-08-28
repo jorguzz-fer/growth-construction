@@ -16,6 +16,19 @@ describe("mensagem de erro da IA", () => {
     expect(m).not.toContain("credit balance");
   });
 
+  it("chave vinculada a identidade sem workspace: manda definir ANTHROPIC_WORKSPACE_ID", () => {
+    // Corpo real da API para chave identity-linked sem o header de workspace.
+    const m = mensagemDeErroIa({
+      status: 400,
+      mensagem:
+        '400 {"type":"error","error":{"type":"invalid_request_error","message":"anthropic-workspace-id is required when authenticating with an identity-linked API key; send the id of the workspace this request acts in."},"request_id":null}',
+    });
+    expect(m).toContain("ANTHROPIC_WORKSPACE_ID");
+    expect(m).toContain("wrkspc_");
+    expect(m).toContain("chave de API comum");
+    expect(m).not.toContain("identity-linked API key");
+  });
+
   it("chave inválida (401/403) manda conferir a ANTHROPIC_API_KEY", () => {
     for (const status of [401, 403]) {
       expect(mensagemDeErroIa({ status, mensagem: "401 unauthorized" })).toContain(
