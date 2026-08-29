@@ -281,6 +281,13 @@
       "when": 1787064442285,
       "tag": "0039_emitente_fiscal",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1787150842285,
+      "tag": "0040_baixa_conta_receber",
+      "breakpoints": true
     }
   ]
 }

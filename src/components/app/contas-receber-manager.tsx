@@ -10,6 +10,8 @@ import {
 /** Tipos de receita (definido no client — não pode vir de módulo "use server"). */
 const TIPOS_RECEITA = ["Sinal", "Parcela mensal", "Outros", "Outras Receitas"] as const;
 import type { ContaReceberRow } from "@/lib/queries";
+import { PainelBaixa, SeloBaixa } from "@/components/app/baixa-receber";
+import { podeBaixar } from "@/lib/calc/baixa-receber";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -150,22 +152,25 @@ function NovaConta({
 function ContaRow({
   c,
   projetos,
+  bancos,
   canEditar,
   canExcluir,
 }: {
   c: ContaReceberRow;
   projetos: Opt[];
+  bancos: Opt[];
   canEditar: boolean;
   canExcluir: boolean;
 }) {
   const [edit, setEdit] = useState(false);
+  const [baixa, setBaixa] = useState(false);
   const [tipo, setTipo] = useState(c.tipo);
   const [valor, setValor] = useState(String(c.valor));
   const [recebido, setRecebido] = useState(String(c.valorRecebido));
   if (edit) {
     return (
       <TR>
-        <TD colSpan={7}>
+        <TD colSpan={9}>
           <form action={updateContaReceber} className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-4">
             <input type="hidden" name="id" value={c.id} />
             <div>
@@ -232,6 +237,16 @@ function ContaRow({
       </TR>
     );
   }
+  // Conta cancelada não recebe baixa. Conta já quitada continua clicável — o
+  // painel vira a lista de recebimentos, de onde se estorna uma baixa errada.
+  const permitido = podeBaixar(c.valor, c.valorRecebido, c.status === "Cancelada");
+  const disabledBaixa = c.status === "Cancelada";
+  const tituloBaixa = disabledBaixa
+    ? (permitido.ok ? "" : permitido.motivo)
+    : c.saldo > 0
+      ? "Confirmar a entrada do dinheiro desta conta."
+      : "Ver e estornar os recebimentos já registrados.";
+
   return (
     <TR>
       <TD className="whitespace-nowrap">{c.projectName}</TD>
@@ -241,11 +256,32 @@ function ContaRow({
       <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
         {c.vencimento ? dateBR(c.vencimento) : "—"}
       </TD>
-      <TD>
-        <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+      <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
+        {c.valorRecebido > 0 ? brl0(c.valorRecebido) : "—"}
       </TD>
-      <TD className="text-right">
+      <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
+        {c.saldo > 0 ? brl0(c.saldo) : "—"}
+      </TD>
+      <TD>
+        <div className="flex flex-wrap items-center gap-1.5 whitespace-nowrap">
+          <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+          {/* Selo de baixa: mostra que a receita já entrou no caixa e por qual
+              caminho (conciliação com o extrato ou baixa manual nesta tela). */}
+          <SeloBaixa c={c} />
+        </div>
+      </TD>
+      <TD className="whitespace-nowrap text-right">
         <div className="flex items-center justify-end gap-3">
+          {canEditar && (
+            <button
+              className="text-sm text-[var(--color-accent)] hover:underline disabled:cursor-default disabled:text-[var(--color-ink4)] disabled:no-underline"
+              onClick={() => setBaixa(true)}
+              disabled={disabledBaixa}
+              title={tituloBaixa}
+            >
+              {c.saldo > 0 ? "Dar baixa" : "Recebimentos"}
+            </button>
+          )}
           {canEditar && (
             <button className="text-sm text-[var(--color-accent2)] hover:underline" onClick={() => setEdit(true)}>
               Editar
@@ -260,6 +296,14 @@ function ContaRow({
             </form>
           )}
         </div>
+        {canEditar && (
+          <PainelBaixa
+            conta={c}
+            bancos={bancos}
+            aberto={baixa}
+            onFechar={() => setBaixa(false)}
+          />
+        )}
       </TD>
     </TR>
   );
@@ -287,6 +331,9 @@ export function ContasReceberManager({
   canExcluir: boolean;
 }) {
   const totalManual = contas.reduce((a, c) => a + c.valor, 0);
+  const totalRecebido = contas.reduce((a, c) => a + c.valorRecebido, 0);
+  const totalAberto = contas.reduce((a, c) => a + c.saldo, 0);
+  const qtdBaixadas = contas.filter((c) => c.baixas.length > 0).length;
   const totalVendas = unitReceb.reduce((a, r) => a + r.valor, 0);
 
   // §5 — ordenação estilo planilha nas DUAS listagens desta tela. Sem clique de
@@ -298,6 +345,8 @@ export function ContasReceberManager({
       { key: "descricao", tipo: "texto", get: (c) => c.descricao ?? c.unitCode },
       { key: "valor", tipo: "valor", get: (c) => c.valor },
       { key: "vencimento", tipo: "data", get: (c) => c.vencimento },
+      { key: "recebido", tipo: "valor", get: (c) => c.valorRecebido },
+      { key: "saldo", tipo: "valor", get: (c) => c.saldo },
       { key: "status", tipo: "texto", get: (c) => c.status },
     ],
     [],
@@ -329,14 +378,25 @@ export function ContasReceberManager({
 
       <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
         <Badge tone="neutral">{contas.length} lançadas</Badge>
+        {qtdBaixadas > 0 && <Badge tone="success">{qtdBaixadas} com recebimento no caixa</Badge>}
         <span className="text-[var(--color-ink3)]">
           Total lançado{" "}
           <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl0(totalManual)}</strong>
         </span>
+        <span className="text-[var(--color-ink3)]">
+          Recebido{" "}
+          <strong className="font-[family-name:var(--font-mono)] text-[var(--color-success)]">
+            {brl0(totalRecebido)}
+          </strong>
+        </span>
+        <span className="text-[var(--color-ink3)]">
+          Em aberto{" "}
+          <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl0(totalAberto)}</strong>
+        </span>
       </div>
       <Card className="mb-8">
         <CardContent className="p-0">
-          <Table wrapperClassName="scroll-x-always" className="min-w-[900px]">
+          <Table wrapperClassName="scroll-x-always" className="min-w-[1120px]">
               <THead>
                 <tr>
                   <SortTH coluna="projeto" estado={contasOrd.estado} onSort={contasOrd.onSort}>Projeto</SortTH>
@@ -344,17 +404,26 @@ export function ContasReceberManager({
                   <SortTH coluna="descricao" estado={contasOrd.estado} onSort={contasOrd.onSort}>Descrição</SortTH>
                   <SortTH coluna="valor" estado={contasOrd.estado} onSort={contasOrd.onSort} className="text-right">Valor</SortTH>
                   <SortTH coluna="vencimento" estado={contasOrd.estado} onSort={contasOrd.onSort}>Vencimento</SortTH>
+                  <SortTH coluna="recebido" estado={contasOrd.estado} onSort={contasOrd.onSort} className="text-right">Recebido</SortTH>
+                  <SortTH coluna="saldo" estado={contasOrd.estado} onSort={contasOrd.onSort} className="text-right">Saldo</SortTH>
                   <SortTH coluna="status" estado={contasOrd.estado} onSort={contasOrd.onSort}>Status</SortTH>
                   <TH className="text-right">Ações</TH>
                 </tr>
               </THead>
               <tbody>
                 {contasOrd.rows.map((c) => (
-                  <ContaRow key={c.id} c={c} projetos={projetos} canEditar={canEditar} canExcluir={canExcluir} />
+                  <ContaRow
+                    key={c.id}
+                    c={c}
+                    projetos={projetos}
+                    bancos={bancos}
+                    canEditar={canEditar}
+                    canExcluir={canExcluir}
+                  />
                 ))}
                 {contasOrd.rows.length === 0 && (
                   <TR>
-                    <TD colSpan={7} className="py-8 text-center text-[var(--color-ink4)]">
+                    <TD colSpan={9} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a receber lançada. Recebíveis das vendas aparecem abaixo.
                     </TD>
                   </TR>
