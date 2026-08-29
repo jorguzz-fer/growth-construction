@@ -203,7 +203,13 @@ export async function extractDespesaFromDocument(
         "dataPagamento",
       ],
     },
-    strict: true,
+    // SEM `strict: true` — e é de propósito. Com strict, a API compila o
+    // schema inteiro numa gramática que valida a resposta byte a byte; com
+    // ~20 campos aninhados (valor+confiança+nota cada um), essa gramática
+    // estoura o limite e a chamada falha com 400 "compiled grammar is too
+    // large". A garantia de formato aqui não vem do strict: todo campo passa
+    // por normalizarCampo*/montarPreenchimentoDespesa, que tolera ausência e
+    // tipo errado — campo malformado vira alerta na tela, não erro.
   };
 
   // Ordem que a API usa para o cache: tools → system → messages. O ponto de

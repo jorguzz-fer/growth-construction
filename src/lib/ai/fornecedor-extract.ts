@@ -7,8 +7,8 @@ import type { DadosFornecedorLidos } from "@/lib/ai/fornecedor-doc";
 /**
  * Leitura de documentos (cartão CNPJ, contrato social, cabeçalho de NF, cartão
  * de visita) por IA para pré-preencher o cadastro de um fornecedor/stakeholder.
- * Usa a API da Claude (claude-opus-4-8). Reaproveita a mesma configuração
- * (ANTHROPIC_API_KEY) da leitura de despesas.
+ * Reaproveita a mesma configuração da leitura de despesas (ANTHROPIC_API_KEY;
+ * modelo resolvido em lib/ai/modelos.ts).
  */
 
 /**
@@ -94,7 +94,10 @@ export async function extractFornecedorFromDocument(
         "papeis", "baixaConfianca",
       ],
     },
-    strict: true,
+    // Sem `strict: true`: a gramática que a API compila para validar a
+    // resposta tem limite de tamanho (400 "compiled grammar is too large" —
+    // aconteceu na leitura de despesa). A garantia de formato vem do parse
+    // defensivo abaixo, que tolera campo ausente ou de tipo errado.
   };
 
   const message = await createMessageWithFallback(client, {
