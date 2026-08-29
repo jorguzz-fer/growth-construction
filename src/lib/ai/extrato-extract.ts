@@ -149,7 +149,10 @@ export async function extractExtratoFromDocument(
       },
       required: ["movimentos", "saldoFinal"],
     },
-    strict: true,
+    // Sem `strict: true`: a gramática que a API compila para validar a
+    // resposta tem limite de tamanho (400 "compiled grammar is too large" —
+    // aconteceu na leitura de despesa). A garantia de formato vem do parse
+    // defensivo abaixo, que tolera campo ausente ou de tipo errado.
   };
 
   const message = await createMessageWithFallback(client, {
