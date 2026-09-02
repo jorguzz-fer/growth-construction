@@ -33,6 +33,33 @@ receita foi reconhecida **na venda**. O repasse é baixa de conta a receber; nã
 gera segunda linha de receita. Contabilizar as duas vezes dobraria receita e
 resultado.
 
+### Dar baixa em Contas a Receber
+
+**Dar baixa é evento de caixa, não de resultado.** Confirmar o recebimento de
+uma conta a receber registra que o dinheiro entrou: tira o valor de "a receber" e
+o põe no banco. Aparece no **Caixa Diário** e no **Fluxo de Caixa Realizado** —
+nunca na DRE.
+
+A receita continua sendo reconhecida por competência, pelo plano de pagamento da
+venda, no mês do vencimento. Se a baixa também lançasse receita, o mesmo dinheiro
+apareceria duas vezes: uma na competência, outra no caixa.
+
+A tela mostra por qual caminho a receita entrou:
+
+| Selo na linha | O que significa | Como se desfaz |
+|---|---|---|
+| **Baixa manual** | Confirmada na tela de Contas a Receber | "Estornar", no painel de baixa |
+| **Conciliada no caixa** | Casou com um movimento do extrato bancário | "Desfazer conciliação", no Caixa Diário |
+
+A distinção não é cosmética: o movimento vindo do extrato é fato do banco e
+existe independentemente da conta a receber. Por isso ele **não pode ser apagado**
+pela tela de Contas a Receber — só desvinculado, e só onde o extrato vive.
+
+Baixa parcial é permitida e leva a conta a *Parcialmente recebido*. Baixa acima
+do saldo em aberto é recusada — geraria entrada de caixa sem lastro. Conta
+cancelada não recebe baixa. Todo estorno grava a linha inteira do movimento
+removido no log de auditoria, de modo que o lançamento é reconstituível.
+
 ## RG-03 — Restituição não é receita nem despesa
 
 Quando um terceiro paga um fornecedor pela empresa:
@@ -133,7 +160,7 @@ Nenhuma correção de dado histórico acontece automaticamente. Em nenhuma hipó
 | Regra | Tela / módulo |
 |---|---|
 | RG-01 | DRE (competência) e Fluxo de Caixa (Previsto × Realizado) |
-| RG-02, RG-04 | Restituições → recebimento e repasse por terceiro |
+| RG-02, RG-04 | Restituições → recebimento e repasse por terceiro; Contas a Receber → dar baixa |
 | RG-03 | Restituições → despesa paga por terceiro |
 | RG-05 | Restituições → encontro de contas |
 | RG-06 | Despesas → nº do pedido (interno) e bloco Documento fiscal |
