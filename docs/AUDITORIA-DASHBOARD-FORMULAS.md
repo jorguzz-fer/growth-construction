@@ -2374,3 +2374,886 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
   );
 }
 ```
+
+---
+
+# APÊNDICE — leituras de base, helpers e tipos
+
+Segunda rodada da coleta, em `main` (commit `45f4ce3`). Sem resumo, sem
+análise.
+
+---
+
+## A1. As cinco leituras de base
+
+### `src/lib/queries.ts` · linhas 85–91
+
+`getUnits` — filtra só por `version_id`.
+
+```ts
+export async function getUnits(versionId: string): Promise<UnitRow[]> {
+  return db
+    .select()
+    .from(schema.units)
+    .where(eq(schema.units.versionId, versionId))
+    .orderBy(asc(schema.units.code));
+}
+```
+
+### `src/lib/queries.ts` · linhas 134–141
+
+`getReembolsos` — filtra só por `version_id`. Ver A6b.
+
+```ts
+export async function getReembolsos(
+  versionId: string,
+): Promise<ReembolsoRow[]> {
+  return db
+    .select()
+    .from(schema.reembolsos)
+    .where(eq(schema.reembolsos.versionId, versionId));
+}
+```
+
+### `src/lib/queries.ts` · linhas 944–952
+
+`getVersionKind` — a consulta que decide o ramo de `getMonthlyRevenue`.
+
+```ts
+/** kind da versão (para decidir entre lançamento detalhado × simplificado). */
+export async function getVersionKind(versionId: string): Promise<string | null> {
+  const [v] = await db
+    .select({ kind: schema.versions.kind })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, versionId))
+    .limit(1);
+  return v?.kind ?? null;
+}
+```
+
+### `src/lib/queries.ts` · linhas 2197–2211
+
+`getVersionsDoProjeto`.
+
+```ts
+export async function getVersionsDoProjeto(
+  tenantId: string,
+  projectId: string,
+): Promise<(typeof schema.versions.$inferSelect)[]> {
+  return db
+    .select()
+    .from(schema.versions)
+    .where(
+      and(
+        eq(schema.versions.tenantId, tenantId),
+        eq(schema.versions.projectId, projectId),
+      ),
+    )
+    .orderBy(asc(schema.versions.createdAt));
+}
+```
+
+### `src/lib/context.ts` · linhas 42–108
+
+`getActiveContext` — monta tenant, projeto, versão ativa, projetos, versões e permissões.
+
+```ts
+export async function getActiveContext(): Promise<ActiveContext | null> {
+  const session = await auth();
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return null;
+
+  const ck = await cookies();
+
+  const [user] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.email, email))
+    .limit(1);
+  if (!user) return null;
+
+  // Vínculos do usuário (multi-tenant); por ora usa o primeiro tenant.
+  const memberships = await db
+    .select()
+    .from(schema.memberships)
+    .where(eq(schema.memberships.userId, user.id))
+    .orderBy(asc(schema.memberships.createdAt));
+  if (memberships.length === 0) return null;
+  const membership = memberships[0];
+
+  const [tenant] = await db
+    .select()
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, membership.tenantId))
+    .limit(1);
+  if (!tenant) return null;
+
+  const projects = await db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.tenantId, tenant.id))
+    .orderBy(asc(schema.projects.createdAt));
+  if (projects.length === 0) return null;
+
+  const wantedProject = ck.get(ACTIVE_PROJECT_COOKIE)?.value;
+  const project = projects.find((p) => p.id === wantedProject) ?? projects[0];
+
+  const versions = await db
+    .select()
+    .from(schema.versions)
+    .where(eq(schema.versions.projectId, project.id))
+    .orderBy(asc(schema.versions.createdAt));
+
+  // A versão de trabalho é sempre a "Atual" (não é mais selecionável na
+  // sidebar). Budget e Forecast existem apenas nas telas dedicadas de
+  // lançamento e na comparação dos relatórios.
+  const version =
+    versions.find((v) => v.kind === "atual") ??
+    versions.find((v) => v.isDefault) ??
+    versions[0];
+
+  const role = membership.role as Role;
+  return {
+    tenant,
+    projects,
+    project,
+    versions,
+    version,
+    userId: user.id,
+    userEmail: user.email,
+    role,
+    perms: effectivePermissions(role, membership.permissions ?? null),
+  };
+}
+```
+
+---
+
+## A2. `reembToCalc` e `toCalcUnit`
+
+### `src/lib/queries.ts` · linhas 159–163
+
+`reembToCalc` — conversão de três linhas, sem filtro.
+
+```ts
+// helpers de conversão para agregados
+
+export function reembToCalc(rows: ReembolsoRow[]): CalcReembolso[] {
+  return rows.map((r) => ({ data: r.data ?? "", valor: Number(r.valor ?? 0) }));
+}
+```
+
+### `src/lib/queries.ts` · linhas 34–61
+
+`toCalcUnit` — mescla o plano salvo sobre um plano padrão COMPLETO. Ver A6c.
+
+```ts
+/** Converte uma linha de unidade do banco para o tipo consumido pelos cálculos. */
+export function toCalcUnit(row: UnitRow): CalcUnit {
+  // Mescla o plano salvo sobre um plano padrão COMPLETO. Assim, planos antigos
+  // ou parciais (com algum subobjeto ausente, ex.: sem "S2") não quebram os
+  // cálculos (dashboard, projeção, etc.) — os campos faltantes viram defaults.
+  const base = stripIdentity(emptyUnit(row.code)) as Record<string, unknown>;
+  const stored = (row.paymentPlan ?? {}) as Record<string, unknown>;
+  const plan: Record<string, unknown> = { ...base };
+  for (const k of Object.keys(base)) {
+    const b = base[k];
+    const s = stored[k];
+    if (b && typeof b === "object" && !Array.isArray(b)) {
+      plan[k] = s && typeof s === "object" ? { ...(b as object), ...(s as object) } : b;
+    } else if (s !== undefined) {
+      plan[k] = s;
+    }
+  }
+  // Preserva chaves extras do plano salvo (flags de nível superior, etc.).
+  for (const k of Object.keys(stored)) {
+    if (!(k in plan)) plan[k] = stored[k];
+  }
+  return {
+    ...(plan as Omit<CalcUnit, "code" | "status" | "valor">),
+    code: row.code,
+    status: row.status,
+    valor: Number(row.valor),
+  };
+}
+```
+
+---
+
+## A3. De `src/lib/utils.ts`
+
+
+`dateInRange` e `monthInRange` dependem de dois helpers do mesmo arquivo,
+`ymd` e `ym`, que incluo junto — são eles que definem a forma da comparação
+(ver A6a).
+
+### `src/lib/utils.ts` · linhas 91–114
+
+`ymd` e `ym` — as duas conversões para inteiro comparável.
+
+```ts
+/** "MM/DD/YYYY" → número YYYYMMDD (comparável); null se inválido. */
+export function ymd(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const p = s.trim().split("/");
+  if (p.length !== 3) return null;
+  const [mo, d, y] = p.map(Number);
+  if (!y || !mo || !d) return null;
+  return y * 10000 + mo * 100 + d;
+}
+
+/** "MM/YYYY" → número YYYYMM (comparável); null se inválido. */
+export function ym(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const p = s.trim().split("/");
+  if (p.length === 2) {
+    const [mo, y] = p.map(Number);
+    return y && mo ? y * 100 + mo : null;
+  }
+  if (p.length === 3) {
+    const [mo, , y] = p.map(Number);
+    return y && mo ? y * 100 + mo : null;
+  }
+  return null;
+}
+```
+
+### `src/lib/utils.ts` · linhas 116–142
+
+`dateInRange` e `monthInRange`.
+
+```ts
+/** Verdadeiro se a DATA "MM/DD/YYYY" está no intervalo [de, ate] (inclusive). */
+export function dateInRange(
+  data: string | null | undefined,
+  de: string,
+  ate: string,
+): boolean {
+  const v = ymd(data);
+  const lo = ymd(de);
+  const hi = ymd(ate);
+  if (lo != null && (v == null || v < lo)) return false;
+  if (hi != null && (v == null || v > hi)) return false;
+  return true;
+}
+
+/** Verdadeiro se o MÊS "MM/YYYY" está no intervalo [de, ate] (por competência). */
+export function monthInRange(
+  mes: string | null | undefined,
+  de: string,
+  ate: string,
+): boolean {
+  const v = ym(mes);
+  const lo = ym(de);
+  const hi = ym(ate);
+  if (lo != null && (v == null || v < lo)) return false;
+  if (hi != null && (v == null || v > hi)) return false;
+  return true;
+}
+```
+
+### `src/lib/utils.ts` · linhas 27–34
+
+`brl0`.
+
+```ts
+/** BRL sem casas decimais (ex.: R$ 1.235). */
+export function brl0(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(clampZero(value, 0));
+}
+```
+
+### `src/lib/utils.ts` · linhas 42–57
+
+`brlk`, com o comentário sobre hydration mismatch.
+
+```ts
+/**
+ * BRL compacto em milhares/milhões (ex.: R$ 46,8 mi). Implementação
+ * determinística (sem Intl compact) para evitar divergência de formatação
+ * entre servidor (Node/ICU) e navegador — que causava hydration mismatch
+ * (ex.: "R$ 0,0" vs "R$ 0").
+ */
+export function brlk(value: number): string {
+  const v = clampZero(value, 0);
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  const fix1 = (v: number) => (Math.round(v * 10) / 10).toFixed(1).replace(".", ",");
+  if (abs >= 1e9) return `${sign}R$ ${fix1(abs / 1e9)} bi`;
+  if (abs >= 1e6) return `${sign}R$ ${fix1(abs / 1e6)} mi`;
+  if (abs >= 1e3) return `${sign}R$ ${fix1(abs / 1e3)} mil`;
+  return `${sign}R$ ${Math.round(abs)}`;
+}
+```
+
+---
+
+## A4. De `src/lib/calc/`
+
+### `src/lib/calc/projection.ts` · linhas 11–43
+
+`ParsedDate`, `parseDate`, `monthKey`, `addMonths` e a constante `INCC_FROM_INSTALLMENT`.
+
+```ts
+// ─────────────────────────── helpers de data ────────────────────────────
+
+interface ParsedDate {
+  mo: number;
+  d: number;
+  yr: number;
+}
+
+/** Parse de "MM/DD/YYYY" → {mo,d,yr} (null se vazio/ inválido). */
+export function parseDate(s: string | null | undefined): ParsedDate | null {
+  if (!s || !s.trim()) return null;
+  const p = s.split("/");
+  if (p.length < 3) return null;
+  return { mo: parseInt(p[0], 10), d: parseInt(p[1], 10), yr: parseInt(p[2], 10) };
+}
+
+/** Chave de mês "MM/YYYY". */
+export function monthKey(mo: number, yr: number): string {
+  return String(mo).padStart(2, "0") + "/" + yr;
+}
+
+/** Avança `n` meses a partir de (mo, yr), normalizando o ano. */
+export function addMonths(mo: number, yr: number, n: number): ParsedDate {
+  let m = mo + n;
+  let y = yr;
+  while (m > 12) {
+    m -= 12;
+    y++;
+  }
+  return { mo: m, d: 1, yr: y };
+}
+
+const INCC_FROM_INSTALLMENT = 4; // correção a partir da 5ª parcela (i >= 4)
+```
+
+### `src/lib/calc/incc.ts` · linhas 1–43
+
+`recalcIncc`, `getIncc` e `projectIncc` — o arquivo de INCC.
+
+```ts
+import type { InccRow } from "./types";
+
+/**
+ * Recalcula o acumulado encadeado a partir das variações mensais (`mo`).
+ * Espelha `recalcINCC()` do protótipo: o primeiro mês usa a própria variação;
+ * os seguintes compõem `(1+ac/100)*(1+mo/100)`. Retorna uma NOVA lista
+ * (função pura) — não muta a entrada.
+ */
+export function recalcIncc(rows: readonly InccRow[]): InccRow[] {
+  let acc = 0;
+  return rows.map((row, i) => {
+    acc =
+      i === 0
+        ? row.mo
+        : Math.round(((1 + acc / 100) * (1 + row.mo / 100) * 100 - 100) * 1000) /
+          1000;
+    return { ...row, ac: acc };
+  });
+}
+
+/** Retorna o acumulado de um mês ("MM/YYYY"), ou 0 se ausente. */
+export function getIncc(rows: readonly InccRow[], month: string): number {
+  const row = rows.find((r) => r.m === month);
+  return row ? row.ac : 0;
+}
+
+/**
+ * Preenche as variações mensais dos meses projetados (`projected === true`) com
+ * a média móvel das últimas 12 variações (oficiais ou já projetadas), na ordem
+ * cronológica. Meses oficiais (índice real) nunca são alterados. Depois
+ * recalcula o acumulado encadeado de toda a série. Função pura.
+ */
+export function projectIncc(rows: readonly InccRow[]): InccRow[] {
+  const out: InccRow[] = rows.map((r) => ({ ...r }));
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i].projected) continue;
+    const window = out.slice(Math.max(0, i - 12), i);
+    if (window.length === 0) continue; // sem histórico → mantém valor atual
+    const avg = window.reduce((a, r) => a + r.mo, 0) / window.length;
+    out[i].mo = Math.round(avg * 1000) / 1000;
+  }
+  return recalcIncc(out);
+}
+```
+
+### `src/lib/calc/carencia.ts` · linhas 74–93
+
+`serieVencimentos`.
+
+```ts
+/**
+ * Série de vencimentos mensais (ou de passo `passoMeses`) a partir da data-base.
+ *
+ * `qtd` parcelas, todas com o mesmo dia de vencimento, ajustado ao fim de mês.
+ */
+export function serieVencimentos(
+  dataBase: string,
+  qtd: number,
+  passoMeses = 1,
+  diaVencimento?: number,
+): string[] {
+  const base = parseDataInterna(dataBase);
+  if (!base || qtd <= 0) return [];
+  const dia = diaVencimento ?? base.d;
+  const out: string[] = [];
+  for (let i = 0; i < qtd; i++) {
+    out.push(formatDataInterna(avancaMeses(base, i * passoMeses, dia)));
+  }
+  return out;
+}
+```
+
+---
+
+## A5. `PROJECTION_SOURCES` e o tipo `PaymentPlan`
+
+### `src/lib/calc/projection.ts` · linhas 144–154
+
+`PROJECTION_SOURCES` e o tipo derivado `ProjectionSource`.
+
+```ts
+/** Fontes de receita usadas no consolidado (quebra da projeção por tipo). */
+export const PROJECTION_SOURCES = [
+  "AS/Sinais",
+  "Mensais",
+  "Semestrais",
+  "Anuais",
+  "FGTS",
+  "Subsídio",
+  "Permuta",
+] as const;
+export type ProjectionSource = (typeof PROJECTION_SOURCES)[number];
+```
+
+### `src/lib/calc/types.ts` · linhas 21–77
+
+As fontes, `PaymentPlan` e `CalcUnit`.
+
+```ts
+/** Fontes periódicas (mensais/semestrais/anuais): corrigidas por INCC. */
+export interface PeriodicSource {
+  val: number;
+  venc: string;
+  n: number;
+}
+
+export interface FgtsSource {
+  val: number;
+  dataPrev: string;
+}
+
+export interface SubsidioSource {
+  val: number;
+  dataPrev: string;
+  statusSub: SubsidioStatus;
+}
+
+export interface PermutaSource {
+  desc: string;
+  val: number;
+  dataPrev: string;
+}
+
+export interface BancoSource {
+  valFinanc: number;
+  dataEntrada: string;
+  dataPrimParc: string;
+  statusFinanc: string;
+}
+
+/**
+ * Cascata de fontes de recebimento de uma unidade. Cada flag `usar*` ativa a
+ * próxima fonte na cascata (ver docs/SPEC.md §5).
+ */
+export interface PaymentPlan {
+  usarAS: boolean;
+  AS: SignalSource & { usarS1: boolean };
+  S1: SignalSource & { usarS2: boolean };
+  S2: SignalSource & { usarS3: boolean };
+  S3: SignalSource & { usarMens: boolean };
+  Mensais: PeriodicSource & { usarSem: boolean };
+  Semestrais: PeriodicSource & { usarAnu: boolean };
+  Anuais: PeriodicSource & { usarFGTS: boolean };
+  FGTS: FgtsSource & { usarSub: boolean };
+  Subsidio: SubsidioSource & { usarPer: boolean };
+  Permuta: PermutaSource & { usarFinanc: boolean };
+  Banco: BancoSource;
+}
+
+/** Unidade com plano de pagamento, na forma consumida pelos cálculos. */
+export interface CalcUnit extends PaymentPlan {
+  code: string;
+  status: UnitStatus;
+  /** VGV da unidade. */
+  valor: number;
+}
+```
+
+### `src/lib/db/schema.ts` · linhas 424–427
+
+A coluna que guarda o plano: `jsonb` com `$type<PaymentPlan>()` — tipagem só em TypeScript, sem validação no banco.
+
+```ts
+  /** "MM/DD/YYYY" como no protótipo. */
+  mesVenda: text("mes_venda"),
+  paymentPlan: jsonb("payment_plan").$type<PaymentPlan>(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+```
+
+---
+
+## A6. As perguntas
+
+
+### A6a. Como `dateInRange` e `monthInRange` comparam?
+
+**Nem string, nem `Date`: comparam INTEIROS**, construídos componente a
+componente e depois comparados como número.
+
+| Helper | Entrada | Conversão | Saída |
+|---|---|---|---|
+| `ymd` (`utils.ts:92`) | `"MM/DD/YYYY"` | `y * 10000 + mo * 100 + d` | inteiro `YYYYMMDD` |
+| `ym` (`utils.ts:102`) | `"MM/YYYY"` **ou** `"MM/DD/YYYY"` | `y * 100 + mo` | inteiro `YYYYMM` |
+
+As duas funções de intervalo são idênticas em forma
+(`utils.ts:117–128` e `:131–142`):
+
+```ts
+const v = ymd(data); const lo = ymd(de); const hi = ymd(ate);
+if (lo != null && (v == null || v < lo)) return false;
+if (hi != null && (v == null || v > hi)) return false;
+return true;
+```
+
+Características que saem direto desse código:
+
+- **Intervalo aberto dos dois lados.** Limite ausente (`""`) vira `null` e a
+  checagem correspondente é pulada — `de` vazio significa "sem início".
+- **Inclusivo:** usa `<` e `>`, não `<=`/`>=`, então a própria data-limite
+  passa.
+- **Data inválida com limite presente é EXCLUÍDA**; sem limite nenhum, é
+  **incluída** (as duas condições são puladas e a função devolve `true`).
+- **`ymd` exige exatamente 3 partes**; `ym` aceita 2 **ou** 3 — ou seja,
+  `monthInRange` aceita receber uma data completa e usa só mês e ano.
+- **Não há validação de calendário.** `"02/31/2026"` vira `20260231` e
+  compara normalmente; `"13/01/2026"` vira `20260113`, fora de ordem em
+  relação ao que a string sugere.
+
+**Sobre "são o único recorte de período de toda a tela":** confirma-se para as
+consultas — não há `BETWEEN`, `gte` ou `lte` em nenhuma delas (item 6f do
+corpo principal). Os pontos de uso no Dashboard são quatro:
+
+| Arquivo:linha | Chamada | Sobre o quê |
+|---|---|---|
+| `dashboard/page.tsx:58` | `monthInRange(mm, de, ate)` | chaves `"MM/YYYY"` de `getMonthlyRevenue` |
+| `dashboard/page.tsx:64` | `dateInRange(c.data, de, ate)` | `cash_entry.data` |
+| `dashboard/page.tsx:138` | `dateInRange(r.dia, de, ate)` | dia do recebível |
+| `dashboard/page.tsx:148` | `dateInRange(c.vencimento, de, ate)` | `despesa.vencimento` |
+
+Com a ressalva já registrada: **`getStatusProjeto` e `getIndicadoresObra` não
+recebem `de`/`ate`** — os 24 cartões dos dois painéis inferiores ficam fora de
+qualquer recorte de período.
+
+### A6b. `getReembolsos` filtra status?
+
+**Não. Traz todos os lançamentos da versão.**
+
+```ts
+export async function getReembolsos(
+  versionId: string,
+): Promise<ReembolsoRow[]> {
+  return db
+    .select()
+    .from(schema.reembolsos)
+    .where(eq(schema.reembolsos.versionId, versionId));
+}
+```
+
+(`queries.ts:134–141`.) O `where` tem uma condição só — `version_id`. Não há
+filtro de status, de cancelamento, de data nem de tenant. Também não há
+`ORDER BY` nem `LIMIT`.
+
+Nem o consumidor filtra: `reembToCalc` (`queries.ts:161–163`) é um `map` de
+três linhas que só extrai `data` e `valor` — **descarta todos os demais
+campos da linha**, inclusive qualquer status que exista na tabela. Depois,
+`reembursementsByMonth` agrega por mês sem condição.
+
+Ou seja: **todo reembolso lançado na versão entra na receita projetada**,
+qualquer que seja seu estado.
+
+### `src/lib/queries.ts` · linhas 134–141
+
+A consulta, repetida aqui para referência.
+
+```ts
+export async function getReembolsos(
+  versionId: string,
+): Promise<ReembolsoRow[]> {
+  return db
+    .select()
+    .from(schema.reembolsos)
+    .where(eq(schema.reembolsos.versionId, versionId));
+}
+```
+
+### `src/lib/queries.ts` · linhas 159–163
+
+`reembToCalc` — o que sobrevive da linha.
+
+```ts
+// helpers de conversão para agregados
+
+export function reembToCalc(rows: ReembolsoRow[]): CalcReembolso[] {
+  return rows.map((r) => ({ data: r.data ?? "", valor: Number(r.valor ?? 0) }));
+}
+```
+
+
+### A6c. `PaymentPlan` declara as flags `usar*` como obrigatórias?
+
+**Sim, todas as onze são `boolean` obrigatório** — nenhuma tem `?`:
+
+| Campo | Flag que ele carrega |
+|---|---|
+| `usarAS` (raiz) | `boolean` |
+| `AS` | `& { usarS1: boolean }` |
+| `S1` | `& { usarS2: boolean }` |
+| `S2` | `& { usarS3: boolean }` |
+| `S3` | `& { usarMens: boolean }` |
+| `Mensais` | `& { usarSem: boolean }` |
+| `Semestrais` | `& { usarAnu: boolean }` |
+| `Anuais` | `& { usarFGTS: boolean }` |
+| `FGTS` | `& { usarSub: boolean }` |
+| `Subsidio` | `& { usarPer: boolean }` |
+| `Permuta` | `& { usarFinanc: boolean }` |
+
+(`types.ts:56–69`.) As onze seções também são obrigatórias, e `CalcUnit`
+estende `PaymentPlan` inteiro (`types.ts:72`).
+
+**Por que `expandUnitReceivables` lê como `Record<string, unknown>`?** O
+próprio código responde, no comentário das linhas 26–27 de
+`calc/receivables.ts`:
+
+> *"Planos antigos/parciais podem não conter todas as seções — leia de forma
+> tolerante (seção ausente = campos vazios/zero) para nunca quebrar o
+> cálculo."*
+
+O mecanismo é a linha 28:
+
+```ts
+const p = plan as unknown as Record<string, unknown>;
+const sec = (k: string) => (p[k] ?? {}) as Record<string, unknown>;
+```
+
+A razão estrutural está no schema: `payment_plan` é
+`jsonb("payment_plan").$type<PaymentPlan>()` (`schema.ts:426`). O `$type` do
+Drizzle é **asserção em tempo de compilação** — o Postgres aceita qualquer
+JSON, e nada valida o formato na escrita. Um registro gravado antes de a
+seção existir continua no banco sem ela; ler pelo tipo faria `plan.S2.venc`
+estourar em runtime com `Cannot read properties of undefined`.
+
+Dois fatos adicionais que fecham a pergunta:
+
+- **`expandUnitReceivables` não lê nenhuma flag `usar*`.** Busca por `usar` no
+  arquivo devolve **zero** ocorrências. Ela lê apenas `venc`, `val`, `n`,
+  `dataPrev`, `dataPrimParc` e `valFinanc`, e decide pelo valor
+  (`if (!d || val <= 0) continue`, linhas 46 e 73). O comentário de
+  `getMonthlyRevenue` registra isso como escolha: *"leitura tolerante do
+  plano, sem depender das flags usar*"* (`queries.ts:1139–1140`).
+- **A defesa tem duas camadas.** `toCalcUnit` (`queries.ts:35–61`) já faz a
+  mesma proteção por outro caminho: mescla o plano salvo sobre um plano padrão
+  COMPLETO, seção a seção, para que campos ausentes virem defaults. As duas
+  convivem — `toCalcUnit` serve `calcProjection`, e a leitura tolerante serve
+  `expandUnitReceivables`.
+
+### `src/lib/calc/receivables.ts` · linhas 12–32
+
+O comentário e o cast que respondem a pergunta.
+
+```ts
+/**
+ * Expande o plano de pagamento de uma unidade vendida em recebíveis datados
+ * (uma linha por vencimento). Base do painel "Receitas a Receber do Dia".
+ * Só gera recebíveis para unidades com status "Vendido".
+ */
+export function expandUnitReceivables(
+  plan: PaymentPlan | null | undefined,
+  status: UnitStatus,
+): Receivable[] {
+  if (status !== "Vendido" || !plan) return [];
+  const out: Receivable[] = [];
+  const fmt = (mo: number, d: number, yr: number) =>
+    `${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}/${yr}`;
+
+  // Planos antigos/parciais podem não conter todas as seções — leia de forma
+  // tolerante (seção ausente = campos vazios/zero) para nunca quebrar o cálculo.
+  const p = plan as unknown as Record<string, unknown>;
+  const sec = (k: string) => (p[k] ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const num = (v: unknown) => Number(v) || 0;
+```
+
+### `src/lib/queries.ts` · linhas 1138–1149
+
+O comentário de `getMonthlyRevenue` sobre não depender das flags.
+
+```ts
+  // Receita da versão Atual = recebíveis das vendas (MESMA fonte da tela Contas
+  // a Receber: expandUnitReceivables — leitura tolerante do plano, sem depender
+  // das flags usar*). Assim DRE e Fluxo batem com os recebíveis exibidos.
+  // Agrega por mês do vencimento ("MM/DD/YYYY" → "MM/YYYY").
+  for (const r of unitRows) {
+    for (const rec of expandUnitReceivables(r.paymentPlan, r.status)) {
+      const p = rec.dia.split("/");
+      if (p.length !== 3) continue;
+      const mk = `${p[0]}/${p[2]}`;
+      out[mk] = (out[mk] || 0) + rec.valor;
+    }
+  }
+```
+
+
+### A6d. `INCC_FROM_INSTALLMENT` — a partir de qual parcela, e por quê?
+
+**Vale a partir da 5ª parcela.** A constante é `4` e o teste é `i >= 4`, com
+`i` começando em zero — logo `i = 4` é a quinta.
+
+```ts
+const INCC_FROM_INSTALLMENT = 4; // correção a partir da 5ª parcela (i >= 4)
+```
+
+Usos (`projection.ts:66` e `:180`):
+
+```ts
+val * (1 + (i >= INCC_FROM_INSTALLMENT ? getIncc(incc, mk) : 0) / 100) * …
+```
+
+Nas quatro primeiras parcelas o fator é `1 + 0/100 = 1` — valor nominal.
+Da quinta em diante aplica o **acumulado** do mês (`getIncc` devolve `row.ac`,
+`incc.ts:22–25`), não a variação mensal; mês sem linha na tabela devolve `0`,
+isto é, sem correção.
+
+**O porquê é regra de negócio, documentada em `docs/SPEC.md`:**
+
+| Linha | Texto |
+|---|---|
+| `SPEC.md:29` | *"**INCC** — Índice Nacional de Custo da Construção — corrige parcelas a partir da 5ª (ver §6)."* |
+| `SPEC.md:182` | *"**Regra de negócio:** parcelas mensais/semestrais/anuais são corrigidas pelo INCC **a partir da 5ª parcela** (`i >= 4`)."* |
+| `SPEC.md:201` | *"Correção INCC aplicada a partir da 5ª parcela."* |
+
+O código não justifica a escolha além do comentário de uma linha; a
+justificativa documental é a SPEC, que a trata como regra do contrato, não
+como derivação de cálculo.
+
+**A constante é declarada duas vezes, em arquivos diferentes, e nenhuma é
+exportada:**
+
+| Arquivo:linha | Declaração | Usada em |
+|---|---|---|
+| `calc/projection.ts:43` | `const INCC_FROM_INSTALLMENT = 4;` | `calcProjection` (`:66`) e `calcProjectionBySource` (`:180`) |
+| `calc/simulator.ts:55` | `const INCC_FROM_INSTALLMENT = 4;` | `:102` |
+
+São duas cópias do mesmo número, sem `export` e sem import entre elas — mudar
+uma não muda a outra. E as duas aplicam o INCC de forma diferente:
+`projection.ts` usa `getIncc(incc, mk)` (acumulado do mês da parcela);
+`simulator.ts` usa `inccAc`, um acumulado próprio do simulador.
+
+### `src/lib/calc/projection.ts` · linhas 42–70
+
+A constante e o primeiro uso, em `calcProjection`.
+
+```ts
+
+const INCC_FROM_INSTALLMENT = 4; // correção a partir da 5ª parcela (i >= 4)
+
+// ───────────────────────────── projeção ─────────────────────────────────
+
+/**
+ * Projeta os recebíveis de uma unidade vendida mês a mês (matriz "MM/YYYY" →
+ * valor). Espelha `calcProj()` do protótipo: percorre a cascata de fontes,
+ * cada uma liberada pela flag da anterior, aplicando INCC nas fontes
+ * periódicas a partir da 5ª parcela. Retorna {} se a unidade não estiver
+ * vendida.
+ */
+export function calcProjection(
+  u: CalcUnit,
+  incc: readonly InccRow[] = [],
+): MonthlyProjection {
+  const proj: MonthlyProjection = {};
+  const add = (mm: string, v: number) => {
+    if (v > 0) proj[mm] = (proj[mm] || 0) + v;
+  };
+  if (u.status !== "Vendido") return proj;
+
+  const periodic = (val: number, i: number, mk: string) =>
+    Math.round(
+      val * (1 + (i >= INCC_FROM_INSTALLMENT ? getIncc(incc, mk) : 0) / 100) *
+        100,
+    ) / 100;
+
+  if (u.usarAS && u.AS.val > 0) {
+```
+
+### `src/lib/calc/projection.ts` · linhas 176–184
+
+O segundo uso, em `calcProjectionBySource`.
+
+```ts
+    if (v > 0) out[key][mm] = (out[key][mm] || 0) + v;
+  };
+  const periodic = (val: number, i: number, mk: string) =>
+    Math.round(
+      val * (1 + (i >= INCC_FROM_INSTALLMENT ? getIncc(incc, mk) : 0) / 100) * 100,
+    ) / 100;
+
+  const signals: { use: boolean; val: number; venc: string; n: number }[] = [
+    { use: u.usarAS, val: u.AS.val, venc: u.AS.venc, n: u.AS.n },
+```
+
+### `src/lib/calc/simulator.ts` · linhas 53–57
+
+A segunda declaração, em `calc/simulator.ts`.
+
+```ts
+const MESES_FLUXO = 36; // evolução de obra linear em 36 meses
+const TAXA_MENSAL = 0.01; // 1% a.m.
+const INCC_FROM_INSTALLMENT = 4; // a partir da 5ª parcela
+
+/**
+```
+
+### `src/lib/calc/simulator.ts` · linhas 98–106
+
+O uso no simulador — acumulado próprio, não `getIncc`.
+
+```ts
+    const evolucao = Math.min(100, (i + 1) * (100 / MESES_FLUXO));
+
+    const parcBase = parcMensal;
+    const parcComIncc =
+      i >= INCC_FROM_INSTALLMENT ? parcBase * (1 + inccAc / 100) : parcBase;
+
+    let parcSAC = 0;
+    let parcPRICE = 0;
+    if (tipo === "SAC") {
+```
+
+### `src/lib/calc/incc.ts` · linhas 21–25
+
+`getIncc` — devolve o ACUMULADO, ou 0 quando o mês não está na tabela.
+
+```ts
+/** Retorna o acumulado de um mês ("MM/YYYY"), ou 0 se ausente. */
+export function getIncc(rows: readonly InccRow[], month: string): number {
+  const row = rows.find((r) => r.m === month);
+  return row ? row.ac : 0;
+}
+```
