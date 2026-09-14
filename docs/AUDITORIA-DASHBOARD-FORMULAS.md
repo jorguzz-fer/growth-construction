@@ -3257,3 +3257,846 @@ export function getIncc(rows: readonly InccRow[], month: string): number {
   return row ? row.ac : 0;
 }
 ```
+
+---
+
+# APÊNDICE II — formatação, filtro de período, `reembolso` e plano padrão
+
+Terceira rodada da coleta, em `main` (commit `45f4ce3`). Sem resumo, sem
+análise.
+
+---
+
+## B1. `clampZero` e o sinal negativo
+
+
+### `src/lib/utils.ts` · linhas 9–17
+
+`clampZero` — o comentário diz o propósito.
+
+```ts
+/**
+ * Evita o "-0"/"-0,00": se o valor arredondado na precisão exibida é zero,
+ * retorna 0 positivo. Sem isso, valores como -0,004 viram "-R$ 0,00".
+ */
+export function clampZero(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  const f = 10 ** decimals;
+  return Math.round(value * f) === 0 ? 0 : value;
+}
+```
+
+### `src/lib/utils.ts` · linhas 19–57
+
+Os quatro formatadores que a chamam: `brl`, `brl0`, `pct1` e `brlk`.
+
+```ts
+/** Formata um número como moeda BRL (ex.: R$ 1.234,56). */
+export function brl(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(clampZero(value, 2));
+}
+
+/** BRL sem casas decimais (ex.: R$ 1.235). */
+export function brl0(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(clampZero(value, 0));
+}
+
+/** Percentual com 1 casa, sem "-0,0%" (ex.: 12,3%). */
+export function pct1(value: number): string {
+  const v = clampZero(value, 1);
+  return `${v.toFixed(1).replace(".", ",")}%`;
+}
+
+/**
+ * BRL compacto em milhares/milhões (ex.: R$ 46,8 mi). Implementação
+ * determinística (sem Intl compact) para evitar divergência de formatação
+ * entre servidor (Node/ICU) e navegador — que causava hydration mismatch
+ * (ex.: "R$ 0,0" vs "R$ 0").
+ */
+export function brlk(value: number): string {
+  const v = clampZero(value, 0);
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  const fix1 = (v: number) => (Math.round(v * 10) / 10).toFixed(1).replace(".", ",");
+  if (abs >= 1e9) return `${sign}R$ ${fix1(abs / 1e9)} bi`;
+  if (abs >= 1e6) return `${sign}R$ ${fix1(abs / 1e6)} mi`;
+  if (abs >= 1e3) return `${sign}R$ ${fix1(abs / 1e3)} mil`;
+  return `${sign}R$ ${Math.round(abs)}`;
+}
+```
+
+
+### B1.1 O negativo sobrevive
+
+`clampZero` **não é um clamp para zero**: apesar do nome, ela só zera o valor
+quando ele arredonda para zero na precisão exibida. Qualquer outro valor passa
+intacto, com sinal.
+
+```ts
+export function clampZero(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  const f = 10 ** decimals;
+  return Math.round(value * f) === 0 ? 0 : value;
+}
+```
+
+A condição é `Math.round(value * f) === 0`. Com `decimals = 0`, `f = 1`:
+
+| Entrada | `Math.round(v × 1)` | Devolve | `brl0` exibe |
+|---|---|---|---|
+| `-5000` | `-5000` | `-5000` | `-R$ 5.000` |
+| `-1` | `-1` | `-1` | `-R$ 1` |
+| `-0.4` | `-0` → `=== 0` é **true** | `0` | `R$ 0` |
+| `0` | `0` | `0` | `R$ 0` |
+| `NaN` / `Infinity` | — | `0` (linha 14) | `R$ 0` |
+
+O comentário do próprio código explica o alvo (`utils.ts:9–12`):
+
+> *"Evita o '-0'/'-0,00': se o valor arredondado na precisão exibida é zero,
+> retorna 0 positivo. Sem isso, valores como -0,004 viram '-R$ 0,00'."*
+
+### B1.2 Como cada formatador trata o sinal
+
+| Formatador | Precisão | Caminho do sinal |
+|---|---|---|
+| `brl0` (`utils.ts:28`) | `clampZero(value, 0)` | delega a `Intl.NumberFormat` com `style: "currency"` — o Intl produz o `-` |
+| `brlk` (`utils.ts:48`) | `clampZero(value, 0)` | **monta o sinal à mão**: `const sign = v < 0 ? "-" : ""` (linha 50), depois usa `Math.abs(v)` |
+| `brl` (`utils.ts:20`) | `clampZero(value, 2)` | Intl |
+| `pct1` (`utils.ts:37`) | `clampZero(value, 1)` | `toFixed(1)` preserva o `-` |
+
+`brlk` não usa `Intl` de propósito — o comentário das linhas 42–47 registra o
+motivo: formatação compacta determinística, para evitar *hydration mismatch*
+entre Node e navegador.
+
+### B1.3 Os dois cartões que podem ser negativos
+
+**Margem de contribuição** — `receitaAtual − custoVariavel − despesaVariavel`
+(`queries.ts:2169`), sem `Math.max`. Exibido por
+`brl0(st.margemContribuicao)` (`indicadores-obra.tsx:220`), com tom
+condicional `st.margemContribuicao >= 0 ? "good" : "warn"` (linha 222).
+
+**Geração de caixa do mês** — `liberacao − custoEstimado`
+(`medicao-bdi.ts:214`), sem `Math.max`. Exibido por `brl0(ind.geracaoCaixaMes)`
+(`indicadores-obra.tsx:137`), com tom `ind.geracaoCaixaMes >= 0 ? "good" :
+"warn"` (linha 140).
+
+Nos dois, o valor negativo chega ao `brl0` sem interceptação e sai com o `-`.
+O tom `warn` só é aplicado para `< 0` — ou seja, a interface **espera** o
+negativo e o sinaliza.
+
+Vale registrar a assimetria: um terceiro cartão, **A receber**, usa
+`Math.max(0, receitaProj − realizado)` (`page.tsx:79`) e **nunca** fica
+negativo — ali o clamp é explícito e real, diferente do `clampZero`.
+
+### `src/components/app/indicadores-obra.tsx` · linhas 218–235
+
+Os dois cartões de margem, com o tom condicional.
+
+```tsx
+          <KPI
+            label="Margem de contribuição"
+            value={brl0(st.margemContribuicao)}
+            hint="receita − custo var. − despesa var."
+            tone={st.margemContribuicao >= 0 ? "good" : "warn"}
+          />
+          <KPI
+            label="% margem de contribuição"
+            value={st.receitaPrevista > 0 ? pct(st.pctMargem * 100) : "—"}
+            hint="sobre a receita total do projeto"
+            tone={
+              st.receitaPrevista === 0
+                ? "muted"
+                : st.pctMargem >= 0
+                  ? "good"
+                  : "warn"
+            }
+          />
+```
+
+### `src/components/app/indicadores-obra.tsx` · linhas 135–142
+
+O cartão de geração de caixa.
+
+```tsx
+          <KPI
+            label="Geração de caixa do mês"
+            value={ind.temMedicao ? brl0(ind.geracaoCaixaMes) : "—"}
+            hint="liberação − custo estimado"
+            tone={
+              !ind.temMedicao ? "muted" : ind.geracaoCaixaMes >= 0 ? "good" : "warn"
+            }
+          />
+```
+
+---
+
+## B2. O `DateRangeFilter`
+
+
+### B2.1 O formato emitido é `"MM/DD/YYYY"`
+
+O filtro não formata nada por conta própria: delega ao `DateField`, e o que
+chega em `de`/`ate` é exatamente o valor interno que o `DateField` mantém.
+
+```
+DateRangeFilter                 date-range-filter.tsx
+  ├── <DateField value={localDe} onChange={setLocalDe} />     :57
+  ├── <DateField value={localAte} onChange={setLocalAte} />   :63
+  └── apply(nd, na) → params.set("de", nd) / set("ate", na)   :31–38
+
+DateField                       date-field.tsx:57–69
+  → PickerField com parse = fromBR
+       fromBR devolve `${mo}/${d}/${yyyy}`  ← MM/DD/YYYY      :17
+```
+
+O docstring do `DateField` diz isso literalmente (`date-field.tsx:52–53`):
+
+> *"Campo de data: exibe/digita SEMPRE em DD/MM/AAAA e mantém o valor interno
+> em 'MM/DD/YYYY'."*
+
+Portanto **é `"MM/DD/YYYY"`, não `"MM/YYYY"`**. O componente que emitiria
+`"MM/YYYY"` é o `MonthField` (`date-field.tsx:75`), que o `DateRangeFilter`
+não usa.
+
+Consequência para o Dashboard: `de` e `ate` chegam como data completa, e são
+passados tanto para `dateInRange` (que espera `"MM/DD/YYYY"`) quanto para
+`monthInRange` (`page.tsx:58`). Isso funciona porque `ym` aceita **2 ou 3
+partes** (`utils.ts:102–113`) — com 3, usa só mês e ano e descarta o dia.
+
+### B2.2 O que é validado, e o que não é
+
+A validação está em `fromBR` (`date-field.tsx:11–18`), o `parse` do
+`DateField`:
+
+```ts
+const fromBR = (br: string): string | null => {
+  const m = br.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mo = Number(m[2]);
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+  return `${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}/${m[3]}`;
+};
+```
+
+| Verificação | Existe? |
+|---|---|
+| formato `D/M/AAAA` com ano de 4 dígitos | **sim** — regex ancorada |
+| dia entre 1 e 31 | **sim** |
+| mês entre 1 e 12 | **sim** |
+| **dia existe naquele mês** | **NÃO** — `31/02/2026` passa e vira `"02/31/2026"` |
+| ano plausível | **não** — `01/01/0001` passa |
+| `de <= ate` | **não** — nada compara os dois campos |
+
+E o comportamento quando o texto é inválido (`date-field.tsx:128–133`):
+
+```ts
+const onText = (raw: string) => {
+  setText(raw);
+  if (raw.trim() === "") return commit("");
+  const parsed = parse(raw);
+  if (parsed !== null) commit(parsed);
+};
+```
+
+**Texto inválido não emite nada.** O `commit` só acontece com `parsed !==
+null`, então o valor interno permanece o anterior enquanto a pessoa digita
+algo incompleto. No `onBlur` (linha 154) o texto exibido volta a refletir o
+valor interno, descartando o que foi digitado. Campo vazio emite `""`, que o
+`ymd`/`ym` traduzem em "sem limite".
+
+O segundo caminho de entrada é o *date picker* nativo (`date-field.tsx:167–176`),
+cujo `onChange` chama `commit(fromNativeISO(...))` **sem passar por `parse`** —
+mas ali o navegador já garante uma data de calendário válida.
+
+### `src/components/app/date-range-filter.tsx`
+
+`DateRangeFilter` inteiro.
+
+```tsx
+"use client";
+
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { DateField } from "@/components/ui/date-field";
+import { Button } from "@/components/ui/button";
+import { dateBR } from "@/lib/utils";
+
+/**
+ * Filtro de período (Data inicial / Data final) padrão para todos os reports
+ * (exceto DRE). Persiste em `de`/`ate` na URL (formato interno MM/DD/YYYY),
+ * preservando os demais parâmetros da tela.
+ *
+ * O período escolhido NÃO é aplicado automaticamente: o usuário ajusta as datas
+ * e confirma numa janela ("Confirmar período"); só após a confirmação o
+ * dashboard é recarregado com o intervalo selecionado.
+ */
+export function DateRangeFilter({ de, ate }: { de: string; ate: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [pending, start] = useTransition();
+
+  // Rascunho local: só vira filtro aplicado após confirmação.
+  const [localDe, setLocalDe] = useState(de);
+  const [localAte, setLocalAte] = useState(ate);
+  const [confirming, setConfirming] = useState(false);
+
+  const dirty = localDe !== de || localAte !== ate;
+
+  const apply = (nd: string, na: string) => {
+    const params = new URLSearchParams(sp.toString());
+    if (nd) params.set("de", nd);
+    else params.delete("de");
+    if (na) params.set("ate", na);
+    else params.delete("ate");
+    start(() => router.push(`${pathname}?${params.toString()}`));
+  };
+
+  const confirmar = () => {
+    setConfirming(false);
+    apply(localDe, localAte);
+  };
+
+  const limpar = () => {
+    setLocalDe("");
+    setLocalAte("");
+    apply("", "");
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div>
+        <label className="mb-1 block font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+          Data inicial
+        </label>
+        <DateField value={localDe} onChange={setLocalDe} className="h-9 w-40" />
+      </div>
+      <div>
+        <label className="mb-1 block font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+          Data final
+        </label>
+        <DateField value={localAte} onChange={setLocalAte} className="h-9 w-40" />
+      </div>
+
+      <Button
+        size="sm"
+        disabled={pending || !dirty}
+        onClick={() => setConfirming(true)}
+      >
+        Confirmar período
+      </Button>
+
+      {(de || ate || localDe || localAte) && (
+        <Button variant="ghost" size="sm" disabled={pending} onClick={limpar}>
+          Limpar período
+        </Button>
+      )}
+
+      {confirming && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setConfirming(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-[12px] bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-[var(--color-ink)]">
+              Confirmar período
+            </h3>
+            <p className="mt-2 text-[13px] text-[var(--color-ink2)]">
+              O dashboard será atualizado com o intervalo:
+            </p>
+            <p className="mt-2 font-[family-name:var(--font-mono)] text-[13px] text-[var(--color-ink)]">
+              {localDe ? dateBR(localDe) : "início"} — {localAte ? dateBR(localAte) : "fim"}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" disabled={pending} onClick={confirmar}>
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### `src/components/ui/date-field.tsx`
+
+`DateField`, `MonthField` e o `PickerField` que os dois compartilham — o arquivo inteiro.
+
+```tsx
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { cn, toISODate, fromISODate } from "@/lib/utils";
+
+// ── helpers de formatação (interno MM/DD/YYYY ↔ exibição DD/MM/AAAA) ──────
+const toBR = (internal: string) => {
+  const p = (internal || "").split("/");
+  return p.length === 3 ? `${p[1].padStart(2, "0")}/${p[0].padStart(2, "0")}/${p[2]}` : "";
+};
+const fromBR = (br: string): string | null => {
+  const m = br.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mo = Number(m[2]);
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+  return `${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}/${m[3]}`;
+};
+
+const monthToBR = (internal: string) => {
+  const p = (internal || "").split("/");
+  return p.length === 2 ? `${p[0].padStart(2, "0")}/${p[1]}` : "";
+};
+const monthFromBR = (br: string): string | null => {
+  const m = br.trim().match(/^(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const mo = Number(m[1]);
+  if (mo < 1 || mo > 12) return null;
+  return `${String(mo).padStart(2, "0")}/${m[2]}`;
+};
+const monthToISO = (internal: string) => {
+  const p = (internal || "").split("/");
+  return p.length === 2 ? `${p[1]}-${p[0].padStart(2, "0")}` : "";
+};
+const monthFromISO = (iso: string) => {
+  const p = (iso || "").split("-");
+  return p.length === 2 ? `${p[1]}/${p[0]}` : "";
+};
+
+interface BaseProps {
+  name?: string;
+  value?: string;
+  defaultValue?: string;
+  onChange?: (internal: string) => void;
+  disabled?: boolean;
+  id?: string;
+  required?: boolean;
+  className?: string;
+}
+
+/**
+ * Campo de data: exibe/digita SEMPRE em DD/MM/AAAA e mantém o valor interno em
+ * "MM/DD/YYYY". O botão de calendário abre o Date Picker nativo (moderno,
+ * acessível) via showPicker(); a digitação é permitida como recurso
+ * complementar. Uso controlado (`value`+`onChange`) ou em <form> (`name`).
+ */
+export function DateField(props: BaseProps) {
+  return (
+    <PickerField
+      {...props}
+      display={toBR}
+      parse={fromBR}
+      toNativeISO={toISODate}
+      fromNativeISO={fromISODate}
+      nativeType="date"
+      placeholder="dd/mm/aaaa"
+    />
+  );
+}
+
+/**
+ * Campo de competência/mês: exibe/digita em MM/AAAA e mantém o valor interno em
+ * "MM/YYYY". Botão abre o seletor de mês nativo.
+ */
+export function MonthField(props: BaseProps) {
+  return (
+    <PickerField
+      {...props}
+      display={monthToBR}
+      parse={monthFromBR}
+      toNativeISO={monthToISO}
+      fromNativeISO={monthFromISO}
+      nativeType="month"
+      placeholder="mm/aaaa"
+    />
+  );
+}
+
+function PickerField({
+  name,
+  value,
+  defaultValue,
+  onChange,
+  disabled,
+  id,
+  required,
+  className,
+  display,
+  parse,
+  toNativeISO,
+  fromNativeISO,
+  nativeType,
+  placeholder,
+}: BaseProps & {
+  display: (internal: string) => string;
+  parse: (text: string) => string | null;
+  toNativeISO: (internal: string) => string;
+  fromNativeISO: (iso: string) => string;
+  nativeType: "date" | "month";
+  placeholder: string;
+}) {
+  const controlled = value !== undefined;
+  const [state, setState] = useState(defaultValue ?? "");
+  const internal = controlled ? value ?? "" : state;
+  const [text, setText] = useState(display(internal));
+  const nativeRef = useRef<HTMLInputElement>(null);
+
+  // Sincroniza o texto quando o valor interno muda por fora (edição controlada).
+  useEffect(() => {
+    setText(display(internal));
+  }, [internal, display]);
+
+  const commit = (next: string) => {
+    if (!controlled) setState(next);
+    onChange?.(next);
+  };
+
+  const onText = (raw: string) => {
+    setText(raw);
+    if (raw.trim() === "") return commit("");
+    const parsed = parse(raw);
+    if (parsed !== null) commit(parsed);
+  };
+
+  const openPicker = () => {
+    const el = nativeRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === "function") el.showPicker();
+    else el.focus();
+  };
+
+  return (
+    <div className={cn("relative flex items-stretch", className)}>
+      {name && <input type="hidden" name={name} value={internal} />}
+      <input
+        type="text"
+        id={id}
+        inputMode="numeric"
+        required={required}
+        disabled={disabled}
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => onText(e.target.value)}
+        onBlur={() => setText(display(internal))}
+        className="h-9 w-full rounded-l-[8px] border border-r-0 border-[var(--color-accent2)]/20 bg-white px-3 text-sm text-[var(--color-ink)] outline-none transition-colors focus:border-[var(--color-accent2)] focus:ring-2 focus:ring-[var(--color-accent2)]/20"
+      />
+      <button
+        type="button"
+        aria-label="Abrir calendário"
+        disabled={disabled}
+        onClick={openPicker}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-r-[8px] border border-[var(--color-accent2)]/20 bg-[var(--color-surface2)] text-[var(--color-ink3)] transition-colors hover:bg-[var(--color-surface3)] disabled:opacity-50"
+      >
+        📅
+      </button>
+      {/* Date Picker nativo (só o popup) — ancorado ao botão, sem exibir texto. */}
+      <input
+        ref={nativeRef}
+        type={nativeType}
+        tabIndex={-1}
+        aria-hidden
+        disabled={disabled}
+        value={toNativeISO(internal)}
+        onChange={(e) => commit(fromNativeISO(e.target.value))}
+        className="pointer-events-none absolute bottom-0 right-0 h-0 w-9 opacity-0"
+      />
+    </div>
+  );
+}
+```
+
+---
+
+## B3. A tabela `reembolso`
+
+
+**A coluna `status` existe.** `cancelado` e data de estorno **não existem.**
+
+| Coluna | Tipo | Nulo? | Observação |
+|---|---|---|---|
+| `id` | `uuid` | não | PK |
+| `version_id` | `uuid` | **não** | FK `version`, `cascade` |
+| `tenant_id` | `uuid` | **não** | FK `tenant`, `cascade` |
+| `data` | `text` | sim | *"data REAL 'MM/DD/YYYY'"* |
+| `origem` | `text` | sim | |
+| `valor` | `numeric(15,2)` | sim | **sem `.notNull()` e sem `.default()`** |
+| `pct` | `text` | sim | percentual guardado como texto |
+| `obs` | `text` | sim | |
+| `serial` | `integer` | sim | |
+| **`status`** | **`text`** | **sim** | sem enum, sem `CHECK`, sem default |
+
+Não há: `cancelado`, `estornado`, `data_estorno`, `estornado_por`, `created_at`
+nem qualquer coluna de auditoria.
+
+Isso fecha a pergunta A6b do apêndice anterior com um fato a mais: **a coluna
+`status` existe e é ignorada.** `getReembolsos` (`queries.ts:134–141`) não a
+filtra, e `reembToCalc` (`queries.ts:161–163`) não a lê — o `map` extrai
+apenas `data` e `valor`. Qualquer que seja o conteúdo de `status`, o reembolso
+entra na receita projetada do Dashboard, da DRE e do Fluxo de Caixa.
+
+`valor` sem `notNull` e sem default significa que a coluna aceita `NULL`; o
+consumidor trata com `Number(r.valor ?? 0)` (`queries.ts:162`).
+
+### `src/lib/db/schema.ts` · linhas 462–479
+
+A tabela inteira.
+
+```ts
+/** Reembolsos da versão. Ver docs/SPEC.md §3 e §7.3. */
+export const reembolsos = pgTable("reembolso", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  versionId: uuid("version_id")
+    .notNull()
+    .references(() => versions.id, { onDelete: "cascade" }),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** data REAL "MM/DD/YYYY". */
+  data: text("data"),
+  origem: text("origem"),
+  valor: numeric("valor", { precision: 15, scale: 2 }),
+  pct: text("pct"),
+  obs: text("obs"),
+  serial: integer("serial"),
+  status: text("status"),
+});
+```
+
+### `src/lib/queries.ts` · linhas 134–141
+
+`getReembolsos` — o `where` de uma condição só.
+
+```ts
+export async function getReembolsos(
+  versionId: string,
+): Promise<ReembolsoRow[]> {
+  return db
+    .select()
+    .from(schema.reembolsos)
+    .where(eq(schema.reembolsos.versionId, versionId));
+}
+```
+
+### `src/lib/queries.ts` · linhas 159–163
+
+`reembToCalc` — o que sobrevive da linha.
+
+```ts
+// helpers de conversão para agregados
+
+export function reembToCalc(rows: ReembolsoRow[]): CalcReembolso[] {
+  return rows.map((r) => ({ data: r.data ?? "", valor: Number(r.valor ?? 0) }));
+}
+```
+
+---
+
+## B4. `emptyUnit` e `stripIdentity` — o plano padrão
+
+
+### B4.1 Onde vivem
+
+| Função | Arquivo | Exportada? |
+|---|---|---|
+| `emptyUnit` | **`src/lib/calc/__fixtures__.ts:38`** | sim |
+| `stripIdentity` | `src/lib/queries.ts:64` | **não** — local ao arquivo |
+
+Registro o que o caminho mostra: `emptyUnit` mora num arquivo chamado
+`__fixtures__.ts`, cujo docstring do primeiro export descreve o conteúdo como
+*"Usada nos testes de paridade com o cálculo original"*
+(`__fixtures__.ts:3–6`). Ela é importada por **dois arquivos de produção**:
+
+```
+src/lib/queries.ts:3      import { emptyUnit } from "./calc/__fixtures__";
+src/lib/db/seed.ts:18     import { bla401, emptyUnit } from "@/lib/calc/__fixtures__";
+```
+
+A de `queries.ts` é a que interessa aqui: alimenta `toCalcUnit`, que serve o
+Dashboard, a DRE, o Fluxo de Caixa e o Consolidado.
+
+### B4.2 O que cada uma faz
+
+`emptyUnit(code, valor = 420000)` devolve um `CalcUnit` com **a cascata
+inteira desligada**: todas as onze flags `usar*` em `false`, todos os `val` em
+`0`, todos os `venc`/`dataPrev` em `""`, `status: "Disponivel"`. Dois campos
+fogem do zero: `Subsidio.statusSub` nasce `"Aguardando Caixa"` e `valor` tem
+default `420000` — mas `toCalcUnit` sobrescreve o `valor` com o da linha do
+banco (`queries.ts:59`).
+
+`stripIdentity(u)` remove `code`, `status` e `valor` por desestruturação,
+deixando só as onze seções do plano — a forma que o JSONB guarda.
+
+### B4.3 Como `toCalcUnit` usa as duas
+
+```ts
+const base = stripIdentity(emptyUnit(row.code)) as Record<string, unknown>;
+const stored = (row.paymentPlan ?? {}) as Record<string, unknown>;
+const plan: Record<string, unknown> = { ...base };
+for (const k of Object.keys(base)) {
+  const b = base[k];
+  const s = stored[k];
+  if (b && typeof b === "object" && !Array.isArray(b)) {
+    plan[k] = s && typeof s === "object" ? { ...(b as object), ...(s as object) } : b;
+  } else if (s !== undefined) {
+    plan[k] = s;
+  }
+}
+```
+
+(`queries.ts:39–50`.) A mescla é **rasa, um nível dentro de cada seção**:
+
+- percorre as chaves do **plano padrão**, não as do salvo — seção que só
+  existe no banco e não no padrão é copiada depois, pelo laço das linhas 52–54
+  (*"Preserva chaves extras do plano salvo"*);
+- para cada seção que é objeto, faz `{ ...padrão, ...salvo }` — campo ausente
+  no salvo fica com o default; campo presente vence;
+- para escalares de topo (`usarAS`), só sobrescreve quando `s !== undefined`;
+- `row.paymentPlan` nulo vira `{}`, e o resultado é o plano padrão inteiro.
+
+Depois a função reanexa a identidade a partir da **linha do banco**, não do
+fixture (`queries.ts:55–60`): `code: row.code`, `status: row.status`,
+`valor: Number(row.valor)`.
+
+É a segunda camada de defesa mencionada em A6c: `toCalcUnit` garante o formato
+para `calcProjection`, enquanto `expandUnitReceivables` faz a leitura tolerante
+por conta própria, sem passar por aqui.
+
+### `src/lib/calc/__fixtures__.ts` · linhas 1–62
+
+`bla401` e `emptyUnit` — o arquivo de fixtures, com o docstring que descreve o propósito original.
+
+```ts
+import type { CalcUnit } from "./types";
+
+/**
+ * Unidade BLA 401 do protótipo (vendida, plano de pagamento completo).
+ * Usada nos testes de paridade com o cálculo original.
+ */
+export function bla401(): CalcUnit {
+  return {
+    code: "BLA 401",
+    status: "Vendido",
+    valor: 537027,
+    usarAS: true,
+    AS: { val: 5000, venc: "02/27/2026", n: 1, usarS1: true },
+    S1: { val: 5000, venc: "02/27/2026", n: 1, usarS2: true },
+    S2: { val: 5000, venc: "02/27/2026", n: 1, usarS3: true },
+    S3: { val: 5000, venc: "02/27/2026", n: 1, usarMens: true },
+    Mensais: { val: 5000, venc: "02/27/2026", n: 36, usarSem: true },
+    Semestrais: { val: 20000, venc: "02/27/2026", n: 6, usarAnu: true },
+    Anuais: { val: 30000, venc: "02/27/2026", n: 3, usarFGTS: true },
+    FGTS: { val: 20000, dataPrev: "02/27/2026", usarSub: true },
+    Subsidio: {
+      val: 10000,
+      dataPrev: "02/27/2026",
+      statusSub: "Recebido",
+      usarPer: true,
+    },
+    Permuta: { desc: "", val: 90000, dataPrev: "01/10/2026", usarFinanc: true },
+    Banco: {
+      valFinanc: 25000,
+      dataEntrada: "01/27/2026",
+      dataPrimParc: "01/27/2026",
+      statusFinanc: "Financiamento Aprovado",
+    },
+  };
+}
+
+/** Unidade disponível com a cascata zerada/desligada. */
+export function emptyUnit(code = "BLA X", valor = 420000): CalcUnit {
+  const off = { val: 0, venc: "", n: 0 };
+  return {
+    code,
+    status: "Disponivel",
+    valor,
+    usarAS: false,
+    AS: { ...off, usarS1: false },
+    S1: { ...off, usarS2: false },
+    S2: { ...off, usarS3: false },
+    S3: { ...off, usarMens: false },
+    Mensais: { ...off, usarSem: false },
+    Semestrais: { ...off, usarAnu: false },
+    Anuais: { ...off, usarFGTS: false },
+    FGTS: { val: 0, dataPrev: "", usarSub: false },
+    Subsidio: {
+      val: 0,
+      dataPrev: "",
+      statusSub: "Aguardando Caixa",
+      usarPer: false,
+    },
+    Permuta: { desc: "", val: 0, dataPrev: "", usarFinanc: false },
+    Banco: { valFinanc: 0, dataEntrada: "", dataPrimParc: "", statusFinanc: "" },
+  };
+}
+```
+
+### `src/lib/queries.ts` · linhas 34–70
+
+`toCalcUnit` e `stripIdentity`, lado a lado.
+
+```ts
+/** Converte uma linha de unidade do banco para o tipo consumido pelos cálculos. */
+export function toCalcUnit(row: UnitRow): CalcUnit {
+  // Mescla o plano salvo sobre um plano padrão COMPLETO. Assim, planos antigos
+  // ou parciais (com algum subobjeto ausente, ex.: sem "S2") não quebram os
+  // cálculos (dashboard, projeção, etc.) — os campos faltantes viram defaults.
+  const base = stripIdentity(emptyUnit(row.code)) as Record<string, unknown>;
+  const stored = (row.paymentPlan ?? {}) as Record<string, unknown>;
+  const plan: Record<string, unknown> = { ...base };
+  for (const k of Object.keys(base)) {
+    const b = base[k];
+    const s = stored[k];
+    if (b && typeof b === "object" && !Array.isArray(b)) {
+      plan[k] = s && typeof s === "object" ? { ...(b as object), ...(s as object) } : b;
+    } else if (s !== undefined) {
+      plan[k] = s;
+    }
+  }
+  // Preserva chaves extras do plano salvo (flags de nível superior, etc.).
+  for (const k of Object.keys(stored)) {
+    if (!(k in plan)) plan[k] = stored[k];
+  }
+  return {
+    ...(plan as Omit<CalcUnit, "code" | "status" | "valor">),
+    code: row.code,
+    status: row.status,
+    valor: Number(row.valor),
+  };
+}
+
+/** Remove os campos de identidade, deixando só o plano de pagamento (JSONB). */
+function stripIdentity(u: CalcUnit) {
+  const { code: _c, status: _s, valor: _v, ...plan } = u;
+  void _c;
+  void _s;
+  void _v;
+  return plan;
+}
+```
+
+### `src/lib/queries.ts` · linhas 1–3
+
+O import de produção que traz `emptyUnit` do `__fixtures__`.
+
+```ts
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { db, schema } from "./db";
+import { emptyUnit } from "./calc/__fixtures__";
+```
