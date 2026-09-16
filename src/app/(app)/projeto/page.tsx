@@ -78,6 +78,7 @@ export default async function ProjetoPage({
         tenantName={ctx.tenant.name}
         docsByProject={docsByProject}
         r2Configured={r2}
+        tenantCodigoMunicipio={ctx.tenant.codigoMunicipio}
         perms={{
           criar: can(ctx.perms, "projeto", "criar"),
           editar: can(ctx.perms, "projeto", "editar"),

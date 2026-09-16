@@ -16,6 +16,8 @@ import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/utils";
 import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
+import { codigoMunicipioValido } from "@/lib/calc/emitente-fiscal";
+import { naturezaPorMunicipio } from "@/lib/calc/nfse";
 
 interface Perms {
   criar: boolean;
@@ -64,6 +66,7 @@ export function ProjectManager({
   docsByProject = {},
   r2Configured = false,
   selecionadoId = "all",
+  tenantCodigoMunicipio = null,
 }: {
   projects: Project[];
   activeId: string;
@@ -74,6 +77,12 @@ export function ProjectManager({
   r2Configured?: boolean;
   /** id vindo do seletor do topo; "all" lista todos (comportamento original). */
   selecionadoId?: string;
+  /**
+   * Código IBGE do município da EMPRESA (Config › Empresa). Serve só para a
+   * tela dizer se a obra tributa dentro ou fora do município da sede — a nota
+   * em si recalcula isso no servidor.
+   */
+  tenantCodigoMunicipio?: string | null;
 }) {
   const umSo = selecionadoId !== "all";
   // O seletor filtra o que é EXIBIDO. `projects` continua completo, então a
@@ -109,6 +118,7 @@ export function ProjectManager({
             tenantName={tenantName}
             docs={docsByProject[p.id] ?? []}
             r2={r2Configured}
+            tenantCodigoMunicipio={tenantCodigoMunicipio}
           />
         ))}
       </section>
@@ -346,6 +356,70 @@ function DeleteButton({
   );
 }
 
+/**
+ * Mostra onde o ISS desta obra vai incidir.
+ *
+ * A natureza da operação da NFS-e não é escolha do usuário: ela sai da
+ * comparação entre o município da obra e o da sede. Exibir o resultado aqui
+ * evita a descoberta tardia — no momento da emissão — de que a nota ia sair
+ * tributada na cidade errada por falta de um código de 7 dígitos.
+ */
+function ObraIncidencia({
+  codigoObra,
+  codigoSede,
+}: {
+  codigoObra: string;
+  codigoSede?: string | null;
+}) {
+  const informado = codigoObra.trim();
+
+  if (!informado) {
+    return (
+      <span className="text-[var(--color-ink3)]">
+        Sem município da obra: a nota sairá tributada no município da empresa.
+      </span>
+    );
+  }
+
+  if (!codigoMunicipioValido(informado)) {
+    return (
+      <span className="flex flex-wrap items-center gap-2">
+        <Badge tone="danger">código inválido</Badge>
+        <span className="text-[var(--color-ink2)]">
+          O código IBGE tem 7 dígitos. A API de emissão identifica o município por
+          ele, não pelo nome da cidade.
+        </span>
+      </span>
+    );
+  }
+
+  if (!codigoSede) {
+    return (
+      <span className="flex flex-wrap items-center gap-2">
+        <Badge tone="warning">sede sem código</Badge>
+        <span className="text-[var(--color-ink2)]">
+          Cadastre o código IBGE da empresa em <strong>Config › Empresa</strong> para
+          que a natureza da operação possa ser determinada.
+        </span>
+      </span>
+    );
+  }
+
+  const fora = naturezaPorMunicipio(codigoSede, informado) === "2";
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <Badge tone={fora ? "info" : "success"}>
+        {fora ? "tributação fora do município" : "tributação no município"}
+      </Badge>
+      <span className="text-[var(--color-ink3)]">
+        {fora
+          ? "A obra fica em outro município: o ISS é devido lá, e a nota vai com natureza 2."
+          : "Obra no mesmo município da sede: ISS devido no município da empresa."}
+      </span>
+    </span>
+  );
+}
+
 function ProjectRow({
   project,
   active,
@@ -355,6 +429,7 @@ function ProjectRow({
   tenantName,
   docs,
   r2,
+  tenantCodigoMunicipio,
 }: {
   project: Project;
   active: boolean;
@@ -364,6 +439,7 @@ function ProjectRow({
   tenantName: string;
   docs: ProjetoDoc[];
   r2: boolean;
+  tenantCodigoMunicipio?: string | null;
 }) {
   const [name, setName] = useState(project.name);
   const [duration, setDuration] = useState(
@@ -386,6 +462,13 @@ function ProjectRow({
     financiamentoTerreno: numStr(project.financiamentoTerreno),
     recursosProprios: numStr(project.recursosProprios),
   });
+  const [fisc, setFisc] = useState({
+    codigoMunicipioObra: project.codigoMunicipioObra ?? "",
+    municipioObra: project.municipioObra ?? "",
+    ufObra: project.ufObra ?? "",
+    codigoObra: project.codigoObra ?? "",
+    art: project.art ?? "",
+  });
   const [pending, start] = useTransition();
   const isObra = project.kind !== "office";
   const valorGlobal = (Number(terr.valorConstrucao) || 0) + (Number(terr.valorTerreno) || 0);
@@ -402,6 +485,13 @@ function ProjectRow({
     terr.financiamentoTerreno !== numStr(project.financiamentoTerreno) ||
     terr.recursosProprios !== numStr(project.recursosProprios);
 
+  const fiscDirty =
+    fisc.codigoMunicipioObra !== (project.codigoMunicipioObra ?? "") ||
+    fisc.municipioObra !== (project.municipioObra ?? "") ||
+    fisc.ufObra !== (project.ufObra ?? "") ||
+    fisc.codigoObra !== (project.codigoObra ?? "") ||
+    fisc.art !== (project.art ?? "");
+
   const dirty =
     name.trim() !== project.name ||
     status !== project.status ||
@@ -410,7 +500,8 @@ function ProjectRow({
     startDate !== (project.startDate ?? "") ||
     endDate !== (project.endDate ?? "") ||
     clienteId !== (project.clienteId ?? "") ||
-    terrDirty;
+    terrDirty ||
+    fiscDirty;
 
   const save = () =>
     start(() =>
@@ -431,6 +522,11 @@ function ProjectRow({
         financiamentoConstrucao: terr.financiamentoConstrucao || null,
         financiamentoTerreno: terr.financiamentoTerreno || null,
         recursosProprios: terr.recursosProprios || null,
+        codigoMunicipioObra: fisc.codigoMunicipioObra || null,
+        municipioObra: fisc.municipioObra || null,
+        ufObra: fisc.ufObra || null,
+        codigoObra: fisc.codigoObra || null,
+        art: fisc.art || null,
       }),
     );
 
@@ -573,6 +669,74 @@ function ProjectRow({
                   )}
                 </strong>
               </span>
+            </div>
+          </div>
+        )}
+
+        {isObra && (
+          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
+            <h3 className="mb-1 text-[13px] font-semibold text-[var(--color-ink)]">
+              Dados fiscais da obra — NFS-e
+            </h3>
+            <p className="mb-3 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+              Na construção civil o <strong>ISS é devido no município da obra</strong> (LC
+              116/2003, art. 3º, III), que nem sempre é o da sede. Preenchido aqui, é este
+              município que entra na nota; em branco, a nota sai tributada no município da
+              empresa. Opcional — projeto que não fatura serviço não precisa.
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <Label>Município da obra</Label>
+                <Input
+                  value={fisc.municipioObra}
+                  onChange={(e) => setFisc((s) => ({ ...s, municipioObra: e.target.value }))}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+              <div>
+                <Label>Código IBGE (7 dígitos)</Label>
+                <Input
+                  value={fisc.codigoMunicipioObra}
+                  onChange={(e) =>
+                    setFisc((s) => ({ ...s, codigoMunicipioObra: e.target.value }))
+                  }
+                  placeholder="3552502"
+                  disabled={!canEdit || pending}
+                />
+              </div>
+              <div>
+                <Label>UF</Label>
+                <Input
+                  value={fisc.ufObra}
+                  onChange={(e) => setFisc((s) => ({ ...s, ufObra: e.target.value }))}
+                  maxLength={2}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+              <div>
+                <Label>Código da obra (CNO/CEI)</Label>
+                <Input
+                  value={fisc.codigoObra}
+                  onChange={(e) => setFisc((s) => ({ ...s, codigoObra: e.target.value }))}
+                  maxLength={15}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>ART / RRT do responsável técnico</Label>
+                <Input
+                  value={fisc.art}
+                  onChange={(e) => setFisc((s) => ({ ...s, art: e.target.value }))}
+                  maxLength={15}
+                  disabled={!canEdit || pending}
+                />
+              </div>
+            </div>
+            <div className="mt-3 border-t border-[var(--color-accent2)]/10 pt-3 text-[12.5px]">
+              <ObraIncidencia
+                codigoObra={fisc.codigoMunicipioObra}
+                codigoSede={tenantCodigoMunicipio}
+              />
             </div>
           </div>
         )}
