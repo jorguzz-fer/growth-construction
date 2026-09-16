@@ -13,6 +13,7 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { DEFAULT_INCC } from "@/lib/calc/constants";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { normalizarCodigoMunicipio } from "@/lib/calc/emitente-fiscal";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -168,6 +169,12 @@ export async function updateProject(
     financiamentoConstrucao?: string | number | null;
     financiamentoTerreno?: string | number | null;
     recursosProprios?: string | number | null;
+    // Dados fiscais da obra (emissão de NFS-e — ver docs/EMISSAO-NF.md).
+    codigoMunicipioObra?: string | null;
+    municipioObra?: string | null;
+    ufObra?: string | null;
+    codigoObra?: string | null;
+    art?: string | null;
   },
 ) {
   const ctx = await getActiveContext();
@@ -198,6 +205,19 @@ export async function updateProject(
     set.financiamentoTerreno = normValor(patch.financiamentoTerreno);
   if (patch.recursosProprios !== undefined)
     set.recursosProprios = normValor(patch.recursosProprios);
+  // Fiscais da obra: o código IBGE é gravado só com dígitos porque é ele, e não
+  // o nome da cidade, que a API de emissão usa para achar o município. `codigo_obra`
+  // (CNO/CEI) e `art` são limitados a 15 caracteres pela NFS-e — cortar aqui evita
+  // que a nota seja recusada depois, no meio da emissão.
+  if (patch.codigoMunicipioObra !== undefined)
+    set.codigoMunicipioObra = normalizarCodigoMunicipio(patch.codigoMunicipioObra);
+  if (patch.municipioObra !== undefined)
+    set.municipioObra = patch.municipioObra?.trim() || null;
+  if (patch.ufObra !== undefined)
+    set.ufObra = patch.ufObra?.trim().toUpperCase().slice(0, 2) || null;
+  if (patch.codigoObra !== undefined)
+    set.codigoObra = patch.codigoObra?.trim().slice(0, 15) || null;
+  if (patch.art !== undefined) set.art = patch.art?.trim().slice(0, 15) || null;
   if (Object.keys(set).length === 0) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));

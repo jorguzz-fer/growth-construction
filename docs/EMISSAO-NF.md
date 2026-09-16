@@ -91,7 +91,7 @@ provedor (empresa cadastrada, certificado A1 vinculado, município habilitado).
 
 | Fase | O que é | Estado |
 |---|---|---|
-| 1 | Cadastro fiscal do emitente (`tenant`) + dados fiscais da obra (`project`) + tela em Config › Empresa com checklist de prontidão | ✅ |
+| 1 | Cadastro fiscal do emitente (`tenant`) com checklist em Config › Empresa + dados fiscais da obra (`project`) em Config › Projetos | ✅ |
 | 2 | Motor de cálculo (`calc/nfse.ts`) e validação do emitente (`calc/emitente-fiscal.ts`), com testes | ✅ |
 | 3 | Adaptador do provedor: montagem do payload e cliente HTTP (`lib/fiscal/`) | ✅ payload e cliente; falta exercitar contra o sandbox |
 | 4 | Tabelas `nota_servico` e `nota_servico_evento`, rota de webhook, tela `/notas`, permissão no RBAC | pendente |
@@ -120,5 +120,14 @@ src/lib/fiscal/tipos.ts           contrato neutro (status, resultado, ref)
 src/lib/fiscal/nfse-payload.ts    montagem do payload (pura, testável)
 src/lib/fiscal/focus.ts           cliente HTTP — a única parte que conhece o provedor
 src/lib/actions/empresa.ts        salvarDadosFiscais
-src/app/(app)/empresa/page.tsx    cadastro fiscal + checklist
+src/app/(app)/empresa/page.tsx    cadastro fiscal do emitente + checklist
+src/lib/actions/projects.ts       updateProject — dados fiscais da obra
+src/components/app/project-manager.tsx  bloco fiscal da obra + indicação de incidência
 ```
+
+O cadastro está em duas telas porque os dados são de escopos diferentes:
+**Config › Empresa** guarda o prestador (uma vez por tenant) e **Config ›
+Projetos** guarda o município de incidência e o CNO de cada obra. O bloco do
+projeto mostra, já no cadastro, se aquela obra vai tributar dentro ou fora do
+município da sede — a descoberta tardia desse detalhe é justamente o que produz
+nota tributada na cidade errada.
