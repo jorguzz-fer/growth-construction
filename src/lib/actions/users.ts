@@ -183,6 +183,26 @@ export async function updateMemberName(
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "usuarios", "editar"))
     return { ok: false, error: "Sem permissão." };
+
+  // Garante que o alvo é membro deste tenant — mesmo padrão de
+  // `resetMemberPassword`.
+  //
+  // `user` é tabela GLOBAL: o mesmo usuário pode pertencer a várias empresas.
+  // Sem este filtro, um admin que soubesse o id renomeava usuário de OUTRA
+  // empresa, porque o `where` batia só no id. A permissão `usuarios.editar`
+  // não protegia nada aqui: ela é do tenant de quem edita, não do alvo.
+  const [m] = await db
+    .select({ userId: schema.memberships.userId })
+    .from(schema.memberships)
+    .where(
+      and(
+        eq(schema.memberships.userId, userId),
+        eq(schema.memberships.tenantId, ctx.tenant.id),
+      ),
+    )
+    .limit(1);
+  if (!m) return { ok: false, error: "Membro não encontrado." };
+
   await db
     .update(schema.users)
     .set({ name: name.trim() || null })

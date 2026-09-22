@@ -7,7 +7,7 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
-import { diffAudit } from "@/lib/audit-diff";
+import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import {
   aliquotaIssValida,
   cnpjValido,
@@ -122,6 +122,12 @@ export async function salvarDadosFiscais(formData: FormData) {
     .where(eq(schema.tenants.id, ctx.tenant.id))
     .limit(1);
 
+  // O cadastro fiscal é longo e costuma ser revisitado só para conferir. Salvar
+  // sem alterar nada não é evento: registrar produziria uma trilha de
+  // "tenant.fiscal" vazios em volta da única alteração que importa.
+  const changes = diffAudit(antes as unknown as Record<string, unknown>, valores);
+  if (!houveMudanca(changes)) return;
+
   await db
     .update(schema.tenants)
     .set(valores)
@@ -133,9 +139,7 @@ export async function salvarDadosFiscais(formData: FormData) {
     action: "tenant.fiscal",
     entity: "tenant",
     entityId: ctx.tenant.id,
-    meta: {
-      changes: diffAudit(antes as unknown as Record<string, unknown>, valores),
-    },
+    meta: { changes },
   });
   revalidatePath("/empresa");
 }
