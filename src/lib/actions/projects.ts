@@ -11,6 +11,7 @@ import {
 } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { DEFAULT_INCC } from "@/lib/calc/constants";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { normalizarCodigoMunicipio } from "@/lib/calc/emitente-fiscal";
@@ -179,7 +180,10 @@ export async function updateProject(
 ) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) return;
-  if (!ctx.projects.some((p) => p.id === projectId)) return;
+  // `ctx.projects` já vem filtrado pelo tenant — é essa a garantia de escopo
+  // aqui, e é também o estado ANTERIOR usado na auditoria abaixo.
+  const antes = ctx.projects.find((p) => p.id === projectId);
+  if (!antes) return;
 
   const set: Partial<typeof schema.projects.$inferInsert> = {};
   if (patch.name !== undefined && patch.name.trim()) set.name = patch.name.trim();
@@ -220,15 +224,27 @@ export async function updateProject(
   if (patch.art !== undefined) set.art = patch.art?.trim().slice(0, 15) || null;
   if (Object.keys(set).length === 0) return;
 
+  // A tela manda o formulário inteiro a cada Salvar, então `set` está sempre
+  // cheio — mesmo quando nada mudou. O diff é o que separa alteração real de
+  // salvamento à toa, e passa a registrar de → para em vez do valor novo solto.
+  //
+  // NOTA DE ESCOPO: o Prompt AK, Parte 2, nomeia três actions (`despesa.update`,
+  // `cliente.update`, `tenant.fiscal`). Esta é uma quarta, com exatamente o
+  // mesmo defeito, tratada aqui no mesmo formato. Declarado em
+  // docs/V2-BLOQUEIOS.md.
+  const changes = diffAudit(antes as unknown as Record<string, unknown>, set);
+
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "project.update",
-    entity: "project",
-    entityId: projectId,
-    meta: set,
-  });
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "project.update",
+      entity: "project",
+      entityId: projectId,
+      meta: { changes },
+    });
+  }
   revalidatePath("/", "layout");
 }
 

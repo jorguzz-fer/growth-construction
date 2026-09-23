@@ -7,7 +7,7 @@ import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
-import { diffAudit } from "@/lib/audit-diff";
+import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import {
   aliquotaIssValida,
   cnpjValido,
@@ -122,21 +122,27 @@ export async function salvarDadosFiscais(formData: FormData) {
     .where(eq(schema.tenants.id, ctx.tenant.id))
     .limit(1);
 
+  const changes = diffAudit(antes as unknown as Record<string, unknown>, valores);
+
   await db
     .update(schema.tenants)
     .set(valores)
     .where(eq(schema.tenants.id, ctx.tenant.id));
 
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "tenant.fiscal",
-    entity: "tenant",
-    entityId: ctx.tenant.id,
-    meta: {
-      changes: diffAudit(antes as unknown as Record<string, unknown>, valores),
-    },
-  });
+  // Diff vazio não gera linha de log (AK, Parte 2). O cadastro fiscal é longo e
+  // costuma ser revisitado só para conferir; registrar cada visita produziria
+  // uma trilha de "tenant.fiscal" vazios em volta da alteração que importa. O
+  // `update` continua rodando — ver a justificativa em `updateDespesa`.
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "tenant.fiscal",
+      entity: "tenant",
+      entityId: ctx.tenant.id,
+      meta: { changes },
+    });
+  }
   revalidatePath("/empresa");
 }
 

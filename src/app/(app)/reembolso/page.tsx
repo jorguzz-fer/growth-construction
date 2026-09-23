@@ -26,12 +26,12 @@ export default async function ReembolsoPage() {
   return (
     <>
       <PageHeader
-        title="Reembolso"
+        title="Liberação de Obra"
         subtitle="Aba própria — Data REAL + SERIAL automático"
         actions={
           canCriar ? (
             <Link href="/reembolso/novo" className={buttonVariants({ size: "sm" })}>
-              + Novo Reembolso
+              + Nova Liberação
             </Link>
           ) : undefined
         }
@@ -72,7 +72,7 @@ export default async function ReembolsoPage() {
           {rows.length === 0 ? (
             <TR>
               <TD colSpan={7} className="py-8 text-center text-[var(--color-ink4)]">
-                Nenhum reembolso lançado nesta versão.
+                Nenhuma liberação lançada nesta versão.
               </TD>
             </TR>
           ) : (
