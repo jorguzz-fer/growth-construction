@@ -227,18 +227,24 @@ export async function updateProject(
   // A tela manda o formulário inteiro a cada Salvar, então `set` está sempre
   // cheio — mesmo quando nada mudou. O diff é o que separa alteração real de
   // salvamento à toa, e passa a registrar de → para em vez do valor novo solto.
+  //
+  // NOTA DE ESCOPO: o Prompt AK, Parte 2, nomeia três actions (`despesa.update`,
+  // `cliente.update`, `tenant.fiscal`). Esta é uma quarta, com exatamente o
+  // mesmo defeito, tratada aqui no mesmo formato. Declarado em
+  // docs/V2-BLOQUEIOS.md.
   const changes = diffAudit(antes as unknown as Record<string, unknown>, set);
-  if (!houveMudanca(changes)) return;
 
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "project.update",
-    entity: "project",
-    entityId: projectId,
-    meta: { changes },
-  });
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "project.update",
+      entity: "project",
+      entityId: projectId,
+      meta: { changes },
+    });
+  }
   revalidatePath("/", "layout");
 }
 

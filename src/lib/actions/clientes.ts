@@ -7,6 +7,7 @@ import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { houveMudanca } from "@/lib/audit-diff";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 
 const s = (fd: FormData, k: string) => {
@@ -172,14 +173,21 @@ export async function updateCliente(formData: FormData) {
       if (String(de ?? "") !== String(para ?? "")) changes[k] = { de: de ?? null, para: para ?? null };
     }
   }
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "cliente.update",
-    entity: "cliente",
-    entityId: id,
-    meta: { changes },
-  });
+  // Diff vazio não gera linha de log (AK, Parte 2): o formulário manda todos os
+  // campos a cada Salvar, então reabrir o cadastro e salvar sem mexer em nada
+  // registrava um evento que não aconteceu. O `update` acima continua rodando —
+  // suprimi-lo mudaria comportamento de gravação; suprimir o log vazio não muda
+  // nada além do ruído.
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "cliente.update",
+      entity: "cliente",
+      entityId: id,
+      meta: { changes },
+    });
+  }
   revalidatePath("/clientes");
   redirect("/clientes");
 }

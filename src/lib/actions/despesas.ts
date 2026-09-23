@@ -647,20 +647,23 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
     existing as unknown as Record<string, unknown>,
     set as Record<string, unknown>,
   );
-  // Reabrir e salvar sem mexer em nada não é evento: sem esta saída, o log
-  // registrava "despesa.update" com `changes` vazio, e quem audita passava a
-  // ter que distinguir edição real de visita à tela.
-  if (!houveMudanca(changes)) return;
-
   await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "despesa.update",
-    entity: "despesa",
-    entityId: id,
-    meta: { changes },
-  });
+
+  // Diff vazio não gera linha de log (AK, Parte 2). O formulário manda as 10
+  // chaves sempre, então `set` nunca fica vazio e a guarda acima não pega o
+  // caso "reabriu e salvou sem mexer": o log registrava `{"changes":{}}`, um
+  // evento que não existiu. O `update` continua rodando — suprimi-lo mudaria
+  // comportamento de gravação; suprimir o log vazio não muda nada além do ruído.
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "despesa.update",
+      entity: "despesa",
+      entityId: id,
+      meta: { changes },
+    });
+  }
   revalidatePath("/despesas");
 }
 
