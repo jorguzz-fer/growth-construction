@@ -11,7 +11,16 @@ relatório.
 
 ---
 
-## B1 · Os 42 prompts não estão disponíveis · **trava quase tudo**
+## B1 · ~~Os 42 prompts não estão disponíveis~~ · **RESOLVIDO**
+
+**Recebidos em 23/09/2026**, num arquivo único `PROMPTS.md` (24.623 linhas, os 42
+na íntegra). A conferência contra o texto real corrigiu a AK Parte 2 já
+entregue, e os bloqueios do Bloco 0 estão extraídos e prontos para responder em
+[`V2-BLOCO0-BLOQUEIOS.md`](./V2-BLOCO0-BLOQUEIOS.md).
+
+---
+
+## B1-orig · texto original
 
 A própria Spec define os papéis dos três artefatos:
 
