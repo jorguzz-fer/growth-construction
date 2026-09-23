@@ -113,7 +113,27 @@ ou foi renomeada para algo do mockup?
 
 ---
 
-## B6 · "Liberações de Obra" — tela nova ou renomeação de "Reembolso"?
+## B6 · ~~"Liberações de Obra" — tela nova ou renomeação de "Reembolso"?~~ · **RESPONDIDO**
+
+**Resposta (23/09/2026): é renomeação.** "A antiga sessão reembolso irá se chamar
+Liberação de Obra."
+
+Executado apenas o que é **rótulo**. Três coisas mantiveram o nome antigo de
+propósito, e nenhuma delas aparece para o usuário:
+
+| O que | Por que não muda |
+|---|---|
+| `SCREENS.id = "reembolso"` | é a chave gravada em `membership.permissions`. Trocar o id órfãozaria **toda permissão já salva** |
+| A rota `/reembolso` | o id da tela é, por convenção do arquivo, o primeiro segmento da rota — e link salvo pelo usuário continua abrindo |
+| `rowKey === "Reembolso"` e a aba `Reembolso` do XLSX | são **valor de dado**: o rowKey está gravado em `budget_line`, e o nome da aba é o contrato com as planilhas que o cliente já tem. Renomear quebraria toda importação existente |
+
+Fora do escopo por ora, para não conflitar com prompts que ainda vêm: os rótulos
+em **Projeção** e **Consolidado** (telas que saem pelo Prompt AB) e em **Resumo
+Executivo** (reorganizado pelo Prompt AE).
+
+---
+
+## B6-orig · texto original da pergunta
 
 O mockup traz **Liberações de Obra** (`s10`, com a tela de cadastro `s15`) em
 Receitas, e a Spec tem o **Prompt O · Liberações de Obra**, com a decisão

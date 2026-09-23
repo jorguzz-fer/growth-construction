@@ -24,7 +24,7 @@ export default async function NovoReembolsoPage() {
     <>
       <PageHeader
         eyebrow={ctx.version.label}
-        title="Novo Reembolso"
+        title="Nova Liberação de Obra"
         subtitle="A data deve ser uma DATA REAL — o SERIAL é calculado automaticamente via INT(Data)."
       />
 
@@ -55,7 +55,7 @@ export default async function NovoReembolsoPage() {
               <Input name="obs" placeholder="" />
             </div>
             <div className="flex items-center gap-2 sm:col-span-2">
-              <Button type="submit">Salvar reembolso</Button>
+              <Button type="submit">Salvar liberação</Button>
               <a href="/reembolso" className={buttonVariants({ variant: "ghost" })}>
                 Cancelar
               </a>

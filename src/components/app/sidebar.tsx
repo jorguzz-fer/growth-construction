@@ -76,7 +76,7 @@ export function Sidebar({
         { href: "/contasreceber", label: "Contas a Receber" },
         { href: "/clientes", label: "Clientes (Compradores)" },
         { href: "/simulador", label: "Simulador" },
-        { href: "/reembolso", label: "Reembolso", badge: badges.reembolso },
+        { href: "/reembolso", label: "Liberação de Obra", badge: badges.reembolso },
         { href: "/permuta", label: "Permuta", badge: badges.permuta },
         { href: "/parametros", label: "Parâmetros / INCC" },
       ],
