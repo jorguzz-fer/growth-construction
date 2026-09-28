@@ -188,7 +188,14 @@ inteiramente no mockup. É o que dá para fazer enquanto as respostas não chega
 
 ---
 
-## B8 · A troca visual global contradiz o pacote · **aguardando decisão**
+## B8 · ~~A troca visual global contradiz o pacote~~ · **RESPONDIDO**
+
+> **Resposta (28/09/2026):** moldura primeiro; as três recomendações de B-C1,
+> B-C2 e B-C3 aprovadas; sem `PADRAO-VISUAL.md` — seguir o mockup. A moldura foi
+> implementada com tokens **aditivos**; o relatório e os conflitos novos que ela
+> revelou estão em [`V2-PROMPT-C.md`](./V2-PROMPT-C.md) e em **B9** abaixo.
+
+### B8 · texto original
 
 Em 28/09/2026 foi aprovada uma "etapa 1": trocar os valores das cores-base
 (`globals.css`) pela paleta do mockup, mudando as 41 telas de uma vez. **Parei
@@ -236,6 +243,25 @@ o app usa Outfit.
   exatamente o "criar variante" da seção 5.
 - **Prompt C em seguida** — a primeira mudança visível, e a que dá a cara nova
   ao app.
+
+---
+
+## B9 · Prompt C × mockup — onde os dois divergem · **decidido pelo mockup, confirmar**
+
+Ao implementar a moldura, o texto do Prompt C e o mockup discordam em alguns
+pontos. Como a instrução foi *"siga o mockup"*, segui o mockup — **tudo aqui é
+apresentação, reversível em minutos, sem dado nem permissão envolvidos**. O
+detalhe de cada um está em [`V2-PROMPT-C.md`](./V2-PROMPT-C.md#conflitos).
+
+| | Prompt C diz | Mockup mostra | Fiz |
+|---|---|---|---|
+| **C1** | barra lateral **clara**, "sem fundo preto" (§18) | barra **azul-marinho** `#0F1B2E` | mockup (marinho) |
+| **C2** | 6 módulos: BI, Planejamento, Receitas, Obra, **Financeiro**, **Administração** | 8: BI, Planejamento, Receitas, **Despesas**, **Caixa**, Obra, **Pessoas**, **Configurações** | mockup (Pessoas fica oculto: as telas dele não existem) |
+| **C3** | "Obra" ou "Execução" — **em aberto** (§2) | "Obra" | "Obra" |
+| **C4** | Consolidado: fica ou sai — **conflito com o Prompt AB** (§3) | não aparece | **fica**, em BI, até o AB decidir |
+| **C5** | Medição vira **um item** com abas (§7, dono: Prompt V) | um item | **dois itens** até o Prompt V fundir as telas |
+| **C6** | `/versao` pode entrar no menu (§10) | não aparece | **não entra** — decisão de exposição sua |
+| **C7** | contador do subitem Unidades: decidir (§4) | sem contadores | **mantido** (e os de Liberações e Permuta), discreto |
 
 ---
 

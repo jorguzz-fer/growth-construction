@@ -39,6 +39,26 @@
   --color-danger: #ef4444;
   --color-info: #3b82f6;
 
+  /*
+   * V2 — moldura (barra lateral + cabeçalho), do mockup V2. Tokens NOVOS, só
+   * usados pela moldura: nenhum valor acima mudou, então as telas internas
+   * ficam idênticas até o restyle de cada uma (Prompt G §5). A fonte da
+   * moldura (Inter) é aplicada direto via `var(--font-inter)`, que o next/font
+   * define no <body> — ver docs/V2-PROMPT-C.md, "Observação à parte".
+   */
+  --color-nav: #0f1b2e;
+  --color-nav2: #16243b;
+  --color-nav-active: #1e3050;
+  --color-nav-text: #b9c6da;
+  --color-nav-sub: #93a5c0;
+  --color-nav-mut: #6c7f9e;
+  --color-brand: #2563eb;
+  --color-brand-soft: #3b82f6;
+  --color-line: #e4e9f2;
+  --color-v2-ink: #16233b;
+  --color-v2-ink2: #5a6b85;
+  --color-v2-ink3: #8a98ae;
+
   --radius-DEFAULT: 8px;
   --radius-lg: 12px;
   --radius-xl: 18px;

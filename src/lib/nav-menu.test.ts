@@ -1,0 +1,177 @@
+import { describe, it, expect } from "vitest";
+import { SCREEN_IDS, defaultPermissions, type PermMatrix } from "./permissions";
+import {
+  NAV_MENU,
+  activeModuleId,
+  isItemActive,
+  permOf,
+  roleLabel,
+  visibleMenu,
+} from "./nav-menu";
+
+/**
+ * O menu antigo (sidebar.tsx antes do Prompt C), item a item: rota → chave de
+ * permissão. É a referência de não regressão — nenhuma tela pode sumir e
+ * nenhuma pode mudar de chave (seções 21 e 26 do Prompt C).
+ */
+const MENU_ANTIGO: Record<string, string> = {
+  "/budget": "budget",
+  "/forecast": "forecast",
+  "/planocontas": "planocontas",
+  "/unidades": "unidades",
+  "/contasreceber": "contasreceber",
+  "/clientes": "clientes",
+  "/simulador": "simulador",
+  "/reembolso": "reembolso",
+  "/permuta": "permuta",
+  "/parametros": "parametros",
+  "/despesas": "despesas",
+  "/contaspagar": "contaspagar",
+  "/restituicoes": "restituicoes",
+  "/acerto": "despesas",
+  "/medicaolanc": "medicaolanc",
+  "/fornecedores": "fornecedores",
+  "/contas": "contas",
+  "/estoque": "estoque",
+  "/ponto": "ponto",
+  "/caixa": "caixa",
+  "/fechamento": "fechamento",
+  "/dashboard": "dashboard",
+  "/projecao": "projecao",
+  "/consolidado": "consolidado",
+  "/balancodia": "balancodia",
+  "/dre": "dre",
+  "/fluxocaixa": "fluxocaixa",
+  "/medicao": "medicao",
+  "/resumo": "resumo",
+  "/projeto": "projeto",
+  "/numeracao": "numeracao",
+  "/empresa": "empresa",
+  "/usuarios": "usuarios",
+  "/acessos": "acessos",
+  "/acoes": "acoes",
+  "/contabilidade": "contabilidade",
+  "/diagnosticoia": "diagnosticoia",
+  "/diagnostico/categorias-invertidas": "despesas",
+  "/diagnostico/planos-recebiveis": "unidades",
+  "/backup": "backup",
+};
+
+const todos = NAV_MENU.flatMap((m) => m.items);
+
+describe("NAV_MENU — nenhuma tela se perde", () => {
+  it("tem exatamente as 40 telas do menu antigo, sem duplicata", () => {
+    const hrefs = todos.map((i) => i.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+    expect([...hrefs].sort()).toEqual(Object.keys(MENU_ANTIGO).sort());
+    expect(hrefs).toHaveLength(40);
+  });
+
+  it("cada tela mantém a mesma chave de permissão", () => {
+    for (const it of todos) expect(permOf(it), it.href).toBe(MENU_ANTIGO[it.href]);
+  });
+
+  it("toda chave existe em SCREENS (chave errada some para todos ou aparece para todos)", () => {
+    for (const it of todos) expect(SCREEN_IDS, it.href).toContain(permOf(it));
+  });
+
+  it("não traz /versao ao menu (decisão de exposição fica com o dono)", () => {
+    expect(todos.some((i) => i.href.startsWith("/versao"))).toBe(false);
+  });
+});
+
+/** Visibilidade no menu antigo: mesma regra de sempre, sobre a lista antiga. */
+function visiveisAntigo(perms: PermMatrix): string[] {
+  return Object.entries(MENU_ANTIGO)
+    .filter(([, perm]) => perms[perm]?.ver)
+    .map(([href]) => href)
+    .sort();
+}
+function visiveisNovo(perms: PermMatrix): string[] {
+  return visibleMenu(perms)
+    .flatMap((m) => m.items.map((i) => i.href))
+    .sort();
+}
+
+describe("visibleMenu — não amplia nem reduz acesso", () => {
+  for (const role of ["owner", "admin", "membro", "contador", "engenheiro"] as const) {
+    it(`papel ${role}: enxerga exatamente as mesmas telas de antes`, () => {
+      const perms = defaultPermissions(role);
+      expect(visiveisNovo(perms)).toEqual(visiveisAntigo(perms));
+    });
+  }
+
+  it("matriz personalizada: o mesmo conjunto de antes", () => {
+    const perms = defaultPermissions("contador");
+    perms.unidades = { ver: true, criar: false, editar: false, excluir: false };
+    perms.dre = { ver: false, criar: false, editar: false, excluir: false };
+    expect(visiveisNovo(perms)).toEqual(visiveisAntigo(perms));
+  });
+
+  it("módulo sem item visível some inteiro", () => {
+    const mods = visibleMenu(defaultPermissions("engenheiro")).map((m) => m.id);
+    expect(mods).toEqual(["obra"]);
+  });
+
+  it("sem permissão nenhuma, menu vazio", () => {
+    expect(visibleMenu({})).toEqual([]);
+  });
+});
+
+describe("isItemActive — prefixo na fronteira de segmento", () => {
+  it("sub-rotas mantêm o pai destacado", () => {
+    expect(isItemActive("/clientes/novo", "/clientes")).toBe(true);
+    expect(isItemActive("/clientes/abc-123", "/clientes")).toBe(true);
+    expect(isItemActive("/unidades/nova", "/unidades")).toBe(true);
+    expect(isItemActive("/unidades/42", "/unidades")).toBe(true);
+    expect(isItemActive("/permuta/novo", "/permuta")).toBe(true);
+    expect(isItemActive("/reembolso/novo", "/reembolso")).toBe(true);
+  });
+
+  it("/contas × /contaspagar × /contasreceber não se destacam mutuamente", () => {
+    expect(isItemActive("/contaspagar", "/contas")).toBe(false);
+    expect(isItemActive("/contasreceber", "/contas")).toBe(false);
+    expect(isItemActive("/contas", "/contaspagar")).toBe(false);
+    expect(isItemActive("/contasreceber", "/contaspagar")).toBe(false);
+    expect(isItemActive("/contas", "/contas")).toBe(true);
+  });
+
+  it("/medicao × /medicaolanc não se destacam mutuamente", () => {
+    expect(isItemActive("/medicaolanc", "/medicao")).toBe(false);
+    expect(isItemActive("/medicao", "/medicaolanc")).toBe(false);
+  });
+
+  it("cada conferência destaca só a si", () => {
+    const a = "/diagnostico/categorias-invertidas";
+    const b = "/diagnostico/planos-recebiveis";
+    expect(isItemActive(a, a)).toBe(true);
+    expect(isItemActive(a, b)).toBe(false);
+  });
+
+  it("nenhum par de itens do menu se destaca ao mesmo tempo", () => {
+    for (const x of todos) {
+      const ativos = todos.filter((y) => isItemActive(x.href, y.href));
+      expect(ativos.map((y) => y.href), x.href).toEqual([x.href]);
+    }
+  });
+
+  it("/perfil e rota nula não ativam nada", () => {
+    expect(activeModuleId("/perfil")).toBeNull();
+    expect(activeModuleId(null)).toBeNull();
+  });
+
+  it("módulo ativo acompanha a tela", () => {
+    expect(activeModuleId("/projeto")).toBe("planejamento");
+    expect(activeModuleId("/unidades/nova")).toBe("receitas");
+    expect(activeModuleId("/diagnosticoia")).toBe("bi");
+    expect(activeModuleId("/diagnostico/planos-recebiveis")).toBe("config");
+  });
+});
+
+describe("roleLabel", () => {
+  it("traduz os cinco papéis e deixa o desconhecido como veio", () => {
+    expect(roleLabel("owner")).toBe("Proprietário");
+    expect(roleLabel("admin")).toBe("Administrador");
+    expect(roleLabel("xyz")).toBe("xyz");
+  });
+});

@@ -2,298 +2,270 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
-import { useState } from "react";
-import { can, type PermMatrix } from "@/lib/permissions";
+import { useEffect, useRef, useState } from "react";
+import {
+  Calculator,
+  ChartColumn,
+  ChevronDown,
+  ChevronUp,
+  ChevronsLeft,
+  ChevronsRight,
+  HandCoins,
+  HardHat,
+  Receipt,
+  Settings,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import type { PermMatrix } from "@/lib/permissions";
+import {
+  activeModuleId,
+  isItemActive,
+  visibleMenu,
+  type ModuleIcon,
+  type NavBadges,
+} from "@/lib/nav-menu";
 
-interface NavItem {
-  href: string;
-  label: string;
-  badge?: number;
-  /**
-   * Módulo de permissão que governa o item, quando ele não coincide com o
-   * primeiro segmento da rota (ex.: as telas de /diagnostico, que reaproveitam
-   * as permissões de Despesas e Unidades em vez de criar módulos novos —
-   * módulo novo nasceria negado para todos os papéis já configurados).
-   */
-  perm?: string;
-}
-interface NavSection {
-  title: string;
-  items: NavItem[];
-}
+const ICONS: Record<ModuleIcon, LucideIcon> = {
+  bi: ChartColumn,
+  planejamento: Calculator,
+  receitas: HandCoins,
+  despesas: Receipt,
+  caixa: Wallet,
+  obra: HardHat,
+  config: Settings,
+};
 
 /**
- * Cor neon por módulo — as legendas do menu mudam de cor conforme o módulo,
- * destacando-se sobre o fundo escuro da sidebar. Chave = título da seção.
+ * Preferência de interface, por navegador (Prompt C §15): não toca tenant,
+ * projeto nem versão, e não se mistura com os cookies de contexto.
  */
-const MODULE_NEON: Record<string, string> = {
-  "Módulo Planejamento": "#22d3ee", // ciano
-  "Módulo Receitas": "#34ff9e", // verde
-  "Módulo Despesas": "#ff5db1", // rosa
-  "Módulo Estoque": "#ff9d3c", // laranja
-  "Controle de Ponto": "#ffe14d", // amarelo
-  "Conciliação de Caixa": "#2dd4bf", // turquesa
-  "Reports & Dashboards": "#c084fc", // roxo
-  Backup: "#f9a8d4", // rosa claro
-  Config: "#5aa9ff", // azul
-};
-const DEFAULT_NEON = "#93a3b8";
-const neonOf = (title: string): string => MODULE_NEON[title] ?? DEFAULT_NEON;
+const COLLAPSED_KEY = "growth.sidebar.collapsed";
 
 export interface SidebarProps {
-  tenantName: string;
-  userName: string;
-  userRole: string;
   perms: PermMatrix;
-  badges: { unidades: number; reembolso: number; permuta: number };
+  badges: NavBadges;
+  /** Drawer aberto em viewport pequena (estado do AppShell). */
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
 }
 
-export function Sidebar({
-  tenantName,
-  userName,
-  userRole,
-  perms,
-  badges,
-}: SidebarProps) {
+export function Sidebar({ perms, badges, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
-  const close = () => setOpen(false);
+  const menu = visibleMenu(perms);
+  const current = activeModuleId(pathname, menu);
 
-  const allSections: NavSection[] = [
-    {
-      title: "Módulo Planejamento",
-      items: [
-        { href: "/budget", label: "Lançamento Budget" },
-        { href: "/forecast", label: "Lançamento Forecast" },
-        { href: "/planocontas", label: "Plano de Contas" },
-      ],
-    },
-    {
-      title: "Módulo Receitas",
-      items: [
-        { href: "/unidades", label: "Unidades / Vendas", badge: badges.unidades },
-        { href: "/contasreceber", label: "Contas a Receber" },
-        { href: "/clientes", label: "Clientes (Compradores)" },
-        { href: "/simulador", label: "Simulador" },
-        { href: "/reembolso", label: "Liberação de Obra", badge: badges.reembolso },
-        { href: "/permuta", label: "Permuta", badge: badges.permuta },
-        { href: "/parametros", label: "Parâmetros / INCC" },
-      ],
-    },
-    {
-      title: "Módulo Despesas",
-      items: [
-        { href: "/despesas", label: "Despesas / Lançamentos" },
-        { href: "/contaspagar", label: "Contas a Pagar" },
-        { href: "/restituicoes", label: "Restituições" },
-        // Módulo 5 — pagamento único quitando várias despesas, de várias obras.
-        { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
-        { href: "/medicaolanc", label: "Lançamento de Medição" },
-        { href: "/fornecedores", label: "Fornecedores" },
-        { href: "/contas", label: "Contas Correntes" },
-      ],
-    },
-    {
-      title: "Módulo Estoque",
-      items: [{ href: "/estoque", label: "Controle de Estoques" }],
-    },
-    {
-      title: "Controle de Ponto",
-      items: [{ href: "/ponto", label: "Ponto da Obra" }],
-    },
-    {
-      title: "Conciliação de Caixa",
-      items: [
-        { href: "/caixa", label: "Caixa" },
-        { href: "/fechamento", label: "Fechamento de Caixa" },
-      ],
-    },
-    {
-      title: "Reports & Dashboards",
-      items: [
-        { href: "/dashboard", label: "Dashboard" },
-        { href: "/projecao", label: "Projeção de Receitas" },
-        { href: "/consolidado", label: "Consolidado" },
-        { href: "/balancodia", label: "Balanço do Dia" },
-        { href: "/dre", label: "DRE" },
-        { href: "/fluxocaixa", label: "Fluxo de Caixa" },
-        { href: "/medicao", label: "Medição de Obra" },
-        { href: "/resumo", label: "Resumo Executivo" },
-      ],
-    },
-    {
-      title: "Config",
-      items: [
-        { href: "/projeto", label: "Projetos" },
-        { href: "/numeracao", label: "Numeração de Despesas" },
-        { href: "/empresa", label: "Empresa" },
-        { href: "/usuarios", label: "Usuários & Acessos" },
-        { href: "/acessos", label: "Gestão de Acessos" },
-        { href: "/acoes", label: "Log de Auditoria" },
-        { href: "/contabilidade", label: "Acesso Contabilidade" },
-        { href: "/diagnosticoia", label: "Diagnóstico de IA" },
-        {
-          href: "/diagnostico/categorias-invertidas",
-          label: "Conferência de lançamentos",
-          perm: "despesas",
-        },
-        {
-          href: "/diagnostico/planos-recebiveis",
-          label: "Conferência de planos",
-          perm: "unidades",
-        },
-      ],
-    },
-    // Backup é sempre o ÚLTIMO módulo do menu.
-    {
-      title: "Backup",
-      items: [{ href: "/backup", label: "Backup & Arquivamento" }],
-    },
-  ];
+  const [collapsed, setCollapsed] = useState(false);
+  const [open, setOpen] = useState<Set<string>>(() => new Set(current ? [current] : []));
 
-  // Mostra só os itens com permissão de "Ver"; oculta seções vazias.
-  const sections = allSections
-    .map((s) => ({
-      ...s,
-      items: s.items.filter((it) =>
-        can(perms, it.perm ?? it.href.replace(/^\//, ""), "ver"),
-      ),
-    }))
-    .filter((s) => s.items.length > 0);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
+    } catch {
+      /* armazenamento indisponível: fica expandido */
+    }
+  }, []);
+
+  // Ao navegar, o módulo da tela atual fica aberto; os que o usuário abriu
+  // continuam como estão (sem "pulos").
+  useEffect(() => {
+    if (!current) return;
+    setOpen((prev) => (prev.has(current) ? prev : new Set(prev).add(current)));
+  }, [current]);
+
+  // O subitem da tela atual fica à vista mesmo no fim de uma lista longa.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    navRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [pathname, collapsed]);
+
+  // Esc fecha o drawer do celular.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseMobile();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mobileOpen, onCloseMobile]);
+
+  const persistCollapsed = (v: boolean) => {
+    setCollapsed(v);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
+    } catch {
+      /* ignora */
+    }
+  };
+
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Recolhida só no desktop; o drawer do celular sempre mostra os nomes.
+  const rail = collapsed && !mobileOpen;
 
   return (
     <>
-      {/* Barra superior mobile com hambúrguer */}
-      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-white/10 bg-[var(--color-ink)] px-4 lg:hidden">
-        <button
-          onClick={() => setOpen((o) => !o)}
-          aria-label="Menu"
-          className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white hover:bg-white/10"
-        >
-          <span className="text-xl leading-none">≡</span>
-        </button>
-        <span className="font-[family-name:var(--font-serif)] text-sm text-white">
-          {tenantName}
-        </span>
-      </div>
-
-      {/* Backdrop do drawer */}
-      {open && (
+      {mobileOpen && (
         <div
-          onClick={close}
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={onCloseMobile}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden print:hidden"
+          aria-hidden="true"
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[238px] min-w-[238px] flex-col overflow-y-auto bg-[var(--color-ink)] text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        id="app-sidebar"
+        aria-label="Menu principal"
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen flex-col bg-[var(--color-nav)] font-[family-name:var(--font-inter)] text-[var(--color-nav-text)] transition-[transform,width] duration-200 lg:static lg:translate-x-0 print:hidden ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } ${rail ? "w-[76px] min-w-[76px]" : "w-[252px] min-w-[252px]"}`}
       >
-      <div className="border-b border-white/10 px-4 py-4">
-        <div className="font-[family-name:var(--font-serif)] text-[15px]">
-          Growth Tools
-        </div>
-        <div className="mt-0.5 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] text-white/30">
-          Construction App
-        </div>
-      </div>
-
-      <Link
-        href="/empresa"
-        onClick={close}
-        className="block border-b border-white/10 px-4 py-3 hover:bg-white/5"
-        title="Editar empresa"
-      >
-        <div className="font-[family-name:var(--font-mono)] text-[8.5px] uppercase tracking-[0.12em] text-white/25">
-          Empresa
-        </div>
-        <div className="flex items-center gap-1.5 text-[13px] font-semibold text-white/90">
-          {tenantName}
-          <span className="text-[10px] text-white/40">✎</span>
-        </div>
-      </Link>
-
-      <nav className="flex-1 py-1">
-        {sections.map((sec) => {
-          const neon = neonOf(sec.title);
-          return (
-            <div key={sec.title}>
-              <div
-                className="px-4 pb-1 pt-3 font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-[0.12em] opacity-55"
-                style={{ color: neon }}
-              >
-                {sec.title}
+        <div className={`flex items-center gap-[11px] ${rail ? "justify-center px-0 py-[22px]" : "px-5 pb-5 pt-[22px]"}`}>
+          <div className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[9px] bg-white">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 2L3 7v13a1 1 0 0 0 1 1h5v-7h6v7h5a1 1 0 0 0 1-1V7l-9-5z"
+                fill="var(--color-brand)"
+              />
+            </svg>
+          </div>
+          {!rail && (
+            <div>
+              <div className="text-[19px] font-extrabold leading-none tracking-[0.2px] text-white">
+                GROWTH
               </div>
-              {sec.items.map((it) => {
-                const active = pathname === it.href;
-                return (
-                  <Link
-                    key={it.href}
-                    href={it.href}
-                    onClick={close}
-                    style={{
-                      color: neon,
-                      borderColor: active ? neon : "transparent",
-                      backgroundColor: active ? `${neon}22` : undefined,
-                      textShadow: active
-                        ? `0 0 10px ${neon}aa, 0 0 3px ${neon}`
-                        : `0 0 6px ${neon}30`,
-                    }}
-                    className={`flex items-center gap-2 border-l-2 px-4 py-2 text-[14px] font-medium tracking-tight transition-all ${
-                      active
-                        ? "opacity-100"
-                        : "opacity-65 hover:bg-white/5 hover:opacity-100"
-                    }`}
-                  >
-                    <span className="flex-1">{it.label}</span>
-                    {it.badge != null && it.badge > 0 && (
-                      <span
-                        className="rounded-full px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px]"
-                        style={{ backgroundColor: `${neon}33`, color: neon }}
-                      >
-                        {it.badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
+              <div className="mt-1 text-[9.5px] tracking-[2.2px] text-[var(--color-nav-mut)]">
+                CONSTRUCTION
+              </div>
             </div>
-          );
-        })}
-      </nav>
+          )}
+        </div>
 
-      <div className="mt-auto border-t border-white/10 p-3">
-        <Link
-          href="/perfil"
-          onClick={close}
-          className="flex items-center gap-2 rounded-[8px] px-1 py-1 hover:bg-white/5"
-        >
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-accent2)]/40 text-[10px] font-semibold">
-            {userName.slice(0, 2).toUpperCase()}
+        {!rail && (
+          <div className="px-5 pb-2.5 pt-1.5 text-[11px] tracking-[1.6px] text-[var(--color-nav-mut)]">
+            MENU
           </div>
-          <div>
-            <div className="text-[12px] font-medium text-white/75">
-              {userName}
-            </div>
-            <div className="font-[family-name:var(--font-mono)] text-[9px] text-white/30">
-              {userRole}
-            </div>
-          </div>
-        </Link>
-        <button
-          onClick={async () => {
-            // Redirect no cliente (relativo): atrás do proxy, o callbackUrl
-            // resolvido no servidor apontava para o host interno (0.0.0.0).
-            await signOut({ redirect: false });
-            window.location.href = "/login";
-          }}
-          className="mt-1 w-full rounded-[8px] px-2 py-1.5 text-left text-[11px] text-white/40 hover:bg-white/5 hover:text-white/70"
-        >
-          Sair
-        </button>
-      </div>
+        )}
+
+        <nav ref={navRef} className="flex-1 overflow-y-auto px-3 pb-3">
+          {menu.map((m) => {
+            const Icon = ICONS[m.icon];
+            const isCurrent = m.id === current;
+            const isOpen = open.has(m.id);
+            const panelId = `nav-mod-${m.id}`;
+
+            if (rail) {
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  title={m.label}
+                  aria-label={m.label}
+                  onClick={() => {
+                    persistCollapsed(false);
+                    setOpen((prev) => new Set(prev).add(m.id));
+                  }}
+                  className={`relative mb-0.5 flex h-11 w-full items-center justify-center rounded-[9px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-brand-soft)] ${
+                    isCurrent
+                      ? "bg-[var(--color-nav-active)] text-white"
+                      : "hover:bg-[var(--color-nav2)] hover:text-[#E8EEF8]"
+                  }`}
+                >
+                  {isCurrent && (
+                    <span className="absolute -left-3 bottom-[9px] top-[9px] w-[3px] rounded-r-[3px] bg-[var(--color-brand-soft)]" />
+                  )}
+                  <Icon className="h-[19px] w-[19px]" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              );
+            }
+
+            return (
+              <div key={m.id}>
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  onClick={() => toggle(m.id)}
+                  className={`relative mb-0.5 flex w-full items-center gap-3 rounded-[9px] px-3 py-[11px] text-left text-[15.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-brand-soft)] ${
+                    isCurrent
+                      ? "bg-[var(--color-nav-active)] font-semibold text-white"
+                      : "font-medium hover:bg-[var(--color-nav2)] hover:text-[#E8EEF8]"
+                  }`}
+                >
+                  {isCurrent && (
+                    <span className="absolute -left-3 bottom-[9px] top-[9px] w-[3px] rounded-r-[3px] bg-[var(--color-brand-soft)]" />
+                  )}
+                  <Icon className="h-[19px] w-[19px] flex-none opacity-90" strokeWidth={1.8} aria-hidden="true" />
+                  <span className="flex-1">{m.label}</span>
+                  {isOpen ? (
+                    <ChevronUp className="h-[13px] w-[13px] opacity-60" strokeWidth={2.4} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown className="h-[13px] w-[13px] opacity-60" strokeWidth={2.4} aria-hidden="true" />
+                  )}
+                </button>
+
+                <div id={panelId} hidden={!isOpen} className="pb-1.5 pt-0.5">
+                  {m.items.map((it) => {
+                    const active = isItemActive(pathname, it.href);
+                    const count = it.badge ? badges[it.badge] : 0;
+                    return (
+                      <Link
+                        key={it.href}
+                        href={it.href}
+                        onClick={onCloseMobile}
+                        aria-current={active ? "page" : undefined}
+                        className={`relative flex items-center rounded-[8px] py-[9px] pl-[43px] pr-3 text-[14.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-brand-soft)] ${
+                          active
+                            ? "bg-[var(--color-nav2)] font-semibold text-white"
+                            : "text-[var(--color-nav-sub)] hover:bg-[var(--color-nav2)] hover:text-[#DCE5F2]"
+                        }`}
+                      >
+                        {active && (
+                          <span className="absolute left-6 h-1.5 w-1.5 rounded-full bg-[var(--color-brand-soft)]" />
+                        )}
+                        <span className="flex-1">{it.label}</span>
+                        {count > 0 && (
+                          <span className="ml-2 rounded-full bg-white/10 px-1.5 text-[11px] font-medium text-[var(--color-nav-sub)]">
+                            {count}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className={`hidden border-t border-white/[0.07] py-3.5 lg:block ${rail ? "px-0" : "px-[18px]"}`}>
+          <button
+            type="button"
+            onClick={() => persistCollapsed(!collapsed)}
+            title={rail ? "Expandir menu" : "Recolher menu"}
+            aria-label={rail ? "Expandir menu" : "Recolher menu"}
+            className={`flex items-center gap-2.5 rounded-[8px] text-[13.5px] text-[#8FA0BC] outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--color-brand-soft)] ${
+              rail ? "mx-auto" : ""
+            }`}
+          >
+            <span className="grid h-[22px] w-[22px] place-items-center rounded-full border border-white/[0.18]">
+              {rail ? (
+                <ChevronsRight className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <ChevronsLeft className="h-3 w-3" aria-hidden="true" />
+              )}
+            </span>
+            {!rail && "Recolher menu"}
+          </button>
+        </div>
       </aside>
     </>
   );

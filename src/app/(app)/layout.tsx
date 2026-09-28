@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { mfaEnforced } from "@/lib/mfa";
@@ -8,7 +7,7 @@ import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
-import { Sidebar } from "@/components/app/sidebar";
+import { AppShell } from "@/components/app/app-shell";
 import { AccessDenied } from "@/components/app/access-denied";
 import { BackupReminder } from "@/components/app/backup-reminder";
 import { hasPendingSemesterBackup } from "@/lib/backup";
@@ -101,34 +100,20 @@ export default async function AppLayout({
     : { has: false, key: "", label: "" };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        tenantName={ctx.tenant.name}
-        userName={userName}
-        userRole={ctx.role}
-        perms={ctx.perms}
-        badges={{ unidades, reembolso, permuta }}
-      />
-      <main className="flex-1 overflow-y-auto">
-        {logoUrl && (
-          <div className="sticky top-0 z-30 hidden justify-end border-b border-[var(--color-accent2)]/12 bg-[var(--color-surface2)]/85 px-6 py-2 backdrop-blur lg:flex">
-            <Image
-              src={logoUrl}
-              alt={ctx.tenant.name}
-              width={130}
-              height={32}
-              unoptimized
-              className="max-h-8 w-auto object-contain"
-            />
-          </div>
-        )}
-        {backupPending.has && (
-          <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />
-        )}
-        <div className="mx-auto max-w-6xl px-4 pb-10 pt-20 sm:px-6 lg:pt-8">
-          {denied ? <AccessDenied /> : children}
-        </div>
-      </main>
-    </div>
+    <AppShell
+      tenantName={ctx.tenant.name}
+      logoUrl={logoUrl}
+      userName={userName}
+      userRole={ctx.role}
+      perms={ctx.perms}
+      badges={{ unidades, reembolso, permuta }}
+    >
+      {backupPending.has && (
+        <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />
+      )}
+      <div className="mx-auto max-w-6xl px-4 pb-10 pt-6 sm:px-6 lg:pt-8">
+        {denied ? <AccessDenied /> : children}
+      </div>
+    </AppShell>
   );
 }
