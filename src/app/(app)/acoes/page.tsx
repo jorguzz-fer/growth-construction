@@ -3,25 +3,47 @@ import { getAuditLog, getMembers } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import {
+  ehAlteracaoProtegida,
+  metaVisivel,
+  podeVerDadoProtegido,
+} from "@/lib/audit-mask";
 
 export const dynamic = "force-dynamic";
 
-/** Renderiza o meta de auditoria; destaca alterações campo a campo (de → para). */
+/**
+ * Renderiza o meta de auditoria; destaca alterações campo a campo (de → para).
+ *
+ * Recebe o meta JÁ MASCARADO para o papel de quem vê (`metaVisivel`). Um campo
+ * protegido chega como `AlteracaoProtegida` e aparece só como "alterado" — o
+ * leitor sabe que o dado mudou, sem ver o valor.
+ */
 function renderMeta(meta: unknown) {
   if (!meta || typeof meta !== "object") return meta ? String(meta) : "—";
   const m = meta as Record<string, unknown>;
-  const changes = m.changes as Record<string, { de: unknown; para: unknown }> | undefined;
-  if (changes && Object.keys(changes).length > 0) {
+  const changes = m.changes as Record<string, unknown> | undefined;
+  if (changes && typeof changes === "object" && Object.keys(changes).length > 0) {
     return (
       <div className="space-y-0.5">
-        {Object.entries(changes).map(([k, v]) => (
-          <div key={k}>
-            <span className="text-[var(--color-ink2)]">{k}</span>:{" "}
-            <span className="text-[var(--color-danger)]">{String(v.de ?? "—")}</span>
-            {" → "}
-            <span className="text-[var(--color-success)]">{String(v.para ?? "—")}</span>
-          </div>
-        ))}
+        {Object.entries(changes).map(([k, v]) => {
+          if (ehAlteracaoProtegida(v)) {
+            return (
+              <div key={k}>
+                <span className="text-[var(--color-ink2)]">{k}</span>:{" "}
+                <span className="italic text-[var(--color-ink3)]">alterado</span>
+              </div>
+            );
+          }
+          const alt = (v ?? {}) as { de?: unknown; para?: unknown };
+          return (
+            <div key={k}>
+              <span className="text-[var(--color-ink2)]">{k}</span>:{" "}
+              <span className="text-[var(--color-danger)]">{String(alt.de ?? "—")}</span>
+              {" → "}
+              <span className="text-[var(--color-success)]">{String(alt.para ?? "—")}</span>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -37,6 +59,7 @@ export default async function AcoesPage() {
     getMembers(ctx.tenant.id),
   ]);
   const nameById = new Map(members.map((m) => [m.userId, m.name ?? m.email]));
+  const veDadoProtegido = podeVerDadoProtegido(ctx.role);
 
   return (
     <>
@@ -44,6 +67,13 @@ export default async function AcoesPage() {
         title="Log de Auditoria"
         subtitle={`${audit.length} eventos recentes · quem alterou o quê`}
       />
+      {!veDadoProtegido && (
+        <p className="mb-3 text-xs text-[var(--color-ink3)]">
+          Dados pessoais de compradores (CPF, nascimento, renda, FGTS, score e
+          restrições de crédito) aparecem só como “alterado”. O valor é visível
+          apenas para dono e administrador.
+        </p>
+      )}
       <Table>
         <THead>
           <tr>
@@ -69,7 +99,7 @@ export default async function AcoesPage() {
                 {a.entityId ? ` · ${a.entityId.slice(0, 8)}` : ""}
               </TD>
               <TD className="max-w-[360px] font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
-                {renderMeta(a.meta)}
+                {renderMeta(metaVisivel(a.meta, ctx.role))}
               </TD>
             </TR>
           ))}

@@ -1,4 +1,8 @@
-# V2 · Bloco 0 — os bloqueios, prontos para responder
+# V2 · Bloco 0 — os bloqueios e as decisões
+
+> **As 9 decisões foram respondidas em 28/09/2026** — todas conforme a recomendação
+> apresentada em linguagem simples. As respostas estão em cada item da seção 3.
+> Continua pendente a **saída do SQL** (seção 2).
 
 Os 12 bloqueios dos quatro prompts do Bloco 0 (**AJ, AI, AF, AK**), extraídos de
 `PROMPTS.md` e conferidos contra o código em 23/09/2026.
@@ -12,7 +16,12 @@ São de dois tipos:
 
 ---
 
-## 1 · ⚠ Achado urgente — vazamento de dado pessoal que já está em produção
+## 1 · ~~⚠ Achado urgente — vazamento de dado pessoal que já está em produção~~ · **CORRIGIDO**
+
+> **Corrigido em 28/09/2026** (decisão 3.8). O Log de Auditoria passa a exibir os oito
+> campos protegidos só como "alterado" para quem não é owner ou admin. Nenhum
+> registro do `audit_log` foi alterado — a máscara é aplicada na exibição, sobre uma
+> cópia (`src/lib/audit-mask.ts`). O texto abaixo descreve o problema como era.
 
 O **BAK-2** trata o risco como hipótese:
 
@@ -121,7 +130,7 @@ default permissivo por outro adivinhado só move o problema.
 
 Para cada tela, dizer a ação: ver · criar · editar · excluir.
 
-**Resposta:**
+**Resposta (28/09/2026): opção 2 — lançamento + receita.** O `membro` alcança Despesas, Contas a Pagar, Fornecedores, Caixa, Contas Correntes, Medição, Clientes, Unidades, Contas a Receber e Permuta, com **ver, criar e editar**. **Excluir fica só com owner e admin.** DRE, Resumo Executivo e todo o módulo Configurações ficam de fora.
 
 ### 3.2 · BAJ-3 — Falta um papel entre `membro` e `contador`?
 
@@ -135,7 +144,7 @@ um **papel novo** (`operacional`), não um `membro` mais magro.
 Papel novo é migração de enum e **reatribuição de pessoas uma a uma, por
 decisão humana** — nunca por script.
 
-**Resposta:**
+**Resposta (28/09/2026): a) ajustar o `membro`.** Sem papel novo por ora — evita reclassificar pessoas uma a uma. Revisitar se faltar granularidade.
 
 ### 3.3 · BAI-1 — Ligar o MFA para todos?
 
@@ -154,7 +163,7 @@ para a **instância inteira** (não dá por tenant).
 **Recomendação do prompt:** ligar **antes do Prompt AG** — quando o sistema
 emite documento fiscal, "quem emitiu" precisa significar alguma coisa.
 
-**Resposta:**
+**Resposta (28/09/2026): b) liga antes do Emissor de NFS-e (Prompt AG).** Não liga agora. `MFA_ENFORCED` só vai para `true` quando o AG estiver pronto para ir a produção.
 
 ### 3.4 · BAI-2 — O que fazer com quem sai da empresa
 
@@ -168,7 +177,7 @@ Readmitir devolve só os defaults do papel.
 **Recomendação do prompt: a)** — é o padrão que Fornecedores já usa. Remover
 continua existindo para vínculo criado por engano.
 
-**Resposta:**
+**Resposta (28/09/2026): a) Inativar.** É a AI Parte 5, no Bloco 5. Remover continua existindo para vínculo criado por engano.
 
 ### 3.5 · BAF-2 — O que "Numeração automática ativa" deve fazer
 
@@ -182,7 +191,7 @@ a lê**. Desligar não muda nada.
 **Recomendação do prompt: b)** — numeração com efeito contábil não é
 preferência.
 
-**Resposta:**
+**Resposta (28/09/2026): b) a flag sai da tela.** A numeração de PED segue sempre automática.
 
 ### 3.6 · BAF-3 — O contador de PED é da empresa — é isso o desejado?
 
@@ -194,7 +203,7 @@ Ninguém decidiu isso explicitamente.
 - **b)** deveria ser por projeto — **não entra nesta tarefa**; vira prompt
   próprio (coluna nova na chave única e redistribuição de numeração histórica)
 
-**Resposta:**
+**Resposta (28/09/2026): a) confirmado — o contador é da empresa.** Uma sequência única, compartilhada por todos os projetos e versões.
 
 ### 3.7 · BAK-1 — As 8 actions sem rastro entram na AK, ou no prompt de cada tela?
 
@@ -218,7 +227,7 @@ Confirmei no código: as **13** funções que a AK aponta estão, todas, **sem
 **Recomendação do prompt:** entram **todas aqui** — espalhadas por sete prompts,
 a cobertura só fecharia quando o último fosse executado.
 
-**Resposta:**
+**Resposta (28/09/2026): entram todas aqui, na AK.** Registrar em cada prompt de tela que a auditoria daquela action foi feita pela AK.
 
 ### 3.8 · BAK-2 — O que nunca pode aparecer no log · ⚠ **URGENTE**
 
@@ -242,7 +251,7 @@ Responder uma vez responde as três.
 Nos dois casos a correção é **na exibição**: os registros antigos não podem ser
 alterados (regra 3.4).
 
-**Resposta:**
+**Resposta (28/09/2026):** a) **lista aprovada** — os oito campos acima. b) **i) o contador continua vendo o log**, com esses campos exibidos só como "alterado", sem valor. Owner e admin veem o valor. **Executado** — `src/lib/audit-mask.ts`.
 
 ### 3.9 · BAK-3 — O log entra no Backup?
 
@@ -259,7 +268,7 @@ que existe justamente para quando algo dá errado.
 > Atenção: se a resposta da 3.8 não estiver aplicada antes, o backup passaria a
 > levar para fora do sistema os mesmos campos sensíveis.
 
-**Resposta:**
+**Resposta (28/09/2026): a) sim, em arquivo próprio do semestre**, com os campos da 3.8 mascarados. É a AK Parte 6, no Bloco 5.
 
 ---
 
@@ -270,4 +279,5 @@ que existe justamente para quando algo dá errado.
 | AI · Parte 4 — `updateMemberName` sem filtro de tenant | ✅ em produção (PR #77). Confere com o texto do prompt |
 | AK · Parte 2 — log de evento que não aconteceu | ✅ em produção (PR #77), **corrigido** após a leitura do prompt: as três actions certas, e só o log é suprimido |
 | AO · Parte 6 — download do backup sem rastro | ✅ em produção (PR #77) |
-| Todo o resto do Bloco 0 | aguardando as respostas acima |
+| **BAK-2** — dado pessoal de comprador visível ao contador no log | ✅ corrigido (decisão 3.8) — máscara na exibição |
+| Todo o resto do Bloco 0 | decisões respondidas; aguardando a **saída do SQL** e o texto dos prompts |
