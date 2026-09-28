@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, DM_Serif_Display, DM_Mono } from "next/font/google";
+import { Outfit, DM_Serif_Display, DM_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -21,6 +21,13 @@ const dmMono = DM_Mono({
   variable: "--font-dm-mono",
 });
 
+// V2 — fonte da moldura (barra lateral e cabeçalho), conforme o mockup V2.
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-inter",
+});
+
 export const metadata: Metadata = {
   title: "Growth Tools · Construction App",
   description:
@@ -33,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body
-        className={`${outfit.variable} ${dmSerif.variable} ${dmMono.variable} antialiased`}
+        className={`${outfit.variable} ${dmSerif.variable} ${dmMono.variable} ${inter.variable} antialiased`}
       >
         {children}
       </body>
