@@ -163,7 +163,7 @@ O mockup não é ajuste de layout — é outra identidade visual:
 
 | | Hoje | Mockup |
 |---|---|---|
-| Barra lateral | clara | **escura** (`--nav:#0F1B2E`) |
+| Barra lateral | escura, quase preta (`--color-ink`, `#0d0d14`) | **azul-marinho** (`--nav:#0F1B2E`) |
 | Cor de marca | `--color-accent` | **`--brand:#2563EB`** |
 | Fundo da página | `--color-surface` | **`--page:#F4F6FA`** |
 | Tokens | `--color-ink/ink2/ink3/ink4` | `--ink/--ink-2/--ink-3` + famílias green/red/blue/lilac com `bg`/`line`/`tile` |
@@ -182,6 +182,60 @@ troca de paleta em lugar nenhum — mas ela alcança **todas as 41 telas**.
 **Ponto a favor:** essa é a única frente grande que **não depende de nenhuma
 decisão de negócio nem dos 42 prompts**. Os tokens e a estrutura do menu estão
 inteiramente no mockup. É o que dá para fazer enquanto as respostas não chegam.
+
+> **Revisto em 28/09/2026 — ver B8.** Com os prompts em mãos, a ideia de trocar a
+> paleta do app inteiro de uma vez contradiz o próprio pacote.
+
+---
+
+## B8 · A troca visual global contradiz o pacote · **aguardando decisão**
+
+Em 28/09/2026 foi aprovada uma "etapa 1": trocar os valores das cores-base
+(`globals.css`) pela paleta do mockup, mudando as 41 telas de uma vez. **Parei
+antes de alterar qualquer cor**, porque os prompts definem o contrário.
+
+**O que o pacote diz.** A mudança visual é feita **tela a tela**, cada uma no
+seu prompt, com inventário de cada botão e campo, e testes. E proíbe
+explicitamente o atalho global — Prompt G, seção 5:
+
+> Se algum componente for compartilhado com outra tela, **não alterá-lo**: criar
+> variante ou aplicar o estilo no ponto de uso. Alterar componente compartilhado
+> numa tarefa de restyle é como mudanças vazam para telas não revisadas.
+
+`globals.css` é o mais compartilhado de todos. E o motivo está na seção 4:
+*"restyle parece inofensivo e é onde funcionalidade some sem ninguém perceber"*.
+
+**A ordem que o pacote define:**
+
+1. **Prompt C — a moldura:** barra lateral, cabeçalho e o menu em 8 módulos.
+   Todo restyle de tela se refere a ela ("barra lateral escura e cabeçalho
+   conforme o Prompt C").
+2. **Cada tela**, no seu prompt, seguindo `PADRAO-VISUAL.md`.
+
+**Falta um documento.** `PADRAO-VISUAL.md` é citado 10 vezes nos prompts como o
+padrão de paleta, tipografia, espaçamento, raios e sombra — e **não está no
+pacote**. Só há fragmentos dele dentro dos prompts (cartão com borda `#E4E9F2` e
+raio 16px, campo de 40px com raio 9px, botão primário `#2563EB`, foco
+`#3B82F6`) e o próprio mockup. A tipografia também muda: o mockup usa **Inter**;
+o app usa Outfit.
+
+**Os três bloqueios do Prompt C**, com a recomendação do próprio prompt:
+
+| | Pergunta | Recomendação |
+|---|---|---|
+| **B-C1** | As duas telas de "Diagnósticos" viram um terceiro nível de menu, ou itens diretos? | **itens diretos** ("Conferência de lançamentos", "Conferência de planos") — duas telas não justificam um nível inteiro |
+| **B-C2** | Busca, notificações e ajuda aparecem no cabeçalho do mockup e **não existem no sistema**. Implementar? | **deixar de fora** — ícone que não faz nada ensina o usuário a ignorá-lo. Cada um vira prompt próprio |
+| **B-C3** | O seletor de Empresa no cabeçalho troca de empresa? | **não, por ora** — trocar de empresa é a operação mais sensível do sistema (isolamento entre tenants) e vira prompt próprio. O chevron sai |
+
+**Duas saídas compatíveis com o pacote:**
+
+- **Tokens aditivos, sem efeito visível.** Acrescentar a paleta do mockup a
+  `globals.css` como tokens **novos** (`--color-brand`, `--color-nav`, famílias
+  verde/vermelho/azul…), sem alterar nenhum valor existente. Nenhuma tela muda;
+  a moldura e cada restyle passam a usar os tokens novos no ponto de uso. É
+  exatamente o "criar variante" da seção 5.
+- **Prompt C em seguida** — a primeira mudança visível, e a que dá a cara nova
+  ao app.
 
 ---
 
