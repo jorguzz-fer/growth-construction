@@ -3,7 +3,12 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import {
+  getProjectContext,
+  getProjectVersions,
+  getTenantContext,
+  type Version,
+} from "@/lib/context";
 import { registroCasa } from "@/lib/busca";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
@@ -47,7 +52,7 @@ export async function extractExtratoPdf(
   // ("An error occurred in the Server Components render…"). Por isso RETORNAMOS
   // os erros em `error` — assim a mensagem real chega ao usuário na tela.
   const empty: ExtratoExtraido = { movimentos: [], saldoFinal: null };
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     return { ...empty, error: "Sem permissão para importar extrato." };
   }
@@ -142,10 +147,23 @@ function monthKeyFrom(d?: string | null): string | null {
 
 const cents = (v: number) => Math.round(v * 100);
 
+/**
+ * Versão de trabalho da obra da tela (Prompt A): a mesma regra que valia para
+ * a obra do cookie (Atual → padrão → mais antiga), agora para a obra que a
+ * tela informa — e só se ela for da empresa. Null = recusar a gravação.
+ */
+async function versaoDoCaixa(tenantId: string, projectId: unknown): Promise<Version | null> {
+  if (typeof projectId !== "string" || !projectId) return null;
+  return (await getProjectVersions(tenantId, projectId))?.trabalho ?? null;
+}
+const SEM_OBRA = "Escolha o projeto do caixa.";
+
 export async function addCash(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "criar")) return;
-  if (ctx.version.locked) throw new Error("Versão congelada.");
+  const version = await versaoDoCaixa(ctx.tenant.id, formData.get("projectId"));
+  if (!version) throw new Error(SEM_OBRA);
+  if (version.locked) throw new Error("Versão congelada.");
 
   // Tipo de lançamento define o sinal do valor e a categoria:
   //  - receita: entrada (+), categoria escolhida (mensais/AS/…);
@@ -176,7 +194,7 @@ export async function addCash(formData: FormData) {
   const [row] = await db
     .insert(schema.cashEntries)
     .values({
-      versionId: ctx.version.id,
+      versionId: version.id,
       tenantId: ctx.tenant.id,
       data: (formData.get("data") as string) || null,
       descricao: (formData.get("descricao") as string) || null,
@@ -214,6 +232,8 @@ export interface ImportExtratoInput {
   bankAccountId?: string | null;
   /** saldo final do extrato — atualiza o saldo da conta se informado. */
   saldoFinal?: number | null;
+  /** obra da tela (Prompt A) — os movimentos vão para a versão de trabalho dela. */
+  projectId: string;
 }
 
 export interface ImportExtratoResult {
@@ -245,11 +265,13 @@ function importSignature(
 export async function importCash(
   input: ImportExtratoInput,
 ): Promise<ImportExtratoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "criar")) {
     throw new Error("Sem permissão para importar extrato.");
   }
-  if (ctx.version.locked) throw new Error("Versão congelada.");
+  const version = await versaoDoCaixa(ctx.tenant.id, input.projectId);
+  if (!version) throw new Error(SEM_OBRA);
+  if (version.locked) throw new Error("Versão congelada.");
 
   const { rows, saldoFinal } = input;
   // Valida a conta (deve pertencer ao tenant).
@@ -287,8 +309,8 @@ export async function importCash(
 
   // Pools para conciliação automática.
   const [despesas, units] = await Promise.all([
-    getDespesas(ctx.version.id),
-    getUnits(ctx.version.id),
+    getDespesas(version.id),
+    getUnits(version.id),
   ]);
   // Despesas previstas: chave (centavos|mês) → quantidade disponível.
   const despPool = new Map<string, number>();
@@ -342,7 +364,7 @@ export async function importCash(
       conciliated++;
     }
     return {
-      versionId: ctx.version.id,
+      versionId: version.id,
       tenantId: ctx.tenant.id,
       bankAccountId,
       data: r.data || null,
@@ -398,7 +420,7 @@ export async function importCash(
 
 /** Alterna o estado de conciliação de um lançamento de caixa. */
 export async function toggleConciliado(id: string, rec: boolean) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) return;
   const [mov] = await db
     .update(schema.cashEntries)
@@ -431,7 +453,7 @@ export async function conciliarDespesa(input: {
   cashEntryId: string;
   despesaId: string;
 }): Promise<void> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão para conciliar.");
   }
@@ -503,7 +525,7 @@ export async function conciliarDespesa(input: {
  * de auditoria da operação.
  */
 export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "excluir")) {
     throw new Error("Sem permissão para desfazer conciliação.");
   }
@@ -599,7 +621,7 @@ export async function conciliarContaReceber(input: {
   cashEntryId: string;
   contaReceberId: string;
 }): Promise<void> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão para conciliar.");
   }
@@ -663,7 +685,7 @@ export async function conciliarContaReceber(input: {
  * processado, impedindo que o mesmo item seja conciliado E convertido.
  */
 export async function criarContaFromExtrato(cashEntryId: string): Promise<void> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão.");
   }
@@ -816,7 +838,7 @@ export async function matchCandidatosMovimento(
   q?: string,
 ): Promise<{ tipo: "saida" | "entrada"; candidatos: CandidatoMatch[] }> {
   const tipo: "saida" | "entrada" = Number(mov.valor) < 0 ? "saida" : "entrada";
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) return { tipo, candidatos: [] };
 
   const alvoCents = cents(Math.abs(Number(mov.valor) || 0));
@@ -943,6 +965,8 @@ export async function matchCandidatosMovimento(
 export interface PairMovimentoInput {
   mov: MovimentoTriage;
   bankAccountId?: string | null;
+  /** obra da tela (Prompt A) — o movimento novo vai para a versão de trabalho dela. */
+  projectId: string;
   alvoId: string;
   alvoTipo: "despesa" | "receita";
 }
@@ -957,11 +981,13 @@ export interface PairMovimentoInput {
 export async function pairMovimento(
   input: PairMovimentoInput,
 ): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     return { ok: false, error: "Sem permissão para conciliar." };
   }
-  if (ctx.version.locked) return { ok: false, error: "Versão congelada." };
+  const version = await versaoDoCaixa(ctx.tenant.id, input.projectId);
+  if (!version) return { ok: false, error: SEM_OBRA };
+  if (version.locked) return { ok: false, error: "Versão congelada." };
   const { mov, alvoId, alvoTipo } = input;
   const valor = Number(mov.valor);
   if (!Number.isFinite(valor) || valor === 0) {
@@ -1011,7 +1037,7 @@ export async function pairMovimento(
       const [row] = await db
         .insert(schema.cashEntries)
         .values({
-          versionId: ctx.version.id,
+          versionId: version.id,
           tenantId: ctx.tenant.id,
           bankAccountId,
           data: mov.data || null,
@@ -1069,7 +1095,10 @@ export async function pairMovimento(
 export async function criarLancamentoDoExtrato(input: {
   mov: MovimentoTriage;
   bankAccountId?: string | null;
+  /** obra do lançamento criado (despesa ou conta a receber). */
   projectId: string;
+  /** obra da tela (Prompt A) — o movimento de caixa vai para a versão de trabalho dela. */
+  caixaProjectId: string;
   /** despesa (saída) */
   fornecedorId?: string | null;
   contaCef?: string | null;
@@ -1080,11 +1109,19 @@ export async function criarLancamentoDoExtrato(input: {
   clienteId?: string | null;
   tipoReceita?: string | null;
 }): Promise<{ ok: boolean; error?: string; id?: string }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     return { ok: false, error: "Sem permissão." };
   }
-  if (ctx.version.locked) return { ok: false, error: "Versão congelada." };
+  const version = await versaoDoCaixa(ctx.tenant.id, input.caixaProjectId);
+  if (!version) return { ok: false, error: SEM_OBRA };
+  if (version.locked) return { ok: false, error: "Versão congelada." };
+  // A obra do lançamento criado também precisa ser desta empresa (Prompt A,
+  // 38). A despesa já passava por `getAtualVersion` (filtra o tenant); a conta
+  // a receber gravava o `projectId` recebido sem conferir.
+  if (!(await getProjectContext(ctx.tenant.id, input.projectId))) {
+    return { ok: false, error: "Selecione o projeto." };
+  }
 
   const valor = Number(input.mov.valor);
   if (!Number.isFinite(valor) || valor === 0) {
@@ -1125,7 +1162,7 @@ export async function criarLancamentoDoExtrato(input: {
       const [row] = await db
         .insert(schema.cashEntries)
         .values({
-          versionId: ctx.version.id,
+          versionId: version.id,
           tenantId: ctx.tenant.id,
           bankAccountId,
           data: input.mov.data || null,

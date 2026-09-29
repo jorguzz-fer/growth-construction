@@ -187,10 +187,13 @@ export function ImportExtratoButton({
   contas,
   aiConfigured = false,
   projetos = [],
+  projectId,
 }: {
   contas: Conta[];
   aiConfigured?: boolean;
   projetos?: { id: string; nome: string }[];
+  /** obra da tela (Prompt A): os movimentos de caixa vão para a versão de trabalho dela. */
+  projectId: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -326,7 +329,8 @@ export function ImportExtratoButton({
   function abrirAdicionar(r: PreviewRow) {
     setAddErro(null);
     setAddObs(r.descricao);
-    setAddProjeto(projetos[0]?.id ?? "");
+    // A obra da tela, não a primeira da lista (Prompt A, 12).
+    setAddProjeto(projectId);
     setAdicionando(r);
   }
 
@@ -343,6 +347,7 @@ export function ImportExtratoButton({
         mov: { data: r.data, descricao: r.descricao, valor: r.valor, doc: r.doc },
         bankAccountId: bankAccountId || null,
         projectId: addProjeto,
+        caixaProjectId: projectId,
         obs: addObs || null,
       });
       if (res.ok) {
@@ -368,6 +373,7 @@ export function ImportExtratoButton({
       const res = await pairMovimento({
         mov: { data: r.data, descricao: r.descricao, valor: r.valor, doc: r.doc },
         bankAccountId: bankAccountId || null,
+        projectId,
         alvoId: c.id,
         alvoTipo: c.tipo,
       });
@@ -403,6 +409,7 @@ export function ImportExtratoButton({
           rows,
           bankAccountId: bankAccountId || null,
           saldoFinal: saldo,
+          projectId,
         });
         const parts = [`${res.inserted} lançamentos importados`];
         if (res.conciliated > 0) parts.push(`${res.conciliated} conciliados automaticamente`);

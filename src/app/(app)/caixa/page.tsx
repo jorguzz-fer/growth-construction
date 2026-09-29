@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getBankAccounts,
@@ -63,9 +66,18 @@ const parseData = (d: string | null): Date | null => {
 export default async function CaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; de?: string; ate?: string; vs?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    de?: string;
+    ate?: string;
+    vs?: string;
+    proj?: string;
+    project?: string;
+  }>;
 }) {
-  const ctx = await getActiveContext();
+  // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
+  // global (Prompt A). Sem obra na URL, a aba reabre a última ou pede a escolha.
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -78,11 +90,51 @@ export default async function CaixaPage({
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
 
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const pickerProjetos = ctx.projects.map((p) => ({ id: p.id, label: p.name }));
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  const escolhido =
+    selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
+  if (!escolhido || !escolhido.trabalho) {
+    return (
+      <>
+        <PageHeader
+          title="Controle de Caixa"
+          actions={
+            <ProjectPicker projects={pickerProjetos} selected={escolhido?.project.id ?? ""} />
+          }
+        />
+        {escolhido ? (
+          // Projeto sem nenhuma versão: nada a mostrar, e nada é gravado em
+          // versão de outra obra (antes caía na obra do cookie).
+          <Card>
+            <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+              {escolhido.project.name} não possui versões. Crie a versão Atual em Versões.
+            </CardContent>
+          </Card>
+        ) : (
+          <RecuperarProjeto idsPermitidos={ctx.projects.map((p) => p.id)}>
+            <Card>
+              <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+                {ctx.projects.length === 0
+                  ? "Nenhum projeto cadastrado. Cadastre a obra em Projetos."
+                  : "Selecione um projeto para ver e lançar o caixa."}
+              </CardContent>
+            </Card>
+          </RecuperarProjeto>
+        )}
+      </>
+    );
+  }
+  const { project, versions: versoesDoProjeto, trabalho } = escolhido;
+  const projectPicker = <ProjectPicker projects={pickerProjetos} selected={project.id} />;
+
+  // Versões para comparar: só as DESTE projeto (um `vs` com versão de outra
+  // obra, que sobrou na URL ao trocar de obra, é descartado).
+  const compareVersions = resolveCompareVersions(sp.vs, versoesDoProjeto, trabalho);
   const multi = compareVersions.length > 1;
   const versionSelect = (
     <VersionMultiSelect
-      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      versions={versoesDoProjeto.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
       selected={compareVersions.map((v) => v.id)}
     />
   );
@@ -119,11 +171,13 @@ export default async function CaixaPage({
           subtitle="Comparativo de versões · movimentação real de caixa no período"
           actions={
             <div className="flex flex-wrap items-end gap-3">
+              {projectPicker}
               <DateRangeFilter de={de} ate={ate} />
               {versionSelect}
             </div>
           }
         />
+        <LembrarProjeto projectId={project.id} />
         <VersionCompareTable
           firstColLabel="Indicador"
           columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
@@ -189,6 +243,7 @@ export default async function CaixaPage({
         subtitle="Lançamentos reais + conciliação · role a faixa para ver até uma semana à frente"
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
             <Badge tone={pluggyCfg() ? "success" : "neutral"}>
               Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
@@ -197,6 +252,7 @@ export default async function CaixaPage({
           </div>
         }
       />
+      <LembrarProjeto projectId={project.id} />
 
       {/* Resumo do dia (hoje) */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -341,7 +397,8 @@ export default async function CaixaPage({
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/caixa?tab=${t.key}`}
+            // A obra (?proj=) sobrevive à troca de aba.
+            href={`/caixa?tab=${t.key}&proj=${project.id}`}
             className={`rounded-[6px] px-3 py-1.5 text-xs transition-colors ${
               t.key === tab
                 ? "bg-white text-[var(--color-ink)] shadow-sm"
@@ -359,6 +416,7 @@ export default async function CaixaPage({
           contas={contas}
           aiConfigured={aiConfigured}
           projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+          projectId={project.id}
         />
       )}
       {tab === "conciliacao" && (
@@ -369,7 +427,7 @@ export default async function CaixaPage({
           canDesfazer={canDesfazerConc}
         />
       )}
-      {tab === "previstas" && <Previstas versionId={version.id} projectId={ctx.project.id} />}
+      {tab === "previstas" && <Previstas versionId={version.id} projectId={project.id} />}
     </>
   );
 }
@@ -379,11 +437,14 @@ function Lancamentos({
   contas,
   aiConfigured,
   projetos,
+  projectId,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   contas: Awaited<ReturnType<typeof getBankAccounts>>;
   aiConfigured: boolean;
   projetos: { id: string; nome: string }[];
+  /** obra da tela: os lançamentos vão para a versão de trabalho dela. */
+  projectId: string;
 }) {
   return (
     <>
@@ -392,10 +453,12 @@ function Lancamentos({
           contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
           aiConfigured={aiConfigured}
           projetos={projetos}
+          projectId={projectId}
         />
       </div>
       <CaixaEntryForm
         contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+        projectId={projectId}
       />
       <CashTable cash={cash} withToggle={false} />
     </>
