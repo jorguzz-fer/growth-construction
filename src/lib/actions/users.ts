@@ -4,7 +4,15 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getActiveContext, type Role } from "@/lib/context";
-import { can, type PermMatrix } from "@/lib/permissions";
+import {
+  SCREENS,
+  can,
+  effectivePermissions,
+  overridesDivergentes,
+  validarMatriz,
+  type PermMatrix,
+} from "@/lib/permissions";
+import { opcoesDoTenant } from "@/lib/membro-padrao";
 import { hashPassword } from "@/lib/password";
 import { logAudit } from "@/lib/audit";
 
@@ -103,16 +111,122 @@ export async function inviteContador(formData: FormData) {
   await invite(formData, "contador");
 }
 
-/** Define os overrides de permissão granular (tela × ação) de um membro. */
+/** Lê o vínculo do membro alvo no tenant do contexto. */
+async function lerVinculo(tenantId: string, userId: string) {
+  const [m] = await db
+    .select({ role: schema.memberships.role, permissions: schema.memberships.permissions })
+    .from(schema.memberships)
+    .where(and(eq(schema.memberships.userId, userId), eq(schema.memberships.tenantId, tenantId)))
+    .limit(1);
+  return m ?? null;
+}
+
+/** Chaves gravadas que não existem mais em `SCREENS` — preservadas (AJ 2.4). */
+function chavesOrfas(perms: PermMatrix | null): PermMatrix {
+  const ids = new Set(SCREENS.map((s) => s.id));
+  const out: PermMatrix = {};
+  for (const [k, v] of Object.entries(perms ?? {})) if (!ids.has(k)) out[k] = v;
+  return out;
+}
+
+/** Diferença célula a célula entre duas matrizes efetivas, para o log. */
+function mudancas(antes: PermMatrix, depois: PermMatrix) {
+  const out: Record<string, { de: unknown; para: unknown }> = {};
+  for (const s of SCREENS) {
+    const a = antes[s.id];
+    const d = depois[s.id];
+    if (JSON.stringify(a) !== JSON.stringify(d)) out[s.id] = { de: a, para: d };
+  }
+  return out;
+}
+
+/**
+ * Define os overrides de permissão granular (tela × ação) de um membro.
+ *
+ * Prompt AJ:
+ *  - Parte 2 — grava SÓ as telas que divergem do padrão do papel; o resto
+ *    volta a ser governado pelo papel. Chaves órfãs já gravadas ficam.
+ *  - Parte 3 — ninguém edita a própria linha; owner/admin têm acesso total e
+ *    não são configuráveis; Usuários/Acessos não se concedem por override.
+ *  - Parte 4 — payload validado; devolve `{ ok, error }` em vez de falhar em
+ *    silêncio.
+ */
 export async function setMemberPermissions(
   userId: string,
   permissions: PermMatrix,
-) {
+): Promise<ActionResult> {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "acessos", "editar")) return;
+  if (!ctx || !can(ctx.perms, "acessos", "editar")) {
+    return { ok: false, error: "Sem permissão para editar acessos." };
+  }
+  if (userId === ctx.userId) {
+    return { ok: false, error: "Ninguém edita as próprias permissões — peça a outro administrador." };
+  }
+  const erro = validarMatriz(permissions);
+  if (erro) return { ok: false, error: erro };
+
+  const alvo = await lerVinculo(ctx.tenant.id, userId);
+  if (!alvo) return { ok: false, error: "Membro não encontrado nesta empresa." };
+  const role = alvo.role as Role;
+  if (role === "owner" || role === "admin") {
+    return { ok: false, error: "Owner e admin têm acesso total — não há o que configurar." };
+  }
+
+  const opts = opcoesDoTenant(ctx.tenant.id);
+  const divergentes = overridesDivergentes(role, permissions, opts);
+  const gravar: PermMatrix = { ...chavesOrfas(alvo.permissions), ...divergentes };
+  const novo = Object.keys(gravar).length > 0 ? gravar : null;
+
+  const antes = effectivePermissions(role, alvo.permissions, opts);
+  const depois = effectivePermissions(role, novo, opts);
+  const changes = mudancas(antes, depois);
+
   await db
     .update(schema.memberships)
-    .set({ permissions })
+    .set({ permissions: novo })
+    .where(
+      and(
+        eq(schema.memberships.userId, userId),
+        eq(schema.memberships.tenantId, ctx.tenant.id),
+      ),
+    );
+  if (Object.keys(changes).length > 0) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "membership.permissions",
+      entity: "membership",
+      entityId: userId,
+      meta: { changes, telasPersonalizadas: Object.keys(divergentes).length },
+    });
+  }
+  revalidatePath("/usuarios");
+  revalidatePath("/acessos");
+  return { ok: true };
+}
+
+/**
+ * "Voltar ao padrão do papel" (AJ 2.3): descarta os overrides de UM membro,
+ * por ação explícita e confirmada na tela. Nunca em lote. O log guarda a
+ * matriz descartada. Chaves órfãs ficam (inertes).
+ */
+export async function resetMemberPermissions(userId: string): Promise<ActionResult> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "acessos", "editar")) {
+    return { ok: false, error: "Sem permissão para editar acessos." };
+  }
+  if (userId === ctx.userId) {
+    return { ok: false, error: "Ninguém edita as próprias permissões — peça a outro administrador." };
+  }
+  const alvo = await lerVinculo(ctx.tenant.id, userId);
+  if (!alvo) return { ok: false, error: "Membro não encontrado nesta empresa." };
+  if (!alvo.permissions) return { ok: true };
+
+  const orfas = chavesOrfas(alvo.permissions);
+  const novo = Object.keys(orfas).length > 0 ? orfas : null;
+  await db
+    .update(schema.memberships)
+    .set({ permissions: novo })
     .where(
       and(
         eq(schema.memberships.userId, userId),
@@ -122,12 +236,14 @@ export async function setMemberPermissions(
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
-    action: "membership.permissions",
+    action: "membership.permissions.reset",
     entity: "membership",
     entityId: userId,
-    meta: permissions,
+    meta: { descartada: alvo.permissions },
   });
   revalidatePath("/usuarios");
+  revalidatePath("/acessos");
+  return { ok: true };
 }
 
 export async function changeRole(

@@ -1,0 +1,227 @@
+import { describe, it, expect } from "vitest";
+import {
+  MEMBRO_TELAS,
+  SCREENS,
+  TELAS_SO_ADMIN,
+  can,
+  defaultPermissions,
+  effectivePermissions,
+  overridesDivergentes,
+  validarMatriz,
+  type PermAction,
+  type PermMatrix,
+  type ScreenPerm,
+} from "./permissions";
+import type { Role } from "./context";
+
+const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
+const ACOES: PermAction[] = ["ver", "criar", "editar", "excluir"];
+const NONE: ScreenPerm = { ver: false, criar: false, editar: false, excluir: false };
+const VIEW: ScreenPerm = { ver: true, criar: false, editar: false, excluir: false };
+const EDIT: ScreenPerm = { ver: true, criar: true, editar: true, excluir: false };
+const FULL: ScreenPerm = { ver: true, criar: true, editar: true, excluir: true };
+
+/**
+ * ORÁCULO — a lógica de permissões exatamente como estava antes do Prompt AJ
+ * (permissions.ts no commit anterior). Serve de régua para a condição de
+ * aceite 11.1: nenhuma célula pode ir de negada para permitida.
+ */
+const CONTADOR_VE = new Set(["dre", "fluxocaixa", "medicao", "resumo", "consolidado", "planocontas", "despesas", "acoes"]);
+function antigoDefault(role: Role): PermMatrix {
+  const out: PermMatrix = {};
+  for (const s of SCREENS) {
+    if (role === "owner" || role === "admin") out[s.id] = { ...FULL };
+    else if (role === "membro") out[s.id] = s.modulo === "Config" ? { ...NONE } : { ...EDIT };
+    else if (role === "engenheiro") out[s.id] = s.id === "medicaolanc" ? { ...FULL } : { ...NONE };
+    else out[s.id] = CONTADOR_VE.has(s.id) ? { ...VIEW } : { ...NONE };
+  }
+  return out;
+}
+function antigoEfetivo(role: Role, o?: PermMatrix | null): PermMatrix {
+  const base = antigoDefault(role);
+  if (!o) return base;
+  for (const s of SCREENS) if (o[s.id]) base[s.id] = { ...base[s.id], ...o[s.id] };
+  return base;
+}
+
+/** Overrides com o FORMATO dos encontrados em produção (valores sintéticos). */
+const ro = (): PermMatrix =>
+  Object.fromEntries(
+    SCREENS.filter((s) => !["backup", "contasreceber", "diagnosticoia", "ponto"].includes(s.id)).map((s) => [
+      s.id,
+      s.modulo === "Config" ? { ...NONE } : { ...VIEW },
+    ]),
+  );
+const OVERRIDES: Record<string, PermMatrix | null> = {
+  semOverride: null,
+  soLeituraSemTelasNovas: { ...ro(), rolling: { ...VIEW } } as PermMatrix, // Felipe/Roberto
+  quaseAdmin: Object.fromEntries(SCREENS.map((s) => [s.id, { ...EDIT }])), // Islane
+  restritivo: { dre: { ...NONE }, despesas: { ...NONE } },
+  concedeUsuarios: { usuarios: { ...FULL }, acessos: { ...FULL } },
+};
+
+describe("11.1 — nenhuma célula vai de negada para permitida", () => {
+  for (const role of ROLES) {
+    for (const [nome, o] of Object.entries(OVERRIDES)) {
+      for (const membroRestrito of [false, true]) {
+        it(`${role} · ${nome} · chave ${membroRestrito ? "ligada" : "desligada"}`, () => {
+          const antes = antigoEfetivo(role, o);
+          const depois = effectivePermissions(role, o, { membroRestrito });
+          const ampliadas: string[] = [];
+          for (const s of SCREENS)
+            for (const a of ACOES)
+              if (!antes[s.id][a] && depois[s.id][a]) ampliadas.push(`${s.id}.${a}`);
+          // Única exceção declarada (AJ 3.3): owner/admin com override
+          // restritivo voltam ao acesso total que a matriz sempre prometeu.
+          // Em produção nenhum owner/admin tem override (diagnóstico 29/09).
+          if (role === "owner" || role === "admin") {
+            for (const c of ampliadas) expect(o, c).not.toBeNull();
+          } else {
+            expect(ampliadas).toEqual([]);
+          }
+        });
+      }
+    }
+  }
+});
+
+describe("11.2 — chave desligada: tudo igual a antes, fora o clamp", () => {
+  for (const role of ["membro", "contador", "engenheiro"] as Role[]) {
+    for (const [nome, o] of Object.entries(OVERRIDES)) {
+      it(`${role} · ${nome}`, () => {
+        const antes = antigoEfetivo(role, o);
+        const depois = effectivePermissions(role, o, { membroRestrito: false });
+        for (const s of SCREENS) {
+          if (TELAS_SO_ADMIN.has(s.id)) expect(depois[s.id]).toEqual(NONE);
+          else expect(depois[s.id], s.id).toEqual(antes[s.id]);
+        }
+      });
+    }
+  }
+});
+
+describe("Parte 1 — padrão novo do membro", () => {
+  const perms = defaultPermissions("membro", { membroRestrito: true });
+
+  it("não alcança os resultados da empresa", () => {
+    for (const id of ["dre", "fluxocaixa", "resumo", "dashboard", "consolidado", "projecao"]) {
+      expect(can(perms, id, "ver"), id).toBe(false);
+    }
+  });
+
+  it("alcança exatamente as 11 telas decididas, com ver/criar/editar e sem excluir", () => {
+    for (const s of SCREENS) {
+      expect(perms[s.id], s.id).toEqual(MEMBRO_TELAS.has(s.id) ? EDIT : NONE);
+    }
+    expect(MEMBRO_TELAS.size).toBe(11);
+  });
+
+  it("tela nova nasce negada (critério positivo)", () => {
+    const fora = SCREENS.filter((s) => !MEMBRO_TELAS.has(s.id) && s.modulo !== "Config");
+    expect(fora.length).toBeGreaterThan(0);
+    for (const s of fora) expect(perms[s.id]).toEqual(NONE);
+  });
+
+  it("owner, admin, contador e engenheiro não mudam com a chave", () => {
+    for (const role of ["owner", "admin", "contador", "engenheiro"] as Role[]) {
+      expect(defaultPermissions(role, { membroRestrito: true })).toEqual(defaultPermissions(role));
+    }
+  });
+});
+
+describe("Parte 2 — salvar só o que diverge", () => {
+  it("chave desligada: salvar sem mexer não grava nada", () => {
+    const m = effectivePermissions("membro", null, { membroRestrito: false });
+    expect(overridesDivergentes("membro", m, { membroRestrito: false })).toEqual({});
+    expect(overridesDivergentes("contador", defaultPermissions("contador"))).toEqual({});
+    expect(overridesDivergentes("engenheiro", defaultPermissions("engenheiro"))).toEqual({});
+  });
+
+  it("chave desligada: salvar não congela o padrão antigo — ligar a chave ainda alcança a pessoa", () => {
+    const visto = effectivePermissions("membro", null, { membroRestrito: false });
+    visto.estoque = { ...NONE }; // uma mudança qualquer
+    const gravado = overridesDivergentes("membro", visto, { membroRestrito: false });
+    expect(Object.keys(gravado)).toEqual(["estoque"]);
+    const depois = effectivePermissions("membro", gravado, { membroRestrito: true });
+    expect(depois.dashboard).toEqual(NONE); // Parte 1 alcança
+  });
+
+  it("alterar uma tela grava uma chave, não 38", () => {
+    const m = defaultPermissions("contador");
+    m.unidades = { ...VIEW };
+    expect(Object.keys(overridesDivergentes("contador", m))).toEqual(["unidades"]);
+  });
+
+  it("negação que o admin viu vale com a chave em qualquer estado (nunca amplia)", () => {
+    for (const salvoCom of [false, true]) {
+      const visto = effectivePermissions("membro", null, { membroRestrito: salvoCom });
+      visto.dre = { ...NONE };
+      const gravado = overridesDivergentes("membro", visto, { membroRestrito: salvoCom });
+      for (const vale of [false, true]) {
+        const ef = effectivePermissions("membro", gravado, { membroRestrito: vale });
+        expect(ef.dre, `salvo ${salvoCom} / vale ${vale}`).toEqual(NONE);
+      }
+    }
+  });
+
+  it("nenhum salvamento amplia, em qualquer combinação de chave", () => {
+    for (const salvoCom of [false, true]) {
+      for (const [nome, o] of Object.entries(OVERRIDES)) {
+        const visto = effectivePermissions("membro", o, { membroRestrito: salvoCom });
+        const gravado = overridesDivergentes("membro", visto, { membroRestrito: salvoCom });
+        for (const vale of [false, true]) {
+          const ef = effectivePermissions("membro", gravado, { membroRestrito: vale });
+          // Com a mesma chave, o que vale é exatamente o que foi visto.
+          if (vale === salvoCom) expect(ef, nome).toEqual(visto);
+          // Chave invertida: só pode negar mais, nunca conceder além do visto.
+          if (salvoCom !== vale) {
+            for (const s of SCREENS)
+              for (const a of ACOES) if (ef[s.id][a]) expect(visto[s.id][a], `${nome} ${s.id}.${a}`).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("depois de salvar, trocar o papel volta a governar o resto", () => {
+    const m = defaultPermissions("contador");
+    m.unidades = { ...VIEW };
+    const gravado = overridesDivergentes("contador", m);
+    const comoMembro = effectivePermissions("membro", gravado, { membroRestrito: true });
+    expect(comoMembro.despesas).toEqual(EDIT); // veio do papel, não do override
+  });
+});
+
+describe("Parte 3 — clamp de papel", () => {
+  it("membro com override de Usuários/Acessos não os alcança", () => {
+    const ef = effectivePermissions("membro", OVERRIDES.concedeUsuarios);
+    expect(can(ef, "usuarios", "ver")).toBe(false);
+    expect(can(ef, "acessos", "ver")).toBe(false);
+  });
+
+  it("owner e admin com override restritivo continuam com acesso total", () => {
+    for (const role of ["owner", "admin"] as Role[]) {
+      const ef = effectivePermissions(role, OVERRIDES.restritivo);
+      for (const s of SCREENS) expect(ef[s.id], `${role}.${s.id}`).toEqual(FULL);
+    }
+  });
+});
+
+describe("Parte 4 — validação do payload", () => {
+  it("aceita matriz válida", () => {
+    expect(validarMatriz({ dre: { ...VIEW } })).toBeNull();
+  });
+  it("recusa tela fora de SCREENS", () => {
+    expect(validarMatriz({ inventada: { ...VIEW } })).toMatch(/desconhecida/);
+  });
+  it("recusa valor não booleano", () => {
+    expect(validarMatriz({ dre: { ver: "sim", criar: false, editar: false, excluir: false } })).toMatch(/booleano/);
+  });
+  it("recusa ação sem ver", () => {
+    expect(validarMatriz({ despesas: { ver: false, criar: false, editar: false, excluir: true } })).toMatch(/exigem "ver"/);
+  });
+  it("recusa conceder Usuários/Acessos por override", () => {
+    expect(validarMatriz({ usuarios: { ...VIEW } })).toMatch(/exclusiva/);
+    expect(validarMatriz({ acessos: { ...NONE } })).toBeNull();
+  });
+});

@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { auth } from "./auth";
 import { effectivePermissions, type PermMatrix } from "./permissions";
+import { opcoesDoTenant } from "./membro-padrao";
 
 export type Tenant = typeof schema.tenants.$inferSelect;
 export type Project = typeof schema.projects.$inferSelect;
@@ -103,6 +104,6 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     userId: user.id,
     userEmail: user.email,
     role,
-    perms: effectivePermissions(role, membership.permissions ?? null),
+    perms: effectivePermissions(role, membership.permissions ?? null, opcoesDoTenant(tenant.id)),
   };
 }
