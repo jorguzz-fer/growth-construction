@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getUnitWithProject } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { UnitForm } from "@/components/app/unit-form";
@@ -14,7 +14,7 @@ export default async function EditarUnidadePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -23,11 +23,12 @@ export default async function EditarUnidadePage({
   const { id } = await params;
   const row = await getUnitWithProject(ctx.tenant.id, id);
   if (!row) notFound();
-  const project = ctx.projects.find((p) => p.id === row.projectId) ?? ctx.projects[0];
+  // A unidade já traz a obra dela (consulta filtrada pelo tenant).
+  const nomeDaObra = ctx.projects.find((p) => p.id === row.projectId)?.name ?? "";
 
   return (
     <>
-      <PageHeader eyebrow={`${project.name} · Atual`} title={`Editar ${row.code}`} />
+      <PageHeader eyebrow={`${nomeDaObra} · Atual`} title={`Editar ${row.code}`} />
       <UnitForm
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         initial={{

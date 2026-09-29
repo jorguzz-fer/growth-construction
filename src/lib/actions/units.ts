@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getAtualVersion } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
@@ -29,12 +29,16 @@ export interface SaveUnitInput {
 }
 
 export async function saveUnit(input: SaveUnitInput) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", input.id ? "editar" : "criar")) {
     throw new Error("Sem permissão para editar unidades.");
   }
-  // Sem "versão ativa": a venda é gravada na versão Atual do projeto escolhido.
-  const projectId = input.projectId || ctx.project.id;
+  // Sem "projeto ativo" (Prompt A): a venda vai para a versão Atual do projeto
+  // escolhido — obrigatório. Antes, sem projeto, caía na obra do cookie; na
+  // edição, isso MOVIA a unidade para aquela obra.
+  const projectId = input.projectId || "";
+  if (!projectId) throw new Error("Escolha o projeto da unidade.");
+  // getAtualVersion filtra o tenant: projeto de outra empresa não tem versão.
   const version = await getAtualVersion(ctx.tenant.id, projectId);
   if (!version) throw new Error("Projeto sem versão Atual.");
   if (version.locked) throw new Error("Versão congelada — edição bloqueada.");
@@ -86,7 +90,7 @@ export async function saveUnit(input: SaveUnitInput) {
   }
 
   revalidatePath("/unidades");
-  redirect("/unidades");
+  redirect(`/unidades?proj=${projectId}`);
 }
 
 export interface ImportUnitRow {
@@ -104,11 +108,12 @@ export async function importUnits(
   rows: ImportUnitRow[],
   projectId?: string,
 ): Promise<{ inserted: number }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", "criar")) {
     throw new Error("Sem permissão para importar unidades.");
   }
-  const version = await getAtualVersion(ctx.tenant.id, projectId || ctx.project.id);
+  if (!projectId) throw new Error("Escolha o projeto das unidades.");
+  const version = await getAtualVersion(ctx.tenant.id, projectId);
   if (!version) throw new Error("Projeto sem versão Atual.");
   const valid = rows.filter((r) => r.code && r.code.trim());
   if (valid.length === 0) return { inserted: 0 };
@@ -139,7 +144,7 @@ export async function importUnits(
 }
 
 export async function deleteUnit(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", "excluir")) return;
   await db
     .delete(schema.units)

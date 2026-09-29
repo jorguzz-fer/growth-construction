@@ -1,4 +1,6 @@
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { can } from "@/lib/permissions";
 import { addPermuta } from "@/lib/actions/receitas";
 import { getUnits, getClientes } from "@/lib/queries";
@@ -12,8 +14,12 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-export default async function NovoAtivoPermutaPage() {
-  const ctx = await getActiveContext();
+export default async function NovoAtivoPermutaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string; project?: string }>;
+}) {
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -27,8 +33,19 @@ export default async function NovoAtivoPermutaPage() {
     );
   }
 
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie.
+  const sp = await searchParams;
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  const escolhido =
+    selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
+  if (!escolhido?.trabalho) {
+    return <PedirProjeto titulo="Novo Ativo de Permuta" projetos={ctx.projects} oQue="cadastrar o ativo de permuta" />;
+  }
+  const { project, trabalho: version } = escolhido;
+
   const [units, clientes] = await Promise.all([
-    getUnits(ctx.version.id),
+    getUnits(version.id),
     getClientes(ctx.tenant.id),
   ]);
   const unitCodes = [...new Set(units.map((u) => u.code))].sort((a, b) =>
@@ -38,7 +55,7 @@ export default async function NovoAtivoPermutaPage() {
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
+        eyebrow={`${project.name} · ${version.label}`}
         title="Novo Ativo de Permuta"
         subtitle="VENDIDO gera receita na Projeção e atualiza o campo Permuta em Dados_de_Venda."
       />
@@ -49,6 +66,8 @@ export default async function NovoAtivoPermutaPage() {
             action={addPermuta}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
+            {/* Obra desta tela (Prompt A): o ativo vai para a versão de trabalho dela. */}
+            <input type="hidden" name="projectId" value={project.id} />
             <div>
               <Label>Unidade vendida de referência</Label>
               <Select name="unitCode" defaultValue="">
@@ -142,7 +161,7 @@ export default async function NovoAtivoPermutaPage() {
             </div>
             <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
               <Button type="submit">Salvar ativo</Button>
-              <a href="/permuta" className={buttonVariants({ variant: "ghost" })}>
+              <a href={`/permuta?proj=${project.id}`} className={buttonVariants({ variant: "ghost" })}>
                 Cancelar
               </a>
             </div>

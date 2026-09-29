@@ -8,13 +8,16 @@ import { and, eq } from "drizzle-orm";
 const HAS_DB = !!process.env.DATABASE_URL;
 
 const ctxRef: { current: unknown } = { current: null };
-vi.mock("@/lib/context", () => ({
+vi.mock("@/lib/context", async (orig) => ({
+  ...(await orig<typeof import("@/lib/context")>()),
   getActiveContext: async () => ctxRef.current,
   getTenantContext: async () => ctxRef.current,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/auth", () => ({ auth: async () => null, unstable_update: async () => null }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 
 describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async () => {
   const { db, schema } = await import("@/lib/db");
@@ -88,7 +91,7 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
 
   it("addReembolso → reembolso.create", async () => {
     const { addReembolso } = await import("./receitas");
-    await addReembolso(fd({ data: "2026-09-10", valor: "1500.50" }));
+    await addReembolso(fd({ projectId: ids.project, data: "2026-09-10", valor: "1500.50" }));
     const [r] = await db.select().from(schema.reembolsos).where(eq(schema.reembolsos.tenantId, tenantId));
     expect(r.valor).toBe("1500.50");
     const [l] = await logs("reembolso.create");
@@ -97,7 +100,7 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
 
   it("addPermuta → permuta.create", async () => {
     const { addPermuta } = await import("./receitas");
-    await addPermuta(fd({ unitCode: "101", tipo: "Terreno", estimado: "300000" }));
+    await addPermuta(fd({ projectId: ids.project, unitCode: "101", tipo: "Terreno", estimado: "300000" }));
     const [l] = await logs("permuta.create");
     expect(l.meta).toMatchObject({ unidade: "101", tipo: "Terreno" });
   });
