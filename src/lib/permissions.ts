@@ -47,6 +47,10 @@ export const SCREENS: Screen[] = [
   { id: "budget", label: "Lançamento Budget", modulo: "Planejamento" },
   { id: "forecast", label: "Lançamento Forecast", modulo: "Planejamento" },
   { id: "clientes", label: "Clientes (Compradores)", modulo: "Receitas" },
+  // Permissão de CAMPO, não de rota (Prompt M, 5.4 · BM-3): renda, FGTS, score,
+  // restrições, estado civil e inteligência de mercado do comprador. Nasce só
+  // com owner e admin — ver TELAS_SENSIVEIS.
+  { id: "clientesdados", label: "Clientes — dados financeiros e de perfil", modulo: "Receitas" },
   { id: "contasreceber", label: "Contas a Receber", modulo: "Receitas" },
   { id: "medicaolanc", label: "Lançamento de Medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
@@ -125,6 +129,14 @@ export const MEMBRO_TELAS = new Set([
  */
 export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos"]);
 
+/**
+ * Telas que nenhum padrão de papel concede além de owner/admin — mas que,
+ * diferente de TELAS_SO_ADMIN, podem ser dadas a alguém por override na Gestão
+ * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
+ * admin").
+ */
+export const TELAS_SENSIVEIS = new Set(["clientesdados"]);
+
 export interface OpcoesPermissao {
   /**
    * Padrão novo do `membro` ligado para o tenant (chave por tenant, AJ 1.4).
@@ -139,6 +151,8 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
   for (const s of SCREENS) {
     if (role === "owner" || role === "admin") {
       out[s.id] = { ...FULL };
+    } else if (TELAS_SENSIVEIS.has(s.id)) {
+      out[s.id] = { ...NONE };
     } else if (role === "membro") {
       if (opts.membroRestrito) {
         out[s.id] = MEMBRO_TELAS.has(s.id) ? { ...EDIT } : { ...NONE };

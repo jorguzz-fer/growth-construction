@@ -9,6 +9,28 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { houveMudanca } from "@/lib/audit-diff";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
+import {
+  CAMPOS_SENSIVEIS_CLIENTE,
+  TELA_DADOS_CLIENTE,
+  changesSemValorSensivel,
+} from "@/lib/clientes-sensivel";
+
+/**
+ * Remove do que vai ser gravado os campos que quem salva não pode editar
+ * (Prompt M, 5.4). Sem isto, o formulário de quem não vê os campos sensíveis
+ * os mandaria vazios e o Salvar APAGARIA renda, FGTS e score do comprador.
+ * O CPF segue a mesma regra, mas pode ser substituído: vazio = mantém.
+ */
+function soCamposPermitidos<T extends Record<string, unknown>>(
+  dados: T,
+  podeEditarSensivel: boolean,
+): Partial<T> {
+  if (podeEditarSensivel) return dados;
+  const out: Record<string, unknown> = { ...dados };
+  for (const k of CAMPOS_SENSIVEIS_CLIENTE) delete out[k];
+  if (out.cpfCnpj == null) delete out.cpfCnpj;
+  return out as Partial<T>;
+}
 
 const s = (fd: FormData, k: string) => {
   const v = (fd.get(k) as string) ?? "";
@@ -118,8 +140,11 @@ export async function addCliente(formData: FormData) {
   if (!ctx || !can(ctx.perms, "clientes", "criar")) {
     throw new Error("Sem permissão para cadastrar clientes.");
   }
-  const dados = readCliente(formData);
-  const conflito = await unidadeEmConflito(ctx.tenant.id, dados.unitCode);
+  const dados = soCamposPermitidos(
+    readCliente(formData),
+    can(ctx.perms, TELA_DADOS_CLIENTE, "editar"),
+  );
+  const conflito = await unidadeEmConflito(ctx.tenant.id, dados.unitCode ?? null);
   if (conflito) {
     throw new Error(
       `A unidade ${dados.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
@@ -127,7 +152,7 @@ export async function addCliente(formData: FormData) {
   }
   const [row] = await db
     .insert(schema.clientes)
-    .values({ tenantId: ctx.tenant.id, ...dados })
+    .values({ tenantId: ctx.tenant.id, ...dados, nomeCompleto: dados.nomeCompleto ?? "Sem nome" })
     .returning();
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -153,8 +178,11 @@ export async function updateCliente(formData: FormData) {
     .from(schema.clientes)
     .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
     .limit(1);
-  const novo = readCliente(formData);
-  const conflito = await unidadeEmConflito(ctx.tenant.id, novo.unitCode, id);
+  const novo = soCamposPermitidos(
+    readCliente(formData),
+    can(ctx.perms, TELA_DADOS_CLIENTE, "editar"),
+  );
+  const conflito = await unidadeEmConflito(ctx.tenant.id, novo.unitCode ?? null, id);
   if (conflito) {
     throw new Error(
       `A unidade ${novo.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
@@ -185,7 +213,9 @@ export async function updateCliente(formData: FormData) {
       action: "cliente.update",
       entity: "cliente",
       entityId: id,
-      meta: { changes },
+      // Campos sensíveis e CPF entram só como "alterado", sem valor — o
+      // contador lê este log (Prompt M, 7 · nota).
+      meta: { changes: changesSemValorSensivel(changes) },
     });
   }
   revalidatePath("/clientes");
