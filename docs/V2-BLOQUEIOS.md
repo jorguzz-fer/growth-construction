@@ -273,6 +273,11 @@ detalhe de cada um está em [`V2-PROMPT-C.md`](./V2-PROMPT-C.md#conflitos).
 | **BM-3** (Prompt M) | Quais campos de cliente são sensíveis? | **Aprovada a proposta:** renda bruta e líquida, comprometimento, FGTS (possui e saldo), score, restrições, estado civil e todo o bloco de inteligência de mercado exigem permissão própria, dada por padrão **só a owner e admin** |
 | **BM-2** (Prompt M) | O engenheiro vê o relatório de Medição? | **Não — fica como está:** só o Lançamento de Medição |
 
+**Nome do parâmetro (Prompt A, 22):** fica **`?proj=`**, que o app já usa em
+Despesas, Unidades, Fluxo de Caixa, Dashboard e Projetos — links e favoritos
+existentes continuam valendo. `?project=`, o do texto do B-A2, é aceito como
+sinônimo na leitura. Muda só o nome; a decisão (memória por aba) é a mesma.
+
 O inventário do Prompt A (B-A1) está em [`V2-PROMPT-A-INVENTARIO.md`](./V2-PROMPT-A-INVENTARIO.md):
 24 telas e 13 arquivos de ações dependem do projeto/versão implícitos — a
 refatoração vai em várias PRs, uma por módulo.

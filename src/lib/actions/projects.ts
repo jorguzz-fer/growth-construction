@@ -282,7 +282,11 @@ export async function updateProject(
   // docs/V2-BLOQUEIOS.md.
   const changes = diffAudit(antes as unknown as Record<string, unknown>, set);
 
-  await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
+  // Tenant também no `where` (Prompt A, 38), além da guarda em memória acima.
+  await db
+    .update(schema.projects)
+    .set(set)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, ctx.tenant.id)));
   if (houveMudanca(changes)) {
     await logAudit({
       tenantId: ctx.tenant.id,
@@ -310,7 +314,10 @@ export async function deleteProject(projectId: string) {
     throw new Error("É preciso manter ao menos um projeto ou unidade no tenant.");
   }
 
-  await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
+  // Tenant também no `where` (Prompt A, 38), além da guarda em memória acima.
+  await db
+    .delete(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, ctx.tenant.id)));
 
   // Se o projeto excluído era o ativo, limpa os cookies (fallback p/ projects[0]).
   if (ctx.project.id === projectId) {

@@ -18,7 +18,7 @@ vi.mock("@/lib/auth", () => ({ auth: async () => null, unstable_update: async ()
 describe.skipIf(!HAS_DB)("situação do projeto", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
-  const { setProjectSituacao } = await import("./projects");
+  const { setProjectSituacao, updateProject } = await import("./projects");
   let tenantId = "";
   let projeto: typeof schema.projects.$inferSelect;
 
@@ -79,5 +79,22 @@ describe.skipIf(!HAS_DB)("situação do projeto", async () => {
   it("projeto de outro tenant não é alcançado", async () => {
     ctxRef.current = { ...(ctxRef.current as object), projects: [] };
     expect((await setProjectSituacao(projeto.id, "Finalizado")).ok).toBe(false);
+  });
+
+  it("updateProject filtra o tenant também no where (Prompt A, 38)", async () => {
+    const [outro] = await db.insert(schema.tenants).values({ name: "tenant-sit-2" }).returning();
+    try {
+      const [alheio] = await db
+        .insert(schema.projects)
+        .values({ tenantId: outro.id, name: "Obra de outra empresa" })
+        .returning();
+      // Simula a guarda em memória falhando: o projeto alheio "na lista".
+      ctxRef.current = { ...(ctxRef.current as object), projects: [alheio] };
+      await updateProject(alheio.id, { name: "Invadido" });
+      const [p] = await db.select().from(schema.projects).where(eq(schema.projects.id, alheio.id));
+      expect(p.name).toBe("Obra de outra empresa");
+    } finally {
+      await db.delete(schema.tenants).where(eq(schema.tenants.id, outro.id));
+    }
   });
 });
