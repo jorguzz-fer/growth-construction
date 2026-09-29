@@ -1079,9 +1079,27 @@ export async function getCashByTenant(tenantId: string): Promise<CashRow[]> {
 
 export type ClienteRow = typeof schema.clientes.$inferSelect;
 
-export async function getClientes(tenantId: string): Promise<ClienteRow[]> {
+/**
+ * Lista de compradores — só as colunas que as telas de lista usam (Prompt M,
+ * 5.5). Antes trazia as 39, inclusive renda e score, para mostrar seis.
+ * `interesse` é dado sensível: a tela só o exibe a quem tem `clientesdados`.
+ */
+export type ClienteLista = Pick<
+  ClienteRow,
+  "id" | "nomeCompleto" | "unitCode" | "statusContrato" | "cpfCnpj" | "cidadeEstado" | "interesse"
+>;
+
+export async function getClientes(tenantId: string): Promise<ClienteLista[]> {
   return db
-    .select()
+    .select({
+      id: schema.clientes.id,
+      nomeCompleto: schema.clientes.nomeCompleto,
+      unitCode: schema.clientes.unitCode,
+      statusContrato: schema.clientes.statusContrato,
+      cpfCnpj: schema.clientes.cpfCnpj,
+      cidadeEstado: schema.clientes.cidadeEstado,
+      interesse: schema.clientes.interesse,
+    })
     .from(schema.clientes)
     .where(eq(schema.clientes.tenantId, tenantId))
     .orderBy(asc(schema.clientes.nomeCompleto));

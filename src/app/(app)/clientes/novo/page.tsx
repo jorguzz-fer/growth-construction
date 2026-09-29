@@ -33,7 +33,11 @@ export default async function NovoClientePage() {
       <Card>
         <CardContent className="p-5">
           <form action={addCliente} className="space-y-6">
-            <ClienteFields unitCodes={unitCodes} />
+            <ClienteFields
+              unitCodes={unitCodes}
+              veDados={can(ctx.perms, "clientesdados", "ver")}
+              editaDados={can(ctx.perms, "clientesdados", "editar")}
+            />
             <div className="flex items-center gap-2">
               <Button type="submit">Salvar cliente</Button>
               <Link href="/clientes" className={buttonVariants({ variant: "ghost" })}>

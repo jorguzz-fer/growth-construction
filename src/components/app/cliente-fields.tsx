@@ -1,6 +1,7 @@
 import { Input, Label, Select } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import type { ClienteRow } from "@/lib/queries";
+import { campoSensivelCliente } from "@/lib/clientes-sensivel";
 
 type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select";
 interface Field {
@@ -23,6 +24,8 @@ const ESTADO_CIVIL = [
 interface Group {
   title: string;
   fields: Field[];
+  /** Bloco inteiro exige a permissão de dados do cliente (Prompt M, 5.4.1). */
+  sensivel?: boolean;
 }
 
 const GROUPS: Group[] = [
@@ -52,6 +55,7 @@ const GROUPS: Group[] = [
   },
   {
     title: "Dados financeiros",
+    sensivel: true,
     fields: [
       { name: "bancoFinanc", label: "Banco financiador" },
       { name: "rendaBruta", label: "Renda bruta (R$)", type: "number" },
@@ -65,6 +69,7 @@ const GROUPS: Group[] = [
   },
   {
     title: "Inteligência de mercado",
+    sensivel: true,
     fields: [
       { name: "morarOuInvestir", label: "Morar ou investir?", type: "select", options: ["Morar", "Investir"] },
       { name: "ramoAtividade", label: "Ramo de atividade" },
@@ -84,29 +89,61 @@ const GROUPS: Group[] = [
   },
 ];
 
+/**
+ * Campos do comprador. Quem não tem `clientesdados:ver` não vê os blocos
+ * sensíveis nem o estado civil — eles não existem na tela (nem vazios), e o
+ * servidor nem os seleciona. Com `ver` sem `editar`, aparecem desabilitados
+ * (campo desabilitado não é enviado, e a action também os ignora).
+ */
 export function ClienteFields({
   cliente,
   unitCodes,
+  veDados = false,
+  editaDados = false,
+  cpfMascarado = null,
 }: {
-  cliente?: ClienteRow;
+  cliente?: Partial<ClienteRow>;
   unitCodes: string[];
+  veDados?: boolean;
+  editaDados?: boolean;
+  /** CPF já cadastrado, mascarado, para quem não vê o documento completo. */
+  cpfMascarado?: string | null;
 }) {
   const val = (f: keyof ClienteRow) => {
     const v = cliente?.[f];
     return v == null ? "" : String(v);
   };
+  const grupos = GROUPS.filter((g) => !g.sensivel || veDados).map((g) => ({
+    ...g,
+    fields: g.fields.filter((f) => veDados || !campoSensivelCliente(f.name)),
+  }));
   return (
     <div className="space-y-6">
-      {GROUPS.map((g) => (
+      {grupos.map((g) => (
         <div key={g.title}>
           <h3 className="mb-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
             {g.title}
+            {g.sensivel && (
+              <span className="ml-2 normal-case tracking-normal text-[var(--color-ink4)]">
+                · exige permissão de dados do cliente
+              </span>
+            )}
           </h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {g.fields.map((f) => (
+            {g.fields.map((f) => {
+              const bloqueado = campoSensivelCliente(f.name) && !editaDados;
+              return (
               <div key={f.name} className={f.colSpan}>
                 <Label>{f.label}</Label>
-                {f.type === "unit" ? (
+                {f.name === "cpfCnpj" && !veDados ? (
+                  // Sem a permissão, o CPF não vem do servidor. Vazio = mantém o
+                  // cadastrado; digitar substitui.
+                  <Input
+                    name="cpfCnpj"
+                    defaultValue=""
+                    placeholder={cpfMascarado ? `${cpfMascarado} — digite para substituir` : ""}
+                  />
+                ) : f.type === "unit" ? (
                   <Select name={f.name} defaultValue={val(f.name)}>
                     <option value="">—</option>
                     {unitCodes.map((c) => (
@@ -116,7 +153,7 @@ export function ClienteFields({
                     ))}
                   </Select>
                 ) : f.type === "select" ? (
-                  <Select name={f.name} defaultValue={val(f.name)}>
+                  <Select name={f.name} defaultValue={val(f.name)} disabled={bloqueado}>
                     <option value="">—</option>
                     {(f.options ?? []).map((o) => (
                       <option key={o} value={o}>
@@ -131,6 +168,7 @@ export function ClienteFields({
                     name={f.name}
                     defaultValue={val(f.name)}
                     rows={2}
+                    disabled={bloqueado}
                     className="w-full rounded-[8px] border border-[var(--color-accent2)]/20 bg-white px-3 py-2 text-sm text-[var(--color-ink)] outline-none focus:border-[var(--color-accent2)]"
                   />
                 ) : (
@@ -140,10 +178,12 @@ export function ClienteFields({
                     step={f.type === "number" ? "0.01" : undefined}
                     required={f.required}
                     defaultValue={val(f.name)}
+                    disabled={bloqueado}
                   />
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { getUnitCodesByTenant } from "@/lib/queries";
@@ -14,6 +14,11 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ClienteFields } from "@/components/app/cliente-fields";
 import { AccessDenied } from "@/components/app/access-denied";
+import {
+  CAMPOS_SENSIVEIS_CLIENTE,
+  TELA_DADOS_CLIENTE,
+  mascararDocumento,
+} from "@/lib/clientes-sensivel";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +35,30 @@ export default async function EditarClientePage({
   if (!can(ctx.perms, "clientes", "ver")) return <AccessDenied />;
   const { id } = await params;
 
+  // Quem não tem a permissão de dados não RECEBE os campos sensíveis nem o
+  // CPF completo: a consulta nem os seleciona (Prompt M, 5.4).
+  const veDados = can(ctx.perms, TELA_DADOS_CLIENTE, "ver");
+  const editaDados = can(ctx.perms, TELA_DADOS_CLIENTE, "editar");
+  const colunas: Record<string, unknown> = { ...getTableColumns(schema.clientes) };
+  if (!veDados) for (const k of [...CAMPOS_SENSIVEIS_CLIENTE, "cpfCnpj"]) delete colunas[k];
   const [cliente] = await db
-    .select()
+    .select(colunas as ReturnType<typeof getTableColumns<typeof schema.clientes>>)
     .from(schema.clientes)
     .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
     .limit(1);
   if (!cliente) notFound();
+  // O CPF mascarado é calculado aqui e só ele vai para a tela.
+  const cpfMascarado = veDados
+    ? null
+    : mascararDocumento(
+        (
+          await db
+            .select({ cpf: schema.clientes.cpfCnpj })
+            .from(schema.clientes)
+            .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
+            .limit(1)
+        )[0]?.cpf,
+      );
 
   const canEditar = can(ctx.perms, "clientes", "editar");
   const canExcluir = can(ctx.perms, "clientes", "excluir");
@@ -77,7 +100,13 @@ export default async function EditarClientePage({
         <CardContent className="p-5">
           <form action={updateCliente} className="space-y-6">
             <input type="hidden" name="id" value={cliente.id} />
-            <ClienteFields cliente={cliente} unitCodes={unitCodes} />
+            <ClienteFields
+              cliente={cliente}
+              unitCodes={unitCodes}
+              veDados={veDados}
+              editaDados={editaDados}
+              cpfMascarado={cpfMascarado}
+            />
             {canEditar && (
               <div className="flex items-center gap-2">
                 <Button type="submit">Salvar alterações</Button>

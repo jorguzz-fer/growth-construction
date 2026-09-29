@@ -31,6 +31,9 @@ function antigoDefault(role: Role): PermMatrix {
   const out: PermMatrix = {};
   for (const s of SCREENS) {
     if (role === "owner" || role === "admin") out[s.id] = { ...FULL };
+    // Tela que não existia antes (Prompt M, 5.4): para quem não é admin, "antes"
+    // é sem acesso.
+    else if (s.id === "clientesdados") out[s.id] = { ...NONE };
     else if (role === "membro") out[s.id] = s.modulo === "Config" ? { ...NONE } : { ...EDIT };
     else if (role === "engenheiro") out[s.id] = s.id === "medicaolanc" ? { ...FULL } : { ...NONE };
     else out[s.id] = CONTADOR_VE.has(s.id) ? { ...VIEW } : { ...NONE };
