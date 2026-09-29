@@ -45,6 +45,9 @@ export async function saveIncc(
 ) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
+  // Isolamento: só projetos do tenant do contexto — as vizinhas já checavam;
+  // esta gravava a INCC de qualquer projeto cujo id recebesse.
+  if (!ctx.projects.some((p) => p.id === projectId)) return;
   const recalced = recalcIncc(monthly.map((r) => ({ m: r.mes, mo: r.mo, ac: 0 })));
 
   // AK Parte 1 — de/para de cada taxa alterada. A taxa de correção vira

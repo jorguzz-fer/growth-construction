@@ -403,7 +403,8 @@ export async function toggleConciliado(id: string, rec: boolean) {
   const [mov] = await db
     .update(schema.cashEntries)
     .set({ rec })
-    .where(eq(schema.cashEntries.id, id))
+    // Isolamento: o id sozinho alcançava lançamento de outro tenant.
+    .where(and(eq(schema.cashEntries.id, id), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
     .returning();
   // AK Parte 1 — sem transação aqui (1.3). Só registra se alguma linha foi
   // gravada; o estado anterior é o inverso de `para` (a tela só alterna).
