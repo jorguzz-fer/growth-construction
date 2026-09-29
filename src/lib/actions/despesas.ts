@@ -8,7 +8,7 @@ import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
-import { reserveDespesaNumber } from "@/lib/db/numbering";
+import { mensagemColisaoNumDoc, reserveDespesaNumber } from "@/lib/db/numbering";
 import { FORMAS_PAGAMENTO, gerarParcelas } from "@/lib/calc";
 import { categoriasDeDespesa, validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
 import {
@@ -372,7 +372,12 @@ export async function addDespesa(formData: FormData) {
   const [row] = await db
     .insert(schema.despesas)
     .values({ ...core, numDoc })
-    .returning();
+    .returning()
+    .catch((e: unknown) => {
+      // Índice único (0040): número repetido vira mensagem, não erro de banco.
+      const msg = mensagemColisaoNumDoc(e, numDoc);
+      throw msg ? new Error(msg) : e;
+    });
 
   // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
   // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
@@ -535,12 +540,18 @@ export async function addDespesa(formData: FormData) {
     const meses = Math.min(60, Math.max(2, Number(formData.get("recorrenciaMeses")) || 0));
     for (let i = 1; i < meses; i++) {
       const numDocRec = await reserveDespesaNumber(ctx.tenant.id);
-      await db.insert(schema.despesas).values({
-        ...core,
-        numDoc: numDocRec,
-        competencia: addMonthsCompetencia(core.competencia, i),
-        vencimento: addMonthsDate(core.vencimento, i),
-      });
+      await db
+        .insert(schema.despesas)
+        .values({
+          ...core,
+          numDoc: numDocRec,
+          competencia: addMonthsCompetencia(core.competencia, i),
+          vencimento: addMonthsDate(core.vencimento, i),
+        })
+        .catch((e: unknown) => {
+          const msg = mensagemColisaoNumDoc(e, numDocRec);
+          throw msg ? new Error(`Réplica ${i + 1} de ${meses}: ${msg}`) : e;
+        });
     }
     await logAudit({
       tenantId: ctx.tenant.id,

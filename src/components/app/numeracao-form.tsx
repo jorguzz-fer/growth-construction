@@ -9,6 +9,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { CONFIRMACAO_RECUO } from "@/lib/numeracao-regras";
 
 function preview(c: SequenceConfig): string {
   const num = String(Math.max(1, c.nextNumber || 1)).padStart(
@@ -21,22 +22,41 @@ function preview(c: SequenceConfig): string {
 export function NumeracaoForm({
   initial,
   canEdit,
+  maiorEmitido,
 }: {
   initial: SequenceConfig;
   canEdit: boolean;
+  /** Maior número já emitido no formato salvo (null = nenhum). Só informa: a trava é da action. */
+  maiorEmitido: number | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [c, setC] = useState<SequenceConfig>(initial);
+  const [pedeConfirmacao, setPedeConfirmacao] = useState(false);
+  const [confirmacao, setConfirmacao] = useState("");
+
+  const mesmoFormato =
+    c.prefix.trim() === initial.prefix &&
+    c.usePrefix === initial.usePrefix &&
+    c.digits === initial.digits;
+  const abaixoDoEmitido =
+    mesmoFormato && maiorEmitido !== null && c.nextNumber <= maiorEmitido;
 
   const salvar = () => {
     setError(null);
     setSaved(false);
     start(async () => {
       try {
-        await updateDespesaSequence(c);
+        const r = await updateDespesaSequence(c, pedeConfirmacao ? confirmacao : undefined);
+        if (!r.ok) {
+          setError(r.error);
+          setPedeConfirmacao(!!r.exigeConfirmacao);
+          return;
+        }
+        setPedeConfirmacao(false);
+        setConfirmacao("");
         setSaved(true);
         router.refresh();
       } catch (e) {
@@ -94,18 +114,20 @@ export function NumeracaoForm({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            id="active"
-            type="checkbox"
-            checked={c.active}
-            disabled={!canEdit || pending}
-            onChange={(e) => setC({ ...c, active: e.target.checked })}
-          />
-          <label htmlFor="active" className="text-[13px] text-[var(--color-ink2)]">
-            Numeração automática ativa
-          </label>
-        </div>
+        {maiorEmitido !== null && (
+          <p
+            className={`text-[12px] ${
+              abaixoDoEmitido ? "text-[var(--color-danger)]" : "text-[var(--color-ink3)]"
+            }`}
+          >
+            Maior número já emitido neste formato:{" "}
+            <strong className="font-[family-name:var(--font-mono)]">
+              {preview({ ...c, ...initial, nextNumber: maiorEmitido })}
+            </strong>
+            {abaixoDoEmitido &&
+              " — o próximo número está abaixo dele: o contador vai encontrar números já usados."}
+          </p>
+        )}
 
         <div className="rounded-[10px] bg-[var(--color-surface2)] px-4 py-3">
           <div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
@@ -117,10 +139,26 @@ export function NumeracaoForm({
         </div>
 
         <p className="text-[12px] leading-relaxed text-[var(--color-ink3)]">
-          O número é reservado atomicamente no banco a cada nova despesa —
-          nunca duplica nem reutiliza números excluídos. Ajuste o “próximo
-          número” para alinhar com a numeração histórica da empresa.
+          O número é reservado de forma atômica no banco a cada nova despesa:
+          dois lançamentos simultâneos nunca recebem o mesmo número, e o número
+          de uma despesa excluída não é reutilizado. O que depende de quem
+          configura é não recuar o “próximo número” para uma faixa já emitida —
+          por isso a tela recusa um número já usado e pede confirmação para
+          ficar abaixo do maior emitido. Se ainda assim o contador encontrar um
+          número existente, o lançamento é recusado e nada é gravado.
         </p>
+
+        {canEdit && pedeConfirmacao && (
+          <div>
+            <Label>Digite {CONFIRMACAO_RECUO} para salvar abaixo do maior emitido</Label>
+            <Input
+              value={confirmacao}
+              disabled={pending}
+              onChange={(e) => setConfirmacao(e.target.value)}
+              placeholder={CONFIRMACAO_RECUO}
+            />
+          </div>
+        )}
 
         {canEdit && (
           <div className="flex items-center gap-3">
