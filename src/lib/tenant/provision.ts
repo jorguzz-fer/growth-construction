@@ -110,6 +110,7 @@ export async function provisionTenant(
           name: projectName,
           kind: "proj",
           status: "Em andamento",
+          situacao: "Ativo",
           durationMonths: 24,
         })
         .returning();

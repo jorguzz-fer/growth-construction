@@ -6,6 +6,7 @@ import { setActiveProject } from "@/lib/actions/context";
 import {
   createProject,
   updateProject,
+  setProjectSituacao,
   deleteProject,
 } from "@/lib/actions/projects";
 import { Card, CardContent } from "@/components/ui/card";
@@ -233,7 +234,8 @@ function NewProjectForm({
             do Forecast deste projeto.
           </p>
           <div>
-            <Label>Status</Label>
+            {/* Fase da obra (campo antigo). O status Ativo/Finalizado nasce Ativo. */}
+            <Label>Fase da obra</Label>
             <Select
               value={status}
               onChange={(e) => setStatus(e.target.value as Status)}
@@ -302,6 +304,63 @@ function NewOfficeForm() {
   );
 }
 
+/**
+ * Situação Ativo / Finalizado (Prompt A, 23). Grava na hora, só esse campo —
+ * independente do Salvar do formulário. "—" = ainda não classificado (projetos
+ * anteriores à mudança); o selo não representa seleção.
+ */
+function SituacaoControl({
+  projectId,
+  situacao,
+  canEdit,
+}: {
+  projectId: string;
+  situacao: "Ativo" | "Finalizado" | null;
+  canEdit: boolean;
+}) {
+  const [valor, setValor] = useState(situacao);
+  const [pending, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {valor === "Ativo" ? (
+        <Badge tone="success">Ativo</Badge>
+      ) : valor === "Finalizado" ? (
+        <Badge tone="neutral">Finalizado</Badge>
+      ) : (
+        <Badge tone="neutral">sem status</Badge>
+      )}
+      {canEdit && (
+        <Select
+          value={valor ?? ""}
+          disabled={pending}
+          aria-label="Status do projeto"
+          onChange={(e) => {
+            const novo = e.target.value as "Ativo" | "Finalizado";
+            if (!novo) return;
+            const antes = valor;
+            setValor(novo);
+            setErro(null);
+            start(async () => {
+              const r = await setProjectSituacao(projectId, novo);
+              if (!r.ok) {
+                setValor(antes);
+                setErro(r.error ?? "Falhou.");
+              }
+            });
+          }}
+          className="h-8 w-auto text-xs"
+        >
+          {valor == null && <option value="">— classificar —</option>}
+          <option value="Ativo">Ativo</option>
+          <option value="Finalizado">Finalizado</option>
+        </Select>
+      )}
+      {erro && <span className="text-xs text-[var(--color-danger)]">{erro}</span>}
+    </div>
+  );
+}
+
 function SelectActive({
   id,
   active,
@@ -314,7 +373,8 @@ function SelectActive({
   start: (fn: () => void) => void;
 }) {
   return active ? (
-    <Badge tone="accent">ativo</Badge>
+    // "selecionado", não "ativo": Ativo agora é a situação do projeto (Prompt A, 4).
+    <Badge tone="accent">selecionado</Badge>
   ) : (
     <Button
       size="sm"
@@ -567,6 +627,16 @@ function ProjectRow({
         )}
         <div>
           <Label>Status</Label>
+          <SituacaoControl
+            projectId={project.id}
+            situacao={project.situacao ?? null}
+            canEdit={canEdit}
+          />
+        </div>
+        <div>
+          {/* O campo antigo (Planejamento / Em andamento) é a fase da obra —
+              preservado como está (Prompt A, 2). */}
+          <Label>Fase da obra</Label>
           <Select
             value={status}
             onChange={(e) => setStatus(e.target.value as Status)}
@@ -792,7 +862,12 @@ function OfficeRow({
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 pb-1.5">
-          <Badge tone="success">Ativo</Badge>
+          {/* Antes: um selo "Ativo" fixo no código, que não refletia nada. */}
+          <SituacaoControl
+            projectId={project.id}
+            situacao={project.situacao ?? null}
+            canEdit={canEdit}
+          />
           <SelectActive id={project.id} active={active} pending={pending} start={start} />
           {canEdit && (
             <Button size="sm" disabled={pending || !dirty} onClick={save}>
