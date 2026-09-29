@@ -98,6 +98,8 @@ export async function createProject(
         name: clean,
         kind,
         status,
+        // Projeto novo nasce Ativo (Prompt A, 24).
+        situacao: "Ativo",
         durationMonths: duration,
         startDate: kind === "office" ? null : normDate(opts?.startDate),
         endDate: kind === "office" ? null : normDate(opts?.endDate),
@@ -139,6 +141,52 @@ export async function createProject(
     meta: { name: clean, kind, status, durationMonths: duration },
   });
   revalidatePath("/", "layout");
+}
+
+export type SituacaoProjeto = "Ativo" | "Finalizado";
+
+/**
+ * Classifica o projeto como Ativo ou Finalizado (Prompt A, 25–27). Grava
+ * SOMENTE a coluna `situacao` — não toca datas, versões, lançamentos, nem o
+ * `status` (fase da obra). Finalizar não bloqueia nada nem esconde o projeto
+ * de relatório algum (seções 5 e 28). Log `project.status.change { from, to }`.
+ */
+export async function setProjectSituacao(
+  projectId: string,
+  situacao: SituacaoProjeto,
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await getActiveContext();
+  if (!ctx || !can(ctx.perms, "projeto", "editar")) {
+    return { ok: false, error: "Sem permissão para editar projetos." };
+  }
+  if (situacao !== "Ativo" && situacao !== "Finalizado") {
+    return { ok: false, error: "Situação inválida." };
+  }
+  // `ctx.projects` é filtrado pelo tenant: é a garantia de escopo.
+  const antes = ctx.projects.find((p) => p.id === projectId);
+  if (!antes) return { ok: false, error: "Projeto não encontrado." };
+  const from = antes.situacao ?? null;
+  if (from === situacao) return { ok: true };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.projects)
+      .set({ situacao })
+      .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, ctx.tenant.id)));
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "project.status.change",
+        entity: "project",
+        entityId: projectId,
+        meta: { projeto: antes.name, from, to: situacao },
+      },
+      tx,
+    );
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 /** Renomeia / ajusta a duração e o status de um projeto (ou escritório). */

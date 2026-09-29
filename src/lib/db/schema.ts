@@ -239,6 +239,12 @@ export const projects = pgTable("project", {
   name: text("name").notNull(),
   kind: projectKindEnum("kind").notNull().default("proj"),
   status: projectStatusEnum("status").notNull().default("Planejamento"),
+  /**
+   * Situação cadastral — "Ativo" | "Finalizado" (Prompt A, 2). Nula = ainda
+   * não classificado. NÃO é seleção nem contexto, e nenhuma consulta filtra
+   * por ela sem o usuário pedir. Independente de `status` (fase da obra).
+   */
+  situacao: text("situacao").$type<"Ativo" | "Finalizado">(),
   /** Duração planejada do empreendimento, em meses. */
   durationMonths: integer("duration_months"),
   /** Datas de início e fim da obra ("MM/DD/YYYY", como no restante do app). */
