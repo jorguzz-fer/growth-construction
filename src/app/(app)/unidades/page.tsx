@@ -11,6 +11,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { UnitActions } from "@/components/app/unit-actions";
 import { UnidadesImportExport } from "@/components/app/unidades-import-export";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,10 @@ export default async function UnidadesPage({
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "unidades", "ver")) return <AccessDenied />;
 
   const sp = await searchParams;
   const filter = STATUS_FILTERS.find((s) => s === sp.status);

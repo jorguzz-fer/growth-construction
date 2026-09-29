@@ -14,6 +14,7 @@ import { RoleSelect } from "@/components/app/role-select";
 import { MemberActions } from "@/components/app/member-actions";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PAPEIS_CRIACAO } from "@/lib/papeis";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,10 @@ const roleTone: Record<string, "accent" | "info" | "neutral" | "warning"> = {
 export default async function UsuariosPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "usuarios", "ver")) return <AccessDenied />;
 
   const members = await getMembers(ctx.tenant.id);
   const podeCriar = can(ctx.perms, "usuarios", "criar");

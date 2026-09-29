@@ -9,12 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { can } from "@/lib/permissions";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContabilidadePage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "contabilidade", "ver")) return <AccessDenied />;
 
   const [despesas, revenue, members] = await Promise.all([
     getDespesas(ctx.version.id),
@@ -34,6 +40,14 @@ export default async function ContabilidadePage() {
         subtitle="Visão somente-leitura de balancetes e demonstrativos"
       />
 
+      {/* Prompt M, 4 — os três números são de UM projeto e UMA versão (o
+          contexto atual), não da empresa. A tela passa a dizer quais. A troca
+          por seleção explícita é do Prompt A. */}
+      <p className="mb-2 text-xs text-[var(--color-ink3)]">
+        Projeto <strong className="text-[var(--color-ink2)]">{ctx.project.name}</strong> · versão{" "}
+        <strong className="text-[var(--color-ink2)]">{ctx.version.label}</strong> — não é o
+        consolidado da empresa.
+      </p>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-5">

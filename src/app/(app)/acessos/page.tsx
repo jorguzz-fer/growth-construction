@@ -5,6 +5,7 @@ import { getMembers } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessMatrix } from "@/components/app/access-matrix";
 import { Card, CardContent } from "@/components/ui/card";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,10 @@ const ACOES: PermAction[] = ["ver", "criar", "editar", "excluir"];
 export default async function AcessosPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "acessos", "ver")) return <AccessDenied />;
 
   const members = await getMembers(ctx.tenant.id);
   const canEditPerms = can(ctx.perms, "acessos", "editar");

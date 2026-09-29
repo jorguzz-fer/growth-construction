@@ -3,6 +3,7 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { UnitForm } from "@/components/app/unit-form";
 import { emptyPlan } from "@/lib/calc";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,10 @@ export default async function NovaUnidadePage({
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "unidades", "ver")) return <AccessDenied />;
   if (!can(ctx.perms, "unidades", "criar")) {
     return <p className="text-sm text-[var(--color-warning)]">Sem permissão para criar unidades.</p>;
   }

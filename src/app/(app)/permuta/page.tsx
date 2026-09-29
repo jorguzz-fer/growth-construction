@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,10 @@ function tipoTone(tipo: string | null): BadgeProps["tone"] {
 export default async function PermutaPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "permuta", "ver")) return <AccessDenied />;
   const rows = await getPermutas(ctx.version.id);
   const estimado = rows.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
   const projetada = rows
