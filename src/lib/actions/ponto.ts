@@ -45,7 +45,11 @@ export async function updateObraLocation(
   if (patch.raio !== undefined)
     set.pontoRaioMetros = Number.isFinite(patch.raio) && patch.raio! > 0 ? Math.round(patch.raio!) : 100;
   if (Object.keys(set).length === 0) return;
-  await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
+  // Tenant também no `where` (Prompt A, 38), além da guarda em memória acima.
+  await db
+    .update(schema.projects)
+    .set(set)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, ctx.tenant.id)));
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
