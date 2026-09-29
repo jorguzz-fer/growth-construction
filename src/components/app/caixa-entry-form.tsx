@@ -34,7 +34,14 @@ const TIPOS: { key: Tipo; label: string; hint: string }[] = [
   },
 ];
 
-export function CaixaEntryForm({ contas }: { contas: Conta[] }) {
+export function CaixaEntryForm({
+  contas,
+  projectId,
+}: {
+  contas: Conta[];
+  /** obra da tela (Prompt A): o lançamento vai para a versão de trabalho dela. */
+  projectId: string;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +64,7 @@ export function CaixaEntryForm({ contas }: { contas: Conta[] }) {
       return;
     }
     const fd = new FormData();
+    fd.set("projectId", projectId);
     fd.set("tipo", tipo);
     fd.set("data", data);
     fd.set("descricao", descricao);

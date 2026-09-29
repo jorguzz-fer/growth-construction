@@ -188,6 +188,41 @@ export async function getProjectVersion(
 }
 
 /**
+ * Versão de trabalho de um projeto: a "Atual"; sem ela, a marcada como padrão;
+ * sem nenhuma, a mais antiga. É a MESMA regra que `getActiveContext` sempre
+ * aplicou ao projeto do cookie — as telas migradas gravam onde gravavam.
+ * `versions` em ordem de criação.
+ */
+export function versaoDeTrabalho<V extends { kind: string; isDefault: boolean }>(
+  versions: readonly V[],
+): V | null {
+  return (
+    versions.find((v) => v.kind === "atual") ??
+    versions.find((v) => v.isDefault) ??
+    versions[0] ??
+    null
+  );
+}
+
+/**
+ * Versões de um projeto do tenant (ordem de criação) e a versão de trabalho.
+ * Null se o projeto não for do tenant. Tenant obrigatório (seção 11).
+ */
+export async function getProjectVersions(
+  tenantId: string,
+  projectId: string,
+): Promise<{ project: Project; versions: Version[]; trabalho: Version | null } | null> {
+  const project = await getProjectContext(tenantId, projectId);
+  if (!project) return null;
+  const versions = await db
+    .select()
+    .from(schema.versions)
+    .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, project.id)))
+    .orderBy(asc(schema.versions.createdAt));
+  return { project, versions, trabalho: versaoDeTrabalho(versions) };
+}
+
+/**
  * @deprecated Prompt A: projeto e versão implícitos (cookie + primeiro
  * projeto). Use `getTenantContext` e resolva a obra explicitamente com
  * `lerSelecaoDeProjeto` + `getProjectContext`/`getProjectVersion`. Continua
@@ -219,10 +254,7 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
   // A versão de trabalho é sempre a "Atual" (não é mais selecionável na
   // sidebar). Budget e Forecast existem apenas nas telas dedicadas de
   // lançamento e na comparação dos relatórios.
-  const version =
-    versions.find((v) => v.kind === "atual") ??
-    versions.find((v) => v.isDefault) ??
-    versions[0];
+  const version = versaoDeTrabalho(versions) as Version;
 
   return {
     tenant: s.tenant,
