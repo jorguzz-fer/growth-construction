@@ -47,6 +47,26 @@ export async function saveIncc(
   if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
   const recalced = recalcIncc(monthly.map((r) => ({ m: r.mes, mo: r.mo, ac: 0 })));
 
+  // AK Parte 1 — de/para de cada taxa alterada. A taxa de correção vira
+  // receita: é o registro que mais pesa contabilmente desta lista.
+  const antes = new Map((await getInccRows(projectId)).map((r) => [r.m, r]));
+  const mudancas = recalced
+    .filter((r) => {
+      const a = antes.get(r.m);
+      // Compara na escala da coluna (numeric 8,4): o acumulado é recalculado
+      // em ponto flutuante e o banco guarda 4 casas.
+      const dif = (x: number, y: number) => Math.round(x * 1e4) !== Math.round(y * 1e4);
+      return !a || dif(Number(a.mo), Number(r.mo)) || dif(Number(a.ac), Number(r.ac));
+    })
+    .map((r) => {
+      const a = antes.get(r.m);
+      return {
+        mes: r.m,
+        mensal: { de: a ? Number(a.mo) : null, para: r.mo },
+        acumulado: { de: a ? Number(a.ac) : null, para: r.ac },
+      };
+    });
+
   await db.transaction(async (tx) => {
     for (const r of recalced) {
       await tx
@@ -58,6 +78,24 @@ export async function saveIncc(
             eq(schema.inccRates.mes, r.m),
           ),
         );
+    }
+    // Dentro da transação da escrita (1.3). Salvar sem mudar nada não é evento.
+    if (mudancas.length > 0) {
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "incc.save",
+          entity: "incc_rate",
+          meta: {
+            projectId,
+            projeto: ctx.projects.find((p) => p.id === projectId)?.name ?? null,
+            mesesAlterados: mudancas.length,
+            mudancas,
+          },
+        },
+        tx,
+      );
     }
   });
 

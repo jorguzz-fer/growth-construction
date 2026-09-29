@@ -223,14 +223,26 @@ export async function extractFornecedorFromDoc(
 export async function addBankAccount(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
-  await db.insert(schema.bankAccounts).values({
+  const [conta] = await db
+    .insert(schema.bankAccounts)
+    .values({
+      tenantId: ctx.tenant.id,
+      banco: (formData.get("banco") as string) || "Banco",
+      ag: (formData.get("ag") as string) || null,
+      op: (formData.get("op") as string) || null,
+      cc: (formData.get("cc") as string) || null,
+      tipo:
+        (formData.get("tipo") as "Imobiliária" | "Construtora") || "Construtora",
+    })
+    .returning();
+  // AK Parte 1 — sem transação aqui; não se cria uma nesta tarefa (1.3).
+  await logAudit({
     tenantId: ctx.tenant.id,
-    banco: (formData.get("banco") as string) || "Banco",
-    ag: (formData.get("ag") as string) || null,
-    op: (formData.get("op") as string) || null,
-    cc: (formData.get("cc") as string) || null,
-    tipo:
-      (formData.get("tipo") as "Imobiliária" | "Construtora") || "Construtora",
+    userId: ctx.userId,
+    action: "contaCorrente.create",
+    entity: "bank_account",
+    entityId: conta.id,
+    meta: { banco: conta.banco, ag: conta.ag, cc: conta.cc, tipo: conta.tipo },
   });
   revalidatePath("/fornecedores");
 }
