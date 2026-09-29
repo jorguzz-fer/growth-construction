@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
 import {
   getChartAccounts,
   getDespesas,
@@ -15,6 +16,7 @@ import {
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
 import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
@@ -56,6 +58,7 @@ export default async function DespesasPage({
   searchParams: Promise<{
     tab?: string;
     proj?: string;
+    project?: string;
     edit?: string;
     // Pré-preenchimento de nova despesa (ex.: vindo de uma linha do extrato).
     novo?: string;
@@ -65,7 +68,9 @@ export default async function DespesasPage({
     pf_doc?: string;
   }>;
 }) {
-  const ctx = await getActiveContext();
+  // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
+  // global (Prompt A). Sem obra na URL, a tela pede a escolha.
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -79,30 +84,52 @@ export default async function DespesasPage({
   const aiConfigured = isAiConfigured();
   const r2Configured = isR2Configured();
 
-  // Sem "projeto ativo": o projeto é escolhido no seletor (?proj=); "all" mostra
-  // a consulta consolidada (todos os projetos/filiais) com coluna Origem.
-  const isAll = sp.proj === "all";
-  const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
-  const version = await getAtualVersion(ctx.tenant.id, project.id);
+  const pickerProjetos = ctx.projects.map((p) => ({ id: p.id, label: p.name }));
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp, { permiteTodos: true });
 
-  // §15 — quando o projeto escolhido NÃO tem versão "Atual" (ex.: a versão foi
-  // apagada em Versões), o código anterior caía silenciosamente em
-  // `ctx.version.id`, que é a versão Atual de OUTRO projeto (o do cookie).
-  // Efeito visível para o usuário: a tela abria listando as despesas da obra
-  // errada e um lançamento novo era gravado no projeto errado — e a despesa
-  // procurada "não abria" nem era editável, porque simplesmente não estava
-  // naquela lista. Agora o projeto sem Atual é sinalizado, não mascarado.
-  const semVersaoAtual = !isAll && !version;
-  const versionId = version?.id ?? ctx.version.id;
+  // Nenhuma obra na URL (ou id que não é desta empresa): a aba reabre a última
+  // obra escolhida nela (B-A2) ou a tela pede a escolha. Nunca `projects[0]`.
+  if (selecao.tipo === "nenhum") {
+    return (
+      <>
+        <PageHeader
+          title="Lançamentos de Despesas"
+          actions={<ProjectPicker projects={pickerProjetos} selected="" allOption />}
+        />
+        <RecuperarProjeto idsPermitidos={ctx.projects.map((p) => p.id)}>
+          <Card>
+            <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+              {ctx.projects.length === 0
+                ? "Nenhum projeto cadastrado. Cadastre a obra em Projetos para lançar despesas."
+                : "Selecione um projeto — ou “Todos os projetos / filiais” — para ver e lançar despesas."}
+            </CardContent>
+          </Card>
+        </RecuperarProjeto>
+      </>
+    );
+  }
+
+  // "Todos" mostra a consulta consolidada (todos os projetos/filiais) com a
+  // coluna Origem; no lançamento, a obra é escolhida no próprio formulário.
+  const isAll = selecao.tipo === "todos";
+  const project = selecao.tipo === "projeto" ? selecao.projeto : null;
+  const version = project ? await getAtualVersion(ctx.tenant.id, project.id) : null;
+
+  // §15 — projeto sem versão "Atual": sinalizado, não mascarado. Antes caía na
+  // versão Atual do projeto do cookie — listando a obra errada sob o nome desta.
+  // Agora não há para onde cair: sem versão, nada é listado.
+  const semVersaoAtual = !!project && !version;
+  const versionId = version?.id ?? null;
+  const nomeDoProjeto = (id: string) => ctx.projects.find((p) => p.id === id)?.name ?? "";
 
   const [despesasRaw, fornecedores, contas, bancos, socios] = await Promise.all([
     // Sem versão Atual não se lista nada: mostrar a versão de outro projeto
     // seria exibir dados de outra obra sob o nome desta.
     isAll
       ? getDespesasByTenant(ctx.tenant.id)
-      : semVersaoAtual
-        ? Promise.resolve([] as Awaited<ReturnType<typeof getDespesas>>)
-        : getDespesas(versionId),
+      : versionId
+        ? getDespesas(versionId)
+        : Promise.resolve([] as Awaited<ReturnType<typeof getDespesas>>),
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
@@ -157,7 +184,7 @@ export default async function DespesasPage({
   );
   const toDTO = (d: (typeof despesas)[number]): DespesaDTO => ({
     id: d.id,
-    projectId: (d as { projectId?: string }).projectId ?? project.id,
+    projectId: (d as { projectId?: string }).projectId ?? project?.id ?? "",
     numDoc: d.numDoc,
     fornecedorId: d.fornecedorId,
     bancoId: d.bancoId,
@@ -185,7 +212,8 @@ export default async function DespesasPage({
   // Props comuns ao formulário completo (cadastro e edição).
   const despesaFormProps = {
     projetos: ctx.projects.map((p) => ({ id: p.id, nome: p.name })),
-    projetoId: project.id,
+    // Em "Todos", nenhuma obra vem marcada: quem lança escolhe no formulário.
+    projetoId: project?.id ?? "",
     fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome, doc: f.doc })),
     contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
@@ -238,8 +266,10 @@ export default async function DespesasPage({
           // Projeto REAL da despesa: quando ela vem do fallback por tenant, pode
           // pertencer a outro projeto que não o selecionado na tela.
           projectId:
-            (editRow as { projectId?: string }).projectId ?? project.id,
-          projectNome: project.name,
+            (editRow as { projectId?: string }).projectId ?? project?.id ?? "",
+          projectNome: nomeDoProjeto(
+            (editRow as { projectId?: string }).projectId ?? project?.id ?? "",
+          ),
           fornecedorId: editRow.fornecedorId,
           contaCef: editRow.contaCef,
           categoriaDre: editRow.categoriaDre,
@@ -262,22 +292,23 @@ export default async function DespesasPage({
   return (
     <>
       <PageHeader
-        eyebrow={isAll ? "Todos os projetos / filiais" : `${project.name} · Atual`}
+        eyebrow={project ? `${project.name} · Atual` : "Todos os projetos / filiais"}
         title="Lançamentos de Despesas"
         subtitle={`${despesas.length} lançamentos · total ${brl0(total)}`}
         actions={
           <ProjectPicker
-            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-            selected={isAll ? "all" : project.id}
+            projects={pickerProjetos}
+            selected={project ? project.id : TODOS_OS_PROJETOS}
             allOption
           />
         }
       />
+      {project && <LembrarProjeto projectId={project.id} />}
 
       {/* §15 — projeto sem versão "Atual": em vez de cair na versão de outro
           projeto (o que fazia a tela listar a obra errada e impedia abrir/editar
           a despesa procurada), o estado é explicitado. Nenhum dado é alterado. */}
-      {semVersaoAtual && (
+      {semVersaoAtual && project && (
         <Card className="mb-5 border-[var(--color-warning)]/40">
           <CardContent className="p-4 text-[13px] text-[var(--color-ink2)]">
             <strong className="text-[var(--color-ink)]">
@@ -302,7 +333,7 @@ export default async function DespesasPage({
             // Antes o link era `/despesas?tab=...` puro: clicar em qualquer aba
             // devolvia a tela ao primeiro projeto do tenant, dando a impressão
             // de que a obra escolhida "não abria".
-            href={`/despesas?tab=${t.key}&proj=${isAll ? "all" : project.id}`}
+            href={`/despesas?tab=${t.key}&proj=${project ? project.id : TODOS_OS_PROJETOS}`}
             className={`rounded-[6px] px-3 py-1.5 text-xs transition-colors ${
               t.key === tab
                 ? "bg-white text-[var(--color-ink)] shadow-sm"
@@ -398,9 +429,17 @@ export default async function DespesasPage({
         </>
       )}
 
-      {tab === "parcelas" && (
+      {tab === "parcelas" && !project && (
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            As parcelas são listadas por projeto. Escolha um projeto no seletor acima.
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "parcelas" && project && (
         <ParcelasList
-          rows={(await getParcelasByVersion(versionId)).map((p) => ({
+          rows={(versionId ? await getParcelasByVersion(versionId) : []).map((p) => ({
             id: p.id,
             numeroParcela: p.numeroParcela,
             despesaNumDoc: p.despesaNumDoc,
