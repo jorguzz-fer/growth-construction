@@ -1,5 +1,8 @@
-import { getActiveContext } from "@/lib/context";
-import { getAtualVersion, getChartAccounts, getMedicoes } from "@/lib/queries";
+import { getTenantContext, getWorkingVersion } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
+import { getChartAccounts, getMedicoes } from "@/lib/queries";
 import { addMedicao } from "@/lib/actions/medicao";
 import { can } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
@@ -17,9 +20,9 @@ export const dynamic = "force-dynamic";
 export default async function MedicaoLancamentoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -29,16 +32,18 @@ export default async function MedicaoLancamentoPage({
 
   // Projetos de obra (kind "proj") — só eles têm medição/CEF.
   const projetos = ctx.projects.filter((p) => p.kind === "proj");
-  const selectedProject =
-    projetos.find((p) => p.id === sp.proj) ??
-    (ctx.project.kind === "proj" ? ctx.project : projetos[0]) ??
-    ctx.project;
-
-  // Versão Atual do projeto medido (a medição alimenta o realizado da DRE).
-  const atual =
-    selectedProject.id === ctx.project.id && ctx.version.kind === "atual"
-      ? ctx.version
-      : (await getAtualVersion(ctx.tenant.id, selectedProject.id)) ?? ctx.version;
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a do cookie nem a primeira.
+  const selecao = lerSelecaoDeProjeto(projetos, sp);
+  const atualOuNada =
+    selecao.tipo === "projeto" ? await getWorkingVersion(ctx.tenant.id, selecao.projeto.id) : null;
+  if (selecao.tipo !== "projeto" || !atualOuNada) {
+    return <PedirProjeto titulo="Lançamento de Medição" projetos={projetos} oQue="lançar a medição" />;
+  }
+  const selectedProject = selecao.projeto;
+  // Versão de trabalho do projeto medido (Atual; a medição alimenta o
+  // realizado da DRE) — mesma regra que valia para a obra do cookie.
+  const atual = atualOuNada;
 
   const [rows, chart] = await Promise.all([
     getMedicoes(atual.id),
@@ -67,14 +72,13 @@ export default async function MedicaoLancamentoPage({
         title="Lançamento de Medição"
         subtitle={`${rows.length} lançamentos · total ${brl0(total)} — alimenta o Custo Variável da DRE`}
         actions={
-          projetos.length > 1 ? (
-            <ProjectPicker
-              projects={projetos.map((p) => ({ id: p.id, label: p.name }))}
-              selected={selectedProject.id}
-            />
-          ) : undefined
+          <ProjectPicker
+            projects={projetos.map((p) => ({ id: p.id, label: p.name }))}
+            selected={selectedProject.id}
+          />
         }
       />
+      <LembrarProjeto projectId={selectedProject.id} />
 
       {locked && (
         <p className="mb-4 rounded-[8px] bg-[#fef3c7] px-3 py-2 text-[13px] text-[#92400e]">

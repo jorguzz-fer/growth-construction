@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { monthValue } from "@/lib/planning";
@@ -32,7 +32,7 @@ export async function saveBudgetPlanning(
   bloco: "receita" | "despesa",
   accounts: PlanningAccountInput[],
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sessão inválida.");
 
   const [version] = await db
@@ -182,7 +182,7 @@ export async function createForecastFromBudget(
   budgetVersionId: string,
   label: string,
 ): Promise<string> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "forecast", "criar")) {
     throw new Error("Sem permissão para criar Forecast.");
   }
@@ -253,7 +253,7 @@ export async function duplicateForecast(
   forecastVersionId: string,
   label: string,
 ): Promise<string> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "forecast", "criar")) {
     throw new Error("Sem permissão para duplicar Forecast.");
   }
@@ -317,7 +317,7 @@ export async function duplicateForecast(
 
 /** Atualiza o status do workflow da versão (Rascunho/Concluído/Aprovado). */
 export async function setVersionStatus(versionId: string, status: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sessão inválida.");
   const allowed = ["Rascunho", "Concluído", "Aprovado"];
   if (!allowed.includes(status)) throw new Error("Status inválido.");

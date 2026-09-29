@@ -3,8 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
-import { getAtualVersion } from "@/lib/queries";
+import { getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -14,22 +13,18 @@ import { logAudit } from "@/lib/audit";
  */
 
 export async function addMedicao(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "medicaolanc", "criar")) {
     throw new Error("Sem permissão para lançar medições.");
   }
-  // Projeto sendo medido: resolve a versão Atual dele. Sem projeto explícito,
-  // usa a versão do contexto (compatibilidade).
+  // Projeto sendo medido (Prompt A): obrigatório e desta empresa; a medição
+  // vai para a versão de trabalho dele (Atual). Antes, sem projeto, caía na
+  // obra do cookie.
   const projectId = ((formData.get("projectId") as string) || "").trim();
-  let versionId = ctx.version.id;
-  let locked = ctx.version.locked;
-  if (projectId && projectId !== ctx.project.id) {
-    const v = await getAtualVersion(ctx.tenant.id, projectId);
-    if (!v) throw new Error("Projeto selecionado não possui versão Atual.");
-    versionId = v.id;
-    locked = v.locked;
-  }
-  if (locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  const version = await getWorkingVersion(ctx.tenant.id, projectId);
+  if (!version) throw new Error("Escolha o projeto da medição.");
+  const versionId = version.id;
+  if (version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
   const competencia = ((formData.get("competencia") as string) || "").trim();
   const grupo = ((formData.get("grupo") as string) || "").trim();
   const valor = (formData.get("valor") as string) || "0";
@@ -53,7 +48,7 @@ export async function addMedicao(formData: FormData) {
     userId: ctx.userId,
     action: "medicao.create",
     entity: "medicao",
-    meta: { competencia, grupoCode: grupoCode.trim(), valor, projectId: projectId || ctx.project.id },
+    meta: { competencia, grupoCode: grupoCode.trim(), valor, projectId },
   });
   revalidatePath("/medicaolanc");
   revalidatePath("/dre");
@@ -63,7 +58,7 @@ export async function updateMedicao(
   id: string,
   patch: { competencia?: string; valor?: string; obs?: string },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "medicaolanc", "editar")) return;
   const set: { competencia?: string; valor?: string; obs?: string | null } = {};
   if (patch.competencia && patch.competencia.trim()) set.competencia = patch.competencia.trim();
@@ -89,7 +84,7 @@ export async function updateMedicao(
 }
 
 export async function deleteMedicao(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "medicaolanc", "excluir")) return;
   await db
     .delete(schema.medicoes)

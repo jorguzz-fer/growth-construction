@@ -1,4 +1,8 @@
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getBudgetLines, getMedicoes } from "@/lib/queries";
 import { PLANO_CONTAS, PCT_REF_CEF } from "@/lib/calc/constants";
 import { brl0, monthInRange } from "@/lib/utils";
@@ -14,9 +18,9 @@ export const dynamic = "force-dynamic";
 export default async function MedicaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -32,11 +36,21 @@ export default async function MedicaoPage({
   // Fontes dos dados:
   //  - Orçado  → lançamento simplificado da versão Budget (despesas por grupo CEF).
   //  - Realizado → lançamento de medição da versão Atual (medições por grupo).
-  const budgetV = ctx.versions.find((v) => v.kind === "budget");
-  const atualV =
-    ctx.versions.find((v) => v.kind === "atual") ??
-    ctx.versions.find((v) => v.isDefault) ??
-    ctx.version;
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha. Só obras (kind "proj") têm medição.
+  const obras = ctx.projects.filter((p) => p.kind === "proj");
+  const selecao = lerSelecaoDeProjeto(obras, sp);
+  const escolhido =
+    selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
+  if (!escolhido?.trabalho) {
+    return (
+      <PedirProjeto titulo="Medição de Obra — Relatório CEF" projetos={obras} oQue="ver a medição" />
+    );
+  }
+  const { project, versions } = escolhido;
+  // Mesma escolha de antes, agora nas versões da obra da tela.
+  const budgetV = versions.find((v) => v.kind === "budget");
+  const atualV = escolhido.trabalho;
 
   const [budgetLines, medicoes] = await Promise.all([
     budgetV ? getBudgetLines(budgetV.id) : Promise.resolve([]),
@@ -77,16 +91,21 @@ export default async function MedicaoPage({
   return (
     <>
       <PageHeader
-        eyebrow={`${ctx.project.name} · Orçado ${budgetV?.label ?? "Budget"} · Realizado ${atualV.label}`}
+        eyebrow={`${project.name} · Orçado ${budgetV?.label ?? "Budget"} · Realizado ${atualV.label}`}
         title="Medição de Obra — Relatório CEF"
         subtitle="Orçado: lançamento do Budget · Realizado: lançamento de medição (versão Atual)"
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            <ProjectPicker
+              projects={obras.map((p) => ({ id: p.id, label: p.name }))}
+              selected={project.id}
+            />
             <DateRangeFilter de={de} ate={ate} />
             <PrintButton label="Imprimir Relatório" />
           </div>
         }
       />
+      <LembrarProjeto projectId={project.id} />
 
       <Table>
         <THead>

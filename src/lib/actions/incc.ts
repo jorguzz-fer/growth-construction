@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { getInccRows } from "@/lib/queries";
@@ -43,7 +43,7 @@ export async function saveIncc(
   projectId: string,
   monthly: { mes: string; mo: number }[],
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
   // Isolamento: só projetos do tenant do contexto — as vizinhas já checavam;
   // esta gravava a INCC de qualquer projeto cujo id recebesse.
@@ -115,7 +115,7 @@ export async function updateInccMonth(
   mes: string,
   mo: number,
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
   if (!ctx.projects.some((p) => p.id === projectId)) return;
 
@@ -144,7 +144,7 @@ export async function updateInccMonth(
  * históricos/correntes permanecem oficiais e inalterados.
  */
 export async function projectFutureIncc(projectId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "parametros", "editar")) return;
   if (!ctx.projects.some((p) => p.id === projectId)) return;
 
