@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { MfaSetup } from "@/components/app/mfa-setup";
+import { FormComResultado } from "@/components/app/form-com-resultado";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function PerfilPage() {
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">
               Alterar senha
             </h2>
-            <form action={changePassword} className="space-y-3">
+            <FormComResultado action={changePassword} className="space-y-3" sucesso="Senha alterada. Suas outras sessões foram encerradas.">
               <div>
                 <Label>Senha atual</Label>
                 <PasswordInput name="current" autoComplete="current-password" />
@@ -53,7 +54,7 @@ export default async function PerfilPage() {
                 <PasswordInput name="next" autoComplete="new-password" required />
               </div>
               <Button type="submit">Salvar senha</Button>
-            </form>
+            </FormComResultado>
           </CardContent>
         </Card>
       </div>

@@ -16,25 +16,11 @@ import { opcoesDoTenant } from "@/lib/membro-padrao";
 import { hashPassword } from "@/lib/password";
 import { logAudit } from "@/lib/audit";
 
-const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
+import { PAPEIS_CRIACAO, papelValido } from "@/lib/papeis";
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
-}
-
-/** Conta quantos owners o tenant tem (para proteger o último owner). */
-async function countOwners(tenantId: string): Promise<number> {
-  const rows = await db
-    .select({ userId: schema.memberships.userId })
-    .from(schema.memberships)
-    .where(
-      and(
-        eq(schema.memberships.tenantId, tenantId),
-        eq(schema.memberships.role, "owner"),
-      ),
-    );
-  return rows.length;
 }
 
 /**
@@ -42,23 +28,29 @@ async function countOwners(tenantId: string): Promise<number> {
  * vínculo com o papel. Sem envio de e-mail ainda — o registro fica pronto para
  * o fluxo de login do Auth.js. Apenas owner/admin podem convidar.
  */
-async function invite(formData: FormData, fixedRole?: Role) {
+async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResult> {
   const ctx = await getActiveContext();
-  if (!ctx || !can(ctx.perms, "usuarios", "criar")) return;
+  if (!ctx || !can(ctx.perms, "usuarios", "criar")) return { ok: false, error: "Sem permissão." };
 
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   const name = (formData.get("name") as string) || null;
   const password = ((formData.get("password") as string) || "").trim();
-  const role =
-    fixedRole ??
-    (ROLES.includes(formData.get("role") as Role)
-      ? (formData.get("role") as Role)
-      : "membro");
-  if (!email) return;
+  const pedido = formData.get("role");
+  // Criação nunca entrega owner direto (AI 3.1/3.5): promoção é pela linha.
+  const role: Role =
+    fixedRole ?? (papelValido(pedido) && PAPEIS_CRIACAO.includes(pedido) ? pedido : "membro");
+  if (!email) return { ok: false, error: "Informe o e-mail." };
 
-  // Senha inicial é opcional; se informada precisa ter no mínimo 8 caracteres.
-  const passwordHash =
-    password.length >= 8 ? hashPassword(password) : undefined;
+  // Senha inicial é opcional; informada, precisa de 8 caracteres. Antes, uma
+  // senha curta criava o usuário SEM senha, sem erro (AI 1.4).
+  if (password.length > 0 && password.length < 8) {
+    return { ok: false, error: "A senha inicial precisa de no mínimo 8 caracteres." };
+  }
+  const passwordHash = password.length >= 8 ? hashPassword(password) : undefined;
+  // Senha definida por outra pessoa é provisória (AI 1.1).
+  const provisoria = passwordHash
+    ? { mustChangePassword: true, passwordChangedAt: new Date() }
+    : {};
 
   const [existing] = await db
     .select()
@@ -71,7 +63,7 @@ async function invite(formData: FormData, fixedRole?: Role) {
     (
       await db
         .insert(schema.users)
-        .values({ email, name, passwordHash })
+        .values({ email, name, passwordHash, ...provisoria })
         .returning()
     )[0].id;
 
@@ -79,7 +71,7 @@ async function invite(formData: FormData, fixedRole?: Role) {
   if (existing && passwordHash) {
     await db
       .update(schema.users)
-      .set({ passwordHash })
+      .set({ passwordHash, ...provisoria })
       .where(eq(schema.users.id, userId));
   }
 
@@ -101,14 +93,15 @@ async function invite(formData: FormData, fixedRole?: Role) {
   });
   revalidatePath("/usuarios");
   revalidatePath("/contabilidade");
+  return { ok: true };
 }
 
-export async function inviteMember(formData: FormData) {
-  await invite(formData);
+export async function inviteMember(formData: FormData): Promise<ActionResult> {
+  return invite(formData);
 }
 
-export async function inviteContador(formData: FormData) {
-  await invite(formData, "contador");
+export async function inviteContador(formData: FormData): Promise<ActionResult> {
+  return invite(formData, "contador");
 }
 
 /** Lê o vínculo do membro alvo no tenant do contexto. */
@@ -246,48 +239,90 @@ export async function resetMemberPermissions(userId: string): Promise<ActionResu
   return { ok: true };
 }
 
+/**
+ * Trava as linhas de vínculo do tenant e conta os owners DENTRO da transação
+ * (AI 3.3). Sem o FOR UPDATE, dois rebaixamentos simultâneos passavam ambos
+ * pela contagem e deixavam o tenant sem dono.
+ */
+async function ownersTravados(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tenantId: string,
+) {
+  const linhas = await tx
+    .select({ userId: schema.memberships.userId, role: schema.memberships.role })
+    .from(schema.memberships)
+    .where(eq(schema.memberships.tenantId, tenantId))
+    .for("update");
+  return linhas;
+}
+
+/**
+ * Troca o papel de um membro (AI, Parte 3).
+ *  - 3.2 ninguém altera o próprio papel;
+ *  - 3.3 a guarda do último owner roda em transação com as linhas travadas;
+ *  - 3.4 quem troca decide o destino das telas personalizadas: manter ou
+ *    voltar ao padrão do papel novo — nunca limpar em silêncio. Chaves órfãs
+ *    ficam, como em "voltar ao padrão" da Gestão de Acessos.
+ * A confirmação de promover a owner (3.1) é da tela.
+ */
 export async function changeRole(
   userId: string,
   role: Role,
+  opcoes: { manterPersonalizacoes?: boolean } = {},
 ): Promise<ActionResult> {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "usuarios", "editar"))
     return { ok: false, error: "Sem permissão." };
+  if (!papelValido(role)) return { ok: false, error: "Papel inválido." };
+  if (userId === ctx.userId)
+    return { ok: false, error: "Ninguém altera o próprio papel — peça a outro owner." };
+  const manter = opcoes.manterPersonalizacoes !== false;
 
-  // Rebaixar o último owner deixaria o tenant sem dono.
-  const [target] = await db
-    .select({ role: schema.memberships.role })
-    .from(schema.memberships)
-    .where(
-      and(
-        eq(schema.memberships.userId, userId),
-        eq(schema.memberships.tenantId, ctx.tenant.id),
-      ),
-    )
-    .limit(1);
-  if (target?.role === "owner" && role !== "owner") {
-    if ((await countOwners(ctx.tenant.id)) <= 1)
-      return { ok: false, error: "O tenant precisa de pelo menos um owner." };
-  }
-
-  await db
-    .update(schema.memberships)
-    .set({ role })
-    .where(
-      and(
-        eq(schema.memberships.userId, userId),
-        eq(schema.memberships.tenantId, ctx.tenant.id),
-      ),
+  const r = await db.transaction(async (tx) => {
+    const linhas = await ownersTravados(tx, ctx.tenant.id);
+    const alvo = linhas.find((l) => l.userId === userId);
+    if (!alvo) return { ok: false as const, error: "Membro não encontrado." };
+    const owners = linhas.filter((l) => l.role === "owner").length;
+    if (alvo.role === "owner" && role !== "owner" && owners <= 1) {
+      return { ok: false as const, error: "O tenant precisa de pelo menos um owner." };
+    }
+    const [atual] = await tx
+      .select({ permissions: schema.memberships.permissions })
+      .from(schema.memberships)
+      .where(and(eq(schema.memberships.userId, userId), eq(schema.memberships.tenantId, ctx.tenant.id)))
+      .limit(1);
+    const set: { role: Role; permissions?: PermMatrix | null } = { role };
+    let descartada: PermMatrix | null = null;
+    if (!manter && atual?.permissions) {
+      const orfas = chavesOrfas(atual.permissions);
+      set.permissions = Object.keys(orfas).length > 0 ? orfas : null;
+      descartada = atual.permissions;
+    }
+    await tx
+      .update(schema.memberships)
+      .set(set)
+      .where(and(eq(schema.memberships.userId, userId), eq(schema.memberships.tenantId, ctx.tenant.id)));
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "membership.role",
+        entity: "membership",
+        entityId: userId,
+        meta: {
+          role,
+          de: alvo.role,
+          personalizacoes: atual?.permissions ? (manter ? "mantidas" : "descartadas") : "nenhuma",
+          ...(descartada ? { descartada } : {}),
+        },
+      },
+      tx,
     );
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "membership.role",
-    entity: "membership",
-    entityId: userId,
-    meta: { role },
+    return { ok: true as const };
   });
+  if (!r.ok) return r;
   revalidatePath("/usuarios");
+  revalidatePath("/acessos");
   return { ok: true };
 }
 
@@ -362,9 +397,15 @@ export async function resetMemberPassword(
     .limit(1);
   if (!m) return { ok: false, error: "Membro não encontrado." };
 
+  // Senha redefinida por outra pessoa: provisória (o dono troca no próximo
+  // acesso) e as sessões abertas dessa conta deixam de valer (AI 1.1 e 1.3).
   await db
     .update(schema.users)
-    .set({ passwordHash: hashPassword(password) })
+    .set({
+      passwordHash: hashPassword(password),
+      mustChangePassword: true,
+      passwordChangedAt: new Date(),
+    })
     .where(eq(schema.users.id, userId));
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -389,28 +430,26 @@ export async function removeMember(userId: string): Promise<ActionResult> {
   if (userId === ctx.userId)
     return { ok: false, error: "Você não pode remover a si mesmo." };
 
-  const [target] = await db
-    .select({ role: schema.memberships.role })
-    .from(schema.memberships)
-    .where(
-      and(
-        eq(schema.memberships.userId, userId),
-        eq(schema.memberships.tenantId, ctx.tenant.id),
-      ),
-    )
-    .limit(1);
-  if (!target) return { ok: false, error: "Membro não encontrado." };
-  if (target.role === "owner" && (await countOwners(ctx.tenant.id)) <= 1)
-    return { ok: false, error: "O tenant precisa de pelo menos um owner." };
+  // Guarda do último owner em transação, com as linhas travadas (AI 3.3).
+  const r = await db.transaction(async (tx) => {
+    const linhas = await ownersTravados(tx, ctx.tenant.id);
+    const alvo = linhas.find((l) => l.userId === userId);
+    if (!alvo) return { ok: false as const, error: "Membro não encontrado." };
+    if (alvo.role === "owner" && linhas.filter((l) => l.role === "owner").length <= 1)
+      return { ok: false as const, error: "O tenant precisa de pelo menos um owner." };
+    await tx
+      .delete(schema.memberships)
+      .where(
+        and(
+          eq(schema.memberships.userId, userId),
+          eq(schema.memberships.tenantId, ctx.tenant.id),
+        ),
+      );
+    return { ok: true as const, role: alvo.role };
+  });
+  if (!r.ok) return r;
+  const target = { role: r.role };
 
-  await db
-    .delete(schema.memberships)
-    .where(
-      and(
-        eq(schema.memberships.userId, userId),
-        eq(schema.memberships.tenantId, ctx.tenant.id),
-      ),
-    );
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,

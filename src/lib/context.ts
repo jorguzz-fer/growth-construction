@@ -26,6 +26,21 @@ export interface ActiveContext {
   perms: PermMatrix;
 }
 
+/**
+ * A sessão foi aberta antes da última troca/redefinição de senha (AI 1.3)?
+ * Sem troca registrada, nenhuma sessão é revogada — é o estado de todos no
+ * deploy. Sessão sem instante de login (emitida antes deste código) cai assim
+ * que houver uma troca.
+ */
+export function sessaoRevogada(
+  passwordChangedAt: Date | null | undefined,
+  authAt: number | null | undefined,
+): boolean {
+  if (!passwordChangedAt) return false;
+  if (!authAt) return true;
+  return authAt < passwordChangedAt.getTime();
+}
+
 /** RBAC legado (mantido por compat): contador é somente-leitura. */
 export function canEdit(role: Role): boolean {
   return role !== "contador";
@@ -53,6 +68,9 @@ export async function getActiveContext(): Promise<ActiveContext | null> {
     .where(eq(schema.users.email, email))
     .limit(1);
   if (!user) return null;
+  if (sessaoRevogada(user.passwordChangedAt, (session as { authAt?: number } | null)?.authAt)) {
+    return null;
+  }
 
   // Vínculos do usuário (multi-tenant); por ora usa o primeiro tenant.
   const memberships = await db

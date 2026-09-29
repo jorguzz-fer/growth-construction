@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getActiveContext, type Role } from "@/lib/context";
-import { can } from "@/lib/permissions";
+import { SCREENS, can } from "@/lib/permissions";
 import { getMembers } from "@/lib/queries";
 import { inviteMember } from "@/lib/actions/users";
 import { PageHeader } from "@/components/app/page-header";
@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { RoleSelect } from "@/components/app/role-select";
 import { MemberActions } from "@/components/app/member-actions";
+import { FormComResultado } from "@/components/app/form-com-resultado";
+import { PAPEIS_CRIACAO } from "@/lib/papeis";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,7 @@ export default async function UsuariosPage() {
   const podeEditar = can(ctx.perms, "usuarios", "editar");
   const podeExcluir = can(ctx.perms, "usuarios", "excluir");
   const temAcoes = podeEditar || podeExcluir;
+  const telas = new Set(SCREENS.map((s) => s.id));
 
   return (
     <>
@@ -46,9 +49,11 @@ export default async function UsuariosPage() {
             <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
               Novo usuário
             </h2>
-            <form
+            <FormComResultado
               action={inviteMember}
               className="grid grid-cols-2 gap-3 sm:grid-cols-5"
+              sucesso="Usuário adicionado."
+              aoConcluir="recarregar"
             >
               <div>
                 <Label>Nome</Label>
@@ -61,10 +66,11 @@ export default async function UsuariosPage() {
               <div>
                 <Label>Papel</Label>
                 <Select name="role" defaultValue="membro">
-                  <option value="admin">admin</option>
-                  <option value="membro">membro</option>
-                  <option value="contador">contador</option>
-                  <option value="engenheiro">engenheiro</option>
+                  {PAPEIS_CRIACAO.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
                 </Select>
               </div>
               <div>
@@ -80,10 +86,11 @@ export default async function UsuariosPage() {
                   Adicionar
                 </Button>
               </div>
-            </form>
+            </FormComResultado>
             <p className="mt-2 text-xs text-[var(--color-ink3)]">
               Sem senha inicial, o usuário fica com acesso pendente até você
-              definir uma senha na tabela abaixo.
+              definir uma senha na tabela abaixo. Senha definida aqui é
+              provisória: a pessoa escolhe a dela no primeiro acesso.
             </p>
           </CardContent>
         </Card>
@@ -110,7 +117,12 @@ export default async function UsuariosPage() {
               </TD>
               <TD>
                 {podeEditar ? (
-                  <RoleSelect userId={m.userId} role={m.role as Role} />
+                  <RoleSelect
+                    userId={m.userId}
+                    role={m.role as Role}
+                    isSelf={m.userId === ctx.userId}
+                    personalizadas={Object.keys(m.permissions ?? {}).filter((k) => telas.has(k)).length}
+                  />
                 ) : (
                   <Badge tone={roleTone[m.role] ?? "neutral"}>{m.role}</Badge>
                 )}
@@ -121,6 +133,7 @@ export default async function UsuariosPage() {
                     {m.hasPassword ? "ativo" : "sem senha"}
                   </Badge>
                   {m.mfaEnabled && <Badge tone="info">MFA</Badge>}
+                  {m.mustChangePassword && <Badge tone="warning">senha provisória</Badge>}
                   {m.userId === ctx.userId && (
                     <Badge tone="neutral">você</Badge>
                   )}

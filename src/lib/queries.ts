@@ -1465,6 +1465,8 @@ export interface MemberRow {
   role: string;
   permissions: import("@/lib/permissions").PermMatrix | null;
   mfaEnabled: boolean;
+  /** senha definida por outra pessoa, ainda não trocada (AI 1.1). */
+  mustChangePassword: boolean;
   /** já definiu senha? (senão, ainda não consegue logar). */
   hasPassword: boolean;
 }
@@ -1478,6 +1480,7 @@ export async function getMembers(tenantId: string): Promise<MemberRow[]> {
       role: schema.memberships.role,
       permissions: schema.memberships.permissions,
       mfaEnabled: schema.users.mfaEnabled,
+      mustChangePassword: schema.users.mustChangePassword,
       passwordHash: schema.users.passwordHash,
     })
     .from(schema.memberships)

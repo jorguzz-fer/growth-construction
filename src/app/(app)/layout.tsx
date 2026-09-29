@@ -2,6 +2,8 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { mfaEnforced } from "@/lib/mfa";
+import { auth } from "@/lib/auth";
+import { SairParaLogin } from "@/components/app/sair-para-login";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
@@ -20,6 +22,26 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const ctx = await getActiveContext();
+
+  // Há login, mas não há contexto: sessão encerrada por troca de senha (AI
+  // 1.3) ou vínculo removido. Antes caía na tela "Banco vazio", que manda rodar
+  // o seed — mensagem de instalação para um problema de acesso.
+  if (!ctx && (await auth())?.user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6 text-center">
+        <div className="max-w-md">
+          <h1 className="font-[family-name:var(--font-serif)] text-2xl">
+            Sua sessão foi encerrada
+          </h1>
+          <p className="mt-2 text-sm text-[var(--color-ink3)]">
+            A senha desta conta foi trocada ou o seu acesso a esta empresa
+            mudou. Entre de novo para continuar.
+          </p>
+          <SairParaLogin />
+        </div>
+      </div>
+    );
+  }
 
   if (!ctx) {
     return (
@@ -76,6 +98,7 @@ export default async function AppLayout({
           name: schema.users.name,
           email: schema.users.email,
           mfaEnabled: schema.users.mfaEnabled,
+          mustChangePassword: schema.users.mustChangePassword,
         })
         .from(schema.users)
         .where(eq(schema.users.id, ctx.userId))
@@ -85,6 +108,8 @@ export default async function AppLayout({
   // MFA obrigatório (quando exigido por env): força o enrollment se não ativo.
   // Em standby (fase de testes), não redireciona.
   if (mfaEnforced() && me && !me.mfaEnabled) redirect("/mfa");
+  // Senha definida por outra pessoa: troca antes de qualquer tela (AI 1.2).
+  if (me?.mustChangePassword) redirect("/trocar-senha");
 
   const userName = me?.name || me?.email || "Usuário";
 

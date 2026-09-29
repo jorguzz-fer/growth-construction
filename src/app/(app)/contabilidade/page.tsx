@@ -2,6 +2,7 @@ import { getActiveContext } from "@/lib/context";
 import { getDespesas, getMembers, getMonthlyRevenue } from "@/lib/queries";
 import { inviteContador } from "@/lib/actions/users";
 import { brl0 } from "@/lib/utils";
+import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,9 +75,11 @@ export default async function ContabilidadePage() {
             <h2 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
               Convidar escritório contábil
             </h2>
-            <form
+            <FormComResultado
               action={inviteContador}
               className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+              sucesso="Convite registrado."
+              aoConcluir="recarregar"
             >
               <div>
                 <Label>Nome</Label>
@@ -91,7 +94,7 @@ export default async function ContabilidadePage() {
                   Convidar (somente leitura)
                 </Button>
               </div>
-            </form>
+            </FormComResultado>
           </CardContent>
         </Card>
       )}
