@@ -310,3 +310,23 @@ tela de auditoria já lê os dois formatos.
 3. **Enquanto isso:** o redesenho visual (B7) — tokens do mockup e o menu de 8
    módulos —, que não depende de nenhuma resposta.
 4. **Antes do Bloco 2:** o mecanismo de chave por tenant (B4).
+
+---
+
+## B11 · Em que obra cai a saída de caixa de uma restituição? · **PERGUNTA ABERTA**
+
+Levantada no Prompt A, PR 6. **Não bloqueia nada**: a PR manteve o
+comportamento de antes, trocando só a origem da obra (do cookie para a tela).
+
+Hoje, a saída de caixa de uma restituição cai **na obra que está aberta na tela
+de Ressarcimentos**. Isso vale para a restituição avulsa, em lote, e para o
+estorno. O mesmo acontece com a entrada de caixa de um repasse de terceiro. A
+despesa que está sendo restituída pode ser de **outra** obra. Nesse caso, o
+Fluxo de Caixa por obra mostra a saída numa obra e a despesa em outra.
+
+| Opção | O que muda |
+|---|---|
+| **1. Fica como está** (obra da tela) | nada; quem lança escolhe a obra ao abrir a tela |
+| **2. Segue a despesa** | restituição avulsa: a obra da despesa. Em lote, a saída única seria **dividida por obra**, conforme os PEDs abatidos. É regra de negócio e muda o Fluxo por obra daqui em diante (nada do que já foi lançado é mexido) |
+
+Recomendação: **2**, num prompt próprio, com a contabilidade de acordo.

@@ -1,4 +1,8 @@
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
 import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
 import { getContaCorrenteTerceiros, getDespesaTerceiros } from "@/lib/actions/restituicoes";
@@ -25,16 +29,39 @@ function diasEmAberto(base: string | null): number {
   return Math.max(0, Math.round((toDate(hoje) - toDate(b)) / 86_400_000));
 }
 
-export default async function RestituicoesPage() {
-  const ctx = await getActiveContext();
+export default async function RestituicoesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string; project?: string }>;
+}) {
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "restituicoes", "ver")) return <AccessDenied />;
+
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie. A obra decide
+  // a lista de lançamentos e onde caem a despesa nova e a saída de caixa; a
+  // conta corrente por terceiro continua sendo da empresa inteira.
+  const sp = await searchParams;
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  const escolhido =
+    selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
+  if (!escolhido?.trabalho) {
+    return (
+      <PedirProjeto
+        titulo="Restituições — pago por terceiro"
+        projetos={ctx.projects}
+        oQue="ver e lançar as restituições"
+      />
+    );
+  }
+  const { project, trabalho: version } = escolhido;
 
   const [stakeholders, contas, bancos, lista, contasCorrentes] = await Promise.all([
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
-    getDespesaTerceiros(ctx.tenant.id, ctx.version.id),
+    getDespesaTerceiros(ctx.tenant.id, version.id),
     // Conta corrente por terceiro (§13) — escopo TENANT: a dívida com um sócio
     // é da empresa e não muda porque o usuário trocou o projeto ativo.
     getContaCorrenteTerceiros(ctx.tenant.id),
@@ -49,10 +76,17 @@ export default async function RestituicoesPage() {
   return (
     <>
       <PageHeader
-        eyebrow={ctx.version.label}
+        eyebrow={`${project.name} · ${version.label}`}
         title="Restituições — pago por terceiro"
         subtitle="Restituição de valores pagos para fornecedores anteriormente. A despesa é reconhecida 1× na DRE; a saída de caixa ocorre só na restituição."
+        actions={
+          <ProjectPicker
+            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            selected={project.id}
+          />
+        }
       />
+      <LembrarProjeto projectId={project.id} />
 
       {/* Conta corrente por terceiro: saldo devido e o extrato dos movimentos
           que o formam. NÃO é saldo bancário disponível — é obrigação. */}
@@ -65,6 +99,7 @@ export default async function RestituicoesPage() {
         bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
         saldos={saldosConsolidados}
         canEditar={can(ctx.perms, "restituicoes", "editar")}
+        projectId={project.id}
       />
 
       <RestituicoesManager
@@ -78,6 +113,7 @@ export default async function RestituicoesPage() {
         bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
         categorias={CATEGORIAS_DRE}
         canCriar={can(ctx.perms, "restituicoes", "criar")}
+        projectId={project.id}
         canEditar={can(ctx.perms, "restituicoes", "editar")}
       />
     </>

@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import {
   getContasReceber,
   getReceivables,
@@ -20,7 +20,7 @@ export default async function ContasReceberPage({
 }: {
   searchParams: Promise<{ proj?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "contasreceber", "ver")) return <AccessDenied />;
 

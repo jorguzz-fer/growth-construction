@@ -43,7 +43,10 @@ export function RestituicaoLote({
   bancos,
   saldos,
   canEditar,
+  projectId,
 }: {
+  /** obra da tela (Prompt A): a saída de caixa vai para a versão de trabalho dela. */
+  projectId: string;
   terceiros: Opt[];
   bancos: Opt[];
   saldos: SaldoConsolidadoTerceiro[];
@@ -87,6 +90,7 @@ export function RestituicaoLote({
     start(async () => {
       const res = await confirmarRestituicaoLote({
         terceiroId: f.terceiroId,
+        projectId,
         valor: Number(f.valor),
         dataRestituicao: f.dataRestituicao,
         bankAccountId: f.bankAccountId || null,

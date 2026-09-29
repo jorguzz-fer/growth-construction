@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
@@ -40,7 +40,7 @@ export interface DespesaPorPed {
 }
 
 export async function buscarDespesasPorPed(termo: string): Promise<DespesaPorPed[]> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "ver")) return [];
   const q = termo.trim();
   if (q.length < 2) return [];
@@ -130,11 +130,15 @@ export interface CriarObrigacaoResult {
 export async function criarDespesaTerceiro(
   formData: FormData,
 ): Promise<CriarObrigacaoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "criar")) {
     return { ok: false, error: "Sem permissão para registrar despesas pagas por terceiros." };
   }
-  if (ctx.version.locked) return { ok: false, error: "Versão congelada." };
+  // Obra da tela (Prompt A): a despesa nova vai para a versão de trabalho dela
+  // — a mesma regra que valia para a obra do cookie.
+  const version = await getWorkingVersion(ctx.tenant.id, formData.get("projectId"));
+  if (!version) return { ok: false, error: "Escolha o projeto." };
+  if (version.locked) return { ok: false, error: "Versão congelada." };
 
   const s = (k: string) => {
     const v = formData.get(k);
@@ -143,6 +147,12 @@ export async function criarDespesaTerceiro(
   const despesaId = s("despesaId");
   const idem = s("idempotencyKey");
   const pagadorTerceiroId = s("pagadorTerceiroId");
+  // Empresa responsável escolhida no formulário: só obra desta empresa
+  // (Prompt A, 38). Antes era gravada sem conferir.
+  const empresaResponsavelId = s("empresaResponsavelId");
+  if (empresaResponsavelId && !(await getProjectContext(ctx.tenant.id, empresaResponsavelId))) {
+    return { ok: false, error: "Empresa responsável inválida." };
+  }
   const dataPagamentoOriginal = s("dataPagamentoOriginal");
   const dataPrevistaRestituicao = s("dataPrevistaRestituicao");
   const obs = s("obs");
@@ -228,7 +238,7 @@ export async function criarDespesaTerceiro(
         const [nova] = await tx
           .insert(schema.despesas)
           .values({
-            versionId: ctx.version.id,
+            versionId: version.id,
             tenantId: ctx.tenant.id,
             numDoc,
             fornecedorId: s("fornecedorId"),
@@ -252,7 +262,8 @@ export async function criarDespesaTerceiro(
           tenantId: ctx.tenant.id,
           despesaId: despesaAlvo.id,
           pagadorTerceiroId,
-          empresaResponsavelId: s("empresaResponsavelId") || ctx.project.id,
+          // Sem escolha no formulário, a obra da tela (antes: a do cookie).
+          empresaResponsavelId: empresaResponsavelId ?? version.projectId,
           valorTotal: valorObrigacao,
           // A data da restituição NÃO altera a competência da despesa: são
           // fatos distintos e a DRE continua reconhecendo pela competência
@@ -312,6 +323,8 @@ export async function criarDespesaTerceiro(
 
 export interface RestituicaoInput {
   despesaTerceiroId: string;
+  /** obra da tela (Prompt A): a saída de caixa vai para a versão de trabalho dela. */
+  projectId: string;
   valor: number;
   dataRestituicao: string;
   bankAccountId?: string | null;
@@ -353,10 +366,16 @@ export interface RestituicaoResult {
 export async function registrarRestituicao(
   input: RestituicaoInput,
 ): Promise<RestituicaoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "editar")) {
     return { ok: false, error: "Sem permissão para registrar restituições." };
   }
+  // Obra da tela (Prompt A): a saída de caixa nova vai para a versão de
+  // trabalho dela. Só é exigida quando há saída a criar (sem item do extrato).
+  const versaoCaixa = input.cashEntryId
+    ? null
+    : await getWorkingVersion(ctx.tenant.id, input.projectId);
+  if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
   const idem = input.idempotencyKey?.trim() || null;
 
   if (idem) {
@@ -450,7 +469,7 @@ export async function registrarRestituicao(
           .where(eq(schema.cashEntries.id, input.cashEntryId));
       } else {
         await tx.insert(schema.cashEntries).values({
-          versionId: ctx.version.id,
+          versionId: versaoCaixa!.id,
           tenantId: ctx.tenant.id,
           bankAccountId: input.bankAccountId || null,
           data: input.dataRestituicao || null,
@@ -499,9 +518,13 @@ export async function registrarRestituicao(
   }
 }
 
-/** Cancela uma restituição: estorna o valor e a saída de caixa (compensação). */
-export async function cancelarRestituicao(restituicaoId: string) {
-  const ctx = await getActiveContext();
+/**
+ * Cancela uma restituição: estorna o valor e a saída de caixa (compensação).
+ * `projectId` é a obra da tela (Prompt A): o estorno de caixa vai para a
+ * versão de trabalho dela, como antes ia para a da obra do cookie.
+ */
+export async function cancelarRestituicao(restituicaoId: string, projectId: string) {
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "excluir")) {
     throw new Error("Sem permissão para cancelar restituições.");
   }
@@ -516,6 +539,8 @@ export async function cancelarRestituicao(restituicaoId: string) {
     )
     .limit(1);
   if (!rest) throw new Error("Restituição não encontrada.");
+  const versaoCaixa = rest.cashEntryId ? null : await getWorkingVersion(ctx.tenant.id, projectId);
+  if (!rest.cashEntryId && !versaoCaixa) throw new Error("Escolha o projeto.");
 
   const [dt] = await db
     .select()
@@ -548,7 +573,7 @@ export async function cancelarRestituicao(restituicaoId: string) {
     } else {
       // Saída criada por nós — compensa com uma entrada de estorno.
       await tx.insert(schema.cashEntries).values({
-        versionId: ctx.version.id,
+        versionId: versaoCaixa!.id,
         tenantId: ctx.tenant.id,
         bankAccountId: rest.bankAccountId,
         data: rest.dataRestituicao,

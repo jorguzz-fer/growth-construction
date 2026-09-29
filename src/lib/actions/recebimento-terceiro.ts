@@ -3,7 +3,7 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import {
@@ -101,7 +101,7 @@ export interface RecebimentoResult {
 export async function registrarRecebimentoTerceiro(
   formData: FormData,
 ): Promise<RecebimentoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "criar")) {
     return { ok: false, error: "Sem permissão para registrar recebimentos por terceiro." };
   }
@@ -113,6 +113,12 @@ export async function registrarRecebimentoTerceiro(
   const valor = Number(s("valor") ?? "0");
   if (!Number.isFinite(valor) || valor <= 0) {
     return { ok: false, error: "Informe um valor maior que zero." };
+  }
+  // Obra obrigatória e desta empresa (Prompt A, 11 e 38). Antes, sem obra,
+  // caía na do cookie; e a informada era gravada sem conferir a empresa.
+  const projectId = s("projectId");
+  if (!projectId || !(await getProjectContext(ctx.tenant.id, projectId))) {
+    return { ok: false, error: "Escolha o projeto." };
   }
 
   if (idem) {
@@ -137,7 +143,7 @@ export async function registrarRecebimentoTerceiro(
         .values({
           tenantId: ctx.tenant.id,
           recebedorTerceiroId: s("recebedorTerceiroId"),
-          projectId: s("projectId") ?? ctx.project.id,
+          projectId,
           contaReceberId,
           clienteId: s("clienteId"),
           unitCode: s("unitCode"),
@@ -213,6 +219,8 @@ export async function registrarRecebimentoTerceiro(
 
 export interface RepasseInput {
   recebimentoTerceiroId: string;
+  /** obra da tela (Prompt A): a entrada de caixa nova vai para a versão de trabalho dela. */
+  projectId: string;
   valor: number;
   dataRepasse: string;
   bankAccountId?: string | null;
@@ -238,10 +246,14 @@ export interface RepasseResult {
  * o caixa". A receita da venda continua sendo uma só.
  */
 export async function registrarRepasse(input: RepasseInput): Promise<RepasseResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "editar")) {
     return { ok: false, error: "Sem permissão para registrar repasses." };
   }
+  const versaoCaixa = input.cashEntryId
+    ? null
+    : await getWorkingVersion(ctx.tenant.id, input.projectId);
+  if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
   const idem = input.idempotencyKey?.trim() || null;
 
   if (idem) {
@@ -334,7 +346,7 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
         // Entrada de caixa POSITIVA: o dinheiro chega agora. `cat: "repasse"`
         // mantém a origem identificável e fora de qualquer soma de receita.
         await tx.insert(schema.cashEntries).values({
-          versionId: ctx.version.id,
+          versionId: versaoCaixa!.id,
           tenantId: ctx.tenant.id,
           bankAccountId: input.bankAccountId || null,
           data: input.dataRepasse || null,
