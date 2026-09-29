@@ -1,5 +1,12 @@
 import { Fragment } from "react";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
+import {
+  TODOS_OS_PROJETOS,
+  lerEscopoDeRelatorio,
+  projetosDoEscopo,
+  rotuloDoEscopo,
+} from "@/lib/projeto-selecao";
+import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { flowMaps, flowMapsRealizado } from "@/lib/fluxo-caixa";
 import {
@@ -26,9 +33,16 @@ export const dynamic = "force-dynamic";
 export default async function FluxoCaixaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string }>;
+  searchParams: Promise<{
+    ano?: string;
+    de?: string;
+    ate?: string;
+    vs?: string;
+    proj?: string;
+    project?: string;
+  }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -40,28 +54,76 @@ export default async function FluxoCaixaPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  // Projeto vem do seletor (?proj=), não do "projeto ativo" da sessão. Sem isto
-  // a tela mostrava apenas o projeto ativo, e os recebíveis das demais obras
-  // simplesmente não apareciam. "all" consolida todos os projetos da empresa.
-  const isAll = sp.proj === "all";
-  const project =
-    ctx.projects.find((p) => p.id === sp.proj) ?? ctx.project ?? ctx.projects[0];
+  // Obra ou escopo vêm da URL (Prompt A, 19). Sem nada: a obra lembrada pela
+  // aba; sem memória, "Todos" (B12). Nunca a obra do cookie — que antes
+  // também decidia o eixo de meses e as versões do modo "Todos".
+  const escopo = lerEscopoDeRelatorio(ctx.projects, sp);
+  if (escopo.tipo === "nenhum") {
+    return (
+      <RecuperarProjeto
+        idsPermitidos={ctx.projects.map((p) => p.id)}
+        semMemoria={TODOS_OS_PROJETOS}
+      />
+    );
+  }
+  const isAll = escopo.tipo !== "projeto";
+  const project = escopo.tipo === "projeto" ? escopo.projeto : null;
+  const doEscopo = escopo.tipo === "projeto" ? null : projetosDoEscopo(ctx.projects, escopo.tipo);
+  const projetosConsolidados = doEscopo?.projetos ?? [];
 
-  // Versões DO PROJETO selecionado (ctx.versions são as do projeto ativo).
-  const versoesProj = await getVersionsDoProjeto(ctx.tenant.id, project.id);
-  const versoes = versoesProj.length > 0 ? versoesProj : ctx.versions;
+  // Versões DA OBRA escolhida (vazio no modo consolidado).
+  const versoes = project ? await getVersionsDoProjeto(ctx.tenant.id, project.id) : [];
 
   // Por padrão, o Fluxo abre na versão ATUAL (dados reais); o usuário pode
   // selecionar/comparar outras versões pelo seletor.
-  const atualVersion = versoes.find((v) => v.kind === "atual") ?? versoes[0] ?? ctx.version;
-  const compareVersions = resolveCompareVersions(sp.vs, versoes, atualVersion);
+  const atualVersion = versoes.find((v) => v.kind === "atual") ?? versoes[0] ?? null;
+  const compareVersions = atualVersion ? resolveCompareVersions(sp.vs, versoes, atualVersion) : [];
   const projectSelect = (
     <ProjectPicker
       projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-      selected={isAll ? "all" : project.id}
+      selected={
+        project ? project.id : escopo.tipo === "todos" ? TODOS_OS_PROJETOS : escopo.tipo
+      }
       allOption
+      scopeOptions
     />
   );
+  // Escopo sem nenhuma obra (ex.: nenhuma classificada como Finalizado):
+  // estado vazio, nunca um fluxo zerado.
+  if (doEscopo && projetosConsolidados.length === 0) {
+    return (
+      <>
+        <PageHeader
+          title="Fluxo de Caixa Mensal"
+          actions={<div className="flex flex-wrap items-end gap-3">{projectSelect}</div>}
+        />
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            Nenhuma obra classificada como {escopo.tipo === "ativos" ? "Ativo" : "Finalizado"}.
+            Classifique as obras em Projetos.
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
+  // Obra sem nenhuma versão: nada a somar — e nada é lido de outra obra
+  // (antes caía nas versões da obra do cookie).
+  if (project && !atualVersion) {
+    return (
+      <>
+        <PageHeader
+          title="Fluxo de Caixa Mensal"
+          actions={<div className="flex flex-wrap items-end gap-3">{projectSelect}</div>}
+        />
+        <LembrarProjeto projectId={project.id} />
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            {project.name} não possui versões.
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
   const versionSelect = isAll ? null : (
     <VersionMultiSelect
       versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
@@ -76,7 +138,7 @@ export default async function FluxoCaixaPage({
    */
   async function flowMapsConsolidado() {
     const porProjeto = await Promise.all(
-      ctx!.projects.map(async (p) => {
+      projetosConsolidados.map(async (p) => {
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
         const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
         if (!atual) return { entradas: {}, saidas: {} };
@@ -97,7 +159,7 @@ export default async function FluxoCaixaPage({
     const entradas: Record<string, number> = {};
     const saidas: Record<string, number> = {};
     const porProjeto = await Promise.all(
-      ctx!.projects.map(async (p) => {
+      projetosConsolidados.map(async (p) => {
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
         const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
         if (!atual) return { entradas: {}, saidas: {} };
@@ -114,12 +176,20 @@ export default async function FluxoCaixaPage({
   // ── Fluxo mensal, com UMA COLUNA POR VERSÃO ──────────────────────────────
   // A comparação acontece dentro da própria tabela de fechamentos mensais: o
   // usuário nunca troca de tela para comparar versões.
-  const versoesTabela = isAll ? [atualVersion] : compareVersions;
+  // Consolidado: uma coluna "Atual" (a de cada obra, somadas), como antes.
+  const versoesTabela: { id: string; label: string; color: string }[] = isAll
+    ? [{ id: "consolidado", label: "Atual", color: "#16a34a" }]
+    : compareVersions;
   const [fluxos, incc, contas, realizado] = await Promise.all([
     isAll
       ? flowMapsConsolidado().then((m) => [m])
-      : Promise.all(compareVersions.map((v) => flowMaps(v, project.id))),
-    getInccRows(project.id),
+      : Promise.all(compareVersions.map((v) => flowMaps(v, project!.id))),
+    // Eixo de meses: INCC da obra; no consolidado, a união das obras do escopo
+    // (antes: a da obra do cookie). Só acrescenta meses sem movimento — nenhum
+    // total muda, porque o saldo corre sobre todos os meses com movimento.
+    project
+      ? getInccRows(project.id)
+      : Promise.all(projetosConsolidados.map((p) => getInccRows(p.id))).then((r) => r.flat()),
     getBankAccounts(ctx.tenant.id),
     // RG-01 — o fluxo acima é PREVISTO (montado pelo vencimento). Este é o
     // REALIZADO, montado pela data de liquidação: o dinheiro que de fato passou
@@ -214,6 +284,15 @@ export default async function FluxoCaixaPage({
           </div>
         }
       />
+      {project && <LembrarProjeto projectId={project.id} />}
+      {doEscopo && (
+        <p className="mb-4 text-[13px] text-[var(--color-ink3)]">
+          {rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados")} ·{" "}
+          {projetosConsolidados.length} projeto(s) somado(s)
+          {doEscopo.semSituacao > 0 &&
+            ` · ${doEscopo.semSituacao} obra(s) sem status ficaram fora — classifique-as em Projetos`}
+        </p>
+      )}
 
       {versoesTabela.length > 1 ? (
         // Comparando versões: um cartão de saldo por versão, com a diferença

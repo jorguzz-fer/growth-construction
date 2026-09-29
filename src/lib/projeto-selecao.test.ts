@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { lerSelecaoDeProjeto, ordenarProjetos } from "./projeto-selecao";
+import {
+  ehEscopo,
+  lerEscopoDeRelatorio,
+  lerSelecaoDeProjeto,
+  ordenarProjetos,
+  projetosDoEscopo,
+} from "./projeto-selecao";
 
 const p = (id: string, name: string, kind = "proj") => ({ id, name, kind });
 
@@ -68,5 +74,40 @@ describe("lerSelecaoDeProjeto (Prompt A, 12 e 22)", () => {
 
   it("parâmetro repetido: vale o primeiro", () => {
     expect(lerSelecaoDeProjeto(projetos, { proj: ["B", "A"] })).toEqual({ tipo: "projeto", projeto: projetos[1] });
+  });
+});
+
+
+describe("escopo de relatório (Prompt A, 17–19; B12)", () => {
+  const obra = (id: string, situacao: string | null) => ({ id, name: id, kind: "proj", situacao });
+  const escritorio = (id: string) => ({ id, name: id, kind: "office", situacao: null });
+  const lista = [obra("A", "Ativo"), obra("F", "Finalizado"), obra("S", null), escritorio("E")];
+
+  it("lê obra, todos, ativos e finalizados; sem nada, nenhum", () => {
+    expect(lerEscopoDeRelatorio(lista, { proj: "A" })).toEqual({ tipo: "projeto", projeto: lista[0] });
+    expect(lerEscopoDeRelatorio(lista, { proj: "all" })).toEqual({ tipo: "todos" });
+    expect(lerEscopoDeRelatorio(lista, { proj: "ativos" })).toEqual({ tipo: "ativos" });
+    expect(lerEscopoDeRelatorio(lista, { project: "finalizados" })).toEqual({ tipo: "finalizados" });
+    expect(lerEscopoDeRelatorio(lista, {})).toEqual({ tipo: "nenhum" });
+    expect(lerEscopoDeRelatorio(lista, { proj: "de-outro-tenant" })).toEqual({ tipo: "nenhum" });
+  });
+
+  it("Todos = obras + escritórios, na mesma ordem (como antes)", () => {
+    expect(projetosDoEscopo(lista, "todos")).toEqual({ projetos: lista, semSituacao: 0 });
+  });
+
+  it("Ativos/Finalizados: só obras com a situação; sem situação contam no aviso", () => {
+    expect(projetosDoEscopo(lista, "ativos")).toEqual({ projetos: [lista[0]], semSituacao: 1 });
+    expect(projetosDoEscopo(lista, "finalizados")).toEqual({ projetos: [lista[1]], semSituacao: 1 });
+  });
+
+  it("escritório nunca entra em Ativos/Finalizados, mesmo classificado", () => {
+    const esc = { ...escritorio("E2"), situacao: "Ativo" };
+    expect(projetosDoEscopo([esc], "ativos").projetos).toEqual([]);
+  });
+
+  it("ehEscopo", () => {
+    expect(["all", "ativos", "finalizados"].every(ehEscopo)).toBe(true);
+    expect(ehEscopo("uuid-qualquer")).toBe(false);
   });
 });

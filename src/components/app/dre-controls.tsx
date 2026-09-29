@@ -5,6 +5,8 @@ import { useEffect, useState, useTransition } from "react";
 import { Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MonthField } from "@/components/ui/date-field";
+import { gravarProjetoDaAba } from "@/components/app/projeto-da-aba";
+import { ESCOPO_ATIVOS, ESCOPO_FINALIZADOS, TODOS_OS_PROJETOS, ehEscopo } from "@/lib/projeto-selecao";
 
 export function DreControls({
   projects,
@@ -81,15 +83,22 @@ export function DreControls({
       <Select
         value={proj}
         disabled={pending}
-        onChange={(e) => go({ proj: e.target.value })}
+        onChange={(e) => {
+          // Obra escolhida entra na memória da aba (B-A2); escopo, não.
+          if (!ehEscopo(e.target.value)) gravarProjetoDaAba(e.target.value);
+          go({ proj: e.target.value });
+        }}
         className="h-9 w-auto"
       >
+        <option value={TODOS_OS_PROJETOS}>Empresa toda (matriz + filiais + projetos)</option>
+        <option value={ESCOPO_ATIVOS}>Projetos ativos</option>
+        <option value={ESCOPO_FINALIZADOS}>Projetos finalizados</option>
+        <option disabled value="__sep">──────────</option>
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}
           </option>
         ))}
-        <option value="all">Empresa toda (matriz + filiais + projetos)</option>
       </Select>
       <Select
         value={periodo}
