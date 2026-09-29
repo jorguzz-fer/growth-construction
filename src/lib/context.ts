@@ -223,6 +223,28 @@ export async function getProjectVersions(
 }
 
 /**
+ * A versão `versionId` do tenant, com a obra dela e as versões irmãs (Prompt
+ * A, 13). Para ações que recebem só a versão: a obra sai da própria versão,
+ * nunca do cookie. Null se a versão não for do tenant.
+ */
+export async function getVersionContext(
+  tenantId: string,
+  versionId: unknown,
+): Promise<{ project: Project; versions: Version[]; version: Version } | null> {
+  if (!tenantId || typeof versionId !== "string" || !versionId) return null;
+  const [v] = await db
+    .select()
+    .from(schema.versions)
+    .where(and(eq(schema.versions.id, versionId), eq(schema.versions.tenantId, tenantId)))
+    .limit(1);
+  if (!v) return null;
+  const r = await getProjectVersions(tenantId, v.projectId);
+  if (!r) return null;
+  const version = r.versions.find((x) => x.id === v.id);
+  return version ? { project: r.project, versions: r.versions, version } : null;
+}
+
+/**
  * Versão de trabalho da obra que a TELA informou (Prompt A) — para gravações
  * que antes caíam em `ctx.version`. Aceita o valor cru do formulário/input;
  * null se vazio, se a obra não for do tenant ou se ela não tiver versões.

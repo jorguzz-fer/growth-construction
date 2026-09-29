@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext, getVersionContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { parseWorkbook } from "@/lib/xlsx/growth-template";
@@ -23,15 +23,16 @@ export interface ImportResult {
  * Categorias com aba vazia são preservadas.
  */
 export async function importVersionData(formData: FormData): Promise<ImportResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "versao", "editar")) {
     throw new Error("Sem permissão para importar dados.");
   }
 
-  // Versão-alvo: a indicada no form (validada no projeto do tenant), ou a ativa.
-  const wantedId = (formData.get("versionId") as string) || ctx.version.id;
-  const target = ctx.versions.find((v) => v.id === wantedId);
-  if (!target) throw new Error("Versão inválida.");
+  // Versão-alvo: a indicada no form, obrigatória e validada no tenant (Prompt
+  // A). A obra — e o INCC atualizado — é a DA VERSÃO, não a do cookie.
+  const alvo = await getVersionContext(ctx.tenant.id, formData.get("versionId"));
+  if (!alvo) throw new Error("Versão inválida.");
+  const target = alvo.version;
   if (target.locked) {
     throw new Error("Versão congelada — descongele para importar.");
   }
@@ -99,7 +100,7 @@ export async function importVersionData(formData: FormData): Promise<ImportResul
       await tx
         .update(schema.inccRates)
         .set({ monthly: String(r.monthly), accumulated: String(r.accumulated) })
-        .where(and(eq(schema.inccRates.projectId, ctx.project.id), eq(schema.inccRates.mes, r.mes)));
+        .where(and(eq(schema.inccRates.projectId, alvo.project.id), eq(schema.inccRates.mes, r.mes)));
     }
     result.incc = parsed.incc.length;
   });

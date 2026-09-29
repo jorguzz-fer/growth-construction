@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext, getVersionContext } from "@/lib/context";
 import {
   getDespesas,
   getInccRows,
@@ -14,23 +14,25 @@ export const dynamic = "force-dynamic";
 
 /**
  * Download dos dados JÁ PREENCHIDOS de uma versão, no MESMO formato da planilha
- * modelo (reimportável). ?v= indica a versão (padrão: ativa).
+ * modelo (reimportável). ?v= indica a versão — obrigatório (Prompt A): a
+ * obra, e o INCC exportado, saem da própria versão, validada no tenant.
  */
 export async function GET(req: Request) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "versao", "ver")) {
     return new Response("Não autorizado", { status: 403 });
   }
 
-  const wantedId = new URL(req.url).searchParams.get("v");
-  const version = ctx.versions.find((v) => v.id === wantedId) ?? ctx.version;
+  const alvo = await getVersionContext(ctx.tenant.id, new URL(req.url).searchParams.get("v"));
+  if (!alvo) return new Response("Versão não encontrada", { status: 404 });
+  const { version, project } = alvo;
 
   const [unitRows, reembRows, permRows, despRows, incc] = await Promise.all([
     getUnits(version.id),
     getReembolsos(version.id),
     getPermutas(version.id),
     getDespesas(version.id),
-    getInccRows(ctx.project.id),
+    getInccRows(project.id),
   ]);
 
   const data: ExportData = {
