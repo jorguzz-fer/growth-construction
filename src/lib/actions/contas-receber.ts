@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -27,7 +27,7 @@ const clean = (v: string | null | undefined) => {
  * Pode nascer vinculada a um item do extrato (origemCashEntryId — item 6).
  */
 export async function createContaReceber(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contasreceber", "criar")) {
     throw new Error("Sem permissão para criar contas a receber.");
   }
@@ -75,7 +75,7 @@ export async function createContaReceber(formData: FormData) {
 
 /** Atualiza uma conta a receber (consulta/edição — item 5). */
 export async function updateContaReceber(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contasreceber", "editar")) {
     throw new Error("Sem permissão para editar contas a receber.");
   }
@@ -120,7 +120,7 @@ export async function updateContaReceber(formData: FormData) {
 
 /** Cancelamento lógico (preserva histórico e a rastreabilidade). */
 export async function cancelarContaReceber(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contasreceber", "excluir")) {
     throw new Error("Sem permissão.");
   }

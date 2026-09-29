@@ -3,7 +3,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
@@ -51,7 +51,7 @@ function diasDesde(base: string | null): number {
 
 /** Extrato consolidado de um terceiro, com aging (item 4.1). */
 export async function getExtratoTerceiro(terceiroId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "ver")) {
     return { obrigacoes: [], totalDevido: 0, totalRestituido: 0, saldo: 0, aging: null };
   }
@@ -134,6 +134,8 @@ export async function previewRestituicaoLote(
 
 export interface RestituicaoLoteInput {
   terceiroId: string;
+  /** obra da tela (Prompt A): a saída de caixa vai para a versão de trabalho dela. */
+  projectId: string;
   valor: number;
   dataRestituicao: string;
   bankAccountId?: string | null;
@@ -165,10 +167,12 @@ export interface RestituicaoLoteResult {
 export async function confirmarRestituicaoLote(
   input: RestituicaoLoteInput,
 ): Promise<RestituicaoLoteResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "editar")) {
     return { ok: false, error: "Sem permissão para registrar restituições." };
   }
+  const versaoCaixa = await getWorkingVersion(ctx.tenant.id, input.projectId);
+  if (!versaoCaixa) return { ok: false, error: "Escolha o projeto." };
   const idem = input.idempotencyKey?.trim() || null;
   if (idem) {
     const [existente] = await db
@@ -281,7 +285,7 @@ export async function confirmarRestituicaoLote(
 
       // RG-08 — UMA saída de caixa, no valor total restituído.
       await tx.insert(schema.cashEntries).values({
-        versionId: ctx.version.id,
+        versionId: versaoCaixa.id,
         tenantId: ctx.tenant.id,
         bankAccountId: input.bankAccountId || null,
         data: input.dataRestituicao || null,
@@ -362,7 +366,7 @@ export async function compensarSaldos(input: {
   obs?: string | null;
   idempotencyKey?: string | null;
 }): Promise<CompensacaoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "editar")) {
     return { ok: false, error: "Sem permissão para compensar saldos." };
   }

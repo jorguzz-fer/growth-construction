@@ -57,7 +57,10 @@ export function RestituicoesManager({
   categorias,
   canCriar,
   canEditar,
+  projectId,
 }: {
+  /** obra da tela (Prompt A): despesa nova e saída de caixa vão para a versão de trabalho dela. */
+  projectId: string;
   rows: (DespesaTerceiroView & { diasEmAberto: number })[];
   stakeholders: Opt[];
   contas: ContaOpt[];
@@ -85,6 +88,7 @@ export function RestituicoesManager({
     setError(null);
     setAviso(null);
     fd.set("idempotencyKey", chave.current);
+    fd.set("projectId", projectId);
     if (ped) fd.set("despesaId", ped.id);
     start(async () => {
       const res = await criarDespesaTerceiro(fd);
@@ -310,7 +314,14 @@ export function RestituicoesManager({
         </tbody>
       </Table>
 
-      {sel && <RestituicaoModal dt={sel} bancos={bancos} onClose={() => setSel(null)} />}
+      {sel && (
+        <RestituicaoModal
+          dt={sel}
+          bancos={bancos}
+          projectId={projectId}
+          onClose={() => setSel(null)}
+        />
+      )}
     </div>
   );
 }
@@ -464,10 +475,12 @@ function BuscaPed({
 function RestituicaoModal({
   dt,
   bancos,
+  projectId,
   onClose,
 }: {
   dt: DespesaTerceiroView;
   bancos: { id: string; banco: string; tipo: string }[];
+  projectId: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -491,6 +504,7 @@ function RestituicaoModal({
     start(async () => {
       const res = await registrarRestituicao({
         despesaTerceiroId: dt.id,
+        projectId,
         valor: Number(f.valor) || 0,
         dataRestituicao: f.dataRestituicao,
         bankAccountId: f.bankAccountId || null,

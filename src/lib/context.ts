@@ -223,6 +223,19 @@ export async function getProjectVersions(
 }
 
 /**
+ * Versão de trabalho da obra que a TELA informou (Prompt A) — para gravações
+ * que antes caíam em `ctx.version`. Aceita o valor cru do formulário/input;
+ * null se vazio, se a obra não for do tenant ou se ela não tiver versões.
+ */
+export async function getWorkingVersion(
+  tenantId: string,
+  projectId: unknown,
+): Promise<Version | null> {
+  if (typeof projectId !== "string" || !projectId) return null;
+  return (await getProjectVersions(tenantId, projectId))?.trabalho ?? null;
+}
+
+/**
  * @deprecated Prompt A: projeto e versão implícitos (cookie + primeiro
  * projeto). Use `getTenantContext` e resolva a obra explicitamente com
  * `lerSelecaoDeProjeto` + `getProjectContext`/`getProjectVersion`. Continua
