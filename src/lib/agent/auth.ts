@@ -8,6 +8,7 @@ import {
   type PermMatrix,
 } from "@/lib/permissions";
 import type { Role } from "@/lib/context";
+import { opcoesDoTenant } from "@/lib/membro-padrao";
 
 /**
  * Autenticação da API de agente (WhatsApp → Cris → Growth).
@@ -206,7 +207,7 @@ export async function resolveAgentIdentity(req: Request): Promise<AgentIdentity>
     tenantId: vinculo.t.id,
     tenantName: vinculo.t.name,
     role,
-    perms: effectivePermissions(role, vinculo.m.permissions),
+    perms: effectivePermissions(role, vinculo.m.permissions, opcoesDoTenant(vinculo.t.id)),
   };
 }
 

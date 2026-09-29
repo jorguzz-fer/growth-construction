@@ -16,12 +16,17 @@ import {
   formatarCnpj,
 } from "@/lib/calc/emitente-fiscal";
 import { focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
 export default async function EmpresaPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "empresa", "ver")) return <AccessDenied />;
   const canEdit = can(ctx.perms, "empresa", "editar");
   const r2 = isR2Configured();
   const logoUrl =

@@ -87,8 +87,43 @@ export async function addStockMovement(formData: FormData) {
 export async function deleteStockItem(id: string) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "estoque", "excluir")) return;
+  // Exclusão física (as movimentações caem em cascata): o log guarda o que
+  // existia, porque o registro deixa de existir (AK 1.1).
+  const [item] = await db
+    .select()
+    .from(schema.stockItems)
+    .where(and(eq(schema.stockItems.id, id), eq(schema.stockItems.tenantId, ctx.tenant.id)))
+    .limit(1);
+  const movs = item
+    ? await db
+        .select({ tipo: schema.stockMovements.tipo, quantidade: schema.stockMovements.quantidade })
+        .from(schema.stockMovements)
+        .where(and(eq(schema.stockMovements.itemId, id), eq(schema.stockMovements.tenantId, ctx.tenant.id)))
+    : [];
   await db
     .delete(schema.stockItems)
     .where(and(eq(schema.stockItems.id, id), eq(schema.stockItems.tenantId, ctx.tenant.id)));
+  if (item) {
+    const saldo = movs.reduce(
+      (acc, m) => acc + (m.tipo === "saida" ? -1 : 1) * Number(m.quantidade ?? 0),
+      0,
+    );
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "estoque.item.delete",
+      entity: "stock_item",
+      entityId: id,
+      meta: {
+        nome: item.nome,
+        sku: item.sku,
+        unidade: item.unidade,
+        categoria: item.categoria,
+        custoUnit: item.custoUnit,
+        saldo,
+        movimentacoesExcluidas: movs.length,
+      },
+    });
+  }
   revalidatePath("/estoque");
 }

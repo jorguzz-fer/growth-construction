@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { PlanoContasManager } from "@/components/app/planocontas-manager";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,10 @@ const DRE_CATS = [
 export default async function PlanoContasPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "planocontas", "ver")) return <AccessDenied />;
   const rows = await getChartAccounts(ctx.tenant.id);
   const cef = groupBy(rows, "cef");
   const comp = groupBy(rows, "complementar");

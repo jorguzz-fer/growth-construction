@@ -3,11 +3,12 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import {
   SCREENS,
+  TELAS_SO_ADMIN,
   type PermMatrix,
   type PermAction,
   type Modulo,
 } from "@/lib/permissions";
-import { setMemberPermissions } from "@/lib/actions/users";
+import { resetMemberPermissions, setMemberPermissions } from "@/lib/actions/users";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ export interface AccessMatrixMember {
   email: string | null;
   role: string;
   perms: PermMatrix;
+  /** Telas com override gravado; as demais seguem o padrão do papel (AJ 2.3). */
+  personalizadas: number;
 }
 
 const ACTIONS: { key: PermAction; label: string }[] = [
@@ -42,9 +45,12 @@ const MODULOS: Modulo[] = [
 export function AccessMatrix({
   members,
   canEdit = true,
+  currentUserId,
 }: {
   members: AccessMatrixMember[];
   canEdit?: boolean;
+  /** Quem está logado — não edita a própria linha (AJ 3.2). */
+  currentUserId?: string | null;
 }) {
   const [sel, setSel] = useState<string | null>(members[0]?.userId ?? null);
   const member = members.find((m) => m.userId === sel) ?? null;
@@ -80,7 +86,12 @@ export function AccessMatrix({
 
       {/* Matriz do membro selecionado */}
       {member ? (
-        <MemberMatrix key={member.userId} member={member} canEdit={canEdit} />
+        <MemberMatrix
+          key={member.userId}
+          member={member}
+          canEdit={canEdit}
+          isSelf={member.userId === currentUserId}
+        />
       ) : (
         <Card>
           <CardContent className="p-8 text-center text-sm text-[var(--color-ink3)]">
@@ -95,9 +106,11 @@ export function AccessMatrix({
 function MemberMatrix({
   member,
   canEdit,
+  isSelf,
 }: {
   member: AccessMatrixMember;
   canEdit: boolean;
+  isSelf: boolean;
 }) {
   const [perms, setPerms] = useState<PermMatrix>(() =>
     Object.fromEntries(
@@ -107,23 +120,48 @@ function MemberMatrix({
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const ownerFull = member.role === "owner"; // owner sempre total
-  const editable = canEdit && !ownerFull;
+  const [error, setError] = useState<string | null>(null);
+  // Owner e admin: acesso total, garantido no módulo (AJ 3.3) — não configurável.
+  const ownerFull = member.role === "owner" || member.role === "admin";
+  const editable = canEdit && !ownerFull && !isSelf;
 
   // Persiste (e registra no log de auditoria) apenas ao clicar em "Salvar" —
-  // evita gerar uma entrada de auditoria a cada clique de checkbox.
+  // evita gerar uma entrada de auditoria a cada clique de checkbox. "Salvo."
+  // só aparece quando o servidor confirmou (AJ 4.4).
   const save = () => {
     if (!editable || !dirty) return;
     setSaved(false);
+    setError(null);
     start(async () => {
-      await setMemberPermissions(member.userId, perms);
+      const r = await setMemberPermissions(member.userId, perms);
+      if (!r.ok) {
+        setError(r.error ?? "Falha ao salvar.");
+        return;
+      }
       setDirty(false);
       setSaved(true);
     });
   };
 
-  function toggle(screenId: string, action: PermAction) {
+  const voltarAoPadrao = () => {
     if (!editable) return;
+    if (
+      !window.confirm(
+        `Descartar as ${member.personalizadas} tela(s) personalizada(s) de ${member.name ?? member.email} e voltar ao padrão do papel "${member.role}"? A matriz descartada fica registrada no log.`,
+      )
+    )
+      return;
+    setSaved(false);
+    setError(null);
+    start(async () => {
+      const r = await resetMemberPermissions(member.userId);
+      if (!r.ok) setError(r.error ?? "Falha ao voltar ao padrão.");
+      else window.location.reload();
+    });
+  };
+
+  function toggle(screenId: string, action: PermAction) {
+    if (!editable || TELAS_SO_ADMIN.has(screenId)) return;
     setSaved(false);
     setDirty(true);
     setPerms((prev) => {
@@ -153,7 +191,7 @@ function MemberMatrix({
             Permissões · {member.name ?? member.email}
           </h2>
           {ownerFull ? (
-            <Badge tone="accent">owner — acesso total</Badge>
+            <Badge tone="accent">{member.role} — acesso total</Badge>
           ) : (
             <div className="flex items-center gap-3">
               {pending ? (
@@ -173,6 +211,32 @@ function MemberMatrix({
             </div>
           )}
         </div>
+
+        {!ownerFull && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--color-ink3)]">
+            <span>
+              {member.personalizadas > 0
+                ? `${member.personalizadas} tela(s) personalizada(s); as demais seguem o padrão do papel.`
+                : "Todas as telas seguem o padrão do papel."}
+            </span>
+            {editable && member.personalizadas > 0 && (
+              <button
+                type="button"
+                onClick={voltarAoPadrao}
+                disabled={pending}
+                className="text-[var(--color-accent2)] underline-offset-2 hover:underline"
+              >
+                Voltar ao padrão do papel
+              </button>
+            )}
+            {isSelf && (
+              <span className="text-[var(--color-warning)]">
+                Suas próprias permissões só podem ser editadas por outro administrador.
+              </span>
+            )}
+          </div>
+        )}
+        {error && <p className="mb-3 text-sm text-[var(--color-danger)]">{error}</p>}
 
         <div className="tbl-scroll overflow-x-auto">
           <table className="w-full text-sm">
@@ -198,15 +262,24 @@ function MemberMatrix({
                   </tr>
                   {screens.map((s) => (
                     <tr key={s.id} className="border-b border-[var(--color-accent2)]/8">
-                      <td className="px-2 py-2 text-[var(--color-ink2)]">{s.label}</td>
+                      <td className="px-2 py-2 text-[var(--color-ink2)]">
+                        {s.label}
+                        {!ownerFull && TELAS_SO_ADMIN.has(s.id) && (
+                          <span className="ml-1.5 text-[11px] text-[var(--color-ink3)]">
+                            · exclusiva de owner e admin
+                          </span>
+                        )}
+                      </td>
                       {ACTIONS.map((a) => {
                         const checked = ownerFull ? true : perms[s.id]?.[a.key] ?? false;
+                        const restrita = !ownerFull && TELAS_SO_ADMIN.has(s.id);
                         return (
                           <td key={a.key} className="px-2 py-2 text-center">
                             <input
                               type="checkbox"
                               checked={checked}
-                              disabled={!editable || pending}
+                              disabled={!editable || pending || restrita}
+                              title={restrita ? "Usuários e Gestão de Acessos são exclusivas de owner e admin." : undefined}
                               onChange={() => toggle(s.id, a.key)}
                             />
                           </td>

@@ -7,12 +7,17 @@ import { PAPEIS_STAKEHOLDER } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { FornecedorForm } from "@/components/app/fornecedor-form";
 import { FornecedoresTable } from "@/components/app/fornecedores-table";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
 export default async function FornecedoresPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "fornecedores", "ver")) return <AccessDenied />;
   const stakeholders = await getStakeholders(ctx.tenant.id);
 
   return (

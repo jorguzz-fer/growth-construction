@@ -6,12 +6,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
 export default async function NovoReembolsoPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "reembolso", "ver")) return <AccessDenied />;
   if (!can(ctx.perms, "reembolso", "criar")) {
     return (
       <p className="text-sm text-[var(--color-warning)]">

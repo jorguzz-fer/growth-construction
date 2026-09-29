@@ -400,10 +400,24 @@ export async function importCash(
 export async function toggleConciliado(id: string, rec: boolean) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) return;
-  await db
+  const [mov] = await db
     .update(schema.cashEntries)
     .set({ rec })
-    .where(eq(schema.cashEntries.id, id));
+    // Isolamento: o id sozinho alcançava lançamento de outro tenant.
+    .where(and(eq(schema.cashEntries.id, id), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+    .returning();
+  // AK Parte 1 — sem transação aqui (1.3). Só registra se alguma linha foi
+  // gravada; o estado anterior é o inverso de `para` (a tela só alterna).
+  if (mov) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "conciliacao.flag",
+      entity: "cash_entry",
+      entityId: mov.id,
+      meta: { data: mov.data, descricao: mov.descricao, valor: mov.valor, para: rec },
+    });
+  }
   revalidatePath("/caixa");
 }
 
@@ -1016,6 +1030,19 @@ export async function pairMovimento(
     } else {
       await conciliarContaReceber({ cashEntryId: cashId, contaReceberId: alvoId });
     }
+    // AK Parte 1 — o par em si (a conciliação do alvo já tem log próprio).
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "extrato.pair",
+      entity: "cash_entry",
+      entityId: cashId,
+      meta: {
+        movimento: { data: mov.data, descricao: mov.descricao, valor, doc: mov.doc ?? null },
+        alvo: { tipo: alvoTipo, id: alvoId },
+        movimentoReaproveitado: !!pend,
+      },
+    });
     return { ok: true };
   } catch (e) {
     console.error("[extrato] falha ao parear movimento:", e);

@@ -265,6 +265,20 @@ detalhe de cada um está em [`V2-PROMPT-C.md`](./V2-PROMPT-C.md#conflitos).
 
 ---
 
+## B10 · Bloco 1 — decisões · **RESPONDIDO (29/09/2026)**
+
+| | Pergunta | Resposta |
+|---|---|---|
+| **B-A2** (Prompt A) | Sem projeto escolhido, o que a tela faz? | **Memória por aba** — a escolha vai na URL (`?project=…`) e cada aba lembra a última em `sessionStorage`. Nada global, nada compartilhado entre abas |
+| **BM-3** (Prompt M) | Quais campos de cliente são sensíveis? | **Aprovada a proposta:** renda bruta e líquida, comprometimento, FGTS (possui e saldo), score, restrições, estado civil e todo o bloco de inteligência de mercado exigem permissão própria, dada por padrão **só a owner e admin** |
+| **BM-2** (Prompt M) | O engenheiro vê o relatório de Medição? | **Não — fica como está:** só o Lançamento de Medição |
+
+O inventário do Prompt A (B-A1) está em [`V2-PROMPT-A-INVENTARIO.md`](./V2-PROMPT-A-INVENTARIO.md):
+24 telas e 13 arquivos de ações dependem do projeto/versão implícitos — a
+refatoração vai em várias PRs, uma por módulo.
+
+---
+
 ## O que já foi feito nesta sessão
 
 As três tarefas que **os dois documentos** marcam como livres de qualquer

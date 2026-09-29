@@ -1,5 +1,8 @@
 import { db, schema } from "@/lib/db";
 
+/** Quem executa o insert: o `db` ou a transação do chamador (AK 1.3). */
+type Executor = Pick<typeof db, "insert">;
+
 /**
  * Registra uma entrada no log de auditoria (append-only). Chamado pelas Server
  * Actions após mutações. Ver docs/SPEC.md §12.7.
@@ -11,8 +14,8 @@ export async function logAudit(entry: {
   entity: string;
   entityId?: string | null;
   meta?: unknown;
-}): Promise<void> {
-  await db.insert(schema.auditLog).values({
+}, exec: Executor = db): Promise<void> {
+  await exec.insert(schema.auditLog).values({
     tenantId: entry.tenantId,
     userId: entry.userId ?? null,
     action: entry.action,

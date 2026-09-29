@@ -8,6 +8,8 @@ import {
   metaVisivel,
   podeVerDadoProtegido,
 } from "@/lib/audit-mask";
+import { can } from "@/lib/permissions";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,10 @@ function renderMeta(meta: unknown) {
 export default async function AcoesPage() {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "acoes", "ver")) return <AccessDenied />;
 
   const [audit, members] = await Promise.all([
     getAuditLog(ctx.tenant.id, 200),

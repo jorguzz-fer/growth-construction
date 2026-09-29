@@ -50,6 +50,10 @@ export const users = pgTable("user", {
   /** segredo TOTP (base32) para MFA. */
   mfaSecret: text("mfa_secret"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  /** senha definida por outra pessoa: o dono troca antes de usar (AI 1.1). */
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  /** última troca/redefinição: sessões abertas antes deixam de valer (AI 1.3). */
+  passwordChangedAt: timestamp("password_changed_at", { mode: "date" }),
 });
 
 export const accounts = pgTable(

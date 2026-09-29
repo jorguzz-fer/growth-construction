@@ -218,6 +218,8 @@ export async function toggleVersionLock(versionId: string, locked: boolean) {
 export async function setDefaultVersion(versionId: string) {
   const ctx = await guardVersionEdit(versionId);
   if (!ctx) return;
+  const anterior = ctx.versions.find((v) => v.isDefault) ?? null;
+  const nova = ctx.versions.find((v) => v.id === versionId) ?? null;
   await db.transaction(async (tx) => {
     await tx
       .update(schema.versions)
@@ -227,6 +229,22 @@ export async function setDefaultVersion(versionId: string) {
       .update(schema.versions)
       .set({ isDefault: true })
       .where(eq(schema.versions.id, versionId));
+    // AK Parte 1 — dentro da transação da escrita (1.3).
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "version.setDefault",
+        entity: "version",
+        entityId: versionId,
+        meta: {
+          projeto: ctx.project.name,
+          de: anterior ? { id: anterior.id, label: anterior.label } : null,
+          para: nova ? { id: nova.id, label: nova.label } : null,
+        },
+      },
+      tx,
+    );
   });
   revalidatePath("/", "layout");
 }

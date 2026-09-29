@@ -13,7 +13,7 @@ import { verifyTotp } from "@/lib/totp";
  * fator TOTP opcional. Sessão por JWT (exigida pelo provider Credentials).
  * Inicialização lazy para o build não depender de env. Ver docs/STACK.md §2.
  */
-export const { handlers, signIn, signOut, auth } = NextAuth(() => ({
+export const { handlers, signIn, signOut, auth, unstable_update } = NextAuth(() => ({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
@@ -52,8 +52,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth(() => ({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger }) {
       if (user?.id) (token as { uid?: string }).uid = user.id;
+      // Instante do login (AI 1.3). Diferente de `iat`, não é renovado quando o
+      // token é reemitido: é ele que diz se a sessão é anterior à última troca
+      // de senha. "update" é a própria pessoa trocando a senha — a sessão dela
+      // continua valendo; as outras, não.
+      if (user?.id || trigger === "update") {
+        (token as { authAt?: number }).authAt = Date.now();
+      }
       return token;
     },
     session({ session, token }) {
@@ -61,6 +68,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth(() => ({
       if (uid && session.user) {
         (session.user as { id?: string }).id = uid;
       }
+      (session as { authAt?: number }).authAt = (token as { authAt?: number }).authAt;
       return session;
     },
   },

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { VersionIdentity } from "@/components/app/version-identity";
 import { ImportVersion } from "@/components/app/import-version";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,10 @@ export default async function VersaoPage({
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "versao", "ver")) return <AccessDenied />;
   const sp = await searchParams;
   // Configura a versão indicada por ?v=; sem parâmetro, a versão ativa.
   const v = ctx.versions.find((x) => x.id === sp.v) ?? ctx.version;

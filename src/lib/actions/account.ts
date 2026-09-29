@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { auth, unstable_update } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { generateSecret, otpauthUrl, qrDataUrl, verifyTotp } from "@/lib/totp";
 
@@ -19,20 +19,40 @@ async function currentUser() {
   return u ?? null;
 }
 
-export async function changePassword(formData: FormData) {
+/**
+ * Troca da senha pela PRÓPRIA pessoa. Limpa a marca de senha provisória e
+ * encerra as outras sessões dela (AI 1.1 e 1.3) — inclusive a de quem tenha
+ * entrado com a senha provisória. A sessão atual é renovada e continua.
+ *
+ * Devolve `{ ok, error }`: exceção de Server Action não chega à tela em
+ * produção.
+ */
+export async function changePassword(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();
-  if (!u) throw new Error("Não autenticado.");
+  if (!u) return { ok: false, error: "Não autenticado." };
   const current = String(formData.get("current") ?? "");
   const next = String(formData.get("next") ?? "");
-  if (next.length < 8) throw new Error("A nova senha deve ter ao menos 8 caracteres.");
+  if (next.length < 8) return { ok: false, error: "A nova senha deve ter ao menos 8 caracteres." };
   if (u.passwordHash && !verifyPassword(current, u.passwordHash)) {
-    throw new Error("Senha atual incorreta.");
+    return { ok: false, error: "Senha atual incorreta." };
+  }
+  if (u.passwordHash && verifyPassword(next, u.passwordHash)) {
+    return { ok: false, error: "A nova senha precisa ser diferente da atual." };
   }
   await db
     .update(schema.users)
-    .set({ passwordHash: hashPassword(next) })
+    .set({
+      passwordHash: hashPassword(next),
+      mustChangePassword: false,
+      passwordChangedAt: new Date(),
+    })
     .where(eq(schema.users.id, u.id));
-  revalidatePath("/perfil");
+  // Renova o login DESTA sessão depois do instante gravado acima.
+  await unstable_update({});
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export interface MfaSetupData {

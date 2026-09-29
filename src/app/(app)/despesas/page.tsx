@@ -36,6 +36,7 @@ import { getDocsFiscaisPorDespesa, getRepositorio } from "@/lib/queries";
 import { pendenteDeDocumento } from "@/lib/calc/documento-fiscal";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,10 @@ export default async function DespesasPage({
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
   const sp = await searchParams;
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const canEdit = can(ctx.perms, "despesas", "criar");

@@ -10,6 +10,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { MonthField } from "@/components/ui/date-field";
 import { MedicaoTable } from "@/components/app/medicao-manager";
 import { ProjectPicker } from "@/components/app/project-picker";
+import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,10 @@ export default async function MedicaoLancamentoPage({
 }) {
   const ctx = await getActiveContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
+  // A guarda do layout não basta: ele renderiza em paralelo com a página e
+  // não roda de novo na navegação dentro do app.
+  if (!can(ctx.perms, "medicaolanc", "ver")) return <AccessDenied />;
   const sp = await searchParams;
 
   // Projetos de obra (kind "proj") — só eles têm medição/CEF.

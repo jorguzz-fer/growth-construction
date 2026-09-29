@@ -6,12 +6,13 @@ import { db, schema } from "@/lib/db";
 import { getActiveContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { excelSerial } from "@/lib/utils";
+import { logAudit } from "@/lib/audit";
 
 export async function addReembolso(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "reembolso", "criar")) return;
   const data = (formData.get("data") as string) || null;
-  await db.insert(schema.reembolsos).values({
+  const [lib] = await db.insert(schema.reembolsos).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
     data,
@@ -22,6 +23,15 @@ export async function addReembolso(formData: FormData) {
     // SERIAL = INT(Data): calculado automaticamente a partir da data real.
     serial: excelSerial(data),
     status: "Recebido",
+  }).returning();
+  // AK Parte 1 — sem transação aqui (1.3).
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "reembolso.create",
+    entity: "reembolso",
+    entityId: lib.id,
+    meta: { projeto: ctx.project.name, versao: ctx.version.label, valor: lib.valor, data: lib.data },
   });
   revalidatePath("/reembolso");
   redirect("/reembolso");
@@ -30,7 +40,7 @@ export async function addReembolso(formData: FormData) {
 export async function addPermuta(formData: FormData) {
   const ctx = await getActiveContext();
   if (!ctx || !can(ctx.perms, "permuta", "criar")) return;
-  await db.insert(schema.permutas).values({
+  const [perm] = await db.insert(schema.permutas).values({
     versionId: ctx.version.id,
     tenantId: ctx.tenant.id,
     unitCode: (formData.get("unitCode") as string) || null,
@@ -48,6 +58,21 @@ export async function addPermuta(formData: FormData) {
     periodicidade: (formData.get("periodicidade") as string) || null,
     dataPrimParcela: (formData.get("dataPrimParcela") as string) || null,
     obs: (formData.get("obs") as string) || null,
+  }).returning();
+  // AK Parte 1 — sem transação aqui (1.3).
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "permuta.create",
+    entity: "permuta",
+    entityId: perm.id,
+    meta: {
+      projeto: ctx.project.name,
+      versao: ctx.version.label,
+      unidade: perm.unitCode,
+      tipo: perm.tipo,
+      estimado: perm.estimado,
+    },
   });
   revalidatePath("/permuta");
   revalidatePath("/fluxocaixa");
