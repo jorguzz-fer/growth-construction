@@ -1,9 +1,9 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext, getVersionContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -16,24 +16,27 @@ const PALETTE = ["#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#0ea5e9"];
  * projeto. Ver docs/SPEC.md §4.
  */
 export async function duplicateVersion(sourceVersionId: string, label: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "versao", "criar")) {
     throw new Error("Sem permissão para criar versões.");
   }
-  if (ctx.versions.length >= MAX_VERSIONS) {
+  // A obra é a da versão de origem (Prompt A), validada no tenant — não a do
+  // cookie. Limite e cor contam as versões DESSA obra.
+  const origem = await getVersionContext(ctx.tenant.id, sourceVersionId);
+  if (!origem) throw new Error("Versão de origem não encontrada.");
+  const { project, versions, version: source } = origem;
+  if (versions.length >= MAX_VERSIONS) {
     throw new Error(`Limite de ${MAX_VERSIONS} versões por projeto atingido.`);
   }
-  const source = ctx.versions.find((v) => v.id === sourceVersionId);
-  if (!source) throw new Error("Versão de origem não encontrada.");
 
-  const color = PALETTE[ctx.versions.length % PALETTE.length];
+  const color = PALETTE[versions.length % PALETTE.length];
   const key = `custom-${Date.now().toString(36)}`;
 
   const newId = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(schema.versions)
       .values({
-        projectId: ctx.project.id,
+        projectId: project.id,
         tenantId: ctx.tenant.id,
         key,
         kind: "custom",
@@ -171,11 +174,16 @@ export async function duplicateVersion(sourceVersionId: string, label: string) {
   revalidatePath("/", "layout");
 }
 
+/**
+ * Permissão + a versão com a obra dela (Prompt A): a versão precisa ser do
+ * tenant — de QUALQUER obra dele, não só da obra do cookie.
+ */
 async function guardVersionEdit(versionId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "versao", "editar")) return null;
-  if (!ctx.versions.some((v) => v.id === versionId)) return null;
-  return ctx;
+  const alvo = await getVersionContext(ctx.tenant.id, versionId);
+  if (!alvo) return null;
+  return { ...ctx, ...alvo };
 }
 
 export async function updateVersion(
@@ -219,12 +227,17 @@ export async function setDefaultVersion(versionId: string) {
   const ctx = await guardVersionEdit(versionId);
   if (!ctx) return;
   const anterior = ctx.versions.find((v) => v.isDefault) ?? null;
-  const nova = ctx.versions.find((v) => v.id === versionId) ?? null;
+  const nova = ctx.version;
   await db.transaction(async (tx) => {
     await tx
       .update(schema.versions)
       .set({ isDefault: false })
-      .where(eq(schema.versions.projectId, ctx.project.id));
+      .where(
+        and(
+          eq(schema.versions.projectId, ctx.project.id),
+          eq(schema.versions.tenantId, ctx.tenant.id),
+        ),
+      );
     await tx
       .update(schema.versions)
       .set({ isDefault: true })
@@ -250,9 +263,9 @@ export async function setDefaultVersion(versionId: string) {
 }
 
 export async function deleteVersion(versionId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "versao", "excluir")) return;
-  const target = ctx.versions.find((v) => v.id === versionId);
+  const target = (await getVersionContext(ctx.tenant.id, versionId))?.version;
   if (!target) return;
   if (target.kind !== "custom") throw new Error("Só versões customizadas podem ser excluídas.");
   await db.delete(schema.versions).where(eq(schema.versions.id, versionId));

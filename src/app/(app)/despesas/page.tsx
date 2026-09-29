@@ -317,7 +317,10 @@ export default async function DespesasPage({
             Os lançamentos do dia a dia ficam na versão Atual do projeto. Sem ela
             não há o que listar aqui, e novos lançamentos não podem ser gravados
             com segurança. Crie a versão Atual deste projeto em{" "}
-            <Link href="/versao" className="text-[var(--color-accent2)] hover:underline">
+            <Link
+              href={`/versao?proj=${project.id}`}
+              className="text-[var(--color-accent2)] hover:underline"
+            >
               Versões
             </Link>{" "}
             — nenhum dado existente foi alterado.

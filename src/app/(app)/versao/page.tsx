@@ -1,6 +1,10 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext, getVersionContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -45,17 +49,32 @@ const SHEETS_INFO = [
 export default async function VersaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ v?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "versao", "ver")) return <AccessDenied />;
   const sp = await searchParams;
-  // Configura a versão indicada por ?v=; sem parâmetro, a versão ativa.
-  const v = ctx.versions.find((x) => x.id === sp.v) ?? ctx.version;
+  // Prompt A: a obra vem da URL (?proj=) ou, com só ?v=, da própria versão
+  // (validada no tenant). Sem nenhum dos dois, a aba reabre a última obra ou
+  // a tela pede a escolha. Sem ?v=, a versão de trabalho da obra.
+  const porVersao = sp.v && !sp.proj && !sp.project ? await getVersionContext(ctx.tenant.id, sp.v) : null;
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  const escolhido = porVersao
+    ? { project: porVersao.project, versions: porVersao.versions, trabalho: porVersao.version }
+    : selecao.tipo === "projeto"
+      ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id)
+      : null;
+  if (!escolhido?.trabalho) {
+    return (
+      <PedirProjeto titulo="Configuração da Versão" projetos={ctx.projects} oQue="configurar as versões" />
+    );
+  }
+  const { project } = escolhido;
+  const v = escolhido.versions.find((x) => x.id === sp.v) ?? escolhido.trabalho;
   const canEdit = can(ctx.perms, "versao", "editar");
   const canDelete = can(ctx.perms, "versao", "excluir");
   const isFixed = v.kind !== "custom";
@@ -78,9 +97,17 @@ export default async function VersaoPage({
   return (
     <>
       <PageHeader
+        eyebrow={project.name}
         title="Configuração da Versão"
         subtitle="Nome · Planilha modelo · Importação de dados"
+        actions={
+          <ProjectPicker
+            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+            selected={project.id}
+          />
+        }
       />
+      <LembrarProjeto projectId={project.id} />
 
       {/* Título da versão */}
       <div className="mb-6 flex items-center gap-3">

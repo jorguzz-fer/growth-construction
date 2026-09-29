@@ -3,7 +3,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getAtualVersion } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
@@ -31,7 +31,7 @@ export async function updateObraLocation(
   projectId: string,
   patch: { endereco?: string | null; latitude?: string; longitude?: string; raio?: number },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "ponto", "editar")) {
     throw new Error("Sem permissão para configurar a obra.");
   }
@@ -87,7 +87,7 @@ export interface RegistrarPontoResult {
 export async function registrarPonto(
   input: RegistrarPontoInput,
 ): Promise<RegistrarPontoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "ponto", "criar")) {
     throw new Error("Sem permissão para registrar ponto.");
   }
@@ -175,7 +175,7 @@ export async function gerarContaPagarPonto(input: {
   valorDiaria: number;
   competencia: string; // "MM/YYYY"
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "ponto", "editar")) {
     throw new Error("Sem permissão para gerar contas a pagar do ponto.");
   }
