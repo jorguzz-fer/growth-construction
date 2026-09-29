@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, getTableColumns } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { updateCliente, deleteCliente, uploadClienteDoc } from "@/lib/actions/clientes";
@@ -27,7 +27,7 @@ export default async function EditarClientePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -83,7 +83,7 @@ export default async function EditarClientePage({
   return (
     <>
       <PageHeader
-        eyebrow={ctx.project.name}
+        eyebrow={ctx.tenant.name}
         title={`Cliente: ${cliente.nomeCompleto}`}
         actions={
           canExcluir ? (

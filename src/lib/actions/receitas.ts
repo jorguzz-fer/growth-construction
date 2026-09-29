@@ -3,17 +3,35 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { excelSerial } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
 
+/**
+ * Obra informada pelo formulário e a versão de trabalho dela (Prompt A): a
+ * mesma regra que valia para a obra do cookie (Atual → padrão → mais antiga).
+ * Só obra da empresa; sem ela, a gravação é recusada.
+ */
+async function obraDoFormulario(tenantId: string, formData: FormData) {
+  const projectId = formData.get("projectId");
+  const r =
+    typeof projectId === "string" && projectId
+      ? await getProjectVersions(tenantId, projectId)
+      : null;
+  if (!r || !r.trabalho) throw new Error("Escolha o projeto.");
+  // Sem checagem de versão congelada: estas duas nunca a fizeram, e esta PR
+  // não muda regra de negócio. Registrado em docs/V2-PROMPT-A-PR5.md.
+  return { project: r.project, version: r.trabalho };
+}
+
 export async function addReembolso(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "reembolso", "criar")) return;
+  const { project, version } = await obraDoFormulario(ctx.tenant.id, formData);
   const data = (formData.get("data") as string) || null;
   const [lib] = await db.insert(schema.reembolsos).values({
-    versionId: ctx.version.id,
+    versionId: version.id,
     tenantId: ctx.tenant.id,
     data,
     origem: (formData.get("origem") as string) || null,
@@ -31,17 +49,18 @@ export async function addReembolso(formData: FormData) {
     action: "reembolso.create",
     entity: "reembolso",
     entityId: lib.id,
-    meta: { projeto: ctx.project.name, versao: ctx.version.label, valor: lib.valor, data: lib.data },
+    meta: { projeto: project.name, versao: version.label, valor: lib.valor, data: lib.data },
   });
   revalidatePath("/reembolso");
-  redirect("/reembolso");
+  redirect(`/reembolso?proj=${project.id}`);
 }
 
 export async function addPermuta(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "permuta", "criar")) return;
+  const { project, version } = await obraDoFormulario(ctx.tenant.id, formData);
   const [perm] = await db.insert(schema.permutas).values({
-    versionId: ctx.version.id,
+    versionId: version.id,
     tenantId: ctx.tenant.id,
     unitCode: (formData.get("unitCode") as string) || null,
     cliente: (formData.get("cliente") as string) || null,
@@ -67,8 +86,8 @@ export async function addPermuta(formData: FormData) {
     entity: "permuta",
     entityId: perm.id,
     meta: {
-      projeto: ctx.project.name,
-      versao: ctx.version.label,
+      projeto: project.name,
+      versao: version.label,
       unidade: perm.unitCode,
       tipo: perm.tipo,
       estimado: perm.estimado,
@@ -78,5 +97,5 @@ export async function addPermuta(formData: FormData) {
   revalidatePath("/fluxocaixa");
   revalidatePath("/dre");
   revalidatePath("/caixa");
-  redirect("/permuta");
+  redirect(`/permuta?proj=${project.id}`);
 }

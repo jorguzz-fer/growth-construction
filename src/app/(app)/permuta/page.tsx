@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getPermutas } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
@@ -24,14 +28,28 @@ function tipoTone(tipo: string | null): BadgeProps["tone"] {
   }
 }
 
-export default async function PermutaPage() {
-  const ctx = await getActiveContext();
+export default async function PermutaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ proj?: string; project?: string }>;
+}) {
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "permuta", "ver")) return <AccessDenied />;
-  const rows = await getPermutas(ctx.version.id);
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie.
+  const sp = await searchParams;
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  const escolhido =
+    selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
+  if (!escolhido?.trabalho) {
+    return <PedirProjeto titulo="Inventário de Permuta" projetos={ctx.projects} oQue="ver o inventário de permuta" />;
+  }
+  const { project, trabalho: version } = escolhido;
+  const rows = await getPermutas(version.id);
   const estimado = rows.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
   const projetada = rows
     .filter((p) => p.status === "Vendido")
@@ -42,15 +60,26 @@ export default async function PermutaPage() {
     <>
       <PageHeader
         title="Inventário de Permuta"
+        eyebrow={`${project.name} · ${version.label}`}
         subtitle="Ativos recebidos como permuta"
         actions={
-          canCriar ? (
-            <Link href="/permuta/novo" className={buttonVariants({ size: "sm" })}>
-              + Novo Ativo
-            </Link>
-          ) : undefined
+          <div className="flex flex-wrap items-end gap-3">
+            <ProjectPicker
+              projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+              selected={project.id}
+            />
+            {canCriar && (
+              <Link
+                href={`/permuta/novo?proj=${project.id}`}
+                className={buttonVariants({ size: "sm" })}
+              >
+                + Novo Ativo
+              </Link>
+            )}
+          </div>
         }
       />
+      <LembrarProjeto projectId={project.id} />
 
       <p className="mb-6 text-sm text-[var(--color-ink3)]">
         Estimado: <strong className="text-[var(--color-ink)]">{brl0(estimado)}</strong>{" "}

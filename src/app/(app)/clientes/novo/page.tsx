@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { addCliente } from "@/lib/actions/clientes";
@@ -12,7 +12,7 @@ import { AccessDenied } from "@/components/app/access-denied";
 export const dynamic = "force-dynamic";
 
 export default async function NovoClientePage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -29,7 +29,7 @@ export default async function NovoClientePage() {
 
   return (
     <>
-      <PageHeader eyebrow={ctx.project.name} title="Novo cliente comprador" />
+      <PageHeader eyebrow={ctx.tenant.name} title="Novo cliente comprador" />
       <Card>
         <CardContent className="p-5">
           <form action={addCliente} className="space-y-6">

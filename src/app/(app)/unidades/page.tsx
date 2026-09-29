@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getUnits, getAtualVersion, toCalcUnit } from "@/lib/queries";
 import { calcUnitTotal } from "@/lib/calc";
 import { can } from "@/lib/permissions";
@@ -29,9 +32,9 @@ function vgvMi(value: number): string {
 export default async function UnidadesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; proj?: string }>;
+  searchParams: Promise<{ status?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -41,7 +44,15 @@ export default async function UnidadesPage({
   const sp = await searchParams;
   const filter = STATUS_FILTERS.find((s) => s === sp.status);
 
-  const project = ctx.projects.find((p) => p.id === sp.proj) ?? ctx.projects[0];
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca o primeiro projeto.
+  const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
+  if (selecao.tipo !== "projeto") {
+    return (
+      <PedirProjeto titulo="Unidades do Empreendimento" projetos={ctx.projects} oQue="ver as unidades" />
+    );
+  }
+  const project = selecao.projeto;
   const version = await getAtualVersion(ctx.tenant.id, project.id);
   // Só lista unidades da versão Atual DESTE projeto. Sem versão Atual, lista
   // vazia — nunca cai na versão de outro projeto (evita mostrar unidades alheias).
@@ -102,6 +113,7 @@ export default async function UnidadesPage({
         }
       />
 
+      <LembrarProjeto projectId={project.id} />
       {/* Import / export de unidades por planilha (considera o projeto selecionado) */}
       <div className="mb-4">
         <UnidadesImportExport

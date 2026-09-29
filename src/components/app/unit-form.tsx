@@ -68,6 +68,11 @@ export function UnitForm({
 
   function submit() {
     setError(null);
+    // Prompt A — a obra é sempre escolhida; nunca cai numa obra implícita.
+    if (!v.projetoId) {
+      setError("Escolha o projeto da unidade.");
+      return;
+    }
     const input: SaveUnitInput = {
       id: v.id,
       projectId: v.projetoId,
@@ -95,7 +100,7 @@ export function UnitForm({
     if (!v.id) return;
     start(async () => {
       await deleteUnit(v.id!);
-      router.push("/unidades");
+      router.push(`/unidades?proj=${v.projetoId}`);
     });
   }
 
@@ -109,6 +114,11 @@ export function UnitForm({
               value={v.projetoId}
               onChange={(e) => setV({ ...v, projetoId: e.target.value })}
             >
+              {!v.projetoId && (
+                <option value="" disabled>
+                  Selecione o projeto
+                </option>
+              )}
               {projetos.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
