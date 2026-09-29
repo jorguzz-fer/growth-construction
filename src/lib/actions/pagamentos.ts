@@ -3,7 +3,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { composePagamento } from "@/lib/calc";
@@ -28,27 +28,35 @@ export interface RegistrarPagamentoInput {
  * Os encargos são reconhecidos separadamente na DRE (Despesas Financeiras).
  */
 export async function registrarPagamento(input: RegistrarPagamentoInput) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     throw new Error("Sem permissão para registrar pagamentos.");
   }
-  if (ctx.version.locked) throw new Error("Versão congelada.");
 
-  // Carrega a parcela e a despesa (valida escopo tenant/versão).
+  // A versão vem da PRÓPRIA parcela (despesa → versão), validada no tenant —
+  // não do "projeto ativo" (Prompt A). Antes, a parcela de uma obra listada
+  // na tela era recusada se o cookie apontasse outra obra, e a saída de caixa
+  // ia para a versão do cookie.
   const [parc] = await db
-    .select({ p: schema.despesaParcelas, versionId: schema.despesas.versionId })
+    .select({
+      p: schema.despesaParcelas,
+      versionId: schema.despesas.versionId,
+      locked: schema.versions.locked,
+    })
     .from(schema.despesaParcelas)
     .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
     .where(
       and(
         eq(schema.despesaParcelas.id, input.parcelaId),
         eq(schema.despesaParcelas.tenantId, ctx.tenant.id),
+        eq(schema.despesas.tenantId, ctx.tenant.id),
+        eq(schema.versions.tenantId, ctx.tenant.id),
       ),
     )
     .limit(1);
-  if (!parc || parc.versionId !== ctx.version.id) {
-    throw new Error("Parcela não encontrada nesta versão.");
-  }
+  if (!parc) throw new Error("Parcela não encontrada.");
+  if (parc.locked) throw new Error("Versão congelada.");
 
   const { valorTotalPago } = composePagamento(input);
   const desconto = input.desconto || 0;
@@ -94,7 +102,7 @@ export async function registrarPagamento(input: RegistrarPagamentoInput) {
 
   // Saída REAL no Controle de Caixa (valor efetivamente pago, na data real).
   await db.insert(schema.cashEntries).values({
-    versionId: ctx.version.id,
+    versionId: parc.versionId,
     tenantId: ctx.tenant.id,
     bankAccountId: input.bankAccountId || null,
     data: input.dataPagamento || null,

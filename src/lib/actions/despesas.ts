@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getProjectContext, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
@@ -34,7 +34,7 @@ import {
 } from "@/lib/ai/fornecedor-extract";
 
 export async function addStakeholder(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   const papeis = formData.getAll("papeis").map(String).filter(Boolean);
   const g = (k: string) => ((formData.get(k) as string) || "").trim() || null;
@@ -102,7 +102,7 @@ export async function addStakeholder(formData: FormData) {
  * os múltiplos papéis sem perder o histórico e os vínculos (mesma id).
  */
 export async function updateStakeholder(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
     throw new Error("Sem permissão para editar cadastros.");
   }
@@ -134,7 +134,7 @@ export async function updateStakeholder(formData: FormData) {
 
 /** Inativa/reativa (exclusão lógica) um cadastro, preservando vínculos. */
 export async function setStakeholderAtivo(id: string, ativo: boolean) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "editar")) {
     throw new Error("Sem permissão.");
   }
@@ -157,7 +157,7 @@ export async function setStakeholderAtivo(id: string, ativo: boolean) {
  * haja histórico, oriente a inativar (exclusão lógica) em vez de excluir.
  */
 export async function deleteStakeholder(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "excluir")) {
     throw new Error("Sem permissão.");
   }
@@ -197,7 +197,7 @@ export async function extractFornecedorFromDoc(
   { ok: true; data: ExtractedFornecedor } | { ok: false; error: string }
 > {
   const falha = (error: string) => ({ ok: false as const, error });
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) {
     return falha("Sem permissão para cadastrar fornecedores.");
   }
@@ -221,7 +221,7 @@ export async function extractFornecedorFromDoc(
 }
 
 export async function addBankAccount(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "criar")) return;
   const [conta] = await db
     .insert(schema.bankAccounts)
@@ -296,12 +296,15 @@ function lerParcelasManuais(formData: FormData): ParcelaRecebida[] {
 }
 
 export async function addDespesa(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
-  // Sem "projeto ativo": a despesa é associada ao projeto escolhido no
-  // formulário e gravada na versão Atual daquele projeto.
-  const projectId = (formData.get("projectId") as string) || ctx.project.id;
-  const version = await getAtualVersion(ctx.tenant.id, projectId);
+  // Sem "projeto ativo" (Prompt A): a despesa vai para o projeto escolhido no
+  // formulário — obrigatório, e só se for desta empresa — na versão Atual
+  // dele. Sem projeto, recusa: nunca cai na obra do cookie.
+  const projectId = (formData.get("projectId") as string) || "";
+  const projeto = projectId ? await getProjectContext(ctx.tenant.id, projectId) : null;
+  if (!projeto) throw new Error("Escolha o projeto da despesa.");
+  const version = await getAtualVersion(ctx.tenant.id, projeto.id);
   if (!version) throw new Error("Projeto sem versão Atual.");
   if (version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
 
@@ -620,7 +623,7 @@ export interface DespesaPatch {
 
 /** Edita uma despesa já lançada (mesma versão/tenant do contexto ativo). */
 export async function updateDespesa(id: string, patch: DespesaPatch) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) return;
 
   // Escopo por tenant: a despesa pode pertencer a qualquer projeto do tenant
@@ -692,7 +695,7 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
 
 /** Exclui uma despesa já lançada (documentos vinculados caem em cascata). */
 export async function deleteDespesa(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) return;
 
   const [existing] = await db
@@ -722,7 +725,7 @@ export async function deleteDespesa(id: string) {
  * à exclusão física.
  */
 export async function cancelarDespesa(id: string, motivo: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
     throw new Error("Sem permissão para cancelar despesas.");
   }
@@ -779,7 +782,7 @@ export interface PagarDespesaInput {
  * a conta bancária. Estrutura pronta para pagamento parcial.
  */
 export async function pagarDespesa(input: PagarDespesaInput) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     throw new Error("Sem permissão para registrar pagamentos.");
   }
@@ -879,7 +882,7 @@ export async function extractDespesaFromDoc(
   { ok: true; data: PreenchimentoDespesa } | { ok: false; error: string }
 > {
   const falha = (error: string) => ({ ok: false as const, error });
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) {
     return falha("Sem permissão para lançar despesas.");
   }
@@ -954,7 +957,7 @@ export async function extractDespesaFromDoc(
 
 /** Anexa um documento (NF/contrato) a uma despesa, no R2. */
 export async function uploadDespesaDoc(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar")) {
     throw new Error("Sem permissão.");
   }
@@ -1004,7 +1007,7 @@ export async function uploadDespesaDoc(formData: FormData) {
 export async function addDespesaDocs(
   formData: FormData,
 ): Promise<{ ok: boolean; added?: number; error?: string }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para anexar documentos." };
   }
@@ -1088,7 +1091,7 @@ export async function addDespesaDocs(
 export async function deleteDespesaDoc(
   documentId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para remover anexos." };
   }

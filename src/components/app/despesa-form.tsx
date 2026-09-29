@@ -558,6 +558,11 @@ export function DespesaForm({
       setError(erroCategoria);
       return;
     }
+    // Prompt A — a obra é sempre escolhida; nunca cai numa obra implícita.
+    if (!projeto) {
+      setError("Escolha o projeto da despesa.");
+      return;
+    }
     // Modo edição: grava as alterações na despesa existente (updateDespesa) e
     // volta para a lista. Não recria parcelas/recorrência nem mexe no caixa.
     if (isEdit && edit) {
@@ -944,6 +949,11 @@ export function DespesaForm({
               }}
               disabled={isEdit}
             >
+              {!projeto && (
+                <option value="" disabled>
+                  Selecione o projeto
+                </option>
+              )}
               {projetos.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
