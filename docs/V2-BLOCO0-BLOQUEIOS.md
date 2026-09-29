@@ -280,4 +280,55 @@ que existe justamente para quando algo dá errado.
 | AK · Parte 2 — log de evento que não aconteceu | ✅ em produção (PR #77), **corrigido** após a leitura do prompt: as três actions certas, e só o log é suprimido |
 | AO · Parte 6 — download do backup sem rastro | ✅ em produção (PR #77) |
 | **BAK-2** — dado pessoal de comprador visível ao contador no log | ✅ corrigido (decisão 3.8) — máscara na exibição |
-| Todo o resto do Bloco 0 | decisões respondidas; aguardando a **saída do SQL** e o texto dos prompts |
+| Todo o resto do Bloco 0 | decisões respondidas; **SQL rodado em 29/09** — ver seção 5 |
+
+---
+
+## 5 · Resultado do diagnóstico em produção (29/09/2026)
+
+Os dois scripts (`docs/sql/v2-bloco0-diagnostico.sql` e `-2.sql`) rodaram no
+banco de produção, só leitura. Resumo sem e-mails; nomes só pelo primeiro nome.
+
+### 5.1 · Permissões (BAJ-1, BAI-3)
+
+- **Nenhum membro está sem permissão personalizada.** A mudança do padrão do
+  membro (AJ Parte 1) só alcança convites novos e as telas que cada override
+  ainda não grava (5.3).
+- **Islane (BMV, membro)** tem, por override, Usuários, Gestão de Acessos,
+  Empresa, Backup e Auditoria. Quando a regra "só owner/admin gerenciam
+  usuários" entrar (AI Parte 0 / AJ Parte 3), **perde Usuários e Gestão de
+  Acessos**. **Decisão pendente:** promover a admin antes, ou aceitar a perda.
+- **Chave órfã `rolling`** em 5 overrides: não existe em `SCREENS`, o app já a
+  ignora (`effectivePermissions` só percorre `SCREENS`). Fica como está —
+  apagar seria alterar dado sem ganho.
+
+### 5.2 · Numeração de despesas (BAF-1)
+
+| Achado | Leitura |
+|---|---|
+| **0** `num_doc` repetidos por empresa | o `UNIQUE (tenant_id, num_doc)` da AF Parte 1 **pode entrar** — a migração não falha no boot |
+| BMV: contador em **432**; lote `PED-026179` em diante criado em **14/07/2026** (importação) | **nenhum número entre 432 e 26178 existe** — o contador anda anos antes de encostar no lote. Sem colisão hoje |
+| 1 despesa com número `202606`; 2 com `8441-1`/`8441-2`; 2 com `BMV-2026-00000x`; 1 com `56` | números digitados/importados fora do padrão PED. Textos diferentes, **não bloqueiam o UNIQUE**. Não se altera dado lançado — ficam como estão |
+| "202 mil números perdidos" do 1º script | **artefato** do `202606`, não perda real |
+| RMV sem linha de sequência, 2 despesas numeradas | na 1ª reserva a sequência nasce do maior sufixo (3). Normal |
+
+**Risco que continua aberto:** `/numeracao` deixa o admin gravar qualquer
+"próximo número" — inclusive um que já existe (ex.: 26179). Com o UNIQUE, o
+lançamento seguinte falharia em vez de duplicar em silêncio. A AF Parte 2 deve
+recusar, na tela, um próximo número já emitido.
+
+### 5.3 · ⚠ Telas que caem no padrão do papel — acesso a mais hoje
+
+Overrides gravados antes de algumas telas existirem não têm essas chaves; elas
+caem no padrão do papel. Para `membro`, o padrão de hoje é **editar tudo fora de
+Config**, e **Backup não é Config**:
+
+| Pessoa | Papel | Telas no padrão | Efeito hoje |
+|---|---|---|---|
+| Felipe, Roberto (RMV) | membro com override **só leitura** | Backup, Contas a Receber, Ponto, Diagnóstico de IA | **podem baixar o backup do semestre** e **editar** Contas a Receber e Ponto |
+| Renata (BMV) | membro | idem | idem |
+| Contadores (BMV, RMV) | contador | várias | padrão do contador (só leitura de um subconjunto) — sem acesso a mais |
+
+**Correção imediata, sem código:** em Gestão de Acessos, desmarcar Backup,
+Ponto e Contas a Receber (criar/editar) de quem não deve ter, e salvar. A AJ
+Parte 1 corrige o padrão do membro para os casos futuros.
