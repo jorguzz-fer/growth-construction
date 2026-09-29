@@ -73,3 +73,85 @@ export function previewNumber(
   const num = String(next).padStart(digits, "0");
   return usePrefix && prefix ? `${prefix}-${num}` : num;
 }
+
+export interface FormatoNumero {
+  prefix: string;
+  usePrefix: boolean;
+  digits: number;
+}
+
+export interface OcupacaoFaixa {
+  /** Maior número já emitido NESTE formato (null = nenhum). */
+  maiorEmitido: number | null;
+  /** O próprio "próximo número" já foi emitido. */
+  proximoOcupado: boolean;
+  /** Quantos números >= próximo já estão em uso neste formato. */
+  emUsoAFrente: number;
+}
+
+/**
+ * Onde o contador está em relação ao que já foi emitido (Prompt AF, Parte 2).
+ *
+ * Só conta o número que o contador PODE reproduzir: aquele cujo texto é
+ * exatamente `previewNumber(formato, n)`. É a mesma igualdade que o índice
+ * único (0040) aplica — `202606` ou `8441-1` nunca colidem com `PED-000432`,
+ * então não servem de régua. Medir pelo "maior sufixo de qualquer formato"
+ * obrigaria a BMV, que tem um número digitado `202606`, a pular o contador
+ * para 202607.
+ */
+export function analisarOcupacao(
+  numDocs: (string | null)[],
+  f: FormatoNumero,
+  proximo: number,
+): OcupacaoFaixa {
+  let maior: number | null = null;
+  let emUsoAFrente = 0;
+  let proximoOcupado = false;
+  const vistos = new Set<number>();
+  for (const doc of numDocs) {
+    if (!doc) continue;
+    const m = doc.match(/(\d+)$/);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (!Number.isSafeInteger(n)) continue;
+    if (previewNumber(f.prefix, f.usePrefix, f.digits, n) !== doc) continue;
+    if (vistos.has(n)) continue;
+    vistos.add(n);
+    if (maior === null || n > maior) maior = n;
+    if (n >= proximo) emUsoAFrente++;
+    if (n === proximo) proximoOcupado = true;
+  }
+  return { maiorEmitido: maior, proximoOcupado, emUsoAFrente };
+}
+
+/** Lê os números do tenant e mede a ocupação da faixa do contador. */
+export async function ocupacaoDaFaixa(
+  tenantId: string,
+  f: FormatoNumero,
+  proximo: number,
+): Promise<OcupacaoFaixa> {
+  const rows = await db
+    .select({ n: schema.despesas.numDoc })
+    .from(schema.despesas)
+    .where(eq(schema.despesas.tenantId, tenantId));
+  return analisarOcupacao(
+    rows.map((r) => r.n),
+    f,
+    proximo,
+  );
+}
+
+/** Nome do índice único de número de despesa (migração 0040). */
+export const INDICE_NUM_DOC = "despesa_tenant_num_doc_uq";
+
+/**
+ * Colisão no índice único vira mensagem legível (Prompt AF, 1.4). Devolve null
+ * quando o erro não é essa colisão — o chamador relança o original.
+ */
+export function mensagemColisaoNumDoc(e: unknown, numDoc: string | null): string | null {
+  const texto = e instanceof Error ? `${e.message} ${String((e as { cause?: unknown }).cause ?? "")}` : String(e);
+  const codigo = (e as { code?: string; cause?: { code?: string } })?.code
+    ?? (e as { cause?: { code?: string } })?.cause?.code;
+  if (!texto.includes(INDICE_NUM_DOC) && !(codigo === "23505" && /num_doc/.test(texto))) return null;
+  return `O número ${numDoc ?? ""} já foi usado em outra despesa desta empresa. Nada foi gravado. Confira o "próximo número" na tela Numeração de Despesas — ele provavelmente foi recuado para uma faixa já emitida.`;
+}
