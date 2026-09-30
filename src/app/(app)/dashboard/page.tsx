@@ -1,6 +1,14 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext, type Version } from "@/lib/context";
+import { getTenantContext, type Version } from "@/lib/context";
+import { somarResumos, type Summary } from "@/lib/dashboard-resumo";
+import {
+  TODOS_OS_PROJETOS,
+  lerEscopoDeRelatorio,
+  projetosDoEscopo,
+  rotuloDoEscopo,
+} from "@/lib/projeto-selecao";
+import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import {
   getMonthlyRevenue,
   getUnits,
@@ -24,19 +32,6 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-
-interface Summary {
-  version: Version;
-  vgv: number;
-  realizado: number;
-  receitaProj: number;
-  aReceber: number;
-  /** contas a pagar não pagas no período (só faz sentido na versão Atual). */
-  aPagar: number;
-  monthly: Record<string, number>;
-  /** entradas realizadas (fechamentos de caixa) por mês "MM/YYYY". */
-  realizadoMonthly: Record<string, number>;
-}
 
 /** Indicadores agregados de uma versão (para os KPIs e o comparativo). */
 async function versionSummary(
@@ -85,13 +80,14 @@ async function versionSummary(
   };
 }
 
+const TIPOS_CONSOLIDADOS = ["budget", "forecast", "atual"] as const;
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ vs?: string; de?: string; ate?: string; proj?: string }>;
+  searchParams: Promise<{ vs?: string; de?: string; ate?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
@@ -101,34 +97,62 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
-  // Projeto vem do seletor (?proj=), não do "projeto ativo" da sessão — assim o
-  // filtro do topo realmente troca a obra exibida. "all" consolida a empresa.
-  const isAll = sp.proj === "all";
-  const project =
-    ctx.projects.find((p) => p.id === sp.proj) ?? ctx.project ?? ctx.projects[0];
+  // Obra ou escopo vêm da URL (Prompt A, 18). Sem nada: a obra lembrada pela
+  // aba; sem memória, "Todos" (B12). Nunca a obra do cookie — que antes
+  // fornecia os 4 KPIs do topo no modo "Todos" (Prompt AA, 2.2).
+  const escopo = lerEscopoDeRelatorio(ctx.projects, sp);
+  if (escopo.tipo === "nenhum") {
+    return (
+      <RecuperarProjeto
+        idsPermitidos={ctx.projects.map((p) => p.id)}
+        semMemoria={TODOS_OS_PROJETOS}
+      />
+    );
+  }
+  const isAll = escopo.tipo !== "projeto";
+  const project = escopo.tipo === "projeto" ? escopo.projeto : null;
+  const doEscopo = escopo.tipo === "projeto" ? null : projetosDoEscopo(ctx.projects, escopo.tipo);
+  const projetosDaTela = project ? [project] : doEscopo!.projetos;
+  const idsDaTela = new Set(projetosDaTela.map((p) => p.id));
 
-  // As versões exibidas são as DO PROJETO selecionado (ctx.versions são as do
-  // projeto ativo da sessão, que pode ser outro).
-  const versoesProjeto = await getVersionsDoProjeto(ctx.tenant.id, project.id);
-  const versoes = versoesProjeto.length > 0 ? versoesProjeto : ctx.versions;
-
+  // Uma obra: as versões DELA, selecionáveis. Escopo: uma coluna por TIPO de
+  // versão, somando as obras do escopo (decisão de 30/09).
+  const versoes = project ? await getVersionsDoProjeto(ctx.tenant.id, project.id) : [];
   const wanted = (sp.vs ?? "").split(",").filter(Boolean);
   const validWanted = versoes.filter((v) => wanted.includes(v.id)).slice(0, 3);
   const selected = validWanted.length > 0 ? validWanted : versoes.slice(0, 3);
 
-  const summaries = await Promise.all(
-    selected.map((v) => versionSummary(project.id, v, de, ate)),
-  );
+  let summaries: Summary[];
+  if (project) {
+    summaries = await Promise.all(selected.map((v) => versionSummary(project.id, v, de, ate)));
+  } else {
+    const versoesPorObra = await Promise.all(
+      projetosDaTela.map(async (p) => ({ p, vs: await getVersionsDoProjeto(ctx.tenant.id, p.id) })),
+    );
+    const colunas = await Promise.all(
+      TIPOS_CONSOLIDADOS.map(async (kind) => {
+        const resumos = await Promise.all(
+          versoesPorObra.flatMap(({ p, vs }) => {
+            // A mais antiga do tipo, como nas demais telas.
+            const v = vs.find((x) => x.kind === kind);
+            return v ? [versionSummary(p.id, v, de, ate)] : [];
+          }),
+        );
+        return somarResumos(kind, resumos);
+      }),
+    );
+    summaries = colunas.filter((c): c is Summary => c !== null);
+  }
 
   const indicadores = isAll
     ? await getIndicadoresObraConsolidado(
         ctx.tenant.id,
-        ctx.projects.map((p) => p.id),
+        projetosDaTela.map((p) => p.id),
       )
-    : await getIndicadoresObra(ctx.tenant.id, project.id);
+    : await getIndicadoresObra(ctx.tenant.id, project!.id);
   const statusProjeto = await getStatusProjeto(
     ctx.tenant.id,
-    isAll ? ctx.projects.map((p) => p.id) : [project.id],
+    projetosDaTela.map((p) => p.id),
   );
 
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
@@ -140,7 +164,7 @@ export default async function DashboardPage({
   const hasRangeDash = !!(de || ate);
   const realReceb = (await getReceivables(ctx.tenant.id)).filter(
     (r) =>
-      (isAll || r.projectId === project.id) &&
+      idsDaTela.has(r.projectId) &&
       (!hasRangeDash || dateInRange(r.dia, de, ate)),
   );
   const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
@@ -148,7 +172,7 @@ export default async function DashboardPage({
   // Contas a pagar (despesas não pagas) do projeto, com vencimento no período.
   const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
     (c) =>
-      (isAll || c.projectId === project.id) &&
+      idsDaTela.has(c.projectId) &&
       c.status !== "Pago" &&
       !!c.vencimento &&
       (!hasRangeDash || dateInRange(c.vencimento, de, ate)),
@@ -192,31 +216,53 @@ export default async function DashboardPage({
     <>
       <PageHeader
         eyebrow={
-          isAll
-            ? `Todos os projetos · ${ctx.tenant.name}`
-            : `${project.name} · ${ctx.tenant.name}`
+          project
+            ? `${project.name} · ${ctx.tenant.name}`
+            : `${rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados")} · ${ctx.tenant.name}`
         }
         title="Dashboard"
         subtitle={
-          isAll
-            ? "Visão geral da empresa — matriz e filiais consolidados"
-            : "Visão geral do projeto — independente da versão ativa"
+          project
+            ? "Visão geral do projeto — independente da versão ativa"
+            : `Visão geral consolidada — ${projetosDaTela.length} projeto(s) somado(s), por tipo de versão`
         }
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <ProjectPicker
               projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-              selected={isAll ? "all" : project.id}
+              selected={
+                project ? project.id : escopo.tipo === "todos" ? TODOS_OS_PROJETOS : escopo.tipo
+              }
               allOption
+              scopeOptions
             />
             <DateRangeFilter de={de} ate={ate} />
-            <VersionMultiSelect
-              versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
-              selected={selected.map((v) => v.id)}
-            />
+            {project && (
+              <VersionMultiSelect
+                versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+                selected={selected.map((v) => v.id)}
+              />
+            )}
           </div>
         }
       />
+      {project && <LembrarProjeto projectId={project.id} />}
+      {doEscopo && doEscopo.semSituacao > 0 && (
+        <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+          {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as
+          como Ativo ou Finalizado em Projetos.
+        </p>
+      )}
+      {doEscopo && projetosDaTela.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            Nenhuma obra classificada como{" "}
+            {escopo.tipo === "ativos" ? "Ativo" : "Finalizado"}. Classifique as obras em
+            Projetos.
+          </CardContent>
+        </Card>
+      ) : (
+      <>
 
       {/* KPIs por versão */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -252,7 +298,8 @@ export default async function DashboardPage({
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />
       <IndicadoresObraPanel ind={indicadores} />
-
+      </>
+      )}
     </>
   );
 }
