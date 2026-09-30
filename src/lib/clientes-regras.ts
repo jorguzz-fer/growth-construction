@@ -23,6 +23,38 @@ export function statusLiberaUnidade(status: string | null | undefined): boolean 
   return !!s && STATUS_LIBERA.some((x) => normalizar(x) === s);
 }
 
+/**
+ * Lista fechada de "Status do contrato" (6.2; decisão de 30/09/2026). Só
+ * Distratado e Cancelado liberam a unidade — os outros a mantêm reservada.
+ * Nenhum status já gravado é convertido: "ATIVO" continua valendo como
+ * "Ativo" (a comparação ignora maiúsculas e acentos) e um valor fora da lista
+ * continua legível, sinalizado, até alguém o corrigir.
+ */
+export const STATUS_CONTRATO = ["Ativo", "Assinado", "Em análise", "Reservado", "Distratado", "Cancelado"];
+
+/** A entrada da lista que corresponde ao valor gravado ("ATIVO" → "Ativo"), ou null. */
+export function statusContratoCanonico(v: string | null | undefined): string | null {
+  const s = normalizar(v);
+  return (s && STATUS_CONTRATO.find((x) => normalizar(x) === s)) || null;
+}
+
+export function statusContratoNaLista(v: string | null | undefined): boolean {
+  return statusContratoCanonico(v) !== null;
+}
+
+/**
+ * O status enviado pode ser gravado? Vazio sempre pode; da lista, também.
+ * Fora da lista, só se for o MESMO já gravado (salvar a ficha sem mexer não é
+ * barrado). Retorna a mensagem de recusa, ou null.
+ */
+export function recusaDeStatusContrato(
+  novo: string | null | undefined,
+  anterior: string | null | undefined = null,
+): string | null {
+  if (!normalizar(novo) || statusContratoNaLista(novo) || normalizar(novo) === normalizar(anterior)) return null;
+  return `Status do contrato deve ser um destes: ${STATUS_CONTRATO.join(", ")}.`;
+}
+
 /** Limite real de upload (6.9.4): o corpo da Server Action é 12 MB; o arquivo fica em 10 MB. */
 export const LIMITE_UPLOAD_MB = 10;
 export const LIMITE_UPLOAD_BYTES = LIMITE_UPLOAD_MB * 1024 * 1024;

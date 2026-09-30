@@ -20,8 +20,9 @@ async function obraDoFormulario(tenantId: string, formData: FormData) {
       ? await getProjectVersions(tenantId, projectId)
       : null;
   if (!r || !r.trabalho) throw new Error("Escolha o projeto.");
-  // Sem checagem de versão congelada: estas duas nunca a fizeram, e esta PR
-  // não muda regra de negócio. Registrado em docs/V2-PROMPT-A-PR5.md.
+  // Versão congelada bloqueia também aqui (decisão de 30/09/2026): a mesma
+  // regra de todo lançamento. Antes, Liberações e Permuta passavam pela trava.
+  if (r.trabalho.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
   return { project: r.project, version: r.trabalho };
 }
 
@@ -36,7 +37,9 @@ export async function addReembolso(formData: FormData) {
     data,
     origem: (formData.get("origem") as string) || null,
     valor: (formData.get("valor") as string) || "0",
-    pct: (formData.get("pct") as string) || null,
+    // "%" saiu da tela (BO-2, 30/09/2026): um único uso em produção. A coluna
+    // fica no banco; o que já foi gravado não muda.
+    pct: null,
     obs: (formData.get("obs") as string) || null,
     // SERIAL = INT(Data): calculado automaticamente a partir da data real.
     serial: excelSerial(data),

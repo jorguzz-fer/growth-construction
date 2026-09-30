@@ -9,6 +9,8 @@ import {
   obraInicialDoCliente,
   obrasDaUnidade,
   recusaDeInteresse,
+  recusaDeStatusContrato,
+  statusContratoCanonico,
   statusLiberaUnidade,
   termosDaBusca,
 } from "./clientes-regras";
@@ -113,5 +115,22 @@ describe("listagem (6.8)", () => {
     expect(linkDaListagem(f)).toBe("/clientes?q=ana+b&status=Ativo");
     expect(linkDaListagem(f, { pagina: 2 })).toBe("/clientes?q=ana+b&status=Ativo&pagina=2");
     expect(linkDaListagem({ q: "", status: "", pagina: 1 })).toBe("/clientes");
+  });
+});
+
+describe("status do contrato — lista fechada (6.2, decisão 30/09)", () => {
+  it("reconhece a lista sem diferenciar maiúsculas e acentos, devolvendo a grafia da lista", () => {
+    expect(statusContratoCanonico("ATIVO")).toBe("Ativo");
+    expect(statusContratoCanonico(" em analise ")).toBe("Em análise");
+    expect(statusContratoCanonico("Vigente")).toBeNull();
+    expect(statusContratoCanonico("")).toBeNull();
+  });
+  it("aceita vazio, a lista e o mesmo valor já gravado; recusa valor novo fora da lista", () => {
+    expect(recusaDeStatusContrato(null)).toBeNull();
+    expect(recusaDeStatusContrato("Reservado")).toBeNull();
+    expect(recusaDeStatusContrato("ATIVO")).toBeNull();
+    expect(recusaDeStatusContrato("Vigente")).toMatch(/Ativo, Assinado/);
+    expect(recusaDeStatusContrato("Vigente", "Vigente")).toBeNull(); // salvar sem mexer
+    expect(recusaDeStatusContrato("Outro", "Vigente")).not.toBeNull();
   });
 });

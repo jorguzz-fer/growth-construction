@@ -96,7 +96,6 @@ export default async function ReembolsoPage({
             <TH>Data (DD/MM/AAAA)</TH>
             <TH>Origem</TH>
             <TH className="text-right">Valor R$</TH>
-            <TH>Porcentagem %</TH>
             <TH>Observações</TH>
             <TH className="text-right">Serial (auto)</TH>
             <TH>Status</TH>
@@ -105,7 +104,7 @@ export default async function ReembolsoPage({
         <tbody>
           {rows.length === 0 ? (
             <TR>
-              <TD colSpan={7} className="py-8 text-center text-[var(--color-ink4)]">
+              <TD colSpan={6} className="py-8 text-center text-[var(--color-ink4)]">
                 Nenhuma liberação lançada nesta versão.
               </TD>
             </TR>
@@ -119,7 +118,6 @@ export default async function ReembolsoPage({
                 <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
                   {brl0(Number(r.valor ?? 0))}
                 </TD>
-                <TD>{r.pct || "—"}</TD>
                 <TD>{r.obs || "—"}</TD>
                 <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
                   {r.serial ?? "—"}

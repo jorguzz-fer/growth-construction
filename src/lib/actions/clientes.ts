@@ -20,6 +20,7 @@ import {
   bloqueiosDeExclusao,
   confirmacaoConfere,
   recusaDeInteresse,
+  recusaDeStatusContrato,
   statusLiberaUnidade,
 } from "@/lib/clientes-regras";
 import { vinculosDoCliente } from "@/lib/clientes-vinculos";
@@ -172,6 +173,8 @@ export async function addCliente(formData: FormData): Promise<ResultadoCliente> 
   if (!nome) return { ok: false, error: "Informe o nome do cliente." };
   const recusaInteresse = recusaDeInteresse(dados.interesse);
   if (recusaInteresse) return { ok: false, error: recusaInteresse };
+  const recusaStatus = recusaDeStatusContrato(dados.statusContrato);
+  if (recusaStatus) return { ok: false, error: recusaStatus };
   try {
     const row = await db.transaction(async (tx) => {
       const conflito = await unidadeEmConflito(tx, ctx.tenant.id, dados.unitCode);
@@ -225,6 +228,9 @@ export async function updateCliente(formData: FormData): Promise<ResultadoClient
       // 6.7 — fora de 1 a 5 só passa se for o valor já gravado (não é convertido).
       const recusaInteresse = recusaDeInteresse(novo.interesse, antes.interesse);
       if (recusaInteresse) throw new Recusa(recusaInteresse);
+      // 6.2 — fora da lista só passa se for o status já gravado (não é convertido).
+      const recusaStatus = recusaDeStatusContrato(novo.statusContrato, antes.statusContrato);
+      if (recusaStatus) throw new Recusa(recusaStatus);
       const conflito = await unidadeEmConflito(tx, ctx.tenant.id, novo.unitCode, id);
       if (conflito) throw new Recusa(msgConflito(novo.unitCode, conflito));
       await tx

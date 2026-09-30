@@ -75,18 +75,16 @@ Só um valor em uso. **Proposta de lista fechada:** Ativo · Distratado ·
 Cancelado. "ATIVO" já gravado continua valendo como "Ativo" (a comparação
 ignora maiúsculas) e **não é convertido**.
 
-## Perguntas que saem daqui
+## Perguntas que saíram daqui — respondidas em 30/09/2026
 
-1. **RMV Empreendimentos e Growth Tools são empresas de teste?** Se forem, os
-   itens A (2 despesas de R$ 0), V (2 unidades), X (3 obras) e BO-2 (o "30")
-   perdem importância e a base real é só a BMV.
-2. **Status do contrato:** a lista Ativo · Distratado · Cancelado basta, ou
-   quer mais opções (por exemplo Assinado, Em análise, Reservado)?
-3. **BO-2:** com um único uso do "%", a recomendação é **tirar o campo da
-   tela** (a coluna fica no banco, nada é apagado). De acordo?
-4. **As 19 obras sem data de início e fim** precisam ser preenchidas em
-   Projetos antes de a receita por rateio (§54) poder ser ligada. Isso é
-   trabalho de cadastro, não de código. Quem preenche, e quando?
+| Pergunta | Resposta |
+|---|---|
+| RMV Empreendimentos e Growth Tools são empresas de teste? | **Não, são reais.** Todos os achados valem, inclusive as 2 unidades da RMV sem data e as 3 obras sem janela fora da BMV |
+| Lista fechada de status do contrato | **Ativo · Assinado · Em análise · Reservado · Distratado · Cancelado.** Só Distratado e Cancelado liberam a unidade. "ATIVO" já gravado continua valendo, sem conversão |
+| Campo "%" das Liberações | **Sai da tela.** A coluna fica no banco; o "30" gravado não muda |
+| Quem preenche as 19 obras sem início e fim | **Qualquer usuário com acesso a Projetos.** Pré-requisito da receita por rateio (§54) — segue pendente até estar preenchido |
+| Decisões do Bloco 2 (`V2-BLOCO2-DECISOES.md`) | **Com o PO.** Aguardando |
+| B11, versão congelada, B9 | **Seguem as recomendações.** Registradas em `V2-BLOQUEIOS.md` |
 
 ## O que destrava agora, sem decisão
 
