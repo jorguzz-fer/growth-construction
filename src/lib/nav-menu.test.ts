@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SCREEN_IDS, defaultPermissions, type PermMatrix } from "./permissions";
+import { SCREEN_IDS, defaultPermissions, effectivePermissions, type PermMatrix } from "./permissions";
 import {
   NAV_MENU,
   activeModuleId,
@@ -57,18 +57,24 @@ const MENU_ANTIGO: Record<string, string> = {
   "/backup": "backup",
 };
 
+/** Telas que entraram no menu depois dele, cada uma com a sua chave. */
+const TELAS_NOVAS: Record<string, string> = {
+  "/chaves": "chaves", // V2-BLOQUEIOS B4
+};
+const ESPERADO = { ...MENU_ANTIGO, ...TELAS_NOVAS };
+
 const todos = NAV_MENU.flatMap((m) => m.items);
 
 describe("NAV_MENU — nenhuma tela se perde", () => {
-  it("tem exatamente as 40 telas do menu antigo, sem duplicata", () => {
+  it("tem as 40 telas do menu antigo, mais as novas declaradas, sem duplicata", () => {
     const hrefs = todos.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
-    expect([...hrefs].sort()).toEqual(Object.keys(MENU_ANTIGO).sort());
-    expect(hrefs).toHaveLength(40);
+    expect([...hrefs].sort()).toEqual(Object.keys(ESPERADO).sort());
+    expect(Object.keys(MENU_ANTIGO)).toHaveLength(40);
   });
 
   it("cada tela mantém a mesma chave de permissão", () => {
-    for (const it of todos) expect(permOf(it), it.href).toBe(MENU_ANTIGO[it.href]);
+    for (const it of todos) expect(permOf(it), it.href).toBe(ESPERADO[it.href]);
   });
 
   it("toda chave existe em SCREENS (chave errada some para todos ou aparece para todos)", () => {
@@ -80,9 +86,9 @@ describe("NAV_MENU — nenhuma tela se perde", () => {
   });
 });
 
-/** Visibilidade no menu antigo: mesma regra de sempre, sobre a lista antiga. */
+/** Visibilidade pela regra de sempre, sobre a lista antiga mais as novas. */
 function visiveisAntigo(perms: PermMatrix): string[] {
-  return Object.entries(MENU_ANTIGO)
+  return Object.entries(ESPERADO)
     .filter(([, perm]) => perms[perm]?.ver)
     .map(([href]) => href)
     .sort();
@@ -100,6 +106,17 @@ describe("visibleMenu — não amplia nem reduz acesso", () => {
       expect(visiveisNovo(perms)).toEqual(visiveisAntigo(perms));
     });
   }
+
+  it("Chaves de mudança (B4): só owner e admin, mesmo com override", () => {
+    const ve = (perms: PermMatrix) => visiveisNovo(perms).includes("/chaves");
+    expect(ve(defaultPermissions("owner"))).toBe(true);
+    expect(ve(defaultPermissions("admin"))).toBe(true);
+    for (const role of ["membro", "contador", "engenheiro"] as const) {
+      expect(ve(defaultPermissions(role)), role).toBe(false);
+      const override = { chaves: { ver: true, criar: true, editar: true, excluir: true } };
+      expect(ve(effectivePermissions(role, override)), `${role} com override`).toBe(false);
+    }
+  });
 
   it("matriz personalizada: o mesmo conjunto de antes", () => {
     const perms = defaultPermissions("contador");

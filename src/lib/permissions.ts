@@ -76,6 +76,9 @@ export const SCREENS: Screen[] = [
   { id: "empresa", label: "Empresa", modulo: "Config" },
   { id: "projeto", label: "Projetos", modulo: "Config" },
   { id: "numeracao", label: "Numeração de Despesas", modulo: "Config" },
+  // Chaves de mudança por empresa (B4): ligar muda número ou acesso em
+  // produção. Só owner e admin, qualquer que seja o override.
+  { id: "chaves", label: "Chaves de mudança", modulo: "Config" },
   { id: "versao", label: "Configuração da Versão", modulo: "Config" },
   { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
 ];
@@ -125,9 +128,10 @@ export const MEMBRO_TELAS = new Set([
 /**
  * Telas restritas a owner e admin, qualquer que seja o override (Prompt AJ,
  * Parte 3 = Prompt AI, Parte 0). Quem alcança Usuários troca papéis; quem
- * alcança Gestão de Acessos concede telas — inclusive a si mesmo.
+ * alcança Gestão de Acessos concede telas — inclusive a si mesmo; quem alcança
+ * Chaves de mudança liga regra nova para a empresa inteira (B4).
  */
-export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos"]);
+export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
 
 /**
  * Telas que nenhum padrão de papel concede além de owner/admin — mas que,

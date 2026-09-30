@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getTenantContext, type Role } from "@/lib/context";
 import { SCREENS, can, effectivePermissions, type PermAction } from "@/lib/permissions";
 import { membroRestritoNoTenant, opcoesDoTenant } from "@/lib/membro-padrao";
@@ -21,7 +22,7 @@ export default async function AcessosPage() {
 
   const members = await getMembers(ctx.tenant.id);
   const canEditPerms = can(ctx.perms, "acessos", "editar");
-  const opts = opcoesDoTenant(ctx.tenant.id);
+  const opts = await opcoesDoTenant(ctx.tenant.id);
   const ids = new Set(SCREENS.map((s) => s.id));
 
   const rows = members.map((m) => ({
@@ -35,7 +36,7 @@ export default async function AcessosPage() {
 
   // Prévia do padrão novo do membro (AJ 1.4): com a chave DESLIGADA, o que
   // cada membro perderia se ela fosse ligada. É essa lista que se aprova.
-  const chaveLigada = membroRestritoNoTenant(ctx.tenant.id);
+  const chaveLigada = await membroRestritoNoTenant(ctx.tenant.id);
   const previa = chaveLigada
     ? []
     : members
@@ -84,6 +85,9 @@ export default async function AcessosPage() {
                 </li>
               ))}
             </ul>
+            <p className="mt-3 text-[12.5px] text-[var(--color-ink3)]">
+              Para ligar: Configurações → <Link href="/chaves" className="text-[var(--color-accent2)] hover:underline">Chaves de mudança</Link>.
+            </p>
           </CardContent>
         </Card>
       )}
