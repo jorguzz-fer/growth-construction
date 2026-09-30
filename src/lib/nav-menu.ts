@@ -135,6 +135,7 @@ export const NAV_MENU: NavModule[] = [
       { href: "/acessos", label: "Gestão de Acessos" },
       { href: "/acoes", label: "Auditoria" },
       { href: "/numeracao", label: "Numeração de despesas" },
+      { href: "/chaves", label: "Chaves de mudança" },
       { href: "/backup", label: "Backup" },
       { href: "/contabilidade", label: "Acesso do contador" },
       {

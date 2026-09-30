@@ -91,7 +91,7 @@ async function resolverSessao(): Promise<Sessao | null> {
     userId: user.id,
     userEmail: user.email,
     role,
-    perms: effectivePermissions(role, membership.permissions ?? null, opcoesDoTenant(tenant.id)),
+    perms: effectivePermissions(role, membership.permissions ?? null, await opcoesDoTenant(tenant.id)),
   };
 }
 

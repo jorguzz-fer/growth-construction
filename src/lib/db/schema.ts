@@ -1356,6 +1356,28 @@ export const numberSequences = pgTable(
   (t) => [unique("number_sequence_tenant_entity_uq").on(t.tenantId, t.entity)],
 );
 
+/**
+ * Chave de mudança por empresa (V2-BLOQUEIOS B4 · regra 3.3 do pacote V2):
+ * mudança que altera número ou acesso em produção entra DESLIGADA e só vale
+ * para a empresa depois de alguém ver a prévia e ligar. Sem linha = desligada
+ * = comportamento de antes. O catálogo das chaves é código (`lib/chaves.ts`);
+ * aqui fica só o estado de cada uma por empresa.
+ */
+export const tenantFlags = pgTable(
+  "tenant_flag",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** id da chave no catálogo, ex.: "membro_padrao_restrito". */
+    chave: text("chave").notNull(),
+    ligada: boolean("ligada").notNull().default(false),
+    alteradaPor: text("alterada_por"),
+    alteradaEm: timestamp("alterada_em", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.chave] })],
+);
+
 // ───────────────── Lançamento simplificado (Budget/Forecast) ─────────────
 
 /**

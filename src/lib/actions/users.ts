@@ -165,7 +165,7 @@ export async function setMemberPermissions(
     return { ok: false, error: "Owner e admin têm acesso total — não há o que configurar." };
   }
 
-  const opts = opcoesDoTenant(ctx.tenant.id);
+  const opts = await opcoesDoTenant(ctx.tenant.id);
   const divergentes = overridesDivergentes(role, permissions, opts);
   const gravar: PermMatrix = { ...chavesOrfas(alvo.permissions), ...divergentes };
   const novo = Object.keys(gravar).length > 0 ? gravar : null;

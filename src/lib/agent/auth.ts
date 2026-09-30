@@ -207,7 +207,7 @@ export async function resolveAgentIdentity(req: Request): Promise<AgentIdentity>
     tenantId: vinculo.t.id,
     tenantName: vinculo.t.name,
     role,
-    perms: effectivePermissions(role, vinculo.m.permissions, opcoesDoTenant(vinculo.t.id)),
+    perms: effectivePermissions(role, vinculo.m.permissions, await opcoesDoTenant(vinculo.t.id)),
   };
 }
 
