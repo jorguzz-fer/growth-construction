@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/context";
 import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { addCliente } from "@/lib/actions/clientes";
+import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -32,7 +33,7 @@ export default async function NovoClientePage() {
       <PageHeader eyebrow={ctx.tenant.name} title="Novo cliente comprador" />
       <Card>
         <CardContent className="p-5">
-          <form action={addCliente} className="space-y-6">
+          <FormComResultado action={addCliente} aoConcluir="/clientes" className="space-y-6">
             <ClienteFields
               unitCodes={unitCodes}
               veDados={can(ctx.perms, "clientesdados", "ver")}
@@ -44,7 +45,7 @@ export default async function NovoClientePage() {
                 Cancelar
               </Link>
             </div>
-          </form>
+          </FormComResultado>
         </CardContent>
       </Card>
     </>

@@ -3,6 +3,7 @@
 import { uploadProjetoDoc, deleteProjetoDoc } from "@/lib/actions/projects";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
+import { LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 
 export interface ProjetoDoc {
   id: string;
@@ -62,7 +63,7 @@ export function ProjetoDocs({
             </Select>
           </div>
           <div className="sm:col-span-2">
-            <Label>Arquivo (até 20 MB)</Label>
+            <Label>Arquivo (até {LIMITE_UPLOAD_MB} MB)</Label>
             <input type="file" name="file" required className="text-xs" />
           </div>
           <div>

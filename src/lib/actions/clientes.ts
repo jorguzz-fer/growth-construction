@@ -1,10 +1,9 @@
 "use server";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
-import { getTenantContext } from "@/lib/context";
+import { getProjectContext, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { houveMudanca } from "@/lib/audit-diff";
@@ -13,7 +12,23 @@ import {
   CAMPOS_SENSIVEIS_CLIENTE,
   TELA_DADOS_CLIENTE,
   changesSemValorSensivel,
+  mascararDocumento,
 } from "@/lib/clientes-sensivel";
+import {
+  LIMITE_UPLOAD_BYTES,
+  LIMITE_UPLOAD_MB,
+  bloqueiosDeExclusao,
+  confirmacaoConfere,
+  statusLiberaUnidade,
+} from "@/lib/clientes-regras";
+import { vinculosDoCliente } from "@/lib/clientes-vinculos";
+
+/**
+ * Retorno legível das actions de cliente (Prompt M, 6.10): exceção de Server
+ * Action chega sem mensagem ao navegador em produção; `redirect` também não
+ * serve a quem precisa ler o erro. A tela navega quando `ok`.
+ */
+export type ResultadoCliente = { ok: true; id?: string } | { ok: false; error: string };
 
 /**
  * Remove do que vai ser gravado os campos que quem salva não pode editar
@@ -70,7 +85,8 @@ function readCliente(fd: FormData) {
   return {
     unitCode: s(fd, "unitCode"),
     statusContrato: s(fd, "statusContrato"),
-    nomeCompleto: s(fd, "nomeCompleto") ?? "Sem nome",
+    // Sem nome: vazio — a action recusa (6.4). Antes virava "Sem nome".
+    nomeCompleto: s(fd, "nomeCompleto"),
     cpfCnpj: s(fd, "cpfCnpj"),
     nascimento: s(fd, "nascimento"),
     nacionalidade: s(fd, "nacionalidade"),
@@ -107,21 +123,22 @@ function readCliente(fd: FormData) {
   };
 }
 
-/** Status de contrato que liberam a unidade (não bloqueiam novo vínculo). */
-const STATUS_LIBERA = ["Distratado", "Distrato", "Cancelado", "Cancelada"];
-
 /**
  * Impede vincular uma unidade já vinculada a OUTRO cliente com contrato ativo
  * (uma unidade vendida não pode ser vendida de novo). Retorna o nome do cliente
- * conflitante, ou null se disponível.
+ * conflitante, ou null se disponível. Roda DENTRO da transação da gravação,
+ * depois de um lock pela unidade (6.3): dois cadastros simultâneos da mesma
+ * unidade não passam os dois.
  */
 async function unidadeEmConflito(
+  tx: Tx,
   tenantId: string,
-  unitCode: string | null,
+  unitCode: string | null | undefined,
   exceptId?: string,
 ): Promise<string | null> {
   if (!unitCode) return null;
-  const rows = await db
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`cliente-unidade:${tenantId}:${unitCode}`}))`);
+  const rows = await tx
     .select({
       id: schema.clientes.id,
       nome: schema.clientes.nomeCompleto,
@@ -129,150 +146,232 @@ async function unidadeEmConflito(
     })
     .from(schema.clientes)
     .where(and(eq(schema.clientes.tenantId, tenantId), eq(schema.clientes.unitCode, unitCode)));
-  const conflito = rows.find(
-    (r) => r.id !== exceptId && !STATUS_LIBERA.includes((r.status ?? "").trim()),
-  );
+  const conflito = rows.find((r) => r.id !== exceptId && !statusLiberaUnidade(r.status));
   return conflito?.nome ?? null;
 }
 
-export async function addCliente(formData: FormData) {
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const msgConflito = (unit: string | null | undefined, nome: string) =>
+  `A unidade ${unit} já está vinculada ao cliente "${nome}". Distrate o contrato atual antes de revincular.`;
+
+/** Erro de regra lançado dentro da transação — vira `{ ok: false }`. */
+class Recusa extends Error {}
+
+export async function addCliente(formData: FormData): Promise<ResultadoCliente> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "criar")) {
-    throw new Error("Sem permissão para cadastrar clientes.");
+    return { ok: false, error: "Sem permissão para cadastrar clientes." };
   }
   const dados = soCamposPermitidos(
     readCliente(formData),
     can(ctx.perms, TELA_DADOS_CLIENTE, "editar"),
   );
-  const conflito = await unidadeEmConflito(ctx.tenant.id, dados.unitCode ?? null);
-  if (conflito) {
-    throw new Error(
-      `A unidade ${dados.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
-    );
+  const nome = dados.nomeCompleto;
+  if (!nome) return { ok: false, error: "Informe o nome do cliente." };
+  try {
+    const row = await db.transaction(async (tx) => {
+      const conflito = await unidadeEmConflito(tx, ctx.tenant.id, dados.unitCode);
+      if (conflito) throw new Recusa(msgConflito(dados.unitCode, conflito));
+      const [r] = await tx
+        .insert(schema.clientes)
+        .values({ tenantId: ctx.tenant.id, ...dados, nomeCompleto: nome })
+        .returning();
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "cliente.create",
+          entity: "cliente",
+          entityId: r.id,
+          meta: { nome: r.nomeCompleto, unitCode: r.unitCode },
+        },
+        tx,
+      );
+      return r;
+    });
+    revalidatePath("/clientes");
+    return { ok: true, id: row.id };
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
   }
-  const [row] = await db
-    .insert(schema.clientes)
-    .values({ tenantId: ctx.tenant.id, ...dados, nomeCompleto: dados.nomeCompleto ?? "Sem nome" })
-    .returning();
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "cliente.create",
-    entity: "cliente",
-    entityId: row.id,
-    meta: { nome: row.nomeCompleto, unitCode: row.unitCode },
-  });
-  revalidatePath("/clientes");
-  redirect("/clientes");
 }
 
-export async function updateCliente(formData: FormData) {
+export async function updateCliente(formData: FormData): Promise<ResultadoCliente> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "editar")) {
-    throw new Error("Sem permissão para editar clientes.");
+    return { ok: false, error: "Sem permissão para editar clientes." };
   }
   const id = formData.get("id") as string;
-  if (!id) return;
-  const [antes] = await db
-    .select()
-    .from(schema.clientes)
-    .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
-    .limit(1);
+  if (!id) return { ok: false, error: "Cliente inválido." };
   const novo = soCamposPermitidos(
     readCliente(formData),
     can(ctx.perms, TELA_DADOS_CLIENTE, "editar"),
   );
-  const conflito = await unidadeEmConflito(ctx.tenant.id, novo.unitCode ?? null, id);
-  if (conflito) {
-    throw new Error(
-      `A unidade ${novo.unitCode} já está vinculada ao cliente "${conflito}". Distrate o contrato atual antes de revincular.`,
-    );
-  }
-  await db
-    .update(schema.clientes)
-    .set(novo)
-    .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)));
-  // Auditoria campo a campo: valor anterior × novo.
-  const changes: Record<string, { de: unknown; para: unknown }> = {};
-  if (antes) {
-    for (const k of Object.keys(novo)) {
-      const de = (antes as Record<string, unknown>)[k];
-      const para = (novo as Record<string, unknown>)[k];
-      if (String(de ?? "") !== String(para ?? "")) changes[k] = { de: de ?? null, para: para ?? null };
-    }
-  }
-  // Diff vazio não gera linha de log (AK, Parte 2): o formulário manda todos os
-  // campos a cada Salvar, então reabrir o cadastro e salvar sem mexer em nada
-  // registrava um evento que não aconteceu. O `update` acima continua rodando —
-  // suprimi-lo mudaria comportamento de gravação; suprimir o log vazio não muda
-  // nada além do ruído.
-  if (houveMudanca(changes)) {
-    await logAudit({
-      tenantId: ctx.tenant.id,
-      userId: ctx.userId,
-      action: "cliente.update",
-      entity: "cliente",
-      entityId: id,
-      // Campos sensíveis e CPF entram só como "alterado", sem valor — o
-      // contador lê este log (Prompt M, 7 · nota).
-      meta: { changes: changesSemValorSensivel(changes) },
+  const nomeNovo = novo.nomeCompleto;
+  if (!nomeNovo) return { ok: false, error: "Informe o nome do cliente." };
+  try {
+    await db.transaction(async (tx) => {
+      const [antes] = await tx
+        .select()
+        .from(schema.clientes)
+        .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
+        .limit(1);
+      if (!antes) throw new Recusa("Cliente não encontrado.");
+      const conflito = await unidadeEmConflito(tx, ctx.tenant.id, novo.unitCode, id);
+      if (conflito) throw new Recusa(msgConflito(novo.unitCode, conflito));
+      await tx
+        .update(schema.clientes)
+        .set({ ...novo, nomeCompleto: nomeNovo })
+        .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)));
+      // Auditoria campo a campo: valor anterior × novo.
+      const changes: Record<string, { de: unknown; para: unknown }> = {};
+      for (const k of Object.keys(novo)) {
+        const de = (antes as Record<string, unknown>)[k];
+        const para = (novo as Record<string, unknown>)[k];
+        if (String(de ?? "") !== String(para ?? "")) changes[k] = { de: de ?? null, para: para ?? null };
+      }
+      // Diff vazio não gera linha de log (AK, Parte 2): o formulário manda
+      // todos os campos a cada Salvar.
+      if (houveMudanca(changes)) {
+        await logAudit(
+          {
+            tenantId: ctx.tenant.id,
+            userId: ctx.userId,
+            action: "cliente.update",
+            entity: "cliente",
+            entityId: id,
+            // Campos sensíveis e CPF entram só como "alterado", sem valor — o
+            // contador lê este log (Prompt M, 7 · nota).
+            meta: { changes: changesSemValorSensivel(changes) },
+          },
+          tx,
+        );
+      }
     });
+    revalidatePath("/clientes");
+    return { ok: true, id };
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
   }
-  revalidatePath("/clientes");
-  redirect("/clientes");
-}
-
-export async function deleteCliente(formData: FormData) {
-  const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "clientes", "excluir")) return;
-  const id = formData.get("id") as string;
-  if (!id) return;
-  await db
-    .delete(schema.clientes)
-    .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "cliente.delete",
-    entity: "cliente",
-    entityId: id,
-  });
-  revalidatePath("/clientes");
-  redirect("/clientes");
 }
 
 /**
- * Anexa um documento de venda/contrato a um cliente (e, opcionalmente, à
- * unidade/projeto). Ao substituir um documento do mesmo tipo, a versão anterior
- * é preservada (histórico) e a nova recebe versao = maior + 1.
+ * Exclui um cliente (6.1). Exige confirmação pelo nome e recusa quando há
+ * vínculo — unidade com contrato ativo, contas a receber, documentos (que a
+ * FK apagaria junto), obra ou recebimento por terceiro. A exclusão continua
+ * física; a inativação é do Prompt I, 12.
  */
-export async function uploadClienteDoc(formData: FormData) {
+export async function deleteCliente(formData: FormData): Promise<ResultadoCliente> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "clientes", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir clientes." };
+  }
+  const id = formData.get("id") as string;
+  if (!id) return { ok: false, error: "Cliente inválido." };
+  try {
+    await db.transaction(async (tx) => {
+      const [cli] = await tx
+        .select()
+        .from(schema.clientes)
+        .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
+        .for("update")
+        .limit(1);
+      if (!cli) throw new Recusa("Cliente não encontrado.");
+      if (!confirmacaoConfere(formData.get("confirmacao") as string, cli.nomeCompleto)) {
+        throw new Recusa("Para excluir, digite o nome do cliente exatamente como está no cadastro.");
+      }
+      const vinculos = await vinculosDoCliente(tx, ctx.tenant.id, cli);
+      const bloqueios = bloqueiosDeExclusao(vinculos);
+      if (bloqueios.length) throw new Recusa(`Não é possível excluir: ${bloqueios.join("; ")}.`);
+      await tx
+        .delete(schema.clientes)
+        .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)));
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "cliente.delete",
+          entity: "cliente",
+          entityId: id,
+          meta: {
+            nome: cli.nomeCompleto,
+            cpf: mascararDocumento(cli.cpfCnpj),
+            unitCode: cli.unitCode,
+            documentos: vinculos.documentos,
+          },
+        },
+        tx,
+      );
+    });
+    revalidatePath("/clientes");
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
+/** Tipos aceitos para documento de venda/contrato (6.9.1). */
+const TIPOS_DOC_CLIENTE = [
+  "Contrato assinado",
+  "Proposta",
+  "Documentos do comprador",
+  "Comprovante",
+  "Termo aditivo",
+  "Distrato",
+  "Outros",
+];
+
+/**
+ * Anexa um documento de venda/contrato a um cliente (e, opcionalmente, à
+ * unidade/projeto). Tipo obrigatório (6.9.1). A versão é POR TIPO (6.5):
+ * outro arquivo do mesmo tipo vira a versão seguinte e preserva a anterior;
+ * tipos diferentes têm numeração própria. Nenhuma versão já gravada muda.
+ */
+export async function uploadClienteDoc(formData: FormData): Promise<ResultadoCliente> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "editar")) {
-    throw new Error("Sem permissão para anexar documentos.");
+    return { ok: false, error: "Sem permissão para anexar documentos." };
   }
   if (!isR2Configured()) {
-    throw new Error("Storage (R2) não configurado — defina as variáveis R2_*.");
+    return { ok: false, error: "Storage (R2) não configurado — defina as variáveis R2_*." };
   }
   const clienteId = (formData.get("clienteId") as string) || "";
-  if (!clienteId) throw new Error("Cliente inválido.");
+  if (!clienteId) return { ok: false, error: "Cliente inválido." };
   const [cli] = await db
     .select({ id: schema.clientes.id, unitCode: schema.clientes.unitCode })
     .from(schema.clientes)
     .where(and(eq(schema.clientes.id, clienteId), eq(schema.clientes.tenantId, ctx.tenant.id)))
     .limit(1);
-  if (!cli) throw new Error("Cliente não encontrado.");
+  if (!cli) return { ok: false, error: "Cliente não encontrado." };
 
+  const tipo = ((formData.get("tipo") as string) || "").trim();
+  if (!TIPOS_DOC_CLIENTE.includes(tipo)) return { ok: false, error: "Escolha o tipo do documento." };
   const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > 15 * 1024 * 1024) throw new Error("Arquivo deve ter até 15 MB.");
-  const tipo = ((formData.get("tipo") as string) || "").trim() || null;
+  if (!file || file.size === 0) return { ok: false, error: "Selecione um arquivo." };
+  if (file.size > LIMITE_UPLOAD_BYTES) {
+    return { ok: false, error: `Arquivo deve ter até ${LIMITE_UPLOAD_MB} MB.` };
+  }
+  // Projeto informado: só da empresa (Prompt A, 38) — antes era gravado sem conferir.
+  const projectIdBruto = (formData.get("projectId") as string) || null;
+  const projectId =
+    projectIdBruto && (await getProjectContext(ctx.tenant.id, projectIdBruto)) ? projectIdBruto : null;
 
-  // Versão: maior versão existente do mesmo cliente + tipo, + 1 (histórico).
+  // Versão: maior versão do mesmo cliente E TIPO, + 1 (6.5). Antes filtrava só
+  // o cliente: um comprovante depois do contrato v1 virava "comprovante v2".
   const anteriores = await db
     .select({ versao: schema.documents.versao })
     .from(schema.documents)
-    .where(and(eq(schema.documents.clienteId, clienteId), eq(schema.documents.tenantId, ctx.tenant.id)))
+    .where(
+      and(
+        eq(schema.documents.clienteId, clienteId),
+        eq(schema.documents.tenantId, ctx.tenant.id),
+        eq(schema.documents.tipo, tipo),
+      ),
+    )
     .orderBy(desc(schema.documents.versao))
     .limit(1);
   const versao = (anteriores[0]?.versao ?? 0) + 1;
@@ -285,7 +384,7 @@ export async function uploadClienteDoc(formData: FormData) {
     tenantId: ctx.tenant.id,
     clienteId,
     unitCode: (formData.get("unitCode") as string) || cli.unitCode || null,
-    projectId: (formData.get("projectId") as string) || null,
+    projectId,
     storageKey: key,
     filename: file.name,
     contentType: file.type || null,
@@ -300,7 +399,8 @@ export async function uploadClienteDoc(formData: FormData) {
     action: "cliente.doc.upload",
     entity: "document",
     entityId: clienteId,
-    meta: { filename: file.name, tipo, versao },
+    meta: { filename: file.name, tipo, versao, storageKey: key },
   });
   revalidatePath(`/clientes/${clienteId}`);
+  return { ok: true };
 }
