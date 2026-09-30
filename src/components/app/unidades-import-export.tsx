@@ -160,11 +160,16 @@ export function UnidadesImportExport({
           validas.map(({ erros, ...r }) => { void erros; return r; }),
           projectId,
         );
-        setMsg(`${res.inserted} unidade(s) importada(s) para ${projectName}.`);
+        // 5.1 — a action devolve { ok, error }; a mensagem chega inteira.
+        if (!res.ok) {
+          setErro(res.error);
+          return;
+        }
+        setMsg(`${res.inseridas} unidade(s) importada(s) para ${projectName}.`);
         setPreview(null);
         router.refresh();
-      } catch (e) {
-        setErro(e instanceof Error ? e.message : "Falha ao importar.");
+      } catch {
+        setErro("Não foi possível importar. Tente de novo.");
       }
     });
   };

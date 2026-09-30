@@ -24,7 +24,7 @@ const STATUS_FILTERS = ["Disponivel", "Reservado", "Vendido"] as const;
 export default async function UnidadesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; proj?: string; project?: string }>;
+  searchParams: Promise<{ status?: string; proj?: string; project?: string; salva?: string; excluida?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -107,6 +107,15 @@ export default async function UnidadesPage({
       />
 
       <LembrarProjeto projectId={project.id} />
+      {/* 5.1 — salvar ou excluir sem retorno visível é indistinguível de falhar. */}
+      {(sp.salva || sp.excluida) && (
+        <p
+          role="status"
+          className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]"
+        >
+          {sp.salva ? `Unidade "${sp.salva}" salva.` : `Unidade "${sp.excluida}" excluída.`}
+        </p>
+      )}
       {/* Import / export de unidades por planilha (considera o projeto selecionado) */}
       <div className="mb-4">
         <UnidadesImportExport
@@ -237,6 +246,7 @@ export default async function UnidadesPage({
                       <UnitActions
                         id={row.id}
                         code={row.code}
+                        projectId={project.id}
                         canEditar={canEditar}
                         canExcluir={canExcluir}
                       />

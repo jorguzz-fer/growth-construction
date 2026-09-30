@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { deleteUnit } from "@/lib/actions/units";
 
 /**
@@ -12,14 +13,17 @@ import { deleteUnit } from "@/lib/actions/units";
 export function UnitActions({
   id,
   code,
+  projectId,
   canEditar,
   canExcluir,
 }: {
   id: string;
   code: string;
+  projectId: string;
   canEditar: boolean;
   canExcluir: boolean;
 }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +38,14 @@ export function UnitActions({
     start(async () => {
       try {
         const r = await deleteUnit(id, digitado);
-        if (!r.ok) setError(r.error);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao excluir.");
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        // 5.1 — sucesso visível: a lista mostra "Unidade X excluída".
+        router.push(`/unidades?proj=${projectId}&excluida=${encodeURIComponent(code)}`);
+      } catch {
+        setError("Não foi possível excluir. Tente de novo.");
       }
     });
   };

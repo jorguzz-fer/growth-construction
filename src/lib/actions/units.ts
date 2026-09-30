@@ -2,7 +2,6 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { getAtualVersion } from "@/lib/queries";
@@ -33,22 +32,36 @@ export interface SaveUnitInput {
   status: UnitStatus;
   mesVenda?: string;
   plan: PaymentPlan;
+  /** De onde veio o preenchimento — fica na auditoria (Prompt J, 6.3). */
+  origem?: "formulario" | "assistente";
 }
 
-export async function saveUnit(input: SaveUnitInput) {
+/** Resultado legível das actions de unidade (Prompt J, 5.1). */
+export type ResultadoUnidade = { ok: true; id: string; code: string } | { ok: false; error: string };
+
+/**
+ * Cria ou edita a unidade na versão Atual do projeto escolhido. Devolve
+ * `{ ok, error }` em vez de lançar: em produção a mensagem lançada vira um
+ * digest genérico e o usuário não sabe por que não gravou (Prompt J, 5.1).
+ * Quem navega é a tela, com o resultado em mãos.
+ */
+export async function saveUnit(input: SaveUnitInput): Promise<ResultadoUnidade> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", input.id ? "editar" : "criar")) {
-    throw new Error("Sem permissão para editar unidades.");
+    return { ok: false, error: "Sem permissão para editar unidades." };
   }
   // Sem "projeto ativo" (Prompt A): a venda vai para a versão Atual do projeto
   // escolhido — obrigatório. Antes, sem projeto, caía na obra do cookie; na
   // edição, isso MOVIA a unidade para aquela obra.
   const projectId = input.projectId || "";
-  if (!projectId) throw new Error("Escolha o projeto da unidade.");
+  if (!projectId) return { ok: false, error: "Escolha o projeto da unidade." };
   // getAtualVersion filtra o tenant: projeto de outra empresa não tem versão.
   const version = await getAtualVersion(ctx.tenant.id, projectId);
-  if (!version) throw new Error("Projeto sem versão Atual.");
-  if (version.locked) throw new Error("Versão congelada — edição bloqueada.");
+  if (!version) return { ok: false, error: "Projeto sem versão Atual." };
+  if (version.locked) return { ok: false, error: "Versão congelada — edição bloqueada." };
+  const valor = Number(input.valor ?? 0);
+  if (!Number.isFinite(valor) || valor < 0) return { ok: false, error: "Valor (VGV) inválido." };
+  const origem = input.origem === "assistente" ? "assistente" : "formulario";
 
   const values = {
     versionId: version.id,
@@ -59,15 +72,16 @@ export async function saveUnit(input: SaveUnitInput) {
     tipo: input.tipo || null,
     m2: input.m2 != null ? String(input.m2) : null,
     andar: input.andar ?? null,
-    valor: String(input.valor ?? 0),
+    valor: String(valor),
     status: input.status,
     mesVenda: input.mesVenda || null,
     paymentPlan: input.plan,
     updatedAt: new Date(),
   };
 
+  let id: string;
   if (input.id) {
-    await db
+    const [row] = await db
       .update(schema.units)
       .set(values)
       .where(
@@ -75,29 +89,34 @@ export async function saveUnit(input: SaveUnitInput) {
           eq(schema.units.id, input.id),
           eq(schema.units.tenantId, ctx.tenant.id),
         ),
-      );
+      )
+      .returning({ id: schema.units.id });
+    // Antes, id de outra empresa (ou inexistente) "salvava" sem tocar em nada.
+    if (!row) return { ok: false, error: "Unidade não encontrada." };
+    id = row.id;
     await logAudit({
       tenantId: ctx.tenant.id,
       userId: ctx.userId,
       action: "unit.update",
       entity: "unit",
-      entityId: input.id,
-      meta: { code: values.code, status: values.status },
+      entityId: id,
+      meta: { code: values.code, status: values.status, origem },
     });
   } else {
-    const [row] = await db.insert(schema.units).values(values).returning();
+    const [row] = await db.insert(schema.units).values(values).returning({ id: schema.units.id });
+    id = row.id;
     await logAudit({
       tenantId: ctx.tenant.id,
       userId: ctx.userId,
       action: "unit.create",
       entity: "unit",
-      entityId: row.id,
-      meta: { code: values.code },
+      entityId: id,
+      meta: { code: values.code, status: values.status, origem },
     });
   }
 
   revalidatePath("/unidades");
-  redirect(`/unidades?proj=${projectId}`);
+  return { ok: true, id, code: values.code };
 }
 
 export interface ImportUnitRow {
@@ -110,22 +129,27 @@ export interface ImportUnitRow {
   status?: UnitStatus;
 }
 
-/** Importa unidades em lote (ex.: de uma planilha XLSX). */
+export type ResultadoImportacaoUnidades = { ok: true; inseridas: number } | { ok: false; error: string };
+
+/**
+ * Importa unidades em lote (ex.: de uma planilha XLSX). Devolve `{ ok, error }`
+ * (Prompt J, 5.1); a mensagem chega inteira à tela.
+ */
 export async function importUnits(
   rows: ImportUnitRow[],
   projectId?: string,
-): Promise<{ inserted: number }> {
+): Promise<ResultadoImportacaoUnidades> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", "criar")) {
-    throw new Error("Sem permissão para importar unidades.");
+    return { ok: false, error: "Sem permissão para importar unidades." };
   }
-  if (!projectId) throw new Error("Escolha o projeto das unidades.");
+  if (!projectId) return { ok: false, error: "Escolha o projeto das unidades." };
   const version = await getAtualVersion(ctx.tenant.id, projectId);
-  if (!version) throw new Error("Projeto sem versão Atual.");
+  if (!version) return { ok: false, error: "Projeto sem versão Atual." };
   // 11.10 — a trava vale também pela planilha, não só pela tela.
-  if (version.locked) throw new Error("Versão congelada — importação bloqueada.");
+  if (version.locked) return { ok: false, error: "Versão congelada — importação bloqueada." };
   const valid = rows.filter((r) => r.code && r.code.trim());
-  if (valid.length === 0) return { inserted: 0 };
+  if (valid.length === 0) return { ok: true, inseridas: 0 };
 
   await db.insert(schema.units).values(
     valid.map((r) => ({
@@ -149,7 +173,7 @@ export async function importUnits(
     meta: { count: valid.length },
   });
   revalidatePath("/unidades");
-  return { inserted: valid.length };
+  return { ok: true, inseridas: valid.length };
 }
 
 export type ResultadoExclusaoUnidade = { ok: true } | { ok: false; error: string };
@@ -191,7 +215,8 @@ export async function deleteUnit(id: string, confirmacao?: string): Promise<Resu
     action: "unit.delete",
     entity: "unit",
     entityId: id,
-    meta: { code: u.code, valor: u.valor, status: u.status, projectId: alvo.projectId, versionId: u.versionId },
+    // 5.2 — o plano de pagamento removido fica na auditoria: é o que se perde.
+    meta: { code: u.code, valor: u.valor, status: u.status, projectId: alvo.projectId, versionId: u.versionId, paymentPlan: u.paymentPlan ?? null },
   });
   revalidatePath("/unidades");
   return { ok: true };
