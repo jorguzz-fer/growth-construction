@@ -201,7 +201,11 @@ function Row({
     setError(null);
     start(async () => {
       try {
-        await cancelarDespesa(d.id, motivo);
+        const r = await cancelarDespesa(d.id, motivo);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao cancelar.");
@@ -213,7 +217,7 @@ function Row({
     setError(null);
     start(async () => {
       try {
-        await pagarDespesa({
+        const r = await pagarDespesa({
           despesaId: d.id,
           dataPagamento: pg.data,
           valorPago: Number(pg.valor) || 0,
@@ -224,6 +228,10 @@ function Row({
           desconto: Number(pg.desconto) || 0,
           obs: pg.obs || undefined,
         });
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         setPaying(false);
         router.refresh();
       } catch (e) {
@@ -246,7 +254,11 @@ function Row({
     setError(null);
     start(async () => {
       try {
-        await deleteDespesa(d.id);
+        const r = await deleteDespesa(d.id);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao excluir.");

@@ -54,17 +54,39 @@ export async function addMedicao(formData: FormData) {
   revalidatePath("/dre");
 }
 
+type Resultado = { ok: true } | { ok: false; error: string };
+
+/** A medição com a versão dela, no tenant — e se essa versão está congelada (§19). */
+async function medicaoDoTenant(tenantId: string, id: string) {
+  const [row] = await db
+    .select({ m: schema.medicoes, locked: schema.versions.locked })
+    .from(schema.medicoes)
+    .innerJoin(schema.versions, eq(schema.medicoes.versionId, schema.versions.id))
+    .where(and(eq(schema.medicoes.id, id), eq(schema.medicoes.tenantId, tenantId), eq(schema.versions.tenantId, tenantId)))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function updateMedicao(
   id: string,
   patch: { competencia?: string; valor?: string; obs?: string },
-) {
+): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "medicaolanc", "editar")) return;
+  if (!ctx || !can(ctx.perms, "medicaolanc", "editar")) {
+    return { ok: false, error: "Sem permissão para editar medições." };
+  }
+  const alvo = await medicaoDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Medição não encontrada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — edição bloqueada." };
   const set: { competencia?: string; valor?: string; obs?: string | null } = {};
   if (patch.competencia && patch.competencia.trim()) set.competencia = patch.competencia.trim();
-  if (patch.valor !== undefined) set.valor = patch.valor || "0";
+  if (patch.valor !== undefined) {
+    const n = Number(patch.valor);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, error: "Informe um valor válido." };
+    set.valor = patch.valor || "0";
+  }
   if (patch.obs !== undefined) set.obs = patch.obs || null;
-  if (Object.keys(set).length === 0) return;
+  if (Object.keys(set).length === 0) return { ok: true };
   await db
     .update(schema.medicoes)
     .set(set)
@@ -81,11 +103,17 @@ export async function updateMedicao(
   });
   revalidatePath("/medicaolanc");
   revalidatePath("/dre");
+  return { ok: true };
 }
 
-export async function deleteMedicao(id: string) {
+export async function deleteMedicao(id: string): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "medicaolanc", "excluir")) return;
+  if (!ctx || !can(ctx.perms, "medicaolanc", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir medições." };
+  }
+  const alvo = await medicaoDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Medição não encontrada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — exclusão bloqueada." };
   await db
     .delete(schema.medicoes)
     .where(
@@ -97,7 +125,9 @@ export async function deleteMedicao(id: string) {
     action: "medicao.delete",
     entity: "medicao",
     entityId: id,
+    meta: { competencia: alvo.m.competencia, grupoCode: alvo.m.grupoCode, valor: alvo.m.valor },
   });
   revalidatePath("/medicaolanc");
   revalidatePath("/dre");
+  return { ok: true };
 }

@@ -317,7 +317,11 @@ export function DespesaForm({
     setError(null);
     startSaving(async () => {
       try {
-        await cancelarDespesa(edit.id, motivo);
+        const r = await cancelarDespesa(edit.id, motivo);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         voltarParaLista();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao cancelar a despesa.");
@@ -344,7 +348,11 @@ export function DespesaForm({
     setError(null);
     startSaving(async () => {
       try {
-        await deleteDespesa(edit.id);
+        const r = await deleteDespesa(edit.id);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         voltarParaLista();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao excluir a despesa.");
@@ -593,7 +601,11 @@ export function DespesaForm({
       // contabilidade e com os anexos que o referenciam.
       startSaving(async () => {
         try {
-          await updateDespesa(edit.id, patch);
+          const r = await updateDespesa(edit.id, patch);
+          if (!r.ok) {
+            setError(r.error);
+            return;
+          }
           // O documento fiscal vive em tabela própria (RG-06) e é gravado à
           // parte — inclusive quando a nota só chegou agora.
           const resDoc = await salvarDocumentoFiscal({
@@ -674,7 +686,13 @@ export function DespesaForm({
     for (const f of files) fd.append("file", f);
     startSaving(async () => {
       try {
-        await addDespesa(fd);
+        const r = await addDespesa(fd);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        // Anexo que falhou depois de a despesa existir: avisa, não desfaz.
+        if (r.aviso) setError(r.aviso);
         // limpa o formulário
         setFornecedorId("");
         setContaCef("");
