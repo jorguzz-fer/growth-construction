@@ -92,11 +92,12 @@ function GroupCard({ group, perms }: { group: Group; perms: PlanoPerms }) {
   const [groupCode, setGroupCode] = useState(group.code);
   const canManage = perms.criar || perms.editar || perms.excluir;
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<{ ok: boolean; error?: string } | void>) => {
     setError(null);
     start(async () => {
       try {
-        await fn();
+        const r = await fn();
+        if (r && !r.ok) setError(r.error ?? "Erro.");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro.");
       }
@@ -225,11 +226,12 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
   const [error, setError] = useState<string | null>(null);
   const dirty = code !== item.code || name !== item.name || natureza !== item.natureza;
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<{ ok: boolean; error?: string } | void>) => {
     setError(null);
     start(async () => {
       try {
-        await fn();
+        const r = await fn();
+        if (r && !r.ok) setError(r.error ?? "Erro.");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro.");
       }

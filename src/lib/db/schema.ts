@@ -696,6 +696,14 @@ export const restituicoes = pgTable("restituicao", {
   /** Chave de idempotência (§16) — ver `despesaTerceiros.idempotencyKey`. */
   idempotencyKey: text("idempotency_key"),
   usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
+  /**
+   * Cancelamento lógico (Prompt I, §24): a restituição cancelada sai dos
+   * saldos e fica no histórico, com quem, quando e por quê. Antes era DELETE.
+   */
+  cancelada: boolean("cancelada").notNull().default(false),
+  canceladaEm: text("cancelada_em"),
+  canceladaPor: text("cancelada_por"),
+  motivoCancelamento: text("motivo_cancelamento"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

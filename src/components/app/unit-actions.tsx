@@ -24,16 +24,17 @@ export function UnitActions({
   const [error, setError] = useState<string | null>(null);
 
   const remove = () => {
-    if (
-      !window.confirm(
-        `Excluir a unidade "${code}"? Esta ação não pode ser desfeita.`,
-      )
-    )
-      return;
+    // §12 — exclusão física exige o código digitado; o servidor confere e
+    // recusa com cliente, venda, contas a receber, documento ou permuta.
+    const digitado = window.prompt(
+      `Excluir a unidade "${code}"? Esta ação não pode ser desfeita.\n\nDigite o código da unidade para confirmar:`,
+    );
+    if (digitado === null) return;
     setError(null);
     start(async () => {
       try {
-        await deleteUnit(id);
+        const r = await deleteUnit(id, digitado);
+        if (!r.ok) setError(r.error);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao excluir.");
       }

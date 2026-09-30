@@ -523,10 +523,22 @@ export async function registrarRestituicao(
  * `projectId` é a obra da tela (Prompt A): o estorno de caixa vai para a
  * versão de trabalho dela, como antes ia para a da obra do cookie.
  */
-export async function cancelarRestituicao(restituicaoId: string, projectId: string) {
+export type ResultadoCancelamento = { ok: true } | { ok: false; error: string };
+
+/**
+ * Cancela uma restituição (Prompt I, §24): a linha FICA, marcada como
+ * cancelada, com quem, quando e por quê; o saldo da obrigação volta; e o
+ * caixa recebe a contrapartida (estorno) — ou, se a saída veio do extrato,
+ * só a conciliação é desfeita. Tudo numa transação. Antes era DELETE físico.
+ */
+export async function cancelarRestituicao(
+  restituicaoId: string,
+  projectId: string,
+  motivo?: string,
+): Promise<ResultadoCancelamento> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "restituicoes", "excluir")) {
-    throw new Error("Sem permissão para cancelar restituições.");
+    return { ok: false, error: "Sem permissão para cancelar restituições." };
   }
   const [rest] = await db
     .select()
@@ -538,19 +550,23 @@ export async function cancelarRestituicao(restituicaoId: string, projectId: stri
       ),
     )
     .limit(1);
-  if (!rest) throw new Error("Restituição não encontrada.");
+  if (!rest) return { ok: false, error: "Restituição não encontrada." };
+  if (rest.cancelada) return { ok: false, error: "Esta restituição já está cancelada." };
   const versaoCaixa = rest.cashEntryId ? null : await getWorkingVersion(ctx.tenant.id, projectId);
-  if (!rest.cashEntryId && !versaoCaixa) throw new Error("Escolha o projeto.");
+  if (!rest.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — estorno bloqueado." };
 
   const [dt] = await db
     .select()
     .from(schema.despesaTerceiros)
-    .where(eq(schema.despesaTerceiros.id, rest.despesaTerceiroId))
+    .where(and(eq(schema.despesaTerceiros.id, rest.despesaTerceiroId), eq(schema.despesaTerceiros.tenantId, ctx.tenant.id)))
     .limit(1);
-  if (!dt) throw new Error("Obrigação não encontrada.");
+  if (!dt) return { ok: false, error: "Obrigação não encontrada." };
 
   const valor = Number(rest.valor);
-  // Estorno em UMA transação: o saldo da obrigação, a remoção da restituição e
+  const hoje = new Date();
+  const canceladaEm = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${String(hoje.getDate()).padStart(2, "0")}/${hoje.getFullYear()}`;
+  // Estorno em UMA transação: o saldo da obrigação, a marcação da restituição e
   // a compensação de caixa não podem ficar meio aplicados.
   await db.transaction(async (tx) => {
     const restituido = Math.max(0, Number(dt.valorRestituido) - valor);
@@ -561,7 +577,15 @@ export async function cancelarRestituicao(restituicaoId: string, projectId: stri
         status: statusRestituicao(Number(dt.valorTotal), restituido),
       })
       .where(eq(schema.despesaTerceiros.id, dt.id));
-    await tx.delete(schema.restituicoes).where(eq(schema.restituicoes.id, rest.id));
+    await tx
+      .update(schema.restituicoes)
+      .set({
+        cancelada: true,
+        canceladaEm,
+        canceladaPor: ctx.userEmail || ctx.userId || null,
+        motivoCancelamento: motivo?.trim() || null,
+      })
+      .where(eq(schema.restituicoes.id, rest.id));
 
     if (rest.cashEntryId) {
       // A saída veio do extrato: desfaz apenas a conciliação. Lançar um estorno
@@ -569,7 +593,7 @@ export async function cancelarRestituicao(restituicaoId: string, projectId: stri
       await tx
         .update(schema.cashEntries)
         .set({ rec: false })
-        .where(eq(schema.cashEntries.id, rest.cashEntryId));
+        .where(and(eq(schema.cashEntries.id, rest.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)));
     } else {
       // Saída criada por nós — compensa com uma entrada de estorno.
       await tx.insert(schema.cashEntries).values({
@@ -583,18 +607,23 @@ export async function cancelarRestituicao(restituicaoId: string, projectId: stri
         rec: true,
       });
     }
-  });
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "restituicao.cancel",
-    entity: "restituicao",
-    entityId: rest.id,
-    meta: { despesaTerceiroId: dt.id, valor },
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "restituicao.cancel",
+        entity: "restituicao",
+        entityId: rest.id,
+        meta: { despesaTerceiroId: dt.id, valor, motivo: motivo?.trim() || null, dataRestituicao: rest.dataRestituicao },
+      },
+      tx,
+    );
   });
   revalidatePath("/restituicoes");
+  revalidatePath("/contaspagar");
   revalidatePath("/caixa");
+  revalidatePath("/fluxocaixa");
+  return { ok: true };
 }
 
 export interface DespesaTerceiroView {
@@ -801,6 +830,8 @@ export async function getContaCorrenteTerceiros(
         .where(
           and(
             eq(schema.restituicoes.tenantId, tenantId),
+            // Canceladas ficam no histórico, fora dos saldos (§24).
+            eq(schema.restituicoes.cancelada, false),
             sql`${schema.restituicoes.despesaTerceiroId} IN ${idsAtivas}`,
           ),
         )

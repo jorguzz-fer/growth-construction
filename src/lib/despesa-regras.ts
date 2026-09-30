@@ -61,6 +61,8 @@ export interface VinculosDaDespesa {
   caixaConciliado: number;
   terceiros: number;
   parcelas: number;
+  documentosFiscais: number;
+  anexos: number;
 }
 
 export function temFatoFinanceiro(v: VinculosDaDespesa): boolean {
@@ -97,4 +99,22 @@ export function recusaDeEdicao(v: VinculosDaDespesa, campos: readonly string[]):
     return `Esta despesa tem ${v.parcelas} parcela(s): altere as parcelas, não o valor total.`;
   }
   return null;
+}
+
+/**
+ * §12 — exclusão física só para registro sem dependência. Com fato
+ * financeiro, nota fiscal ou anexo, a exclusão é recusada: o caminho é o
+ * cancelamento, que preserva o histórico. Lista vazia = pode excluir.
+ */
+export function bloqueiosDeExclusaoDespesa(v: VinculosDaDespesa): string[] {
+  const m: string[] = [];
+  if (v.pagamentos) m.push(`${v.pagamentos} pagamento(s)`);
+  if (v.parcelasPagas) m.push(`${v.parcelasPagas} parcela(s) paga(s)`);
+  if (v.acertos) m.push(`${v.acertos} acerto(s) contábil(is)`);
+  if (v.restituicoes) m.push(`${v.restituicoes} restituição(ões)`);
+  if (v.terceiros) m.push("pagamento por terceiro");
+  if (v.caixaConciliado) m.push(`${v.caixaConciliado} movimento(s) de caixa conciliado(s)`);
+  if (v.documentosFiscais) m.push(`${v.documentosFiscais} documento(s) fiscal(is)`);
+  if (v.anexos) m.push(`${v.anexos} anexo(s)`);
+  return m;
 }

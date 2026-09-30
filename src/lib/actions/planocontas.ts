@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -181,10 +181,51 @@ export async function setChartAccountAtivo(id: string, ativo: boolean) {
   revalidatePath("/planocontas");
 }
 
-/** Exclui um subitem. */
-export async function deleteChartItem(id: string) {
+type Resultado = { ok: true } | { ok: false; error: string };
+
+/**
+ * Quantas linhas de Orçamento/Previsão apontam para estes códigos (§12).
+ * `budget_account.row_key` e `budget_line.row_key` são texto, sem chave
+ * estrangeira: apagar a conta deixaria os valores órfãos ("legado").
+ */
+async function referenciasNoPlanejamento(tenantId: string, codigos: string[]): Promise<number> {
+  if (codigos.length === 0) return 0;
+  const [[a], [l]] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.budgetAccounts)
+      .where(and(eq(schema.budgetAccounts.tenantId, tenantId), inArray(schema.budgetAccounts.rowKey, codigos))),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.budgetLines)
+      .where(and(eq(schema.budgetLines.tenantId, tenantId), inArray(schema.budgetLines.rowKey, codigos))),
+  ]);
+  return (a?.n ?? 0) + (l?.n ?? 0);
+}
+
+/**
+ * Exclui um subitem (§12): só se nenhum Orçamento ou Previsão usa o código.
+ * Com uso, o caminho é "Inativar" — a conta some de novos lançamentos e os
+ * valores já gravados continuam ligados a ela.
+ */
+export async function deleteChartItem(id: string): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "planocontas", "excluir")) return;
+  if (!ctx || !can(ctx.perms, "planocontas", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir contas." };
+  }
+  const [item] = await db
+    .select()
+    .from(schema.chartAccounts)
+    .where(and(eq(schema.chartAccounts.id, id), eq(schema.chartAccounts.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!item) return { ok: false, error: "Conta não encontrada." };
+  const refs = await referenciasNoPlanejamento(ctx.tenant.id, [item.code]);
+  if (refs > 0) {
+    return {
+      ok: false,
+      error: `A conta ${item.code} tem ${refs} lançamento(s) de Orçamento/Previsão. Use "Inativar": ela some de novos lançamentos e os valores ficam.`,
+    };
+  }
   await db
     .delete(schema.chartAccounts)
     .where(
@@ -199,8 +240,10 @@ export async function deleteChartItem(id: string) {
     action: "chart.item.delete",
     entity: "chart_account",
     entityId: id,
+    meta: { kind: item.kind, code: item.code, name: item.name, groupCode: item.groupCode },
   });
   revalidatePath("/planocontas");
+  return { ok: true };
 }
 
 /** Renomeia (nome e/ou código) um grupo inteiro — aplica a todos os subitens. */
@@ -237,11 +280,33 @@ export async function renameChartGroup(input: {
   revalidatePath("/planocontas");
 }
 
-/** Exclui um grupo inteiro (todos os seus subitens). */
-export async function deleteChartGroup(input: { kind: string; groupCode: string }) {
+/**
+ * Exclui um grupo inteiro (§12): só se nenhum Orçamento ou Previsão usa o
+ * grupo ou alguma conta dele. Com uso, inativa-se conta a conta.
+ */
+export async function deleteChartGroup(input: { kind: string; groupCode: string }): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "planocontas", "excluir")) return;
+  if (!ctx || !can(ctx.perms, "planocontas", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir grupos." };
+  }
   const kind = normKind(input.kind);
+  const contas = await db
+    .select({ code: schema.chartAccounts.code })
+    .from(schema.chartAccounts)
+    .where(
+      and(
+        eq(schema.chartAccounts.tenantId, ctx.tenant.id),
+        eq(schema.chartAccounts.kind, kind),
+        eq(schema.chartAccounts.groupCode, input.groupCode),
+      ),
+    );
+  const refs = await referenciasNoPlanejamento(ctx.tenant.id, [input.groupCode, ...contas.map((c) => c.code)]);
+  if (refs > 0) {
+    return {
+      ok: false,
+      error: `O grupo ${input.groupCode} tem ${refs} lançamento(s) de Orçamento/Previsão. Inative as contas em vez de excluir o grupo.`,
+    };
+  }
   await db
     .delete(schema.chartAccounts)
     .where(
@@ -256,7 +321,8 @@ export async function deleteChartGroup(input: { kind: string; groupCode: string 
     userId: ctx.userId,
     action: "chart.group.delete",
     entity: "chart_account",
-    meta: { kind, groupCode: input.groupCode },
+    meta: { kind, groupCode: input.groupCode, contas: contas.map((c) => c.code) },
   });
   revalidatePath("/planocontas");
+  return { ok: true };
 }

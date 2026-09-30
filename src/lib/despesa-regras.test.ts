@@ -16,6 +16,8 @@ const semVinculo: VinculosDaDespesa = {
   restituicoes: 0,
   caixaConciliado: 0,
   terceiros: 0,
+  documentosFiscais: 0,
+  anexos: 0,
 };
 
 describe("despesa — regras de integridade (Prompt I, §11)", () => {
