@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { importUnits, type ImportUnitRow } from "@/lib/actions/units";
+import { codigoNormalizado, resumoDaImportacao, STATUS_DE_UNIDADE, type LinhaIgnorada } from "@/lib/unidade-importacao";
 import { baixarXlsx } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +21,6 @@ export interface UnitExport {
 }
 
 const HEADERS = ["Código", "Bloco", "Tipo", "m2", "Andar", "Valor", "Status"];
-const STATUS_VALIDOS = ["Disponivel", "Reservado", "Vendido"];
 
 /** Número tolerante a formato BR/US ("1.234,56" ou "1234.56") → number | null. */
 function num(v: unknown): number | null {
@@ -35,7 +35,11 @@ function num(v: unknown): number | null {
 }
 
 interface PreviewRow extends ImportUnitRow {
+  /** 4.1 — código já existe na versão: a linha ATUALIZA em vez de inserir. */
+  acao: "inserir" | "atualizar";
   erros: string[];
+  /** Não impede, mas merece um olhar (ex.: muda o status de uma vendida). */
+  avisos: string[];
 }
 
 export function UnidadesImportExport({
@@ -54,6 +58,7 @@ export function UnidadesImportExport({
   const [pending, start] = useTransition();
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [ignoradas, setIgnoradas] = useState<LinhaIgnorada[]>([]);
   const [erro, setErro] = useState<string | null>(null);
 
   const exportar = () => {
@@ -82,6 +87,7 @@ export function UnidadesImportExport({
 
   const onFile = async (file: File) => {
     setMsg(null);
+    setIgnoradas([]);
     setErro(null);
     setPreview(null);
     try {
@@ -108,24 +114,40 @@ export function UnidadesImportExport({
         return;
       }
       const codesVistos = new Set<string>();
-      const existentes = new Set(units.map((u) => u.code.trim().toLowerCase()));
+      const vistosSemCaixa = new Map<string, string>();
+      // Exato depois do trim (é assim que a trava do banco compara); a caixa
+      // diferente vira aviso de erro para não nascer uma "quase repetida" —
+      // contra o que já existe e contra outra linha da própria planilha.
+      const existentes = new Map(units.map((u) => [codigoNormalizado(u.code), u]));
+      const existentesSemCaixa = new Map(units.map((u) => [codigoNormalizado(u.code).toLowerCase(), u.code]));
       const rows: PreviewRow[] = [];
       for (const r of grid.slice(1)) {
         const cell = (i: number) => (i >= 0 ? String((r as unknown[])[i] ?? "").trim() : "");
         const code = cell(iCode);
         if (!code) continue;
         const erros: string[] = [];
-        const key = code.toLowerCase();
-        if (codesVistos.has(key)) erros.push("código duplicado na planilha");
-        codesVistos.add(key);
-        if (existentes.has(key)) erros.push("já existe uma unidade com este código no projeto");
+        const avisos: string[] = [];
+        if (codesVistos.has(code)) erros.push("código repetido na planilha");
+        else {
+          const irma = vistosSemCaixa.get(code.toLowerCase());
+          if (irma && irma !== code) erros.push(`só a caixa difere de "${irma}", outra linha da planilha — use o mesmo código`);
+        }
+        codesVistos.add(code);
+        if (!vistosSemCaixa.has(code.toLowerCase())) vistosSemCaixa.set(code.toLowerCase(), code);
+        const existente = existentes.get(code);
+        const parecida = existentesSemCaixa.get(code.toLowerCase());
+        if (!existente && parecida) erros.push(`já existe "${parecida}" (só a caixa difere) — use o mesmo código`);
         const m2 = iM2 >= 0 ? num((r as unknown[])[iM2]) : null;
         const andarN = iAndar >= 0 ? num((r as unknown[])[iAndar]) : null;
         const valor = iValor >= 0 ? num((r as unknown[])[iValor]) : null;
-        let status = cell(iStatus) || "Disponivel";
-        if (!STATUS_VALIDOS.includes(status)) {
-          erros.push(`status inválido "${status}" (use ${STATUS_VALIDOS.join("/")})`);
-          status = "Disponivel";
+        const statusCell = cell(iStatus);
+        let status: ImportUnitRow["status"] = undefined;
+        if (statusCell) {
+          if ((STATUS_DE_UNIDADE as readonly string[]).includes(statusCell)) status = statusCell as ImportUnitRow["status"];
+          else erros.push(`status inválido "${statusCell}" (use ${STATUS_DE_UNIDADE.join("/")})`);
+        }
+        if (existente && status && status !== existente.status && existente.status === "Vendido") {
+          avisos.push(`muda o status de uma unidade vendida (Vendido → ${status})`);
         }
         rows.push({
           code,
@@ -133,9 +155,12 @@ export function UnidadesImportExport({
           tipo: cell(iTipo) || undefined,
           m2: m2 ?? undefined,
           andar: andarN != null ? Math.trunc(andarN) : undefined,
-          valor: valor ?? 0,
-          status: status as ImportUnitRow["status"],
+          // 4.2 — na atualização, célula vazia não zera o valor gravado.
+          valor: valor ?? (existente ? undefined : 0),
+          status: status ?? (existente ? undefined : "Disponivel"),
+          acao: existente ? "atualizar" : "inserir",
           erros,
+          avisos,
         });
       }
       if (rows.length === 0) {
@@ -150,6 +175,8 @@ export function UnidadesImportExport({
 
   const validas = preview?.filter((r) => r.erros.length === 0) ?? [];
   const comErro = preview?.filter((r) => r.erros.length > 0) ?? [];
+  const novas = validas.filter((r) => r.acao === "inserir").length;
+  const atualizar = validas.length - novas;
 
   const confirmar = () => {
     if (validas.length === 0) return;
@@ -157,7 +184,7 @@ export function UnidadesImportExport({
     start(async () => {
       try {
         const res = await importUnits(
-          validas.map(({ erros, ...r }) => { void erros; return r; }),
+          validas.map(({ erros, avisos, acao, ...r }) => { void erros; void avisos; void acao; return r; }),
           projectId,
         );
         // 5.1 — a action devolve { ok, error }; a mensagem chega inteira.
@@ -165,7 +192,9 @@ export function UnidadesImportExport({
           setErro(res.error);
           return;
         }
-        setMsg(`${res.inseridas} unidade(s) importada(s) para ${projectName}.`);
+        // 4.4 — relatório: inseridas, atualizadas e ignoradas com motivo.
+        setMsg(`${projectName}: ${resumoDaImportacao(res)}`);
+        setIgnoradas(res.ignoradas);
         setPreview(null);
         router.refresh();
       } catch {
@@ -201,9 +230,18 @@ export function UnidadesImportExport({
             </Button>
           </>
         )}
-        {msg && <span className="text-xs text-[var(--color-success)]">{msg}</span>}
+        {msg && <span role="status" className="text-xs text-[var(--color-success)]">{msg}</span>}
         {erro && <span className="text-xs text-[var(--color-danger)]">{erro}</span>}
       </div>
+      {ignoradas.length > 0 && (
+        <ul className="list-disc pl-5 text-xs text-[var(--color-ink3)]">
+          {ignoradas.map((i, k) => (
+            <li key={k}>
+              <span className="font-medium">{i.code}</span>: {i.motivo}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {preview && (
         <Card>
@@ -212,13 +250,20 @@ export function UnidadesImportExport({
               <h3 className="text-sm font-semibold text-[var(--color-ink)]">
                 Pré-visualização — {projectName}
               </h3>
-              <Badge tone="success">{validas.length} válidas</Badge>
+              <Badge tone="success">{novas} nova(s)</Badge>
+              <Badge tone="info">{atualizar} a atualizar</Badge>
               {comErro.length > 0 && <Badge tone="danger">{comErro.length} com erro</Badge>}
             </div>
+            <p className="mb-2 text-[11.5px] text-[var(--color-ink3)]">
+              Código que já existe nesta versão é atualizado, nunca duplicado. A atualização toca só
+              bloco, tipo, m², andar, valor e status preenchidos na planilha — o plano de pagamento e a
+              data da venda ficam como estão.
+            </p>
             <div className="max-h-[360px] overflow-auto rounded-[8px] border border-[var(--color-accent2)]/12">
               <table className="w-full border-collapse text-[12.5px]">
                 <thead className="sticky top-0 bg-[var(--color-surface2)] text-left font-[family-name:var(--font-mono)] text-[10px] uppercase text-[var(--color-ink3)]">
                   <tr>
+                    <th className="px-2 py-2">Ação</th>
                     <th className="px-2 py-2">Código</th>
                     <th className="px-2 py-2">Bloco</th>
                     <th className="px-2 py-2">Tipo</th>
@@ -235,17 +280,20 @@ export function UnidadesImportExport({
                       key={i}
                       className={`border-t border-[var(--color-accent2)]/8 ${r.erros.length ? "bg-[var(--color-danger)]/5" : ""}`}
                     >
+                      <td className="px-2 py-1.5">
+                        <Badge tone={r.acao === "inserir" ? "success" : "info"}>{r.acao === "inserir" ? "Nova" : "Atualizar"}</Badge>
+                      </td>
                       <td className="px-2 py-1.5 font-medium">{r.code}</td>
                       <td className="px-2 py-1.5">{r.bloco ?? "—"}</td>
                       <td className="px-2 py-1.5">{r.tipo ?? "—"}</td>
                       <td className="px-2 py-1.5 text-right font-[family-name:var(--font-mono)]">{r.m2 ?? "—"}</td>
                       <td className="px-2 py-1.5 text-right font-[family-name:var(--font-mono)]">{r.andar ?? "—"}</td>
                       <td className="px-2 py-1.5 text-right font-[family-name:var(--font-mono)]">
-                        {(r.valor ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        {r.valor === undefined ? "—" : r.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-1.5">{r.status}</td>
-                      <td className="px-2 py-1.5 text-[var(--color-danger)]">
-                        {r.erros.length ? r.erros.join("; ") : "✓"}
+                      <td className="px-2 py-1.5">{r.status ?? "—"}</td>
+                      <td className={`px-2 py-1.5 ${r.erros.length ? "text-[var(--color-danger)]" : r.avisos.length ? "text-[var(--color-warning)]" : ""}`}>
+                        {r.erros.length ? r.erros.join("; ") : r.avisos.length ? `⚠ ${r.avisos.join("; ")}` : "✓"}
                       </td>
                     </tr>
                   ))}
@@ -257,7 +305,7 @@ export function UnidadesImportExport({
                 Cancelar
               </Button>
               <Button size="sm" onClick={confirmar} disabled={pending || validas.length === 0}>
-                {pending ? "Importando…" : `Importar ${validas.length} unidade(s)`}
+                {pending ? "Importando…" : `Importar: ${novas} nova(s) · ${atualizar} a atualizar`}
               </Button>
             </div>
           </CardContent>

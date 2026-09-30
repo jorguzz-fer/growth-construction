@@ -99,7 +99,7 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
 
   it("importUnits exige a obra e grava nela", async () => {
     expect(await importUnits([{ code: "I-1" }])).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
-    expect(await importUnits([{ code: "I-1" }], p.a1.id)).toEqual({ ok: true, inseridas: 1 });
+    expect(await importUnits([{ code: "I-1" }], p.a1.id)).toMatchObject({ ok: true, inseridas: 1 });
     expect((await unidadesDe(v.a1.id)).map((u) => u.code)).toEqual(["I-1"]);
   });
 
