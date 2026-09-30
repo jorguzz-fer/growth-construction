@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getDailyClosings } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
@@ -13,7 +13,7 @@ function fmtDateTime(d: Date): string {
 }
 
 export default async function BalancoDiaPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "balancodia", "ver")) return <AccessDenied />;
 
