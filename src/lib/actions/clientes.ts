@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { houveMudanca } from "@/lib/audit-diff";
@@ -136,7 +136,7 @@ async function unidadeEmConflito(
 }
 
 export async function addCliente(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "criar")) {
     throw new Error("Sem permissão para cadastrar clientes.");
   }
@@ -167,7 +167,7 @@ export async function addCliente(formData: FormData) {
 }
 
 export async function updateCliente(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "editar")) {
     throw new Error("Sem permissão para editar clientes.");
   }
@@ -223,7 +223,7 @@ export async function updateCliente(formData: FormData) {
 }
 
 export async function deleteCliente(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "excluir")) return;
   const id = formData.get("id") as string;
   if (!id) return;
@@ -247,7 +247,7 @@ export async function deleteCliente(formData: FormData) {
  * é preservada (histórico) e a nova recebe versao = maior + 1.
  */
 export async function uploadClienteDoc(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "clientes", "editar")) {
     throw new Error("Sem permissão para anexar documentos.");
   }

@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getClientes, getDocuments } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
@@ -15,7 +15,7 @@ export default async function ProjetoPage({
 }: {
   searchParams: Promise<{ proj?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "projeto", "ver")) return <AccessDenied />;
 
@@ -73,7 +73,6 @@ export default async function ProjetoPage({
       <ProjectManager
         projects={ctx.projects}
         selecionadoId={selecionado}
-        activeId={ctx.project.id}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
         tenantName={ctx.tenant.name}
         docsByProject={docsByProject}

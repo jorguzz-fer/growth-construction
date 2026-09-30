@@ -3,7 +3,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
@@ -59,7 +59,7 @@ export interface DespesaAbativel {
 export async function getDespesasAbativeis(
   favorecidoId?: string | null,
 ): Promise<DespesaAbativel[]> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "ver")) return [];
 
   const rows = await db
@@ -152,7 +152,7 @@ export interface AcertoResult {
  * correspondente.
  */
 export async function concluirAcerto(input: AcertoInput): Promise<AcertoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   // Item 6 dos RNF: acerto é operação de nível financeiro.
   if (!ctx || !can(ctx.perms, "despesas", "editar") || !can(ctx.perms, "caixa", "criar")) {
     return { ok: false, error: "Sem permissão para concluir acertos contábeis." };
@@ -379,7 +379,7 @@ export async function concluirAcerto(input: AcertoInput): Promise<AcertoResult> 
  * apagado — fica marcado como estornado, preservando a trilha (RG-09).
  */
 export async function estornarAcerto(acertoId: string, motivo: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
     throw new Error("Sem permissão para estornar acertos.");
   }
@@ -490,7 +490,7 @@ export interface RateioInput {
 export async function ratearEntreObras(
   input: RateioInput,
 ): Promise<AcertoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar") || !can(ctx.perms, "caixa", "criar")) {
     return { ok: false, error: "Sem permissão para ratear pagamentos entre obras." };
   }

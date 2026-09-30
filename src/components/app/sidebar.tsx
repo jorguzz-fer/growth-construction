@@ -23,7 +23,6 @@ import {
   isItemActive,
   visibleMenu,
   type ModuleIcon,
-  type NavBadges,
 } from "@/lib/nav-menu";
 
 const ICONS: Record<ModuleIcon, LucideIcon> = {
@@ -44,13 +43,12 @@ const COLLAPSED_KEY = "growth.sidebar.collapsed";
 
 export interface SidebarProps {
   perms: PermMatrix;
-  badges: NavBadges;
   /** Drawer aberto em viewport pequena (estado do AppShell). */
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }
 
-export function Sidebar({ perms, badges, mobileOpen, onCloseMobile }: SidebarProps) {
+export function Sidebar({ perms, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const menu = visibleMenu(perms);
   const current = activeModuleId(pathname, menu);
@@ -215,7 +213,6 @@ export function Sidebar({ perms, badges, mobileOpen, onCloseMobile }: SidebarPro
                 <div id={panelId} hidden={!isOpen} className="pb-1.5 pt-0.5">
                   {m.items.map((it) => {
                     const active = isItemActive(pathname, it.href);
-                    const count = it.badge ? badges[it.badge] : 0;
                     return (
                       <Link
                         key={it.href}
@@ -232,11 +229,6 @@ export function Sidebar({ perms, badges, mobileOpen, onCloseMobile }: SidebarPro
                           <span className="absolute left-6 h-1.5 w-1.5 rounded-full bg-[var(--color-brand-soft)]" />
                         )}
                         <span className="flex-1">{it.label}</span>
-                        {count > 0 && (
-                          <span className="ml-2 rounded-full bg-white/10 px-1.5 text-[11px] font-medium text-[var(--color-nav-sub)]">
-                            {count}
-                          </span>
-                        )}
                       </Link>
                     );
                   })}

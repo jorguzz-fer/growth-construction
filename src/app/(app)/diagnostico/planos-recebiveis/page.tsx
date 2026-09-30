@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getPlanosSuspeitos } from "@/lib/actions/diagnostico";
 import { dateBR } from "@/lib/utils";
@@ -28,7 +28,7 @@ export default async function PlanosRecebiveisPage({
 }: {
   searchParams: Promise<{ carencia?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "unidades", "ver")) return <AccessDenied />;
 

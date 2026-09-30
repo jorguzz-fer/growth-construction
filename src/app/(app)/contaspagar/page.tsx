@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getContasPagar, type ContaPagarRow } from "@/lib/queries";
 import { getObrigacoesTerceiroPendentes } from "@/lib/actions/restituicoes";
 import { rotuloStatusObrigacao } from "@/lib/calc/restituicao";
@@ -10,7 +10,7 @@ import { ContasPagarTable } from "@/components/app/contas-pagar-table";
 export const dynamic = "force-dynamic";
 
 export default async function ContasPagarPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "contaspagar", "ver")) return <AccessDenied />;
 

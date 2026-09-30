@@ -1,6 +1,6 @@
 "use server";
 
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import {
   aiClient,
   createMessageWithFallback,
@@ -40,7 +40,7 @@ export interface AiDiagnosticResult {
  * "não está funcionando" no ambiente.
  */
 export async function testAiConnection(): Promise<AiDiagnosticResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) {
     throw new Error("Sem permissão para executar o diagnóstico.");
   }

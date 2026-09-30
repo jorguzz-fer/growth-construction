@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -14,7 +14,7 @@ import { logAudit } from "@/lib/audit";
  */
 
 export async function addConta(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contas", "criar")) {
     throw new Error("Sem permissão para cadastrar contas.");
   }
@@ -53,7 +53,7 @@ export async function updateConta(
     saldoSource?: string;
   },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contas", "editar")) return;
   const set: Record<string, unknown> = {};
   if (patch.banco?.trim()) set.banco = patch.banco.trim();
@@ -92,7 +92,7 @@ export async function updateConta(
 }
 
 export async function deleteConta(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "contas", "excluir")) return;
   await db
     .delete(schema.bankAccounts)

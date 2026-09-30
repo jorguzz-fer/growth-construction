@@ -32,8 +32,6 @@ export interface NavItem {
    * permissões de Despesas e Unidades, como já faziam no menu antigo.
    */
   perm?: string;
-  /** Contador ao lado do subitem (nunca do módulo — seção 11). */
-  badge?: "unidades" | "reembolso" | "permuta";
 }
 
 export interface NavModule {
@@ -42,8 +40,6 @@ export interface NavModule {
   icon: ModuleIcon;
   items: NavItem[];
 }
-
-export type NavBadges = Record<NonNullable<NavItem["badge"]>, number>;
 
 /**
  * Ordem dos módulos e rótulos seguem o mockup V2. Telas que o mockup desenha
@@ -84,11 +80,11 @@ export const NAV_MENU: NavModule[] = [
     icon: "receitas",
     items: [
       { href: "/clientes", label: "Clientes" },
-      { href: "/unidades", label: "Unidades", badge: "unidades" },
+      { href: "/unidades", label: "Unidades" },
       { href: "/simulador", label: "Simulador" },
       { href: "/contasreceber", label: "Contas a Receber" },
-      { href: "/reembolso", label: "Liberações de Obra", badge: "reembolso" },
-      { href: "/permuta", label: "Permuta", badge: "permuta" },
+      { href: "/reembolso", label: "Liberações de Obra" },
+      { href: "/permuta", label: "Permuta" },
       { href: "/projecao", label: "Projeção de Receitas" },
     ],
   },

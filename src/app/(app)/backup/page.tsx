@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { listSemesters } from "@/lib/backup";
 import { PageHeader } from "@/components/app/page-header";
@@ -9,7 +9,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 export const dynamic = "force-dynamic";
 
 export default async function BackupPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "backup", "ver")) return null;
 

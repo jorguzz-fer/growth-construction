@@ -1,4 +1,4 @@
-import type { ActiveContext } from "@/lib/context";
+import type { TenantContext } from "@/lib/context";
 import { getReceitaByProject, getDespesaLinhas } from "@/lib/queries";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { can } from "@/lib/permissions";
@@ -15,7 +15,7 @@ export async function LancamentoScreen({
   ctx,
   kind,
 }: {
-  ctx: ActiveContext;
+  ctx: TenantContext;
   kind: "budget" | "forecast";
 }) {
   const title = kind === "budget" ? "Lançamento Budget" : "Lançamento Forecast";

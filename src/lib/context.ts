@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { auth } from "./auth";
@@ -11,21 +10,6 @@ export type Project = typeof schema.projects.$inferSelect;
 export type Version = typeof schema.versions.$inferSelect;
 
 export type Role = "owner" | "admin" | "membro" | "contador" | "engenheiro";
-
-export interface ActiveContext {
-  tenant: Tenant;
-  projects: Project[];
-  project: Project;
-  versions: Version[];
-  version: Version;
-  /** usuário "logado" (enquanto não há Auth.js ativo, o owner do tenant). */
-  userId: string | null;
-  /** e-mail do usuário logado (usado no gate de super-admin da plataforma). */
-  userEmail: string | null;
-  role: Role;
-  /** permissões efetivas por tela × ação (role + overrides do membership). */
-  perms: PermMatrix;
-}
 
 /**
  * A sessão foi aberta antes da última troca/redefinição de senha (AI 1.3)?
@@ -46,15 +30,6 @@ export function sessaoRevogada(
 export function canEdit(role: Role): boolean {
   return role !== "contador";
 }
-
-export const ACTIVE_PROJECT_COOKIE = "gtc_project";
-/**
- * @deprecated Sem leitor desde que a versão de trabalho passou a ser sempre a
- * "Atual": só `setActiveVersion` (sem chamadas) ainda grava. Um cookie de
- * versão de outro projeto, portanto, não altera nenhuma tela (Prompt A, 14).
- * Sai na PR final do Prompt A, junto com o cookie de projeto.
- */
-export const ACTIVE_VERSION_COOKIE = "gtc_version";
 
 /**
  * Contexto só de empresa (Prompt A, 10): quem é o usuário, em que tenant, com
@@ -129,8 +104,8 @@ async function projetosDoTenant(tenantId: string): Promise<Project[]> {
 }
 
 /**
- * Contexto da empresa, sem projeto implícito. Diferente de
- * `getActiveContext`, não exige que o tenant tenha projeto.
+ * Contexto da empresa, sem projeto implícito (Prompt A, 10): não existe
+ * mais projeto ativo global. Não exige que o tenant tenha projeto.
  */
 export async function getTenantContext(): Promise<TenantContext | null> {
   const s = await resolverSessao();
@@ -189,8 +164,8 @@ export async function getProjectVersion(
 
 /**
  * Versão de trabalho de um projeto: a "Atual"; sem ela, a marcada como padrão;
- * sem nenhuma, a mais antiga. É a MESMA regra que `getActiveContext` sempre
- * aplicou ao projeto do cookie — as telas migradas gravam onde gravavam.
+ * sem nenhuma, a mais antiga. É a mesma regra que o antigo "projeto ativo"
+ * aplicava à obra do cookie — as telas migradas gravam onde gravavam.
  * `versions` em ordem de criação.
  */
 export function versaoDeTrabalho<V extends { kind: string; isDefault: boolean }>(
@@ -255,51 +230,4 @@ export async function getWorkingVersion(
 ): Promise<Version | null> {
   if (typeof projectId !== "string" || !projectId) return null;
   return (await getProjectVersions(tenantId, projectId))?.trabalho ?? null;
-}
-
-/**
- * @deprecated Prompt A: projeto e versão implícitos (cookie + primeiro
- * projeto). Use `getTenantContext` e resolva a obra explicitamente com
- * `lerSelecaoDeProjeto` + `getProjectContext`/`getProjectVersion`. Continua
- * funcionando, idêntico, enquanto houver tela não migrada; sai na PR final.
- *
- * Resolve o contexto ativo (tenant → projeto → versão) a partir do cookie,
- * com fallback para o primeiro projeto (ordem de criação) e a versão Atual.
- * Retorna null sem sessão válida ou se o tenant não tem projeto.
- */
-export async function getActiveContext(): Promise<ActiveContext | null> {
-  const s = await resolverSessao();
-  if (!s) return null;
-
-  const ck = await cookies();
-  // Ordem de criação, como sempre foi: é dela que sai o `projects[0]` das
-  // telas ainda não migradas. Reordenar aqui mudaria a obra que elas abrem.
-  const projects = await projetosDoTenant(s.tenant.id);
-  if (projects.length === 0) return null;
-
-  const wantedProject = ck.get(ACTIVE_PROJECT_COOKIE)?.value;
-  const project = projects.find((p) => p.id === wantedProject) ?? projects[0];
-
-  const versions = await db
-    .select()
-    .from(schema.versions)
-    .where(eq(schema.versions.projectId, project.id))
-    .orderBy(asc(schema.versions.createdAt));
-
-  // A versão de trabalho é sempre a "Atual" (não é mais selecionável na
-  // sidebar). Budget e Forecast existem apenas nas telas dedicadas de
-  // lançamento e na comparação dos relatórios.
-  const version = versaoDeTrabalho(versions) as Version;
-
-  return {
-    tenant: s.tenant,
-    projects,
-    project,
-    versions,
-    version,
-    userId: s.userId,
-    userEmail: s.userEmail,
-    role: s.role,
-    perms: s.perms,
-  };
 }

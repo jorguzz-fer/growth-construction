@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { buildSemesterZip } from "@/lib/backup";
 import { logAudit } from "@/lib/audit";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * dos dados do período + os documentos salvos no período. Não remove nada.
  */
 export async function GET(req: Request) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "backup", "ver")) {
     return new Response("Não autorizado", { status: 403 });
   }

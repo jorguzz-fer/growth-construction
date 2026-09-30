@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getDespesasSuspeitas } from "@/lib/actions/diagnostico";
 import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * exige seleção e confirmação humana, e vai para a auditoria.
  */
 export default async function CategoriasInvertidasPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
 

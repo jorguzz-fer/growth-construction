@@ -10,9 +10,6 @@ const ctxRef: { current: unknown } = { current: null };
 vi.mock("@/lib/context", async (orig) => ({
   ...(await orig<typeof import("@/lib/context")>()),
   getTenantContext: async () => ctxRef.current,
-  getActiveContext: async () => {
-    throw new Error("Versões não pode mais depender do projeto ativo");
-  },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));

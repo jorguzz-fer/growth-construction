@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext, type Role } from "@/lib/context";
+import { getTenantContext, type Role } from "@/lib/context";
 import {
   SCREENS,
   can,
@@ -29,7 +29,7 @@ export interface ActionResult {
  * o fluxo de login do Auth.js. Apenas owner/admin podem convidar.
  */
 async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "usuarios", "criar")) return { ok: false, error: "Sem permissão." };
 
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
@@ -148,7 +148,7 @@ export async function setMemberPermissions(
   userId: string,
   permissions: PermMatrix,
 ): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "acessos", "editar")) {
     return { ok: false, error: "Sem permissão para editar acessos." };
   }
@@ -204,7 +204,7 @@ export async function setMemberPermissions(
  * matriz descartada. Chaves órfãs ficam (inertes).
  */
 export async function resetMemberPermissions(userId: string): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "acessos", "editar")) {
     return { ok: false, error: "Sem permissão para editar acessos." };
   }
@@ -270,7 +270,7 @@ export async function changeRole(
   role: Role,
   opcoes: { manterPersonalizacoes?: boolean } = {},
 ): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "usuarios", "editar"))
     return { ok: false, error: "Sem permissão." };
   if (!papelValido(role)) return { ok: false, error: "Papel inválido." };
@@ -331,7 +331,7 @@ export async function updateMemberName(
   userId: string,
   name: string,
 ): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "usuarios", "editar"))
     return { ok: false, error: "Sem permissão." };
 
@@ -378,7 +378,7 @@ export async function resetMemberPassword(
   userId: string,
   password: string,
 ): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "usuarios", "editar"))
     return { ok: false, error: "Sem permissão." };
   if ((password ?? "").length < 8)
@@ -424,7 +424,7 @@ export async function resetMemberPassword(
  * auto-remoção.
  */
 export async function removeMember(userId: string): Promise<ActionResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "usuarios", "excluir"))
     return { ok: false, error: "Sem permissão." };
   if (userId === ctx.userId)

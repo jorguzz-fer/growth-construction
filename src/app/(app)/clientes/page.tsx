@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getClientes } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { TELA_DADOS_CLIENTE, mascararDocumento } from "@/lib/clientes-sensivel";
@@ -12,7 +12,7 @@ import { AccessDenied } from "@/components/app/access-denied";
 export const dynamic = "force-dynamic";
 
 export default async function ClientesPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

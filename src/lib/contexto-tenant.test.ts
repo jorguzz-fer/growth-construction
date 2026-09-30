@@ -20,7 +20,8 @@ vi.mock("next/headers", () => ({
 describe.skipIf(!HAS_DB)("contexto de tenant e resolução explícita", async () => {
   const { db, schema } = await import("@/lib/db");
   const ctxMod = await import("@/lib/context");
-  const { getTenantContext, getActiveContext, getProjectContext, getProjectVersion } = ctxMod;
+  const { getTenantContext, getProjectContext, getProjectVersion } = ctxMod;
+  const { effectivePermissions } = await import("@/lib/permissions");
   const tenants: string[] = [];
   let tA = "";
   let tB = "";
@@ -93,33 +94,23 @@ describe.skipIf(!HAS_DB)("contexto de tenant e resolução explícita", async ()
     sessao.cookie = undefined;
   });
 
-  it("permissões idênticas às do getActiveContext (seção 39)", async () => {
-    for (const e of ["dono", "cont"]) {
+  it("permissões = papel + overrides do vínculo, como sempre (seção 39)", async () => {
+    for (const [e, role] of [["dono", "owner"], ["cont", "contador"]] as const) {
       sessao.email = `${e}-${sufixo}@a.test`;
-      const novo = await getTenantContext();
-      const antigo = await getActiveContext();
-      expect(novo?.perms).toEqual(antigo?.perms);
-      expect(novo?.role).toBe(antigo?.role);
+      const ctx = await getTenantContext();
+      expect(ctx?.role).toBe(role);
+      expect(ctx?.perms).toEqual(effectivePermissions(role, null));
     }
   });
 
-  it("tenant sem projeto: getTenantContext responde; getActiveContext continua null", async () => {
+  it("tenant sem projeto: getTenantContext responde, com a lista vazia", async () => {
     sessao.email = `vazio-${sufixo}@a.test`;
     expect((await getTenantContext())?.projects).toEqual([]);
-    expect(await getActiveContext()).toBeNull();
   });
 
-  it("getActiveContext (depreciado) segue idêntico: ordem de criação e projects[0]", async () => {
-    sessao.email = `dono-${sufixo}@a.test`;
-    const ctx = await getActiveContext();
-    expect(ctx?.projects.map((p) => p.name)).toEqual(["OBRA 28", "DESPESAS GERAIS", "OBRA 3"]);
-    expect(ctx?.project.id).toBe(proj.o28.id);
-    expect(ctx?.version.id).toBe(ver.o28atual.id);
-    sessao.cookie = proj.o3.id;
-    expect((await getActiveContext())?.project.id).toBe(proj.o3.id);
-    sessao.cookie = proj.b1.id; // cookie com projeto de outro tenant: ignorado
-    expect((await getActiveContext())?.project.id).toBe(proj.o28.id);
-    sessao.cookie = undefined;
+  it("não existe mais contexto de projeto ativo (Prompt A, 47)", () => {
+    expect("getActiveContext" in ctxMod).toBe(false);
+    expect("ACTIVE_PROJECT_COOKIE" in ctxMod).toBe(false);
   });
 
   it("getProjectContext: projeto do tenant", async () => {

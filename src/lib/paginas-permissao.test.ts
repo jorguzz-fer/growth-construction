@@ -40,7 +40,7 @@ describe("toda página verifica 'ver' antes de consultar dado", () => {
       // "editar" também serve: é mais restritivo (o Acerto exige editar Despesas).
       const ver = corpo.search(new RegExp(`can\\(ctx\\.perms, "${tela}", "(ver|editar)"\\)`));
       expect(ver, `/${rota} não verifica can(ctx.perms, "${tela}", "ver")`).toBeGreaterThan(-1);
-      const consulta = corpo.search(/await (?!getActiveContext|getTenantContext|searchParams|params)[\w.]+\(/);
+      const consulta = corpo.search(/await (?!getTenantContext|searchParams|params)[\w.]+\(/);
       if (consulta > -1) expect(consulta, `/${rota} consulta dado antes de verificar "ver"`).toBeGreaterThan(ver);
     });
   }

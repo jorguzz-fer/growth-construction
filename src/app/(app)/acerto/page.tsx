@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getAcertos, getDespesasAbativeis } from "@/lib/actions/acerto";
 import { getBankAccounts, getStakeholders, getChartAccounts } from "@/lib/queries";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * e o valor efetivamente transferido (juros de atraso ou desconto negociado).
  */
 export default async function AcertoPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // Acerto é operação de nível financeiro (RNF de permissões).
   if (!can(ctx.perms, "despesas", "editar") || !can(ctx.perms, "caixa", "ver")) {

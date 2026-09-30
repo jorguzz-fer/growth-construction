@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveContext, type Role } from "@/lib/context";
+import { getTenantContext, type Role } from "@/lib/context";
 import { SCREENS, can } from "@/lib/permissions";
 import { getMembers } from "@/lib/queries";
 import { inviteMember } from "@/lib/actions/users";
@@ -27,7 +27,7 @@ const roleTone: Record<string, "accent" | "info" | "neutral" | "warning"> = {
 };
 
 export default async function UsuariosPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { renameTenant, salvarDadosFiscais, uploadLogo } from "@/lib/actions/empresa";
@@ -21,7 +21,7 @@ import { AccessDenied } from "@/components/app/access-denied";
 export const dynamic = "force-dynamic";
 
 export default async function EmpresaPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

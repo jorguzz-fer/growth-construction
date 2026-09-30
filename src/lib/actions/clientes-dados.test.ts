@@ -10,7 +10,7 @@ const HAS_DB = !!process.env.DATABASE_URL;
 const ctxRef: { current: unknown } = { current: null };
 vi.mock("@/lib/context", async (orig) => ({
   ...(await orig<typeof import("@/lib/context")>()),
-  getActiveContext: async () => ctxRef.current,
+  getTenantContext: async () => ctxRef.current,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
