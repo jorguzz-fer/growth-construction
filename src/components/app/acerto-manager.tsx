@@ -739,7 +739,11 @@ function Historico({
     setErro(null);
     start(async () => {
       try {
-        await estornarAcerto(a.id, motivo);
+        const r = await estornarAcerto(a.id, motivo);
+        if (!r.ok) {
+          setErro(r.error ?? "Falha ao estornar.");
+          return;
+        }
         router.refresh();
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Falha ao estornar.");
