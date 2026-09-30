@@ -39,15 +39,18 @@ export function LembrarProjeto({ projectId }: { projectId: string }) {
 /**
  * Tela aberta sem obra na URL: se a aba lembra uma obra que ainda está na
  * lista do usuário, reabre a tela nela (trocando a URL, sem novo item no
- * histórico). Senão, mostra `children` — o pedido de escolha. Nunca escolhe
- * o primeiro projeto.
+ * histórico). Senão, com `semMemoria` (relatórios: "all"), reabre nesse
+ * escopo; sem ele, mostra `children` — o pedido de escolha. Nunca escolhe o
+ * primeiro projeto.
  */
 export function RecuperarProjeto({
   idsPermitidos,
+  semMemoria: escopoSemMemoria,
   children,
 }: {
   idsPermitidos: string[];
-  children: ReactNode;
+  semMemoria?: string;
+  children?: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -58,14 +61,15 @@ export function RecuperarProjeto({
 
   useEffect(() => {
     const lembrado = lerProjetoDaAba();
-    if (lembrado && ids.split("|").includes(lembrado)) {
+    const destino = lembrado && ids.split("|").includes(lembrado) ? lembrado : escopoSemMemoria;
+    if (destino) {
       const params = new URLSearchParams(sp.toString());
-      params.set(PARAM_PROJETO, lembrado);
+      params.set(PARAM_PROJETO, destino);
       router.replace(`${pathname}?${params.toString()}`);
     } else {
       setSemMemoria(true);
     }
-  }, [ids, pathname, router, sp]);
+  }, [ids, pathname, router, sp, escopoSemMemoria]);
 
   return semMemoria ? <>{children}</> : null;
 }

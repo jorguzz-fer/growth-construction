@@ -3,7 +3,13 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { Select } from "@/components/ui/input";
-import { PARAM_PROJETO, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
+import {
+  ESCOPO_ATIVOS,
+  ESCOPO_FINALIZADOS,
+  PARAM_PROJETO,
+  TODOS_OS_PROJETOS,
+  ehEscopo,
+} from "@/lib/projeto-selecao";
 import { gravarProjetoDaAba } from "./projeto-da-aba";
 
 export interface ProjectOpt {
@@ -20,11 +26,14 @@ export function ProjectPicker({
   projects,
   selected,
   allOption = false,
+  scopeOptions = false,
 }: {
   projects: ProjectOpt[];
   selected: string;
   /** inclui a opção "Todos os projetos" (valor "all"). */
   allOption?: boolean;
+  /** relatórios: inclui "Projetos ativos" e "Projetos finalizados" (Prompt A, 18). */
+  scopeOptions?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -42,7 +51,8 @@ export function ProjectPicker({
         onChange={(e) => {
           const valor = e.target.value;
           if (!valor) return;
-          if (valor !== TODOS_OS_PROJETOS) gravarProjetoDaAba(valor);
+          // Só obra entra na memória da aba; escopo é visão do relatório.
+          if (!ehEscopo(valor)) gravarProjetoDaAba(valor);
           const params = new URLSearchParams(sp.toString());
           params.set(PARAM_PROJETO, valor);
           // O sinônimo `?project=` não pode sobrar com outro valor.
@@ -57,6 +67,11 @@ export function ProjectPicker({
           </option>
         )}
         {allOption && <option value={TODOS_OS_PROJETOS}>Todos os projetos / filiais</option>}
+        {scopeOptions && <option value={ESCOPO_ATIVOS}>Projetos ativos</option>}
+        {scopeOptions && <option value={ESCOPO_FINALIZADOS}>Projetos finalizados</option>}
+        {(allOption || scopeOptions) && projects.length > 0 && (
+          <option disabled value="__sep">──────────</option>
+        )}
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}

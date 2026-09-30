@@ -80,3 +80,69 @@ export function lerSelecaoDeProjeto<T extends { id: string }>(
   const projeto = projetos.find((p) => p.id === valor);
   return projeto ? { tipo: "projeto", projeto } : { tipo: "nenhum" };
 }
+
+// ─────────────────────────── Relatórios: escopo ───────────────────────────
+// Relatórios aceitam, além de uma obra, um ESCOPO (Prompt A, 17–19), no mesmo
+// parâmetro `?proj=`. Decisões (V2-BLOQUEIOS, B12):
+//  - "Todos" = obras + escritórios, exatamente como antes;
+//  - "Ativos"/"Finalizados" = só obras (escritório não finaliza como obra);
+//  - obra sem situação fica FORA de Ativos/Finalizados, com aviso;
+//  - sem nada na URL: a obra lembrada pela aba; sem memória, "Todos".
+
+export const ESCOPO_ATIVOS = "ativos";
+export const ESCOPO_FINALIZADOS = "finalizados";
+
+/** O valor do seletor é um escopo (não uma obra)? */
+export function ehEscopo(valor: string): boolean {
+  return valor === TODOS_OS_PROJETOS || valor === ESCOPO_ATIVOS || valor === ESCOPO_FINALIZADOS;
+}
+
+export type EscopoDeRelatorio<T> =
+  | { tipo: "projeto"; projeto: T }
+  | { tipo: "todos" }
+  | { tipo: "ativos" }
+  | { tipo: "finalizados" }
+  | { tipo: "nenhum" };
+
+/** Lê `?proj=` (ou `?project=`) de um relatório: obra do tenant ou escopo. */
+export function lerEscopoDeRelatorio<T extends { id: string }>(
+  projetos: readonly T[],
+  params: Record<string, string | string[] | undefined>,
+): EscopoDeRelatorio<T> {
+  const bruto = params[PARAM_PROJETO] ?? params[PARAM_PROJETO_ALIAS];
+  const valor = Array.isArray(bruto) ? bruto[0] : bruto;
+  if (valor === ESCOPO_ATIVOS) return { tipo: "ativos" };
+  if (valor === ESCOPO_FINALIZADOS) return { tipo: "finalizados" };
+  const s = lerSelecaoDeProjeto(projetos, params, { permiteTodos: true });
+  return s;
+}
+
+interface ProjetoComSituacao {
+  kind: string;
+  situacao: string | null;
+}
+
+/**
+ * Obras que um escopo cobre, e quantas obras ficaram de fora por estarem sem
+ * situação (para o aviso). Não altera a lista recebida nem a sua ordem.
+ */
+export function projetosDoEscopo<T extends ProjetoComSituacao>(
+  projetos: readonly T[],
+  escopo: "todos" | "ativos" | "finalizados",
+): { projetos: T[]; semSituacao: number } {
+  if (escopo === "todos") return { projetos: [...projetos], semSituacao: 0 };
+  const obras = projetos.filter((p) => p.kind !== "office");
+  const alvo = escopo === "ativos" ? "Ativo" : "Finalizado";
+  return {
+    projetos: obras.filter((p) => p.situacao === alvo),
+    semSituacao: obras.filter((p) => p.situacao == null).length,
+  };
+}
+
+export function rotuloDoEscopo(escopo: "todos" | "ativos" | "finalizados"): string {
+  return escopo === "todos"
+    ? "Todos os projetos / filiais"
+    : escopo === "ativos"
+      ? "Projetos ativos"
+      : "Projetos finalizados";
+}

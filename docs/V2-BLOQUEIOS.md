@@ -330,3 +330,16 @@ Fluxo de Caixa por obra mostra a saída numa obra e a despesa em outra.
 | **2. Segue a despesa** | restituição avulsa: a obra da despesa. Em lote, a saída única seria **dividida por obra**, conforme os PEDs abatidos. É regra de negócio e muda o Fluxo por obra daqui em diante (nada do que já foi lançado é mexido) |
 
 Recomendação: **2**, num prompt próprio, com a contabilidade de acordo.
+
+---
+
+## B12 · Relatórios: escopo, escritórios e padrão · **RESPONDIDO (29/09/2026)**
+
+| Pergunta | Resposta |
+|---|---|
+| Nos filtros "Ativos" e "Finalizados", os escritórios entram? | **Não, só em "Todos".** "Todos" continua igual a hoje: obras e escritórios. "Ativos" e "Finalizados" mostram só obras |
+| No filtro "Ativos", o que fazer com obra sem status? | **Fica fora, com aviso.** O relatório mostra "N obra(s) sem status ficaram fora — classifique-as em Projetos". "Todos" não muda |
+| Relatório aberto pelo menu, sem nada na URL | **A obra lembrada pela aba; sem memória, "Todos".** O relatório não trava pedindo escolha |
+
+O escopo vai no mesmo parâmetro das obras: `?proj=all`, `?proj=ativos` ou
+`?proj=finalizados`.
