@@ -254,6 +254,16 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
     ? null
     : await getWorkingVersion(ctx.tenant.id, input.projectId);
   if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — repasse bloqueado." };
+  // §22 — id de extrato vindo do navegador só vale se for desta empresa.
+  if (input.cashEntryId) {
+    const [c] = await db
+      .select({ id: schema.cashEntries.id })
+      .from(schema.cashEntries)
+      .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+      .limit(1);
+    if (!c) return { ok: false, error: "Lançamento do extrato não encontrado." };
+  }
   const idem = input.idempotencyKey?.trim() || null;
 
   if (idem) {
@@ -304,7 +314,7 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
         const [usado] = await tx
           .select({ id: schema.repasses.id })
           .from(schema.repasses)
-          .where(eq(schema.repasses.cashEntryId, input.cashEntryId))
+          .where(and(eq(schema.repasses.tenantId, ctx.tenant.id), eq(schema.repasses.cashEntryId, input.cashEntryId)))
           .limit(1);
         if (usado)
           throw new Error("Este lançamento do extrato já foi vinculado a outro repasse.");
@@ -341,7 +351,7 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
         await tx
           .update(schema.cashEntries)
           .set({ rec: true, cat: "repasse" })
-          .where(eq(schema.cashEntries.id, input.cashEntryId));
+          .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)));
       } else {
         // Entrada de caixa POSITIVA: o dinheiro chega agora. `cat: "repasse"`
         // mantém a origem identificável e fora de qualquer soma de receita.

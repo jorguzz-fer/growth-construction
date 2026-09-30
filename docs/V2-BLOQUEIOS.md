@@ -338,6 +338,13 @@ restituições), atrás de chave, com prévia. Nada já lançado muda.
 **Versão congelada em Liberações e Permuta (30/09/2026):** passa a bloquear,
 como em todo lançamento (`addReembolso`, `addPermuta`).
 
+**Pergunta aberta (PR I-7a, 30/09/2026) — o lote.** O texto da opção 2 diz
+"dividida por obra"; o §21 do Prompt I diz "preserva a saída única e usa
+relações de alocação" (como o acerto fez na I-4). Ver as duas opções em
+[`V2-PROMPT-I-PR7A.md`](./V2-PROMPT-I-PR7A.md). Recomendação: **saída única +
+alocação por `restituicao_item`**, com a leitura por obra na I-8. A avulsa e o
+repasse seguem a despesa/recebimento sem ambiguidade (I-7b, atrás de chave).
+
 ---
 
 ## B12 · Relatórios: escopo, escritórios e padrão · **RESPONDIDO (29/09/2026)**

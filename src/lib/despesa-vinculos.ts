@@ -21,17 +21,26 @@ export async function vinculosDaDespesa(exec: Exec, tenantId: string, despesaId:
     ),
     n(exec.select({ n: count }).from(schema.pagamentos).where(and(eq(schema.pagamentos.tenantId, tenantId), eq(schema.pagamentos.despesaId, despesaId)))),
     n(exec.select({ n: count }).from(schema.acertoItens).where(and(eq(schema.acertoItens.tenantId, tenantId), eq(schema.acertoItens.despesaId, despesaId)))),
+    // Restituições ativas que tocam esta despesa: as em lote pelos itens, e as
+    // avulsas (sem item) pela obrigação âncora (Prompt I, §23).
     n(
       exec
         .select({ n: count })
-        .from(schema.restituicaoItens)
-        .innerJoin(schema.despesaTerceiros, eq(schema.restituicaoItens.despesaTerceiroId, schema.despesaTerceiros.id))
-        .innerJoin(schema.restituicoes, eq(schema.restituicaoItens.restituicaoId, schema.restituicoes.id))
+        .from(schema.restituicoes)
+        .innerJoin(schema.despesaTerceiros, eq(schema.restituicoes.despesaTerceiroId, schema.despesaTerceiros.id))
         .where(
           and(
-            eq(schema.restituicaoItens.tenantId, tenantId),
-            eq(schema.despesaTerceiros.despesaId, despesaId),
+            eq(schema.restituicoes.tenantId, tenantId),
             eq(schema.restituicoes.cancelada, false),
+            sql`(
+              (${schema.despesaTerceiros.despesaId} = ${despesaId}
+                and not exists (select 1 from ${schema.restituicaoItens} ri where ri.restituicao_id = ${schema.restituicoes.id}))
+              or exists (
+                select 1 from ${schema.restituicaoItens} ri
+                join ${schema.despesaTerceiros} dt2 on dt2.id = ri.despesa_terceiro_id
+                where ri.restituicao_id = ${schema.restituicoes.id} and dt2.despesa_id = ${despesaId}
+              )
+            )`,
           ),
         ),
     ),
