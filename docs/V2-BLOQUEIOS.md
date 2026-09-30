@@ -75,7 +75,7 @@ resposta. **A sexta não** — e foi executada (ver "O que já foi feito").
 
 ---
 
-## B4 · Não existe o mecanismo de chave por tenant que seis prompts exigem
+## B4 · ~~Não existe o mecanismo de chave por tenant que seis prompts exigem~~ · **RESOLVIDO (PR #103, 30/09/2026)**
 
 A regra 3.3 é categórica:
 

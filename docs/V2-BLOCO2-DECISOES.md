@@ -42,7 +42,8 @@ Prompt J (3.2).
 
 ## Decisões suas
 
-**Situação (30/09/2026):** enviadas ao PO. Aguardando.
+**Situação (30/09/2026, fim do dia):** respondidas pelo PO e confirmadas. Ver a
+tabela "Respostas do PO" no fim deste documento.
 
 **Legenda:**
 - **Muda número?** Sim, quando a escolha altera o valor que algum relatório
@@ -131,3 +132,65 @@ para construí-lo.
 - a tela para ligar e desligar em Configurações.
 
 É a primeira coisa que BI-1, BP-2 e BQ-2 vão precisar.
+
+---
+
+## Respostas do PO (30/09/2026)
+
+| | Decisão | Como entra |
+|---|---|---|
+| **B4** | Sim, chave por empresa antes de qualquer mudança que altere número | **Feito** na PR #103 (`/chaves`) |
+| **BI-1.2** | **Opção A:** venda no meio da obra reconhece de uma vez os meses já passados e segue mês a mês | §54, atrás de chave |
+| **BI-1.3** | **Opção B:** obra além do prazo continua reconhecendo receita até o término real — **só daqui para frente**, sem refazer meses fechados | §54, atrás de chave |
+| **BI-2** | **Materializar:** as parcelas viram contas a receber de verdade, respeitando a ordem técnica (54, 56 e 57 antes) para não duplicar a DRE | Prompt K, depois de I-9; obra a obra, com prévia |
+| **BP-1** | Permuta fica no inventário da tela e, **quando for insumo, também entra no Estoque** | Prompt P: valor na Permuta, quantidade e custo no Estoque, ligados por `permuta_id` |
+| **BP-3** | Permuta é **parte do pagamento da venda**: entra como receita na DRE, sem entrada de caixa | §54/§57: receita **uma vez**, na venda da unidade; o bem fica no inventário sem receita própria; a venda posterior é caixa, com resultado pela diferença |
+| **BQ-1** | O INCC de referência é o **usado pela Caixa nas construções**; falta confirmar a variante exata (DI, M ou 10) | Prompt Q: coluna aditiva e rótulo; **pendente a variante** |
+| **BQ-2** | **Mantém:** a DRE reconhece pelo valor **nominal**, sem INCC; o INCC fica no financeiro e no caixa | §57 fechado. As duas implementações viram uma só, com e sem correção |
+| **BQ-3** | **Mantém** a correção a partir da 5ª parcela, por enquanto | Prompt Q: a constante fica, documentada |
+| **BN-1** | Simulador **continua calculadora**, sem gravar | Prompt N: só as correções de cálculo |
+| **BN-2** | A **taxa de juros ao mês é editável** pelo usuário | Prompt N: campo editável, pré-preenchido com o 1% de hoje até haver outro padrão |
+| **BN-3** | **Renda vem do cadastro** do cliente para quem tem a permissão de dados sensíveis | Prompt N, com `clientesdados:ver` validado no servidor |
+
+### Três pontos que pediam confirmação — **confirmados em 30/09/2026**
+
+**1 · BI-1.3, obra além do prazo.** O rateio distribui o valor da venda pelos
+meses entre início e fim cadastrados. Ao fim do prazo, 100% já foi
+reconhecido: não sobra nada para "continuar". A opção B só faz sentido se o
+fim da obra for **alterado** no cadastro — e aí há dois jeitos:
+
+- *(a) refazer o rateio inteiro* com o prazo novo: os meses já fechados mudam
+  de valor (menos por mês), o que contraria a regra de não mexer em número
+  já mostrado;
+- *(b) só daqui para frente:* o que ainda não foi reconhecido até o mês da
+  alteração é redistribuído pelos meses que faltam até o novo fim; os meses
+  passados ficam como estão. É a prática contábil para mudança de estimativa.
+
+**Confirmado: (b).** O fim da obra alterado no cadastro redistribui só o
+saldo ainda não reconhecido; meses fechados não mudam.
+
+**2 · BP-1, permuta no inventário e no Estoque.** Para o mesmo bem não valer
+duas vezes: a tela de Permuta é o registro do **ativo recebido** (valor);
+quando o bem é insumo, a entrada no Estoque **aponta para a permuta**
+(`stock_movement.permuta_id`, que já existe) e a tela de Permuta mostra "no
+Estoque". O Estoque controla quantidade e custo; a Permuta, o valor do ativo.
+Nenhum relatório soma os dois. **Confirmado.**
+
+**3 · BP-3, permuta como parte do pagamento.** Pela §54, a receita da venda
+da unidade é o **preço integral** — e o plano de pagamento já tem a linha
+"Permuta". Ou seja, o valor do bem recebido **já entra na receita pela venda
+da unidade**, sem caixa. Se a tela de Permuta também reconhecer receita
+quando o bem for vendido depois, a mesma receita entra duas vezes. Leitura
+que evita isso:
+
+- receita: **uma vez**, na venda da unidade (§54), pelo preço integral;
+- o bem entra no inventário pelo valor da permuta, **sem receita própria**;
+- a venda posterior do bem gera **caixa**, e a diferença entre o que entrou e
+  o valor do bem é resultado na venda do ativo — não receita de venda.
+
+**Confirmado.** Vale levar ao contador junto com a §54.
+
+### O que ainda falta para a receita por rateio (I-9)
+
+- as **19 obras sem início e fim** preenchidas em Projetos;
+- a variante do **INCC** (BQ-1) — não trava a I-9, só o rótulo do Prompt Q.
