@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
@@ -10,6 +10,13 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { emptyPlan } from "@/lib/calc/plan";
 import type { PaymentPlan, UnitStatus } from "@/lib/calc/types";
+import { statusLiberaUnidade } from "@/lib/clientes-regras";
+import {
+  bloqueiosDeExclusaoUnidade,
+  confirmacaoDeUnidadeConfere,
+  unidadeVendida,
+  type VinculosDaUnidade,
+} from "@/lib/unidade-regras";
 
 export interface SaveUnitInput {
   id?: string;
@@ -145,9 +152,34 @@ export async function importUnits(
   return { inserted: valid.length };
 }
 
-export async function deleteUnit(id: string) {
+export type ResultadoExclusaoUnidade = { ok: true } | { ok: false; error: string };
+
+/**
+ * Exclui uma unidade (§12): exige o código digitado, recusa com cliente de
+ * contrato ativo, venda, contas a receber, documentos ou permutas, e em
+ * versão congelada. A auditoria guarda código, valor, status e obra —
+ * antes, só o id.
+ */
+export async function deleteUnit(id: string, confirmacao?: string): Promise<ResultadoExclusaoUnidade> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "unidades", "excluir")) return;
+  if (!ctx || !can(ctx.perms, "unidades", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir unidades." };
+  }
+  const [alvo] = await db
+    .select({ u: schema.units, locked: schema.versions.locked, projectId: schema.versions.projectId })
+    .from(schema.units)
+    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
+    .where(and(eq(schema.units.id, id), eq(schema.units.tenantId, ctx.tenant.id), eq(schema.versions.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!alvo) return { ok: false, error: "Unidade não encontrada." };
+  const u = alvo.u;
+  if (alvo.locked) return { ok: false, error: "Versão congelada — exclusão bloqueada." };
+  if (!confirmacaoDeUnidadeConfere(confirmacao, u.code)) {
+    return { ok: false, error: `Para excluir, digite o código da unidade (${u.code}).` };
+  }
+  const bloqueios = bloqueiosDeExclusaoUnidade(await vinculosDaUnidade(ctx.tenant.id, u, alvo.projectId));
+  if (bloqueios.length) return { ok: false, error: `Não é possível excluir: ${bloqueios.join("; ")}.` };
+
   await db
     .delete(schema.units)
     .where(
@@ -159,6 +191,34 @@ export async function deleteUnit(id: string) {
     action: "unit.delete",
     entity: "unit",
     entityId: id,
+    meta: { code: u.code, valor: u.valor, status: u.status, projectId: alvo.projectId, versionId: u.versionId },
   });
   revalidatePath("/unidades");
+  return { ok: true };
+}
+
+/** Vínculos que impedem apagar a unidade (§12). Só leitura. */
+async function vinculosDaUnidade(
+  tenantId: string,
+  u: { code: string; status: string; mesVenda: string | null; versionId: string },
+  projectId: string,
+): Promise<VinculosDaUnidade> {
+  const n = async (q: Promise<{ n: number }[]>) => (await q)[0]?.n ?? 0;
+  const count = sql<number>`count(*)::int`;
+  const clientes = await db
+    .select({ nome: schema.clientes.nomeCompleto, status: schema.clientes.statusContrato })
+    .from(schema.clientes)
+    .where(and(eq(schema.clientes.tenantId, tenantId), eq(schema.clientes.unitCode, u.code)));
+  const comContrato = clientes.find((c) => !statusLiberaUnidade(c.status));
+  const [contasReceber, documentos, permutas] = await Promise.all([
+    n(
+      db
+        .select({ n: count })
+        .from(schema.contasReceber)
+        .where(and(eq(schema.contasReceber.tenantId, tenantId), eq(schema.contasReceber.projectId, projectId), eq(schema.contasReceber.unitCode, u.code), eq(schema.contasReceber.cancelado, false))),
+    ),
+    n(db.select({ n: count }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.unitCode, u.code)))),
+    n(db.select({ n: count }).from(schema.permutas).where(and(eq(schema.permutas.tenantId, tenantId), eq(schema.permutas.versionId, u.versionId), eq(schema.permutas.unitCode, u.code)))),
+  ]);
+  return { clienteComContrato: comContrato?.nome ?? null, vendida: unidadeVendida(u), contasReceber, documentos, permutas };
 }

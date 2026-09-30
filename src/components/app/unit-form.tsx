@@ -98,9 +98,24 @@ export function UnitForm({
 
   function remove() {
     if (!v.id) return;
+    // §12 — exclusão física exige o código digitado; o servidor confere e
+    // recusa com cliente, venda, contas a receber, documento ou permuta.
+    const digitado = window.prompt(
+      `Excluir a unidade "${v.code}"? Esta ação não pode ser desfeita.\n\nDigite o código da unidade para confirmar:`,
+    );
+    if (digitado === null) return;
+    setError(null);
     start(async () => {
-      await deleteUnit(v.id!);
-      router.push(`/unidades?proj=${v.projetoId}`);
+      try {
+        const r = await deleteUnit(v.id!, digitado);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        router.push(`/unidades?proj=${v.projetoId}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao excluir.");
+      }
     });
   }
 

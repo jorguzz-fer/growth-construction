@@ -9,6 +9,7 @@ import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import {
+  bloqueiosDeExclusaoDespesa,
   coreDaReplica,
   recusaDeEdicao,
   recusaDeParcelas,
@@ -796,9 +797,9 @@ export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Re
 }
 
 /**
- * Exclui uma despesa já lançada (documentos vinculados caem em cascata).
- * Versão congelada bloqueia (11.7). As travas por dependência financeira
- * (§12) entram na PR seguinte.
+ * Exclui uma despesa (§12): só sem dependência — pagamento, parcela paga,
+ * acerto, restituição, terceiro, caixa conciliado, nota fiscal ou anexo.
+ * Versão congelada bloqueia (11.7).
  */
 export async function deleteDespesa(id: string): Promise<Resultado> {
   const ctx = await getTenantContext();
@@ -809,6 +810,12 @@ export async function deleteDespesa(id: string): Promise<Resultado> {
   if (!alvo) return { ok: false, error: "Despesa não encontrada." };
   if (alvo.locked) return { ok: false, error: "Versão congelada — exclusão bloqueada." };
   const existing = alvo.d;
+  // §12 — só registro sem dependência é apagado; com fato financeiro, nota ou
+  // anexo, o caminho é o cancelamento, que preserva o histórico.
+  const bloqueios = bloqueiosDeExclusaoDespesa(await vinculosDaDespesa(db, ctx.tenant.id, id));
+  if (bloqueios.length) {
+    return { ok: false, error: `Não é possível excluir: ${bloqueios.join("; ")}. Use "Cancelar despesa".` };
+  }
 
   await db.delete(schema.despesas).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
   await logAudit({
