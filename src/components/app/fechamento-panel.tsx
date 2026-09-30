@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { pendenteDaConta, totalPendente } from "@/lib/contas-pagar-regras";
 import { useRouter } from "next/navigation";
 import type { ContaPagarRow, ReceivableRow } from "@/lib/queries";
 import { closeDia } from "@/lib/actions/fechamento";
@@ -65,7 +66,8 @@ export function FechamentoPanel({
     [receivables, diaISO],
   );
 
-  const totalPagar = contasDia.reduce((a, c) => a + c.valor, 0);
+  // §15 — o que falta pagar é o saldo, não o valor original.
+  const totalPagar = totalPendente(contasDia);
   const totalReceber = receberDia.reduce((a, r) => a + r.valor, 0);
 
   // Entradas/saídas reais do dia (caixa) + saldo.
@@ -87,7 +89,7 @@ export function FechamentoPanel({
         tipo: "pagar" as const,
         refId: c.id,
         descricao: `${c.fornecedorNome ?? ""} · ${c.descricao ?? ""}`.trim(),
-        valor: c.valor,
+        valor: pendenteDaConta(c),
         vencimento: c.vencimento,
       })),
       ...receberDia.map((r) => ({
@@ -171,7 +173,7 @@ export function FechamentoPanel({
                     <TR key={c.id}>
                       <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">{c.fornecedorNome ?? "—"}</TD>
                       <TD className="max-w-[160px] truncate">{c.descricao ?? "—"}</TD>
-                      <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(c.valor)}</TD>
+                      <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(pendenteDaConta(c))}</TD>
                       <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">{c.vencimento ? dateBR(c.vencimento) : "—"}</TD>
                       <TD>{c.formaPagamento ?? "—"}</TD>
                       <TD><Badge tone="warning">{c.status ?? "—"}</Badge></TD>

@@ -4,6 +4,7 @@ import { getContasPagar } from "@/lib/queries";
 import { casaNome, empacotar, limiteDe } from "@/lib/agent/lista";
 import { intervalo } from "@/lib/agent/datas";
 import { brl, dateBR, dateInRange, ymd } from "@/lib/utils";
+import { pendenteDaConta } from "@/lib/contas-pagar-regras";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,8 @@ export async function GET(req: Request) {
         categoria: c.categoriaDre,
         valor: c.valor,
         valorBRL: brl(c.valor),
+        saldo: pendenteDaConta(c),
+        saldoBRL: brl(pendenteDaConta(c)),
         vencimento: dateBR(c.vencimento),
         pagamento: dateBR(c.dataPagamento),
         formaPagamento: c.formaPagamento,

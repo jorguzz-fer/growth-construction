@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -19,6 +19,8 @@ import {
 } from "./calc/medicao-bdi";
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
+import { chaveLigada } from "./chaves-tenant";
+import { saldosReaisDasDespesas } from "./acerto-saldo";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -330,6 +332,14 @@ export interface ContaPagarRow {
   dataPagamento: string | null;
   formaPagamento: string | null;
   status: string | null;
+  /**
+   * Saldo a pagar (Prompt I, §15): valor − principal pago − abatimentos de
+   * acertos ativos. É o que ainda vai sair do caixa; o "Pendente" soma isto.
+   */
+  saldo: number;
+  /** kind da versão da despesa ("atual", "budget", "forecast"…). §10 */
+  versionKind: string;
+  versionLabel: string;
   projectId: string;
   projectName: string;
   clienteId: string | null;
@@ -346,14 +356,32 @@ export interface ContaPagarRow {
 }
 
 /**
- * Contas a pagar do tenant: todas as despesas lançadas, com fornecedor,
- * projeto (obra) e cliente da obra. Base do módulo Contas a Pagar e do
- * painel esquerdo do Fechamento de Caixa.
+ * Contas a pagar do tenant: despesas lançadas, com fornecedor, projeto (obra),
+ * cliente da obra e SALDO a pagar (§15). Base do módulo Contas a Pagar, do
+ * Dashboard, do Fechamento de Caixa e da conciliação do extrato.
+ *
+ * §10 — Contas a Pagar é exclusivamente a versão Atual. Com a chave
+ * `contas_pagar_so_atual` ligada, despesas de Orçamento/Previsão/cópias ficam
+ * de fora; desligada, a lista é exatamente a de antes (muda número: ver a
+ * prévia na tela). Para auditoria dessas linhas, use
+ * `getContasPagarEmPlanejamento` — nunca no operacional.
  */
 export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]> {
+  const soAtual = await chaveLigada(tenantId, "contas_pagar_so_atual");
+  return lerContasPagar(tenantId, soAtual ? "atual" : "todas");
+}
+
+/** Consulta explicitamente histórica (§10): só as despesas fora da Atual. Prévia da chave. */
+export async function getContasPagarEmPlanejamento(tenantId: string): Promise<ContaPagarRow[]> {
+  return lerContasPagar(tenantId, "planejamento");
+}
+
+async function lerContasPagar(tenantId: string, versoes: "atual" | "planejamento" | "todas"): Promise<ContaPagarRow[]> {
   const rows = await db
     .select({
       d: schema.despesas,
+      versionKind: schema.versions.kind,
+      versionLabel: schema.versions.label,
       fornecedorNome: schema.stakeholders.nome,
       projectId: schema.projects.id,
       projectName: schema.projects.name,
@@ -369,8 +397,15 @@ export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]>
       and(
         eq(schema.despesas.tenantId, tenantId),
         eq(schema.despesas.cancelado, false),
+        versoes === "atual"
+          ? eq(schema.versions.kind, "atual")
+          : versoes === "planejamento"
+            ? ne(schema.versions.kind, "atual")
+            : undefined,
       ),
     );
+  // §15 — uma lógica só de saldo (a mesma do acerto contábil).
+  const saldos = await saldosReaisDasDespesas(db, tenantId, rows.map((r) => r.d));
   return rows.map((r) => ({
     id: r.d.id,
     numDoc: r.d.numDoc,
@@ -379,6 +414,9 @@ export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]>
     categoriaDre: r.d.categoriaDre,
     contaCef: r.d.contaCef,
     valor: Number(r.d.valor),
+    saldo: saldos.get(r.d.id)?.saldo ?? Number(r.d.valor),
+    versionKind: r.versionKind,
+    versionLabel: r.versionLabel,
     vencimento: r.d.vencimento,
     competencia: r.d.competencia,
     dataPagamento: r.d.dataCaixa,

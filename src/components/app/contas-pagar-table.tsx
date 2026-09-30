@@ -10,40 +10,17 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
 import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
+import { dataBRParaISO as toISO, hojeISO as calcularHoje, statusExibido, tomDoStatus } from "@/lib/despesa-status";
+import { pendenteDaConta, totalPendente } from "@/lib/contas-pagar-regras";
 
-/** "MM/DD/YYYY" → "YYYY-MM-DD" para comparação de intervalo. */
-function toISO(d: string | null): string {
-  if (!d) return "";
-  const p = d.split("/");
-  if (p.length !== 3) return "";
-  return `${p[2]}-${p[0].padStart(2, "0")}-${p[1].padStart(2, "0")}`;
-}
-
-const statusTone = (s: string | null) =>
-  s === "Pago"
-    ? "success"
-    : s === "Vencida"
-      ? "danger"
-      : s === "Cancelada"
-        ? "neutral"
-        : s === "A pagar" || s === "Em aberto" || s === "Parcialmente paga"
-          ? "warning"
-          : "neutral";
-
-/** Status exibido: "Vencida" é derivado automaticamente pela data de vencimento. */
-function displayStatus(
-  status: string | null,
-  vencimento: string | null,
-  hojeISO: string,
-): string {
-  if (status === "Pago" || status === "Cancelada" || status === "Parcialmente paga")
-    return status;
-  const iso =
-    vencimento && vencimento.split("/").length === 3
-      ? `${vencimento.split("/")[2]}-${vencimento.split("/")[0].padStart(2, "0")}-${vencimento.split("/")[1].padStart(2, "0")}`
-      : "";
-  if (iso && iso < hojeISO) return "Vencida";
-  return status || "Em aberto";
+/**
+ * §16 — um status só para exibir, filtrar, ordenar e contar. A obrigação de
+ * restituição já vem no vocabulário da tela de Restituições e não passa por
+ * "Vencida" (a data dela é previsão de restituição, não vencimento).
+ */
+function statusDaLinha(r: ContaPagarRow, hoje: string): string {
+  if (r.origem === "obrigacao") return r.status ?? "—";
+  return statusExibido(r, hoje);
 }
 
 export function ContasPagarTable({
@@ -53,8 +30,7 @@ export function ContasPagarTable({
   rows: ContaPagarRow[];
   canEditar?: boolean;
 }) {
-  const hoje = new Date();
-  const hojeISO = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+  const hojeISO = calcularHoje();
   const [fornecedor, setFornecedor] = useState("");
   const [cliente, setCliente] = useState("");
   const [projeto, setProjeto] = useState("");
@@ -79,9 +55,10 @@ export function ContasPagarTable({
         .map(([id, nome]) => ({ id, nome }))
         .sort((a, b) => a.nome.localeCompare(b.nome)),
       categorias: uniq(rows.map((r) => r.categoriaDre)),
-      status: uniq(rows.map((r) => r.status)),
+      // §16 — as opções são os status EXIBIDOS (com "Vencida"), os mesmos do filtro.
+      status: uniq(rows.map((r) => statusDaLinha(r, hojeISO))),
     };
-  }, [rows]);
+  }, [rows, hojeISO]);
 
   const filtered = useMemo(() => {
     const out = rows.filter((r) => {
@@ -91,7 +68,7 @@ export function ContasPagarTable({
       // Filtro por ID real do projeto (não pelo nome) — isola obras/filiais.
       if (projeto && r.projectId !== projeto) return false;
       if (categoria && r.categoriaDre !== categoria) return false;
-      if (status && r.status !== status) return false;
+      if (status && statusDaLinha(r, hojeISO) !== status) return false;
       const iso = toISO(r.vencimento);
       if (de && (!iso || iso < de)) return false;
       if (ate && (!iso || iso > ate)) return false;
@@ -102,8 +79,7 @@ export function ContasPagarTable({
     //  3) pagas (por data de pagamento). Sem data vão para o fim do grupo.
     const bucket = (r: ContaPagarRow): number => {
       if (r.status === "Pago") return 2;
-      const iso = toISO(r.vencimento);
-      if (iso && iso < hojeISO) return 0; // vencida
+      if (statusDaLinha(r, hojeISO) === "Vencida") return 0;
       return 1; // a vencer (ou sem vencimento)
     };
     const keyDate = (r: ContaPagarRow): string => {
@@ -129,11 +105,12 @@ export function ContasPagarTable({
       { key: "projeto", tipo: "texto", get: (r) => r.projectName },
       { key: "cliente", tipo: "texto", get: (r) => r.clienteNome ?? "Próprio" },
       { key: "valor", tipo: "valor", get: (r) => r.valor },
+      { key: "saldo", tipo: "valor", get: (r) => pendenteDaConta(r) },
       { key: "vencimento", tipo: "data", get: (r) => r.vencimento },
       { key: "pagamento", tipo: "data", get: (r) => r.dataPagamento },
       { key: "forma", tipo: "texto", get: (r) => r.formaPagamento },
       // Ordena pelo status EXIBIDO (inclui "Vencida", que é derivado da data).
-      { key: "status", tipo: "texto", get: (r) => displayStatus(r.status, r.vencimento, hojeISO) },
+      { key: "status", tipo: "texto", get: (r) => statusDaLinha(r, hojeISO) },
     ],
     [hojeISO],
   );
@@ -148,12 +125,12 @@ export function ContasPagarTable({
   // Por isso "Total" soma só as despesas, enquanto "Pendente" e "A restituir"
   // mostram o que de fato ainda vai sair do caixa da empresa. Somar as duas
   // coisas em "Total" contaria o mesmo fato duas vezes.
+  // §15 — "Pendente" é o SALDO a pagar (valor − pago − abatido), não o valor
+  // original: despesa de 100 com 80 pagos deve 20.
   const despesasFiltradas = filtered.filter((r) => r.origem !== "obrigacao");
   const obrigacoesFiltradas = filtered.filter((r) => r.origem === "obrigacao");
   const total = despesasFiltradas.reduce((a, r) => a + r.valor, 0);
-  const totalPend = despesasFiltradas
-    .filter((r) => r.status !== "Pago")
-    .reduce((a, r) => a + r.valor, 0);
+  const totalPend = totalPendente(despesasFiltradas);
   const totalRestituir = obrigacoesFiltradas.reduce((a, r) => a + r.valor, 0);
 
   const limpar = () => {
@@ -230,6 +207,7 @@ export function ContasPagarTable({
                   <SortTH coluna="projeto" estado={estado} onSort={onSort}>Projeto (Obra)</SortTH>
                   <SortTH coluna="cliente" estado={estado} onSort={onSort}>Cliente</SortTH>
                   <SortTH coluna="valor" estado={estado} onSort={onSort} className="text-right">Valor</SortTH>
+                  <SortTH coluna="saldo" estado={estado} onSort={onSort} className="text-right">Saldo</SortTH>
                   <SortTH coluna="vencimento" estado={estado} onSort={onSort}>Vencimento</SortTH>
                   <SortTH coluna="pagamento" estado={estado} onSort={onSort}>Pagamento</SortTH>
                   <SortTH coluna="forma" estado={estado} onSort={onSort}>Forma</SortTH>
@@ -250,6 +228,9 @@ export function ContasPagarTable({
                       {r.clienteNome ?? "Próprio"}
                     </TD>
                     <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(r.valor)}</TD>
+                    <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
+                      {brl0(pendenteDaConta(r))}
+                    </TD>
                     <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
                       {r.vencimento ? dateBR(r.vencimento) : "—"}
                     </TD>
@@ -265,8 +246,8 @@ export function ContasPagarTable({
                         <Badge tone="info">{r.status ?? "—"}</Badge>
                       ) : (
                         (() => {
-                          const st = displayStatus(r.status, r.vencimento, hojeISO);
-                          return <Badge tone={statusTone(st)}>{st}</Badge>;
+                          const st = statusDaLinha(r, hojeISO);
+                          return <Badge tone={tomDoStatus(st)}>{st}</Badge>;
                         })()
                       )}
                     </TD>
@@ -293,7 +274,7 @@ export function ContasPagarTable({
                 ))}
                 {visiveis.length === 0 && (
                   <TR>
-                    <TD colSpan={canEditar ? 11 : 10} className="py-8 text-center text-[var(--color-ink4)]">
+                    <TD colSpan={canEditar ? 12 : 11} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a pagar com os filtros aplicados.
                     </TD>
                   </TR>

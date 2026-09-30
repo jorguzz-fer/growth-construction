@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef } from "react";
+import { statusExibido, tomDoStatus } from "@/lib/despesa-status";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   deleteDespesa,
@@ -46,27 +47,9 @@ export interface DespesaDTO {
   semNf?: boolean;
 }
 
-/** Status exibido: "Vencida" derivado da data; "Cancelada" tem prioridade. */
-function displayStatus(d: DespesaDTO): string {
-  if (d.cancelado) return "Cancelada";
-  if (d.status === "Pago" || d.status === "Parcialmente paga") return d.status;
-  const v = d.vencimento;
-  if (v && v.split("/").length === 3) {
-    const iso = `${v.split("/")[2]}-${v.split("/")[0].padStart(2, "0")}-${v.split("/")[1].padStart(2, "0")}`;
-    const h = new Date();
-    const hj = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`;
-    if (iso < hj) return "Vencida";
-  }
-  return d.status || "Em aberto";
-}
-const statusTone = (s: string) =>
-  s === "Pago"
-    ? "success"
-    : s === "Vencida"
-      ? "danger"
-      : s === "Cancelada"
-        ? "neutral"
-        : "warning";
+/** §16 — status exibido pela mesma função de Contas a Pagar ("Vencida" derivada da data). */
+const displayStatus = (d: DespesaDTO): string => statusExibido(d);
+const statusTone = tomDoStatus;
 
 interface Ref {
   fornecedores: { id: string; nome: string }[];

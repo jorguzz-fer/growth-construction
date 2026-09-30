@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
+import { pendenteDaConta } from "@/lib/contas-pagar-regras";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import {
@@ -917,7 +918,8 @@ export async function matchCandidatosMovimento(
         c.fornecedorNome,
         c.descricao || c.numDoc,
         c.projectName,
-        c.valor,
+        // §15 — o extrato traz o que ainda faltava pagar, não o valor original.
+        pendenteDaConta(c),
         0,
         c.vencimento,
       );

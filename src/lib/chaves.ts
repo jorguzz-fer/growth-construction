@@ -29,6 +29,14 @@ export const CHAVES = [
     origem: "Prompt AJ, Parte 1 (1.4)",
     previa: { href: "/acessos", rotulo: "Gestão de Acessos — quem perde o quê" },
   },
+  {
+    id: "contas_pagar_so_atual",
+    titulo: "Contas a Pagar só com a versão Atual",
+    efeito:
+      "Despesas gravadas em Orçamento, Previsão ou versão copiada deixam de contar como obrigação — em Contas a Pagar, no Dashboard, no Fechamento e na conciliação do extrato. Nada é apagado: elas continuam nas versões delas.",
+    origem: "Prompt I, §10",
+    previa: { href: "/contaspagar#previa", rotulo: "Contas a Pagar — as linhas de planejamento que deixam de aparecer" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

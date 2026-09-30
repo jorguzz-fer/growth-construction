@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { totalPendente } from "@/lib/contas-pagar-regras";
 import { db, schema } from "@/lib/db";
 import { getTenantContext, type Version } from "@/lib/context";
 import { somarResumos, type Summary } from "@/lib/dashboard-resumo";
@@ -177,7 +178,8 @@ export default async function DashboardPage({
       !!c.vencimento &&
       (!hasRangeDash || dateInRange(c.vencimento, de, ate)),
   );
-  const totalPagar = contasPagarProj.reduce((a, c) => a + c.valor, 0);
+  // §15 — o que falta pagar é o saldo, não o valor original.
+  const totalPagar = totalPendente(contasPagarProj);
 
   // Recebíveis por mês (entradas projetadas) — compõem o comparativo do Atual.
   const recebByMonth: Record<string, number> = {};
