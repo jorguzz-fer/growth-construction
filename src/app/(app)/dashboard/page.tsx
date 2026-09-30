@@ -43,7 +43,7 @@ async function versionSummary(
 ): Promise<Summary> {
   const hasRange = !!(de || ate);
   const [unitRows, revenueAll, cashRows] = await Promise.all([
-    getUnits(version.id),
+    getUnits(version.tenantId, version.id),
     getMonthlyRevenue(version.id, projectId),
     db
       .select({ valor: schema.cashEntries.valor, data: schema.cashEntries.data })

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { calcUnitTotal, type PaymentPlan, type UnitStatus } from "@/lib/calc";
 import { saveUnit, deleteUnit, type SaveUnitInput } from "@/lib/actions/units";
 import { brl0 } from "@/lib/utils";
+import { saldoFecha, saldoFormatado } from "@/lib/unidade-exibicao";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -64,7 +65,8 @@ export function UnitForm({
     [v, plan],
   );
   const saldo = total - n(v.valor);
-  const ok = v.status !== "Vendido" || Math.abs(saldo) < 1;
+  // 3.4 — a mesma tolerância da lista (R$ 0,01), num helper só.
+  const ok = v.status !== "Vendido" || saldoFecha(saldo);
 
   function submit() {
     setError(null);
@@ -192,7 +194,7 @@ export function UnitForm({
         <span className="text-sm text-[var(--color-ink3)]">Total contratado:</span>
         <span className="font-[family-name:var(--font-mono)] font-semibold">{brl0(total)}</span>
         <span className="text-sm text-[var(--color-ink3)]">· Saldo vs VGV:</span>
-        <Badge tone={ok ? "success" : "danger"}>{brl0(saldo)}</Badge>
+        <Badge tone={ok ? "success" : "danger"}>{saldoFormatado(saldo)}</Badge>
         {v.status !== "Vendido" && (
           <span className="text-xs text-[var(--color-ink4)]">
             (o plano só projeta receita quando a unidade está &quot;Vendido&quot;)

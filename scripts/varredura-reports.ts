@@ -123,7 +123,7 @@ async function main() {
   );
 
   // 3. Unidades / Vendas
-  const units = await getUnits(atual.id);
+  const units = await getUnits(tenant.id, atual.id);
   check("Unidades / Vendas", units.length === 1, `${units.length} unidade(s)`);
 
   // 4. Contas a Receber (recebíveis derivados do plano)

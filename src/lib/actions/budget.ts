@@ -548,7 +548,7 @@ export async function replicateFromAtual(targetVersionId: string) {
   if (!atual) throw new Error("Não encontrei a versão Atual.");
 
   const [units, reembRows, incc, despesas] = await Promise.all([
-    getUnits(atual.id),
+    getUnits(ctx.tenant.id, atual.id),
     getReembolsos(atual.id),
     getInccRows(target.projectId),
     getDespesas(atual.id),

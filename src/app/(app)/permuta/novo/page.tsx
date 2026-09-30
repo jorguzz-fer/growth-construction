@@ -45,7 +45,7 @@ export default async function NovoAtivoPermutaPage({
   const { project, trabalho: version } = escolhido;
 
   const [units, clientes] = await Promise.all([
-    getUnits(version.id),
+    getUnits(ctx.tenant.id, version.id),
     getClientes(ctx.tenant.id),
   ]);
   const unitCodes = [...new Set(units.map((u) => u.code))].sort((a, b) =>
