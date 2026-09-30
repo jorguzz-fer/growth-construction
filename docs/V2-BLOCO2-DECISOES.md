@@ -38,6 +38,8 @@ Prompt J (3.2).
 | `docs/sql/v2-bloco2-diagnostico.sql` | **BJ-2**: unidades repetidas. **BK-4**: contas "Recebido" sem caixa. **BP-1**: permuta já no Estoque. **BP-2**: permuta gerando receita sem estar vendida. **BO-2**: o campo "%" das Liberações |
 | `docs/sql/v2-status-contrato.sql` | Status do contrato de cliente (Prompt M, 6.2) |
 
+**Rodados em 30/09/2026.** Resultado e leitura em [`V2-DIAGNOSTICO-PRODUCAO.md`](./V2-DIAGNOSTICO-PRODUCAO.md).
+
 ## Decisões suas
 
 **Legenda:**
@@ -63,7 +65,7 @@ Prompt J (3.2).
 | | Pergunta | Situação |
 |---|---|---|
 | **BJ-1** | Data da venda exibida certa? | **Respondido acima**: está invertida na lista |
-| **BJ-2** | Há unidades repetidas? | Depende do SQL. Se houver, você decide caso a caso qual registro fica, e só depois entra a trava de código único |
+| **BJ-2** | Há unidades repetidas? | **Respondido (30/09): nenhuma.** A trava de código único pode entrar |
 | **BJ-3** | Escrita assistida por IA | Já decidido no pacote |
 
 ### Prompt K · Contas a Receber
@@ -74,14 +76,14 @@ Prompt J (3.2).
 | **BK-1** | Como ligar recebimento ao caixa | Ler o código do Caixa primeiro (tarefa minha). Já decidido: valor por vínculo, e o vínculo antigo é preservado |
 | **BK-2** | INCC nas parcelas registradas | **Gravar o valor nominal e corrigir na leitura**, como a Projeção já faz |
 | **BK-3** | Entrou R$ 323,97 numa parcela de R$ 324,00 | **Mesmo conceito do Acerto Contábil**: tolerância declarada e a diferença registrada |
-| **BK-4** | Contas marcadas "Recebido" à mão | Depende do SQL. Nada é corrigido sozinho: passam a mostrar "recebida, não conciliada" |
+| **BK-4** | Contas marcadas "Recebido" à mão | **Respondido (30/09): nenhuma** — a tabela de contas a receber está vazia em produção |
 
 ### Prompt P · Permuta
 
 | | Pergunta | Recomendação | Muda número? |
 |---|---|---|---|
 | **BP-1** | O bem recebido em permuta fica no Estoque ou num inventário próprio da tela? | **No Estoque.** Hoje o Estoque já grava entrada "Permuta" ligada à permuta. A tela de Permuta só lê de lá | Não |
-| **BP-2** | O status governa a receita? Hoje, permuta "Disponível" com valor e data de venda **já gera receita** | **Sim**, mas só depois de ver no SQL quantas são e quanto valem, e atrás da chave | Sim |
+| **BP-2** | O status governa a receita? Hoje, permuta "Disponível" com valor e data de venda **já gera receita** | **Sim.** Levantamento de 30/09: nenhuma permuta nessa situação — hoje não muda número. Entra atrás da chave mesmo assim | Hoje, não |
 | **BP-3** | Escambo (troca por outro bem) é venda? | (1) realiza o ganho, sem caixa (como hoje); (2) é só troca de ativo, sem resultado até vender | Sim |
 
 **Contador:** BP-3.
@@ -91,7 +93,7 @@ Prompt J (3.2).
 | | Pergunta | Recomendação |
 |---|---|---|
 | **BO-1** | Soma em dobro na DRE | Já respondido: a correção é do Prompt I, §56 |
-| **BO-2** | O campo "%" serve para algo? | Depende do SQL. Se ninguém preenche, sai da tela (a coluna fica no banco); se preenchem, ganha validação e rótulo |
+| **BO-2** | O campo "%" serve para algo? | Levantamento de 30/09: **um único uso** ("30", na RMV). Recomendação: sai da tela; a coluna fica no banco |
 
 ### Prompt Q · Parâmetros e INCC
 
