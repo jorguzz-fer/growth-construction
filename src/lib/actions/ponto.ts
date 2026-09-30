@@ -1,6 +1,7 @@
 "use server";
 
 import { and, asc, eq } from "drizzle-orm";
+import { chaveDataBR } from "@/lib/db/ordem-data";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -187,7 +188,8 @@ export async function gerarContaPagarPonto(input: {
     .select()
     .from(schema.timeEntries)
     .where(and(eq(schema.timeEntries.tenantId, ctx.tenant.id), eq(schema.timeEntries.projectId, input.projectId)))
-    .orderBy(asc(schema.timeEntries.data));
+    // §37 — data em texto: ordem cronológica; sem createdAt na tabela, o id desempata.
+    .orderBy(asc(chaveDataBR(schema.timeEntries.data)), asc(schema.timeEntries.id));
   const alvo = entries.filter(
     (e) => input.entryIds.includes(e.id) && !e.despesaId && e.funcionario === input.funcionario,
   );

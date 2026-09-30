@@ -1,6 +1,7 @@
 "use server";
 
 import { and, asc, eq } from "drizzle-orm";
+import { chaveDataBR } from "@/lib/db/ordem-data";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -208,7 +209,8 @@ export async function getEncargosByVersion(
     .from(schema.pagamentos)
     .innerJoin(schema.despesas, eq(schema.pagamentos.despesaId, schema.despesas.id))
     .where(eq(schema.despesas.versionId, versionId))
-    .orderBy(asc(schema.pagamentos.dataPagamento));
+    // §37 — data em texto: ordem cronológica, com desempate estável.
+    .orderBy(asc(chaveDataBR(schema.pagamentos.dataPagamento)), asc(schema.pagamentos.createdAt), asc(schema.pagamentos.id));
   const out: Record<string, number> = {};
   for (const r of rows) {
     const enc = Number(r.multa) + Number(r.juros) + Number(r.outros) - Number(r.desconto);
