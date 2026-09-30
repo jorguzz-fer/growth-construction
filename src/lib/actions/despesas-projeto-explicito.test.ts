@@ -95,7 +95,7 @@ describe.skipIf(!HAS_DB)("Despesas com obra explícita", async () => {
 
   it("pagamento de parcela usa a versão da própria parcela", async () => {
     const pa = await parcela("a2", tA.id);
-    await registrarPagamento({ parcelaId: pa.id, valorOriginal: 100, dataPagamento: "09/29/2026" });
+    expect((await registrarPagamento({ parcelaId: pa.id, dataPagamento: "09/29/2026" })).ok).toBe(true);
     const [atual] = await db.select().from(schema.despesaParcelas).where(eq(schema.despesaParcelas.id, pa.id));
     expect(atual.status).toBe("Pago");
     const caixa = await db
@@ -108,9 +108,10 @@ describe.skipIf(!HAS_DB)("Despesas com obra explícita", async () => {
 
   it("parcela de outra empresa não é alcançada", async () => {
     const pb = await parcela("b1", tenants[1]);
-    await expect(
-      registrarPagamento({ parcelaId: pb.id, valorOriginal: 100, dataPagamento: "09/29/2026" }),
-    ).rejects.toThrow(/não encontrada/);
+    expect(await registrarPagamento({ parcelaId: pb.id, dataPagamento: "09/29/2026" })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/não encontrada/),
+    });
     const [intacta] = await db.select().from(schema.despesaParcelas).where(eq(schema.despesaParcelas.id, pb.id));
     expect(intacta.valorPago).toBe("0.00");
   });
@@ -118,8 +119,9 @@ describe.skipIf(!HAS_DB)("Despesas com obra explícita", async () => {
   it("versão congelada da parcela bloqueia o pagamento", async () => {
     const pa = await parcela("a1", tA.id);
     await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, v.a1.id));
-    await expect(
-      registrarPagamento({ parcelaId: pa.id, valorOriginal: 100, dataPagamento: "09/29/2026" }),
-    ).rejects.toThrow(/congelada/);
+    expect(await registrarPagamento({ parcelaId: pa.id, dataPagamento: "09/29/2026" })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/congelada/),
+    });
   });
 });

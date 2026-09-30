@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { registrarPagamento } from "@/lib/actions/pagamentos";
 import { composePagamento, isAtrasado } from "@/lib/calc";
@@ -12,6 +12,11 @@ import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+
+function novaChave(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export interface ParcelaDTO {
   id: string;
@@ -154,13 +159,14 @@ function PagamentoModal({
       ? isAtrasado(parcela.vencimento, f.dataPagamento)
       : false;
 
+  const chave = useRef(novaChave());
   const confirmar = () => {
     setError(null);
     start(async () => {
       try {
-        await registrarPagamento({
+        const r = await registrarPagamento({
+          idempotencyKey: chave.current,
           parcelaId: parcela.id,
-          valorOriginal: nums.valorOriginal,
           desconto: nums.desconto,
           multa: nums.multa,
           juros: nums.juros,
@@ -169,6 +175,10 @@ function PagamentoModal({
           bankAccountId: f.bankAccountId || null,
           obs: f.obs,
         });
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         onClose();
         router.refresh();
       } catch (e) {
