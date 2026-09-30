@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -1103,6 +1103,89 @@ export async function getClientes(tenantId: string): Promise<ClienteLista[]> {
     .from(schema.clientes)
     .where(eq(schema.clientes.tenantId, tenantId))
     .orderBy(asc(schema.clientes.nomeCompleto));
+}
+
+/** Texto sem acentos e minúsculo, no SQL — casa com `termosDaBusca`. */
+const semAcentoSql = (col: SQL | AnyColumn) =>
+  sql`translate(lower(coalesce(${col}, '')), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn')`;
+
+/**
+ * Página da lista de compradores (Prompt M, 6.8): busca por nome e unidade
+ * (cada termo precisa aparecer em um dos dois, sem diferenciar acento e
+ * caixa), filtro por status de contrato e paginação. `total` é o que o filtro
+ * encontrou; `totalGeral`, o cadastro inteiro.
+ */
+export async function getClientesPagina(
+  tenantId: string,
+  f: { termos: string[]; status: string; pagina: number; porPagina: number; statusEmBranco: string },
+): Promise<{ itens: ClienteLista[]; total: number; totalGeral: number }> {
+  const conds: SQL[] = [eq(schema.clientes.tenantId, tenantId)];
+  for (const t of f.termos) {
+    const padrao = `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    conds.push(
+      sql`(${semAcentoSql(schema.clientes.nomeCompleto)} like ${padrao} or ${semAcentoSql(schema.clientes.unitCode)} like ${padrao})`,
+    );
+  }
+  if (f.status === f.statusEmBranco) {
+    conds.push(sql`coalesce(trim(${schema.clientes.statusContrato}), '') = ''`);
+  } else if (f.status) {
+    conds.push(sql`trim(${schema.clientes.statusContrato}) = ${f.status}`);
+  }
+  const where = and(...conds);
+  const [[{ total }], [{ totalGeral }]] = await Promise.all([
+    db.select({ total: sql<number>`count(*)::int` }).from(schema.clientes).where(where),
+    db
+      .select({ totalGeral: sql<number>`count(*)::int` })
+      .from(schema.clientes)
+      .where(eq(schema.clientes.tenantId, tenantId)),
+  ]);
+  const itens = await db
+    .select({
+      id: schema.clientes.id,
+      nomeCompleto: schema.clientes.nomeCompleto,
+      unitCode: schema.clientes.unitCode,
+      statusContrato: schema.clientes.statusContrato,
+      cpfCnpj: schema.clientes.cpfCnpj,
+      cidadeEstado: schema.clientes.cidadeEstado,
+      interesse: schema.clientes.interesse,
+    })
+    .from(schema.clientes)
+    .where(where)
+    .orderBy(asc(schema.clientes.nomeCompleto), asc(schema.clientes.id))
+    .limit(f.porPagina)
+    .offset((f.pagina - 1) * f.porPagina);
+  return { itens, total, totalGeral };
+}
+
+/** Status de contrato gravados no tenant, com a quantidade (filtro da lista). */
+export async function getStatusContratoUsados(
+  tenantId: string,
+): Promise<{ status: string | null; qtd: number }[]> {
+  const rows = await db
+    .select({
+      status: sql<string | null>`nullif(trim(${schema.clientes.statusContrato}), '')`,
+      qtd: sql<number>`count(*)::int`,
+    })
+    .from(schema.clientes)
+    .where(eq(schema.clientes.tenantId, tenantId))
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
+  return rows;
+}
+
+/**
+ * Unidades de cada obra do tenant (Prompt M, 6.6), sem repetir o mesmo
+ * código dentro da obra. Cobre todas as versões, como a lista anterior.
+ */
+export async function getUnidadesComObra(
+  tenantId: string,
+): Promise<{ projectId: string; code: string }[]> {
+  return db
+    .selectDistinct({ projectId: schema.versions.projectId, code: schema.units.code })
+    .from(schema.units)
+    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
+    .where(and(eq(schema.units.tenantId, tenantId), eq(schema.versions.tenantId, tenantId)))
+    .orderBy(asc(schema.units.code));
 }
 
 export type MedicaoRow = typeof schema.medicoes.$inferSelect;
