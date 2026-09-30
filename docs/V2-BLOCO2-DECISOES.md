@@ -42,6 +42,8 @@ Prompt J (3.2).
 
 ## Decisões suas
 
+**Situação (30/09/2026):** enviadas ao PO. Aguardando.
+
 **Legenda:**
 - **Muda número?** Sim, quando a escolha altera o valor que algum relatório
   mostra hoje. Esses entram atrás de uma chave por empresa, desligada até
@@ -93,7 +95,7 @@ Prompt J (3.2).
 | | Pergunta | Recomendação |
 |---|---|---|
 | **BO-1** | Soma em dobro na DRE | Já respondido: a correção é do Prompt I, §56 |
-| **BO-2** | O campo "%" serve para algo? | Levantamento de 30/09: **um único uso** ("30", na RMV). Recomendação: sai da tela; a coluna fica no banco |
+| **BO-2** | O campo "%" serve para algo? | **Decidido (30/09): sai da tela.** Um único uso em produção; a coluna fica no banco e o valor gravado não muda |
 
 ### Prompt Q · Parâmetros e INCC
 

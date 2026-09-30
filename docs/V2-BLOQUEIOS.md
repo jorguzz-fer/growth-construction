@@ -246,7 +246,7 @@ o app usa Outfit.
 
 ---
 
-## B9 · Prompt C × mockup — onde os dois divergem · **decidido pelo mockup, confirmar**
+## B9 · Prompt C × mockup — onde os dois divergem · **CONFIRMADO (30/09/2026): fica o mockup**
 
 Ao implementar a moldura, o texto do Prompt C e o mockup discordam em alguns
 pontos. Como a instrução foi *"siga o mockup"*, segui o mockup — **tudo aqui é
@@ -313,7 +313,7 @@ tela de auditoria já lê os dois formatos.
 
 ---
 
-## B11 · Em que obra cai a saída de caixa de uma restituição? · **PERGUNTA ABERTA**
+## B11 · Em que obra cai a saída de caixa de uma restituição? · **RESPONDIDO (30/09/2026): opção 2**
 
 Levantada no Prompt A, PR 6. **Não bloqueia nada**: a PR manteve o
 comportamento de antes, trocando só a origem da obra (do cookie para a tela).
@@ -330,6 +330,13 @@ Fluxo de Caixa por obra mostra a saída numa obra e a despesa em outra.
 | **2. Segue a despesa** | restituição avulsa: a obra da despesa. Em lote, a saída única seria **dividida por obra**, conforme os PEDs abatidos. É regra de negócio e muda o Fluxo por obra daqui em diante (nada do que já foi lançado é mexido) |
 
 Recomendação: **2**, num prompt próprio, com a contabilidade de acordo.
+
+**Decisão (30/09/2026): opção 2.** A saída segue a despesa; em lote, dividida por
+obra conforme os PEDs abatidos. Entra na PR **I-7** do Prompt I (terceiros e
+restituições), atrás de chave, com prévia. Nada já lançado muda.
+
+**Versão congelada em Liberações e Permuta (30/09/2026):** passa a bloquear,
+como em todo lançamento (`addReembolso`, `addPermuta`).
 
 ---
 

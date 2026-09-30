@@ -136,6 +136,26 @@ describe.skipIf(!HAS_DB)("Clientes — unidade por obra, interesse e listagem (P
     expect((await addCliente(fd({ nomeCompleto: "Ele Cinco", interesse: "5" }))).ok).toBe(true);
   });
 
+  it("6.2 — status fora da lista é recusado no cadastro; 'ATIVO' gravado segue valendo e não é convertido", async () => {
+    const r = await addCliente(fd({ nomeCompleto: "Status Estranho", statusContrato: "Vigente" }));
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toMatch(/Status do contrato/);
+    const [c] = await db
+      .insert(schema.clientes)
+      .values({ tenantId: tA, nomeCompleto: "Legado Ativo", statusContrato: "ATIVO" })
+      .returning();
+    expect((await updateCliente(fd({ id: c.id, nomeCompleto: "Legado Ativo", statusContrato: "ATIVO" }))).ok).toBe(true);
+    const [depois] = await db.select().from(schema.clientes).where(eq(schema.clientes.id, c.id));
+    expect(depois.statusContrato).toBe("ATIVO");
+    const [x] = await db
+      .insert(schema.clientes)
+      .values({ tenantId: tA, nomeCompleto: "Legado Vigente", statusContrato: "Vigente" })
+      .returning();
+    expect((await updateCliente(fd({ id: x.id, nomeCompleto: "Legado Vigente", statusContrato: "Vigente" }))).ok).toBe(true);
+    expect((await updateCliente(fd({ id: x.id, nomeCompleto: "Legado Vigente", statusContrato: "Outro" }))).ok).toBe(false);
+    expect((await updateCliente(fd({ id: x.id, nomeCompleto: "Legado Vigente", statusContrato: "Distratado" }))).ok).toBe(true);
+  });
+
   it("6.7 — valor fora da faixa já gravado: salvar sem mexer passa e não converte; trocar por outro fora, não", async () => {
     const [c] = await db
       .insert(schema.clientes)

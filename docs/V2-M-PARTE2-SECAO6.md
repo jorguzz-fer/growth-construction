@@ -123,6 +123,11 @@ o cadastro de cliente ganhar vínculo com a obra.
 
 ## Ainda pendente
 
-- **6.2 · domínio fechado do status:** aguarda o resultado de
-  `docs/sql/v2-status-contrato.sql` em produção.
+- ~~**6.2 · domínio fechado do status**~~ — **feito em 30/09/2026.** Em
+  produção só havia "ATIVO" (10 clientes). Lista decidida pelo dono: Ativo ·
+  Assinado · Em análise · Reservado · Distratado · Cancelado. O campo vira
+  seleção; "ATIVO" continua valendo como Ativo e **não é convertido**; valor
+  fora da lista segue legível, sinalizado, e o servidor só o aceita se for o
+  mesmo já gravado. Testes em `clientes-regras.test.ts` e
+  `clientes-listagem.test.ts`.
 - **6.9.3:** não existe ação de remover documento de cliente.

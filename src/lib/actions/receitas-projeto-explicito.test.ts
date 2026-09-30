@@ -123,4 +123,11 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
     expect(ps[0].versionId).toBe(v.a1.id);
     expect(redirects.at(-1)).toBe(`/permuta?proj=${p.a1.id}`);
   });
+
+  it("versão congelada bloqueia Liberação e Permuta (decisão de 30/09/2026)", async () => {
+    await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, v.a2.id));
+    await expect(addReembolso(fd({ projectId: p.a2.id, data: "2026-09-11", valor: "1" }))).rejects.toThrow(/congelada/);
+    await expect(addPermuta(fd({ projectId: p.a2.id, tipo: "Imóvel", estimado: "1" }))).rejects.toThrow(/congelada/);
+    await db.update(schema.versions).set({ locked: false }).where(eq(schema.versions.id, v.a2.id));
+  });
 });

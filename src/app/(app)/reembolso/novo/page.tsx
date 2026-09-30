@@ -70,10 +70,6 @@ export default async function NovoReembolsoPage({
               <Label>Valor (R$)</Label>
               <Input name="valor" type="number" step="0.01" placeholder="0" />
             </div>
-            <div>
-              <Label>Porcentagem %</Label>
-              <Input name="pct" placeholder="" />
-            </div>
             <div className="sm:col-span-2">
               <Label>Observações</Label>
               <Input name="obs" placeholder="" />

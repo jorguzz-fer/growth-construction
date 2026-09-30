@@ -5,12 +5,14 @@ import { campoSensivelCliente } from "@/lib/clientes-sensivel";
 import {
   INTERESSE_MAX,
   INTERESSE_MIN,
+  STATUS_CONTRATO,
   interesseNaFaixa,
+  statusContratoCanonico,
   type OpcoesDeUnidade,
 } from "@/lib/clientes-regras";
 import { UnidadePorObra } from "@/components/app/unidade-por-obra";
 
-type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select" | "interesse";
+type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select" | "interesse" | "statusContrato";
 interface Field {
   name: keyof ClienteRow;
   label: string;
@@ -45,9 +47,10 @@ const GROUPS: Group[] = [
       {
         name: "statusContrato",
         label: "Status do contrato",
+        type: "statusContrato",
         // Prompt M, 6.2.1 — o efeito aparece antes de o usuário tropeçar nele.
         ajuda:
-          "Em branco, a unidade continua reservada a este cliente. Só Distratado ou Cancelado a liberam para outro comprador.",
+          "Em branco ou em qualquer status que não seja Distratado ou Cancelado, a unidade continua reservada a este cliente.",
       },
     ],
   },
@@ -171,6 +174,28 @@ export function ClienteFields({
                     defaultValue=""
                     placeholder={cpfMascarado ? `${cpfMascarado} — digite para substituir` : ""}
                   />
+                ) : f.type === "statusContrato" ? (
+                  // Lista fechada (6.2). O gravado que casa com a lista mantém a
+                  // grafia gravada ("ATIVO"); fora da lista, fica como opção
+                  // sinalizada até alguém corrigir. Nada é convertido ao salvar.
+                  <>
+                    <Select name={f.name} defaultValue={val(f.name)}>
+                      <option value="">—</option>
+                      {val(f.name) && !statusContratoCanonico(val(f.name)) && (
+                        <option value={val(f.name)}>{val(f.name)} · fora da lista</option>
+                      )}
+                      {STATUS_CONTRATO.map((o) => (
+                        <option key={o} value={o === statusContratoCanonico(val(f.name)) ? val(f.name) : o}>
+                          {o}
+                        </option>
+                      ))}
+                    </Select>
+                    {val(f.name) && !statusContratoCanonico(val(f.name)) && (
+                      <p className="mt-1 text-[11.5px] leading-snug text-[var(--color-warning)]">
+                        Gravado como “{val(f.name)}”, fora da lista.
+                      </p>
+                    )}
+                  </>
                 ) : f.type === "interesse" ? (
                   // Seleção de 1 a 5 (6.7). Valor fora da faixa já gravado
                   // continua como opção, sinalizado, até alguém corrigir.
