@@ -115,6 +115,8 @@ export async function importUnits(
   if (!projectId) throw new Error("Escolha o projeto das unidades.");
   const version = await getAtualVersion(ctx.tenant.id, projectId);
   if (!version) throw new Error("Projeto sem versão Atual.");
+  // 11.10 — a trava vale também pela planilha, não só pela tela.
+  if (version.locked) throw new Error("Versão congelada — importação bloqueada.");
   const valid = rows.filter((r) => r.code && r.code.trim());
   if (valid.length === 0) return { inserted: 0 };
 

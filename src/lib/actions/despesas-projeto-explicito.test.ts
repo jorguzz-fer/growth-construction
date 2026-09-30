@@ -74,19 +74,19 @@ describe.skipIf(!HAS_DB)("Despesas com obra explícita", async () => {
   const base = { categoriaDre: "Custo Variável", valor: "123.45", competencia: "09/2026", vencimento: "09/30/2026" };
 
   it("sem projeto no formulário, recusa — não cai em obra nenhuma", async () => {
-    await expect(addDespesa(fd(base))).rejects.toThrow(/Escolha o projeto/);
+    expect(await addDespesa(fd(base))).toMatchObject({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     const n = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tA.id));
     expect(n).toHaveLength(0);
   });
 
   it("projeto de outra empresa é recusado", async () => {
-    await expect(addDespesa(fd({ ...base, projectId: p.b1.id }))).rejects.toThrow(/Escolha o projeto/);
+    expect(await addDespesa(fd({ ...base, projectId: p.b1.id }))).toMatchObject({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     const n = await db.select().from(schema.despesas).where(eq(schema.despesas.versionId, v.b1.id));
     expect(n).toHaveLength(0);
   });
 
   it("grava na versão Atual da obra escolhida (a segunda da lista)", async () => {
-    await addDespesa(fd({ ...base, projectId: p.a2.id }));
+    expect((await addDespesa(fd({ ...base, projectId: p.a2.id }))).ok).toBe(true);
     const rows = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tA.id));
     expect(rows).toHaveLength(1);
     expect(rows[0].versionId).toBe(v.a2.id);

@@ -75,11 +75,12 @@ function Row({
     Number(valor) !== row.valor ||
     obs !== row.obs;
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<{ ok: boolean; error?: string } | void>) => {
     setError(null);
     start(async () => {
       try {
-        await fn();
+        const r = await fn();
+        if (r && !r.ok) setError(r.error ?? "Erro.");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro.");
       }

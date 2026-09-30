@@ -8,6 +8,14 @@ import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
+import {
+  coreDaReplica,
+  recusaDeEdicao,
+  recusaDeParcelas,
+  recusaDeStatusParcela,
+  recusaDeValor,
+} from "@/lib/despesa-regras";
+import { vinculosDaDespesa } from "@/lib/despesa-vinculos";
 import { mensagemColisaoNumDoc, reserveDespesaNumber } from "@/lib/db/numbering";
 import { FORMAS_PAGAMENTO, gerarParcelas } from "@/lib/calc";
 import { categoriasDeDespesa, validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
@@ -267,6 +275,27 @@ interface ParcelaRecebida {
   status: string;
 }
 
+/**
+ * Retorno legível (11.8): em produção o Next.js troca a mensagem de um erro
+ * lançado por um texto genérico, então toda recusa volta em `{ ok, error }`.
+ */
+export type ResultadoDespesa = { ok: true; id: string; aviso?: string } | { ok: false; error: string };
+type Resultado = { ok: true } | { ok: false; error: string };
+
+/** Erro de regra: vira `{ ok: false, error }`. Qualquer outro erro sobe. */
+class Recusa extends Error {}
+
+/** A despesa com a versão dela, no tenant — e se essa versão está congelada (11.7). */
+async function despesaDoTenant(tenantId: string, id: string) {
+  const [row] = await db
+    .select({ d: schema.despesas, locked: schema.versions.locked, versionKind: schema.versions.kind })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, tenantId), eq(schema.versions.tenantId, tenantId)))
+    .limit(1);
+  return row ?? null;
+}
+
 function lerParcelasManuais(formData: FormData): ParcelaRecebida[] {
   const raw = formData.get("parcelasJson");
   if (typeof raw !== "string" || !raw.trim()) return [];
@@ -295,33 +324,49 @@ function lerParcelasManuais(formData: FormData): ParcelaRecebida[] {
   }
 }
 
-export async function addDespesa(formData: FormData) {
+export async function addDespesa(formData: FormData): Promise<ResultadoDespesa> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "despesas", "criar")) return;
+  if (!ctx || !can(ctx.perms, "despesas", "criar")) {
+    return { ok: false, error: "Sem permissão para lançar despesas." };
+  }
+  try {
+    return await lancarDespesa(ctx, formData);
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
+/**
+ * O lançamento em si. Tudo que é SQL — despesa, parcelas, documento fiscal,
+ * obrigação com terceiro, réplicas recorrentes e auditoria — roda numa única
+ * transação (11.2): ou entra inteiro, ou nada entra. Os anexos vão para o R2
+ * depois, porque o R2 não participa da transação; anexo que falhar vira
+ * aviso, não desfaz a despesa.
+ */
+async function lancarDespesa(
+  ctx: NonNullable<Awaited<ReturnType<typeof getTenantContext>>>,
+  formData: FormData,
+): Promise<ResultadoDespesa> {
   // Sem "projeto ativo" (Prompt A): a despesa vai para o projeto escolhido no
   // formulário — obrigatório, e só se for desta empresa — na versão Atual
   // dele. Sem projeto, recusa: nunca cai na obra do cookie.
   const projectId = (formData.get("projectId") as string) || "";
   const projeto = projectId ? await getProjectContext(ctx.tenant.id, projectId) : null;
-  if (!projeto) throw new Error("Escolha o projeto da despesa.");
+  if (!projeto) throw new Recusa("Escolha o projeto da despesa.");
   const version = await getAtualVersion(ctx.tenant.id, projeto.id);
-  if (!version) throw new Error("Projeto sem versão Atual.");
-  if (version.locked) throw new Error("Versão congelada — lançamentos bloqueados.");
+  if (!version) throw new Recusa("Projeto sem versão Atual.");
+  if (version.locked) throw new Recusa("Versão congelada — lançamentos bloqueados.");
 
   // Item 1.3 / RG-01 — uma despesa não pode ser classificada em conta de
   // natureza credora. Validar só no formulário não protege nada: esta Server
   // Action é chamável diretamente.
   const erroCategoria = validarCategoriaDespesa(formData.get("categoriaDre") as string);
-  if (erroCategoria) throw new Error(erroCategoria);
+  if (erroCategoria) throw new Recusa(erroCategoria);
 
-  // Trava contra lançamentos de valor ZERO. Antes, um valor vazio virava "0" e,
-  // com a opção "recorrente" ligada, era replicado em até 60 cópias — cada uma
-  // consumindo um número de pedido (PED) sequencial e poluindo os relatórios com
-  // lançamentos fantasma. Um lançamento sem valor não tem justificativa de
-  // negócio e passa a ser recusado na origem.
-  //
-  // Exceção do item 1.4 (modo bottom-up): com parcelas de valores livres o
-  // total do PED é a SOMA delas, e o campo de valor chega vazio de propósito.
+  // 11.1 — valor maior que zero, finito. Exceção do item 1.4 (modo bottom-up):
+  // com parcelas de valores livres o total do PED é a SOMA delas, e o campo de
+  // valor chega vazio de propósito.
   const parcelasManuais = lerParcelasManuais(formData);
   const somaParcelas = parcelasManuais.reduce((a, p) => a + p.valor, 0);
   const valorInformado = Number((formData.get("valor") as string) || "0");
@@ -329,17 +374,32 @@ export async function addDespesa(formData: FormData) {
     somaParcelas > 0 && (!Number.isFinite(valorInformado) || valorInformado === 0)
       ? somaParcelas
       : valorInformado;
-  if (!Number.isFinite(valorNum) || valorNum === 0) {
-    throw new Error(
-      "Informe um valor maior que zero — ou gere as parcelas, que o total é somado a partir delas.",
+  const erroValor = recusaDeValor(valorNum);
+  if (erroValor) {
+    throw new Recusa(
+      valorNum === 0
+        ? "Informe um valor maior que zero — ou gere as parcelas, que o total é somado a partir delas."
+        : erroValor,
     );
   }
+  // 11.3 e 11.4 — as parcelas do painel precisam fechar com o total e trazer
+  // status da lista. Não confiar no navegador.
+  const erroParcelas = recusaDeParcelas(valorNum, parcelasManuais) ?? recusaDeStatusParcela(parcelasManuais);
+  if (erroParcelas) throw new Recusa(erroParcelas);
 
-  // RG-06 — o PED é numeração interna: sempre reservado aqui, no servidor,
-  // dentro da transação. Nunca vem do formulário, nem para owner/admin. O
-  // número da nota tem campo próprio (bloco Documento Fiscal).
-  const numDoc = await reserveDespesaNumber(ctx.tenant.id);
   const s = (k: string) => (formData.get(k) as string) || null;
+  // Documento fiscal (item 1.2 / RG-06): validado ANTES de gravar qualquer coisa.
+  const docTipo = ((formData.get("docTipo") as string) || "SEM_DOC").trim();
+  const docNumero = ((formData.get("docNumero") as string) || "").trim();
+  const docSerie = ((formData.get("docSerie") as string) || "").trim();
+  const docChave = (formData.get("docChaveAcesso") as string) || "";
+  const docEmissao = ((formData.get("docDataEmissao") as string) || "").trim();
+  const temDocFiscal = docTipo !== "SEM_DOC" || !!docNumero;
+  if (temDocFiscal) {
+    const erroDoc = validarDocumentoFiscal({ tipo: docTipo, numero: docNumero, chaveAcesso: docChave });
+    if (erroDoc) throw new Recusa(erroDoc);
+  }
+
   // Despesa paga por sócio (Seção 3): a despesa é reconhecida normalmente na DRE
   // e no projeto, mas NÃO gera saída de caixa da empresa. A obrigação com o
   // sócio é registrada em despesa_terceiro; o caixa só se move no reembolso
@@ -384,201 +444,226 @@ export async function addDespesa(formData: FormData) {
     chequeDataCompensacao: s("chequeDataCompensacao"),
     chequeStatus: s("chequeStatus"),
   };
-  const [row] = await db
-    .insert(schema.despesas)
-    .values({ ...core, numDoc })
-    .returning()
-    .catch((e: unknown) => {
-      // Índice único (0040): número repetido vira mensagem, não erro de banco.
-      const msg = mensagemColisaoNumDoc(e, numDoc);
-      throw msg ? new Error(msg) : e;
-    });
+  const recorrente = !!formData.get("recorrente");
+  const mesesRecorrencia = recorrente
+    ? Math.min(60, Math.max(2, Number(formData.get("recorrenciaMeses")) || 0))
+    : 0;
 
-  // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
-  // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
-  const valorTotal = Number(row.valor);
-  const condicao = row.condicaoPagamento;
-  let parcelas: ParcelaRecebida[] = [];
-  // Despesa paga por sócio já está quitada pelo sócio — não gera parcelas/contas
-  // a pagar da empresa.
-  if (pagoPorSocioId) {
-    parcelas = [];
-  } else if (parcelasManuais.length > 0) {
-    // Vindas do painel auxiliar: cada linha traz forma, cheque, banco e status
-    // próprios (itens 2.1 e 2.5).
-    parcelas = parcelasManuais;
-  } else if (condicao) {
-    parcelas = gerarParcelas({
-      valorTotal,
-      condicao,
-      dataBase: row.vencimento || row.dataEmissao || row.competencia || "",
-      qtd: row.qtdParcelas ?? undefined,
-    }).map((p) => ({
-      vencimento: p.vencimento,
-      valor: p.valor,
-      forma: null,
-      bancoContaId: null,
-      numeroCheque: null,
-      emitenteCheque: null,
-      dataEmissaoCheque: null,
-      dataBomPara: null,
-      status: "Pendente",
-    }));
-  }
-  if (parcelas.length > 0) {
-    await db.insert(schema.despesaParcelas).values(
-      parcelas.map((p, i) => ({
+  const row = await db.transaction(async (tx) => {
+    // RG-06 — o PED é numeração interna: sempre reservado aqui, no servidor.
+    // Nunca vem do formulário, nem para owner/admin. O número da nota tem campo
+    // próprio (bloco Documento Fiscal). A reserva tem transação própria: se
+    // esta gravação for desfeita, o número fica sem uso — nunca é reemitido.
+    const numDoc = await reserveDespesaNumber(ctx.tenant.id);
+    const [row] = await tx
+      .insert(schema.despesas)
+      .values({ ...core, numDoc })
+      .returning()
+      .catch((e: unknown) => {
+        // Índice único (0040): número repetido vira mensagem, não erro de banco.
+        const msg = mensagemColisaoNumDoc(e, numDoc);
+        throw msg ? new Recusa(msg) : e;
+      });
+
+    // Parcelas (Fase 2): usa o preview enviado pelo formulário (editável) ou
+    // gera pela condição. Sem forma/condição → sem parcelas (comporta como antes).
+    const valorTotal = Number(row.valor);
+    const condicao = row.condicaoPagamento;
+    let parcelas: ParcelaRecebida[] = [];
+    // Despesa paga por sócio já está quitada pelo sócio — não gera parcelas/contas
+    // a pagar da empresa.
+    if (pagoPorSocioId) {
+      parcelas = [];
+    } else if (parcelasManuais.length > 0) {
+      // Vindas do painel auxiliar: cada linha traz forma, cheque, banco e status
+      // próprios (itens 2.1 e 2.5).
+      parcelas = parcelasManuais;
+    } else if (condicao) {
+      parcelas = gerarParcelas({
+        valorTotal,
+        condicao,
+        dataBase: row.vencimento || row.dataEmissao || row.competencia || "",
+        qtd: row.qtdParcelas ?? undefined,
+      }).map((p) => ({
+        vencimento: p.vencimento,
+        valor: p.valor,
+        forma: null,
+        bancoContaId: null,
+        numeroCheque: null,
+        emitenteCheque: null,
+        dataEmissaoCheque: null,
+        dataBomPara: null,
+        status: "Pendente",
+      }));
+    }
+    if (parcelas.length > 0) {
+      await tx.insert(schema.despesaParcelas).values(
+        parcelas.map((p, i) => ({
+          tenantId: ctx.tenant.id,
+          despesaId: row.id,
+          numeroParcela: i + 1,
+          vencimento: p.vencimento,
+          valorOriginal: String(p.valor),
+          // A forma da parcela tem precedência sobre a do cabeçalho: numa mesma
+          // compra pode haver cheque em umas e PIX em outras.
+          formaPagamento: p.forma ?? row.formaPagamento,
+          // Item 2.2 — o banco do cabeçalho é herdado quando a parcela não
+          // informa outro.
+          bankAccountId: p.bancoContaId ?? row.bancoId,
+          numeroCheque: p.numeroCheque,
+          emitenteCheque: p.emitenteCheque,
+          dataEmissaoCheque: p.dataEmissaoCheque,
+          dataBomPara: p.dataBomPara,
+          status: p.status,
+        })),
+      );
+    }
+
+    // Documento fiscal: a linha só nasce quando há algo a registrar — despesa
+    // sem nota simplesmente não tem documento fiscal, e isso é um estado
+    // válido: a nota chega depois.
+    if (temDocFiscal) {
+      await tx.insert(schema.documentosFiscais).values({
         tenantId: ctx.tenant.id,
         despesaId: row.id,
-        numeroParcela: i + 1,
-        vencimento: p.vencimento,
-        valorOriginal: String(p.valor),
-        // A forma da parcela tem precedência sobre a do cabeçalho: numa mesma
-        // compra pode haver cheque em umas e PIX em outras.
-        formaPagamento: p.forma ?? row.formaPagamento,
-        // Item 2.2 — o banco do cabeçalho é herdado quando a parcela não
-        // informa outro.
-        bankAccountId: p.bancoContaId ?? row.bancoId,
-        numeroCheque: p.numeroCheque,
-        emitenteCheque: p.emitenteCheque,
-        dataEmissaoCheque: p.dataEmissaoCheque,
-        dataBomPara: p.dataBomPara,
-        status: p.status,
-      })),
-    );
-  }
+        tipo: docTipo,
+        numero: docNumero || null,
+        serie: docSerie || null,
+        chaveAcesso: normalizarChaveAcesso(docChave),
+        // Sem data de emissão informada, vale a competência — é o que a nota
+        // costuma trazer e evita campo vazio na conferência.
+        dataEmissao: docEmissao || row.competencia,
+      });
+    }
 
-  // Documento fiscal (item 1.2 / RG-06): campo PRÓPRIO, separado do PED. A
-  // linha só nasce quando há algo a registrar — despesa sem nota simplesmente
-  // não tem documento fiscal, e isso é um estado válido: a nota chega depois.
-  const docTipo = ((formData.get("docTipo") as string) || "SEM_DOC").trim();
-  const docNumero = ((formData.get("docNumero") as string) || "").trim();
-  const docSerie = ((formData.get("docSerie") as string) || "").trim();
-  const docChave = (formData.get("docChaveAcesso") as string) || "";
-  const docEmissao = ((formData.get("docDataEmissao") as string) || "").trim();
-  if (docTipo !== "SEM_DOC" || docNumero) {
-    const erroDoc = validarDocumentoFiscal({
-      tipo: docTipo,
-      numero: docNumero,
-      chaveAcesso: docChave,
-    });
-    if (erroDoc) throw new Error(erroDoc);
-    await db.insert(schema.documentosFiscais).values({
-      tenantId: ctx.tenant.id,
-      despesaId: row.id,
-      tipo: docTipo,
-      numero: docNumero || null,
-      serie: docSerie || null,
-      chaveAcesso: normalizarChaveAcesso(docChave),
-      // Sem data de emissão informada, vale a competência — é o que a nota
-      // costuma trazer e evita campo vazio na conferência.
-      dataEmissao: docEmissao || row.competencia,
-    });
-  }
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "despesa.create",
+        entity: "despesa",
+        entityId: row.id,
+        meta: { valor: row.valor, contaCef: row.contaCef },
+      },
+      tx,
+    );
+
+    // Despesa paga por sócio: registra a obrigação empresa↔sócio (reusa a infra de
+    // "pago por terceiro"). Reembolsável → obrigação PENDENTE (o caixa só se move
+    // no reembolso, feito na tela de Restituições). Sem reembolso → obrigação já
+    // QUITADA (saldo 0), sem movimento de caixa e sem duplicar despesa na DRE.
+    if (pagoPorSocioId) {
+      await tx.insert(schema.despesaTerceiros).values({
+        tenantId: ctx.tenant.id,
+        despesaId: row.id,
+        pagadorTerceiroId: pagoPorSocioId,
+        empresaResponsavelId: projectId,
+        valorTotal: row.valor,
+        valorRestituido: socioReembolsavel ? "0" : row.valor,
+        dataPagamentoOriginal: socioDataPagamento,
+        status: socioReembolsavel ? "Aguardando restituição" : "Sem reembolso",
+        obs: socioReembolsavel
+          ? "Despesa paga por sócio — a reembolsar"
+          : "Despesa paga por sócio — sem reembolso",
+      });
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "despesa.pagaPorSocio",
+          entity: "despesa",
+          entityId: row.id,
+          meta: {
+            socioId: pagoPorSocioId,
+            valor: row.valor,
+            reembolsavel: socioReembolsavel,
+            dataPagamento: socioDataPagamento,
+          },
+        },
+        tx,
+      );
+    }
+
+    // Despesa recorrente: replica o lançamento nos próximos meses (competência e
+    // vencimento avançam 1 mês a cada repetição). Cada réplica recebe seu próprio
+    // número automático; parcelas/anexo ficam só no lançamento original. A
+    // réplica é obrigação FUTURA (11.5): nasce "A pagar", sem pago por terceiro
+    // e sem os dados de boleto/cheque de um pagamento específico.
+    if (recorrente) {
+      const replica = coreDaReplica(core);
+      for (let i = 1; i < mesesRecorrencia; i++) {
+        const numDocRec = await reserveDespesaNumber(ctx.tenant.id);
+        await tx
+          .insert(schema.despesas)
+          .values({
+            ...replica,
+            numDoc: numDocRec,
+            competencia: addMonthsCompetencia(core.competencia, i),
+            vencimento: addMonthsDate(core.vencimento, i),
+          })
+          .catch((e: unknown) => {
+            const msg = mensagemColisaoNumDoc(e, numDocRec);
+            throw msg ? new Recusa(`Réplica ${i + 1} de ${mesesRecorrencia}: ${msg}`) : e;
+          });
+      }
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "despesa.recorrente",
+          entity: "despesa",
+          entityId: row.id,
+          meta: { meses: mesesRecorrencia, competencia: core.competencia },
+        },
+        tx,
+      );
+    }
+    return row;
+  });
 
   // Documentos anexados (opcional): VÁRIOS arquivos podem ser enviados já no
   // lançamento inicial (boleto, nota fiscal, comprovante, foto...). Cada um vira
-  // uma linha em `document` vinculada à mesma despesa — a existência de um anexo
-  // nunca impede os demais.
+  // uma linha em `document` vinculada à mesma despesa. Fora da transação: o R2
+  // não participa dela. Falha aqui não desfaz a despesa — vira aviso.
   const files = formData
     .getAll("file")
     .filter((f): f is File => f instanceof File && f.size > 0);
+  const falhas: string[] = [];
   if (files.length > 0 && isR2Configured()) {
     for (const file of files) {
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${Math.random()
         .toString(36)
         .slice(2, 8)}_${safe}`;
-      await putObject(
-        key,
-        new Uint8Array(await file.arrayBuffer()),
-        file.type || "application/octet-stream",
-      );
-      await db.insert(schema.documents).values({
-        tenantId: ctx.tenant.id,
-        despesaId: row.id,
-        storageKey: key,
-        filename: file.name,
-        contentType: file.type || null,
-        size: file.size,
-        uploadedBy: ctx.userEmail || ctx.userId || null,
-      });
-    }
-  }
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "despesa.create",
-    entity: "despesa",
-    entityId: row.id,
-    meta: { valor: row.valor, contaCef: row.contaCef },
-  });
-
-  // Despesa paga por sócio: registra a obrigação empresa↔sócio (reusa a infra de
-  // "pago por terceiro"). Reembolsável → obrigação PENDENTE (o caixa só se move
-  // no reembolso, feito na tela de Restituições). Sem reembolso → obrigação já
-  // QUITADA (saldo 0), sem movimento de caixa e sem duplicar despesa na DRE.
-  if (pagoPorSocioId) {
-    await db.insert(schema.despesaTerceiros).values({
-      tenantId: ctx.tenant.id,
-      despesaId: row.id,
-      pagadorTerceiroId: pagoPorSocioId,
-      empresaResponsavelId: projectId,
-      valorTotal: row.valor,
-      valorRestituido: socioReembolsavel ? "0" : row.valor,
-      dataPagamentoOriginal: socioDataPagamento,
-      status: socioReembolsavel ? "Aguardando restituição" : "Sem reembolso",
-      obs: socioReembolsavel
-        ? "Despesa paga por sócio — a reembolsar"
-        : "Despesa paga por sócio — sem reembolso",
-    });
-    await logAudit({
-      tenantId: ctx.tenant.id,
-      userId: ctx.userId,
-      action: "despesa.pagaPorSocio",
-      entity: "despesa",
-      entityId: row.id,
-      meta: {
-        socioId: pagoPorSocioId,
-        valor: row.valor,
-        reembolsavel: socioReembolsavel,
-        dataPagamento: socioDataPagamento,
-      },
-    });
-  }
-
-  // Despesa recorrente: replica o lançamento nos próximos meses (competência e
-  // vencimento avançam 1 mês a cada repetição). Cada réplica recebe seu próprio
-  // número automático; parcelas/anexo ficam só no lançamento original.
-  if (formData.get("recorrente")) {
-    const meses = Math.min(60, Math.max(2, Number(formData.get("recorrenciaMeses")) || 0));
-    for (let i = 1; i < meses; i++) {
-      const numDocRec = await reserveDespesaNumber(ctx.tenant.id);
-      await db
-        .insert(schema.despesas)
-        .values({
-          ...core,
-          numDoc: numDocRec,
-          competencia: addMonthsCompetencia(core.competencia, i),
-          vencimento: addMonthsDate(core.vencimento, i),
-        })
-        .catch((e: unknown) => {
-          const msg = mensagemColisaoNumDoc(e, numDocRec);
-          throw msg ? new Error(`Réplica ${i + 1} de ${meses}: ${msg}`) : e;
+      try {
+        await putObject(
+          key,
+          new Uint8Array(await file.arrayBuffer()),
+          file.type || "application/octet-stream",
+        );
+        await db.insert(schema.documents).values({
+          tenantId: ctx.tenant.id,
+          despesaId: row.id,
+          storageKey: key,
+          filename: file.name,
+          contentType: file.type || null,
+          size: file.size,
+          uploadedBy: ctx.userEmail || ctx.userId || null,
         });
+      } catch {
+        falhas.push(file.name);
+      }
     }
-    await logAudit({
-      tenantId: ctx.tenant.id,
-      userId: ctx.userId,
-      action: "despesa.recorrente",
-      entity: "despesa",
-      entityId: row.id,
-      meta: { meses, competencia: core.competencia },
-    });
   }
 
   revalidatePath("/despesas");
+  return {
+    ok: true,
+    id: row.id,
+    aviso: falhas.length
+      ? `Despesa ${row.numDoc ?? ""} gravada, mas ${falhas.length} anexo(s) não subiram (${falhas.join(", ")}). Anexe de novo pela ficha.`
+      : undefined,
+  };
 }
 
 /** Avança `add` meses numa competência "MM/YYYY". */
@@ -621,22 +706,23 @@ export interface DespesaPatch {
   formaPagamento?: string | null;
 }
 
-/** Edita uma despesa já lançada (mesma versão/tenant do contexto ativo). */
-export async function updateDespesa(id: string, patch: DespesaPatch) {
+/**
+ * Edita uma despesa já lançada. Escopo por tenant: a despesa pode pertencer a
+ * qualquer projeto do tenant. Recusa (11.6) mudança de valor, status, datas e
+ * forma quando há fato financeiro vinculado — pagamento, parcela paga, acerto,
+ * restituição, terceiro ou caixa conciliado —, e mudança de valor quando há
+ * parcelas em aberto. Versão congelada bloqueia (11.7).
+ */
+export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "despesas", "editar")) return;
-
-  // Escopo por tenant: a despesa pode pertencer a qualquer projeto do tenant
-  // (a lista opera por projeto selecionado, não pela versão do contexto).
-  const [existing] = await db
-    .select()
-    .from(schema.despesas)
-    .where(
-      and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)),
-    )
-    .limit(1);
-  if (!existing) return;
-  if (existing.cancelado) throw new Error("Despesa cancelada não pode ser editada.");
+  if (!ctx || !can(ctx.perms, "despesas", "editar")) {
+    return { ok: false, error: "Sem permissão para editar despesas." };
+  }
+  const alvo = await despesaDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Despesa não encontrada." };
+  const existing = alvo.d;
+  if (existing.cancelado) return { ok: false, error: "Despesa cancelada não pode ser editada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — edição bloqueada." };
 
   const set: Partial<typeof schema.despesas.$inferInsert> = {};
   if (patch.fornecedorId !== undefined) set.fornecedorId = patch.fornecedorId || null;
@@ -646,7 +732,7 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
     // Item 1.3 / RG-01 — nem na edição uma despesa pode passar para conta de
     // natureza credora.
     const erro = validarCategoriaDespesa(patch.categoriaDre);
-    if (erro) throw new Error(erro);
+    if (erro) return { ok: false, error: erro };
     set.categoriaDre = patch.categoriaDre as CategoriaDRE;
   }
   // RG-06 — o PED é imutável depois de criado. Renumerar um documento já
@@ -654,26 +740,40 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
   // referenciam. Um número enviado igual ao atual é ignorado em silêncio (o
   // formulário pode reenviá-lo); diferente, é recusado.
   if (patch.numDoc !== undefined && (patch.numDoc?.trim() || null) !== existing.numDoc) {
-    throw new Error(
-      "O nº do pedido (PED) é numeração interna e não pode ser alterado. Para corrigir o número da nota, use o campo de documento fiscal.",
-    );
+    return {
+      ok: false,
+      error:
+        "O nº do pedido (PED) é numeração interna e não pode ser alterado. Para corrigir o número da nota, use o campo de documento fiscal.",
+    };
   }
   if (patch.competencia !== undefined) set.competencia = patch.competencia || null;
   if (patch.vencimento !== undefined) set.vencimento = patch.vencimento || null;
-  if (patch.valor !== undefined) set.valor = patch.valor.trim() || "0";
+  if (patch.valor !== undefined) {
+    // 11.1 — vale também na edição; antes qualquer texto virava "0".
+    const n = Number(patch.valor.trim());
+    const erro = recusaDeValor(n);
+    if (erro) return { ok: false, error: erro };
+    set.valor = String(n);
+  }
   if (patch.status !== undefined) set.status = patch.status || null;
   if (patch.obs !== undefined) set.obs = patch.obs || null;
   if (patch.formaPagamento !== undefined) set.formaPagamento = patch.formaPagamento || null;
-  if (Object.keys(set).length === 0) return;
+  if (Object.keys(set).length === 0) return { ok: true };
 
   // Auditoria campo a campo (RG-09): valor anterior × novo. O helper normaliza
   // nulo/vazio e numeric-como-string, senão reeditar sem mudar nada registraria
-  // "alterações" que não houve.
+  // "alterações" que não houve. O diff também diz QUAIS campos mudam de fato —
+  // é sobre eles que a trava de 11.6 decide.
   const changes = diffAudit(
     existing as unknown as Record<string, unknown>,
     set as Record<string, unknown>,
   );
-  await db.update(schema.despesas).set(set).where(eq(schema.despesas.id, id));
+  const mudou = Object.keys(changes);
+  if (mudou.length > 0) {
+    const erroVinculo = recusaDeEdicao(await vinculosDaDespesa(db, ctx.tenant.id, id), mudou);
+    if (erroVinculo) return { ok: false, error: erroVinculo };
+  }
+  await db.update(schema.despesas).set(set).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
 
   // Diff vazio não gera linha de log (AK, Parte 2). O formulário manda as 10
   // chaves sempre, então `set` nunca fica vazio e a guarda acima não pega o
@@ -691,23 +791,25 @@ export async function updateDespesa(id: string, patch: DespesaPatch) {
     });
   }
   revalidatePath("/despesas");
+  return { ok: true };
 }
 
-/** Exclui uma despesa já lançada (documentos vinculados caem em cascata). */
-export async function deleteDespesa(id: string) {
+/**
+ * Exclui uma despesa já lançada (documentos vinculados caem em cascata).
+ * Versão congelada bloqueia (11.7). As travas por dependência financeira
+ * (§12) entram na PR seguinte.
+ */
+export async function deleteDespesa(id: string): Promise<Resultado> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "despesas", "excluir")) return;
+  if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
+    return { ok: false, error: "Sem permissão para excluir despesas." };
+  }
+  const alvo = await despesaDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Despesa não encontrada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — exclusão bloqueada." };
+  const existing = alvo.d;
 
-  const [existing] = await db
-    .select()
-    .from(schema.despesas)
-    .where(
-      and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)),
-    )
-    .limit(1);
-  if (!existing) return;
-
-  await db.delete(schema.despesas).where(eq(schema.despesas.id, id));
+  await db.delete(schema.despesas).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
@@ -717,25 +819,24 @@ export async function deleteDespesa(id: string) {
     meta: { valor: existing.valor, numDoc: existing.numDoc },
   });
   revalidatePath("/despesas");
+  return { ok: true };
 }
 
 /**
  * Cancelamento lógico de uma despesa: preserva o histórico para auditoria, mas
  * a remove de saldos, relatórios, fluxo de caixa e contas a pagar. Preferível
- * à exclusão física.
+ * à exclusão física. Versão congelada bloqueia (11.7).
  */
-export async function cancelarDespesa(id: string, motivo: string) {
+export async function cancelarDespesa(id: string, motivo: string): Promise<Resultado> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
-    throw new Error("Sem permissão para cancelar despesas.");
+    return { ok: false, error: "Sem permissão para cancelar despesas." };
   }
-  const [existing] = await db
-    .select()
-    .from(schema.despesas)
-    .where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)))
-    .limit(1);
-  if (!existing) throw new Error("Despesa não encontrada.");
-  if (existing.cancelado) return;
+  const alvo = await despesaDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Despesa não encontrada." };
+  const existing = alvo.d;
+  if (existing.cancelado) return { ok: true };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — cancelamento bloqueado." };
 
   const hoje = new Date();
   const canceladoEm = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${String(hoje.getDate()).padStart(2, "0")}/${hoje.getFullYear()}`;
@@ -748,7 +849,7 @@ export async function cancelarDespesa(id: string, motivo: string) {
       motivoCancelamento: motivo?.trim() || null,
       status: "Cancelada",
     })
-    .where(eq(schema.despesas.id, id));
+    .where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
@@ -762,6 +863,7 @@ export async function cancelarDespesa(id: string, motivo: string) {
   revalidatePath("/caixa");
   revalidatePath("/dre");
   revalidatePath("/fluxocaixa");
+  return { ok: true };
 }
 
 export interface PagarDespesaInput {
@@ -779,22 +881,20 @@ export interface PagarDespesaInput {
 /**
  * Marca uma despesa (sem parcelamento) como paga: registra o pagamento com
  * encargos, lança a saída real no Caixa (na data efetiva), atualiza o status e
- * a conta bancária. Estrutura pronta para pagamento parcial.
+ * a conta bancária. Estrutura pronta para pagamento parcial. Versão congelada
+ * bloqueia (11.7). Transação, idempotência e status acumulado (§13) entram na
+ * PR I-2.
  */
-export async function pagarDespesa(input: PagarDespesaInput) {
+export async function pagarDespesa(input: PagarDespesaInput): Promise<Resultado> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
-    throw new Error("Sem permissão para registrar pagamentos.");
+    return { ok: false, error: "Sem permissão para registrar pagamentos." };
   }
-  const [d] = await db
-    .select()
-    .from(schema.despesas)
-    .where(
-      and(eq(schema.despesas.id, input.despesaId), eq(schema.despesas.tenantId, ctx.tenant.id)),
-    )
-    .limit(1);
-  if (!d) throw new Error("Despesa não encontrada.");
-  if (d.cancelado) throw new Error("Despesa cancelada não pode ser paga.");
+  const alvo = await despesaDoTenant(ctx.tenant.id, input.despesaId);
+  if (!alvo) return { ok: false, error: "Despesa não encontrada." };
+  const d = alvo.d;
+  if (d.cancelado) return { ok: false, error: "Despesa cancelada não pode ser paga." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — pagamento bloqueado." };
 
   const juros = input.juros || 0;
   const multa = input.multa || 0;
@@ -854,6 +954,7 @@ export async function pagarDespesa(input: PagarDespesaInput) {
   revalidatePath("/caixa");
   revalidatePath("/dre");
   revalidatePath("/fluxocaixa");
+  return { ok: true };
 }
 
 /**
