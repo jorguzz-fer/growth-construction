@@ -11,6 +11,8 @@ interface Field {
   required?: boolean;
   colSpan?: string;
   options?: string[];
+  /** Linha de ajuda sob o campo. */
+  ajuda?: string;
 }
 
 const SIM_NAO = ["Sim", "Não"];
@@ -33,7 +35,13 @@ const GROUPS: Group[] = [
     title: "Vínculo & contrato",
     fields: [
       { name: "unitCode", label: "Unidade comprada", type: "unit" },
-      { name: "statusContrato", label: "Status do contrato" },
+      {
+        name: "statusContrato",
+        label: "Status do contrato",
+        // Prompt M, 6.2.1 — o efeito aparece antes de o usuário tropeçar nele.
+        ajuda:
+          "Em branco, a unidade continua reservada a este cliente. Só Distratado ou Cancelado a liberam para outro comprador.",
+      },
     ],
   },
   {
@@ -180,6 +188,9 @@ export function ClienteFields({
                     defaultValue={val(f.name)}
                     disabled={bloqueado}
                   />
+                )}
+                {f.ajuda && (
+                  <p className="mt-1 text-[11.5px] leading-snug text-[var(--color-ink3)]">{f.ajuda}</p>
                 )}
               </div>
               );

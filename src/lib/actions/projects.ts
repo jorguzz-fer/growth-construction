@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
+import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { DEFAULT_INCC } from "@/lib/calc/constants";
@@ -342,7 +343,8 @@ export async function uploadProjetoDoc(formData: FormData) {
   }
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > 20 * 1024 * 1024) throw new Error("Arquivo deve ter até 20 MB.");
+  // Limite real (Prompt M, 6.9.4): o corpo da Server Action é 12 MB.
+  if (file.size > LIMITE_UPLOAD_BYTES) throw new Error(`Arquivo deve ter até ${LIMITE_UPLOAD_MB} MB.`);
 
   const safe = file.name.replace(/[^\w.\-]+/g, "_");
   const key = `tenants/${ctx.tenant.id}/projetos/${projectId}/${Date.now()}_${safe}`;

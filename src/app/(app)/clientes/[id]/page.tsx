@@ -6,6 +6,9 @@ import { getTenantContext } from "@/lib/context";
 import { getUnitCodesByTenant } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { updateCliente, deleteCliente, uploadClienteDoc } from "@/lib/actions/clientes";
+import { FormComResultado } from "@/components/app/form-com-resultado";
+import { vinculosDoCliente } from "@/lib/clientes-vinculos";
+import { bloqueiosDeExclusao, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -62,6 +65,10 @@ export default async function EditarClientePage({
 
   const canEditar = can(ctx.perms, "clientes", "editar");
   const canExcluir = can(ctx.perms, "clientes", "excluir");
+  // O que hoje impediria a exclusão (6.1.1) — a tela diz antes de o usuário tentar.
+  const bloqueiosExclusao = canExcluir
+    ? bloqueiosDeExclusao(await vinculosDoCliente(db, ctx.tenant.id, cliente))
+    : [];
   // Todas as unidades do tenant (não só do projeto do contexto). A unidade já
   // vinculada a este cliente sempre aparece na lista, mesmo que vendida.
   const unitCodesAll = await getUnitCodesByTenant(ctx.tenant.id);
@@ -85,20 +92,10 @@ export default async function EditarClientePage({
       <PageHeader
         eyebrow={ctx.tenant.name}
         title={`Cliente: ${cliente.nomeCompleto}`}
-        actions={
-          canExcluir ? (
-            <form action={deleteCliente}>
-              <input type="hidden" name="id" value={cliente.id} />
-              <Button type="submit" variant="ghost" size="sm">
-                Excluir
-              </Button>
-            </form>
-          ) : undefined
-        }
       />
       <Card>
         <CardContent className="p-5">
-          <form action={updateCliente} className="space-y-6">
+          <FormComResultado action={updateCliente} aoConcluir="/clientes" className="space-y-6">
             <input type="hidden" name="id" value={cliente.id} />
             <ClienteFields
               cliente={cliente}
@@ -115,7 +112,7 @@ export default async function EditarClientePage({
                 </Link>
               </div>
             )}
-          </form>
+          </FormComResultado>
         </CardContent>
       </Card>
 
@@ -131,12 +128,20 @@ export default async function EditarClientePage({
             </p>
           ) : (
             canEditar && (
-              <form action={uploadClienteDoc} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+              <FormComResultado
+                action={uploadClienteDoc}
+                aoConcluir="recarregar"
+                sucesso="Documento enviado."
+                className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-4"
+              >
                 <input type="hidden" name="clienteId" value={cliente.id} />
                 <div>
                   <Label>Tipo</Label>
-                  <Select name="tipo" defaultValue="">
-                    <option value="">—</option>
+                  {/* Tipo obrigatório (6.9.1). */}
+                  <Select name="tipo" defaultValue="" required>
+                    <option value="" disabled>
+                      — escolha —
+                    </option>
                     {["Contrato assinado", "Proposta", "Documentos do comprador", "Comprovante", "Termo aditivo", "Distrato", "Outros"].map((t) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
@@ -150,13 +155,18 @@ export default async function EditarClientePage({
                   </Select>
                 </div>
                 <div>
-                  <Label>Arquivo (até 15 MB)</Label>
+                  <Label>Arquivo (até {LIMITE_UPLOAD_MB} MB)</Label>
                   <Input type="file" name="file" required />
                 </div>
                 <div className="flex items-end">
                   <Button type="submit">Enviar documento</Button>
                 </div>
-              </form>
+                {/* 6.9.2 — como a versão funciona, dito na tela. */}
+                <p className="text-[12px] text-[var(--color-ink3)] sm:col-span-4">
+                  Outro arquivo do mesmo tipo vira a versão seguinte e a anterior fica
+                  guardada; cada tipo tem numeração própria.
+                </p>
+              </FormComResultado>
             )
           )}
 
@@ -203,6 +213,41 @@ export default async function EditarClientePage({
           )}
         </CardContent>
       </Card>
+
+      {/* 6.1.1 — exclusão no rodapé, separada do Salvar, com o que ela exige. */}
+      {canExcluir && (
+        <Card className="mt-6 border-[var(--color-danger)]/25">
+          <CardContent className="p-5">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">Excluir cliente</h2>
+            <p className="mt-1 text-[12.5px] text-[var(--color-ink3)]">
+              Apaga o cadastro. Exige digitar o nome do cliente e não é permitida enquanto houver
+              unidade com contrato ativo, contas a receber, documentos, obra ou recebimento por
+              terceiro vinculados.
+            </p>
+            {bloqueiosExclusao.length > 0 ? (
+              <p className="mt-3 text-[13px] text-[var(--color-warning)]">
+                Hoje bloqueado por: {bloqueiosExclusao.join("; ")}.
+              </p>
+            ) : (
+              <FormComResultado
+                action={deleteCliente}
+                aoConcluir="/clientes"
+                sucesso="Cliente excluído."
+                className="mt-3 flex flex-wrap items-end gap-2"
+              >
+                <input type="hidden" name="id" value={cliente.id} />
+                <div className="min-w-[260px] flex-1">
+                  <Label>Digite o nome do cliente para confirmar</Label>
+                  <Input name="confirmacao" placeholder={cliente.nomeCompleto} autoComplete="off" />
+                </div>
+                <Button type="submit" variant="outline">
+                  Excluir definitivamente
+                </Button>
+              </FormComResultado>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }
