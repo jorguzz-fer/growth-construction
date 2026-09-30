@@ -1,4 +1,8 @@
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import {
   getInccRows,
   getReembolsos,
@@ -47,25 +51,48 @@ const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
 export default async function ProjecaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "projecao", "ver")) return <AccessDenied />;
 
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie. Relatório de
+  // UMA obra: não há "Todos" aqui (B12 vale para os consolidáveis).
+  const spObra = await searchParams;
+  const selecaoObra = lerSelecaoDeProjeto(ctx.projects, spObra);
+  const escolhido =
+    selecaoObra.tipo === "projeto"
+      ? await getProjectVersions(ctx.tenant.id, selecaoObra.projeto.id)
+      : null;
+  if (!escolhido?.trabalho) {
+    return <PedirProjeto titulo="Projeção de Receitas" projetos={ctx.projects} oQue="ver a projeção" />;
+  }
+  const { project: obra, versions: versoesDaObra, trabalho: versaoTrabalho } = escolhido;
+  const projectPicker = (
+    <>
+      <ProjectPicker
+        projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+        selected={obra.id}
+      />
+      <LembrarProjeto projectId={obra.id} />
+    </>
+  );
+
   const sp = await searchParams;
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const compareVersions = resolveCompareVersions(sp.vs, versoesDaObra, versaoTrabalho);
   const multi = compareVersions.length > 1;
   const versionSelect = (
     <VersionMultiSelect
-      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
       selected={compareVersions.map((v) => v.id)}
     />
   );
@@ -74,7 +101,7 @@ export default async function ProjecaoPage({
   if (multi) {
     const inFilter = (m: string) => !hasRange || monthInRange(m, de, ate);
     const perVersion = await Promise.all(
-      compareVersions.map((v) => getRevenueBySource(v.id, ctx.project.id)),
+      compareVersions.map((v) => getRevenueBySource(v.id, obra.id)),
     );
     const sumFiltered = (map: MonthlyProjection) =>
       Object.entries(map)
@@ -103,7 +130,8 @@ export default async function ProjecaoPage({
           subtitle="Comparativo de versões · receita total projetada por fonte"
           actions={
             <div className="flex flex-wrap items-end gap-3">
-              <DateRangeFilter de={de} ate={ate} />
+              {projectPicker}
+            <DateRangeFilter de={de} ate={ate} />
               {versionSelect}
             </div>
           }
@@ -122,7 +150,7 @@ export default async function ProjecaoPage({
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(version.id),
     getReembolsos(version.id),
-    getInccRows(ctx.project.id),
+    getInccRows(obra.id),
   ]);
 
   // Projeção por unidade a partir dos RECEBÍVEIS do plano de pagamento — mesma
@@ -147,7 +175,7 @@ export default async function ProjecaoPage({
   // Versões Budget/Forecast não guardam unidades — a receita delas vive em
   // budget_line. Sem isto, selecionar Budget/Forecast aqui zerava a tela.
   if (version.kind === "budget" || version.kind === "forecast") {
-    const planejada = await getMonthlyRevenue(version.id, ctx.project.id);
+    const planejada = await getMonthlyRevenue(version.id, obra.id);
     for (const [mm, v] of Object.entries(planejada)) {
       unitsProj[mm] = (unitsProj[mm] || 0) + v;
     }
@@ -203,6 +231,7 @@ export default async function ProjecaoPage({
         subtitle={`Versão: ${version.label} · ${vendidas} unidades vendidas`}
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
             {!hasRange && years.length > 1 && (
               <ProjecaoYearSelect years={years} selected={selectedYear} />

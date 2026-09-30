@@ -1,4 +1,8 @@
-import { getActiveContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { PedirProjeto } from "@/components/app/pedir-projeto";
+import { ProjectPicker } from "@/components/app/project-picker";
+import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getInccRows, getRevenueBySource } from "@/lib/queries";
 import { PROJECTION_SOURCES, type MonthlyProjection } from "@/lib/calc";
 import { brl0, monthInRange } from "@/lib/utils";
@@ -40,14 +44,37 @@ const sumOver = (map: MonthlyProjection, months: string[]) =>
 export default async function ConsolidadoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; ano?: string; de?: string; ate?: string; vs?: string }>;
+  searchParams: Promise<{ view?: string; ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string }>;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "consolidado", "ver")) return <AccessDenied />;
+
+  // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie. Relatório de
+  // UMA obra: não há "Todos" aqui (B12 vale para os consolidáveis).
+  const spObra = await searchParams;
+  const selecaoObra = lerSelecaoDeProjeto(ctx.projects, spObra);
+  const escolhido =
+    selecaoObra.tipo === "projeto"
+      ? await getProjectVersions(ctx.tenant.id, selecaoObra.projeto.id)
+      : null;
+  if (!escolhido?.trabalho) {
+    return <PedirProjeto titulo="Consolidado" projetos={ctx.projects} oQue="ver o consolidado" />;
+  }
+  const { project: obra, versions: versoesDaObra, trabalho: versaoTrabalho } = escolhido;
+  const projectPicker = (
+    <>
+      <ProjectPicker
+        projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+        selected={obra.id}
+      />
+      <LembrarProjeto projectId={obra.id} />
+    </>
+  );
 
   const sp = await searchParams;
   const view: View = VIEWS.some((v) => v.key === sp.view) ? (sp.view as View) : "mensal";
@@ -55,12 +82,12 @@ export default async function ConsolidadoPage({
   const ate = sp.ate ?? "";
   const hasRange = !!(de || ate);
 
-  const compareVersions = resolveCompareVersions(sp.vs, ctx.versions, ctx.version);
+  const compareVersions = resolveCompareVersions(sp.vs, versoesDaObra, versaoTrabalho);
   const multi = compareVersions.length > 1;
 
   const versionSelect = (
     <VersionMultiSelect
-      versions={ctx.versions.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
       selected={compareVersions.map((v) => v.id)}
     />
   );
@@ -69,7 +96,7 @@ export default async function ConsolidadoPage({
   if (multi) {
     const inFilter = (m: string) => !hasRange || monthInRange(m, de, ate);
     const perVersion = await Promise.all(
-      compareVersions.map((v) => getRevenueBySource(v.id, ctx.project.id)),
+      compareVersions.map((v) => getRevenueBySource(v.id, obra.id)),
     );
     const sumFiltered = (map: MonthlyProjection) =>
       Object.entries(map)
@@ -103,7 +130,8 @@ export default async function ConsolidadoPage({
           subtitle="Comparativo de versões · total por fonte (Reembolso incluído no TOTAL)"
           actions={
             <div className="flex flex-wrap items-end gap-3">
-              <DateRangeFilter de={de} ate={ate} />
+              {projectPicker}
+            <DateRangeFilter de={de} ate={ate} />
               {versionSelect}
             </div>
           }
@@ -120,8 +148,8 @@ export default async function ConsolidadoPage({
   // ─────────────────────── Modo detalhado (1 versão) ───────────────────────
   const selected = compareVersions[0];
   const [{ sources, reemb: reembMonth }, incc] = await Promise.all([
-    getRevenueBySource(selected.id, ctx.project.id),
-    getInccRows(ctx.project.id),
+    getRevenueBySource(selected.id, obra.id),
+    getInccRows(obra.id),
   ]);
 
   // Horizonte (48 meses INCC + extras) e janelas de ano. Com período informado
@@ -186,6 +214,7 @@ export default async function ConsolidadoPage({
         subtitle="Reembolso incluído no TOTAL"
         actions={
           <div className="flex flex-wrap items-end gap-3">
+            {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
             {!hasRange && (
               <ConsolidadoControls
