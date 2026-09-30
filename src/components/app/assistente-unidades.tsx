@@ -1,22 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { AnaliseDeUnidades, TipoAchado } from "@/lib/unidade-analise";
-import { brl } from "@/lib/utils";
+import { CHAVE_PROPOSTA_UNIDADE, type PropostaGuardada } from "@/lib/ai/unidade-doc";
+import { proporUnidadePorTexto } from "@/lib/actions/unidades-assistente";
+import { brl, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 
 /**
  * Painel do assistente na tela de Unidades (Prompt J, seção 6; Prompt E, 2.2).
  *
- * Nesta entrega o painel é SOMENTE LEITURA: as duas ações são contas feitas
- * no servidor sobre as unidades que a própria página carregou (nenhum id vem
- * do cliente, nada sai do sistema, nada grava). O selo diz exatamente isso
- * (Prompt E, 6.1) e muda quando o lançamento assistido entrar (J-5).
+ * Duas partes:
+ *  - **análises** (Conferir planos, Revisar cadastro): contas feitas no
+ *    servidor sobre as unidades que a própria página carregou — nenhum id vem
+ *    do cliente, nada sai do sistema, nada grava;
+ *  - **lançamento assistido** (6.3, BJ-3): a descrição em texto (ou ditada)
+ *    vai à action `proporUnidadePorTexto`, que devolve uma PROPOSTA; o painel
+ *    a deixa no sessionStorage e abre o formulário, que mostra cada campo. O
+ *    botão de gravar é do usuário. Não existe caminho de gravação direta.
  *
- * Recolhível, com a preferência guardada por usuário e navegador
- * (localStorage) — preferência de interface, não contexto de negócio.
+ * O selo diz o que o painel faz (Prompt E, 6.1): "Confirma antes de gravar"
+ * quando a IA está configurada; "Somente leitura" quando só há as análises.
+ *
+ * Recolhível, com a preferência guardada por usuário e navegador.
  */
 
 type Acao = "planos" | "cadastro";
@@ -28,17 +36,49 @@ const ROTULO_ACHADO: Record<TipoAchado, string> = {
   vendida_sem_plano: "Sem plano",
 };
 
+type ReconhecedorDeVoz = {
+  lang: string;
+  interimResults: boolean;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+};
+type ConstrutorDeVoz = new () => ReconhecedorDeVoz;
+
+/** Web Speech API do navegador, quando existe (Chrome, Edge, Safari). */
+function construtorDeVoz(): ConstrutorDeVoz | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: ConstrutorDeVoz; webkitSpeechRecognition?: ConstrutorDeVoz };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 export function AssistenteUnidades({
   usuario,
+  projectId,
+  iaDisponivel,
+  podeCriar,
   analise,
 }: {
   /** Quem está logado — só para a chave da preferência "recolhido". */
   usuario: string;
+  projectId: string;
+  /** ANTHROPIC_API_KEY presente no servidor. */
+  iaDisponivel: boolean;
+  /** Permissão "criar" em Unidades — sem ela o convite nem aparece (o servidor confere de novo). */
+  podeCriar: boolean;
   analise: AnaliseDeUnidades;
 }) {
+  const router = useRouter();
   const chave = `gt:assistente:unidades:recolhido:${usuario}`;
   const [recolhido, setRecolhido] = useState(false);
   const [aberta, setAberta] = useState<Acao | null>(null);
+  const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const [temVoz, setTemVoz] = useState(false);
+  const [ouvindo, setOuvindo] = useState(false);
+  const lancamento = iaDisponivel && podeCriar;
 
   useEffect(() => {
     try {
@@ -46,6 +86,7 @@ export function AssistenteUnidades({
     } catch {
       /* sem localStorage (navegação privada, etc.): fica expandido */
     }
+    setTemVoz(!!construtorDeVoz());
   }, [chave]);
 
   const alternar = () => {
@@ -56,6 +97,41 @@ export function AssistenteUnidades({
     } catch {
       /* preferência não persiste; a tela continua funcionando */
     }
+  };
+
+  const ditar = () => {
+    const Voz = construtorDeVoz();
+    if (!Voz) return;
+    const r = new Voz();
+    r.lang = "pt-BR";
+    r.interimResults = false;
+    r.onresult = (e) => {
+      const falado = e.results[0]?.[0]?.transcript ?? "";
+      if (falado) setTexto((t) => (t.trim() ? `${t.trim()} ${falado}` : falado));
+    };
+    r.onend = () => setOuvindo(false);
+    r.onerror = () => setOuvindo(false);
+    setOuvindo(true);
+    r.start();
+  };
+
+  const propor = () => {
+    setErro(null);
+    start(async () => {
+      const r = await proporUnidadePorTexto(texto, projectId);
+      if (!r.ok) {
+        setErro(r.error);
+        return;
+      }
+      const guardada: PropostaGuardada = { projectId, proposta: r.proposta };
+      try {
+        window.sessionStorage.setItem(CHAVE_PROPOSTA_UNIDADE, JSON.stringify(guardada));
+      } catch {
+        setErro("Não foi possível guardar a proposta neste navegador.");
+        return;
+      }
+      router.push(`/unidades/nova?proj=${projectId}&assistente=1`);
+    });
   };
 
   if (recolhido) {
@@ -87,7 +163,7 @@ export function AssistenteUnidades({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[15px] font-bold text-[var(--color-ink)]">
             Assistente IA
-            <Badge tone="neutral">Somente leitura</Badge>
+            {lancamento ? <Badge tone="warning">Confirma antes de gravar</Badge> : <Badge tone="neutral">Somente leitura</Badge>}
           </div>
           <div className="text-[12px] text-[var(--color-ink2)]">Cadastro de unidades e vendas</div>
         </div>
@@ -104,6 +180,58 @@ export function AssistenteUnidades({
           </svg>
         </button>
       </div>
+
+      {lancamento && (
+        <div className="mb-3 rounded-[11px] border border-[#E0D7FB] bg-[#F3EFFE] p-3">
+          <div className="text-[13.5px] font-semibold text-[var(--color-ink)]">Lance a venda conversando</div>
+          <p className="mt-0.5 text-[11.5px] leading-snug text-[var(--color-ink2)]">
+            Descreva a venda em texto{temVoz ? " ou por voz" : ""}. Eu preencho o formulário e mostro tudo para você
+            conferir antes de gravar.
+          </p>
+          <div className="mt-2 flex items-stretch gap-1.5">
+            <textarea
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              rows={2}
+              maxLength={2000}
+              disabled={pending}
+              placeholder="Ex.: vendi a casa 12 por 380 mil em 05/03"
+              aria-label="Descrição da venda"
+              className="min-w-0 flex-1 resize-y rounded-[8px] border border-[var(--color-accent2)]/20 bg-white px-2.5 py-1.5 text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-accent2)] focus:ring-2 focus:ring-[var(--color-accent2)]/20"
+            />
+            {temVoz && (
+              <button
+                type="button"
+                onClick={ditar}
+                disabled={pending || ouvindo}
+                aria-label={ouvindo ? "Ouvindo…" : "Ditar a descrição"}
+                title={ouvindo ? "Ouvindo…" : "Ditar (alternativa ao texto)"}
+                className={cn(
+                  "flex w-9 shrink-0 items-center justify-center rounded-[8px] border border-[var(--color-accent2)]/20 bg-white text-[#6D4BD1] hover:bg-[var(--color-surface2)] disabled:opacity-50",
+                  ouvindo && "animate-pulse",
+                )}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-[var(--color-ink3)]">
+            Também entende: &quot;sinal de 50 mil, 36 parcelas de 4.500 e financiamento do restante&quot;.
+          </p>
+          <button
+            type="button"
+            onClick={propor}
+            disabled={pending || texto.trim().length < 3}
+            className="mt-2 w-full rounded-[8px] bg-[var(--color-accent)] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[var(--color-accent2)] disabled:opacity-50"
+          >
+            {pending ? "Interpretando…" : "Preencher o formulário"}
+          </button>
+          {erro && <p className="mt-1.5 text-[11.5px] text-[var(--color-danger)]">{erro}</p>}
+        </div>
+      )}
 
       <div className="space-y-2">
         <AcaoDoPainel
@@ -183,8 +311,9 @@ export function AssistenteUnidades({
       </div>
 
       <p className="mt-3 text-[11px] leading-snug text-[var(--color-ink3)]">
-        As análises são feitas sobre as unidades desta versão, aqui no sistema. Nada é alterado por
-        aqui: para corrigir, abra a unidade.
+        {lancamento
+          ? "O assistente preenche o formulário e mostra cada campo antes de gravar. Nada é salvo sem a sua confirmação, e a sua permissão continua valendo. Ele nunca exclui unidades."
+          : "As análises são feitas sobre as unidades desta versão, aqui no sistema. Nada é alterado por aqui: para corrigir, abra a unidade."}
       </p>
     </aside>
   );

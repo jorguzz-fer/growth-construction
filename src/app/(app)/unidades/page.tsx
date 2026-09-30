@@ -10,6 +10,7 @@ import { brl0, dateBR } from "@/lib/utils";
 import { contagemDeUnidades, saldoFecha, saldoFormatado, vgvFormatado } from "@/lib/unidade-exibicao";
 import { analisarUnidades } from "@/lib/unidade-analise";
 import { AssistenteUnidades } from "@/components/app/assistente-unidades";
+import { isAiConfigured } from "@/lib/ai/client";
 import { PageHeader } from "@/components/app/page-header";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
@@ -272,7 +273,13 @@ export default async function UnidadesPage({
         </tbody>
       </Table>
       </div>
-      <AssistenteUnidades usuario={ctx.userId ?? ctx.userEmail ?? "anon"} analise={analise} />
+      <AssistenteUnidades
+        usuario={ctx.userId ?? ctx.userEmail ?? "anon"}
+        projectId={project.id}
+        iaDisponivel={isAiConfigured()}
+        podeCriar={canEdit}
+        analise={analise}
+      />
       </div>
     </>
   );
