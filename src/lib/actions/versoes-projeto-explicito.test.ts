@@ -21,7 +21,8 @@ describe.skipIf(!HAS_DB)("Versões com obra explícita", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
   const { getVersionContext } = await import("@/lib/context");
-  const { duplicateVersion, updateVersion, setDefaultVersion, deleteVersion } = await import("./versions");
+  const versoes = await import("./versions");
+  const { updateVersion, setDefaultVersion, deleteVersion } = versoes;
   const tenants: string[] = [];
   let tA = "";
   const p: Record<string, typeof schema.projects.$inferSelect> = {};
@@ -99,15 +100,8 @@ describe.skipIf(!HAS_DB)("Versões com obra explícita", async () => {
     expect(l.meta).toMatchObject({ projeto: "OBRA 2" });
   });
 
-  it("duplicateVersion cria a cópia na obra da versão de origem", async () => {
-    await duplicateVersion(v.a2atual.id, "Cenário");
-    const a2 = await versoesDe(p.a2.id);
-    expect(a2.some((x) => x.kind === "custom" && x.label === "Cenário")).toBe(true);
-    expect((await versoesDe(p.a1.id)).some((x) => x.kind === "custom")).toBe(false);
-  });
-
-  it("duplicateVersion recusa versão de outro tenant", async () => {
-    await expect(duplicateVersion(v.b1atual.id, "X")).rejects.toThrow(/não encontrada/);
+  it("BI-3: duplicateVersion não existe mais — nenhuma versão nasce por cópia", () => {
+    expect("duplicateVersion" in versoes).toBe(false);
   });
 
   it("deleteVersion: versão de outro tenant intacta", async () => {
