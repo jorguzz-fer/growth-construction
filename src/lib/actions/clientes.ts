@@ -19,6 +19,7 @@ import {
   LIMITE_UPLOAD_MB,
   bloqueiosDeExclusao,
   confirmacaoConfere,
+  recusaDeInteresse,
   statusLiberaUnidade,
 } from "@/lib/clientes-regras";
 import { vinculosDoCliente } from "@/lib/clientes-vinculos";
@@ -169,6 +170,8 @@ export async function addCliente(formData: FormData): Promise<ResultadoCliente> 
   );
   const nome = dados.nomeCompleto;
   if (!nome) return { ok: false, error: "Informe o nome do cliente." };
+  const recusaInteresse = recusaDeInteresse(dados.interesse);
+  if (recusaInteresse) return { ok: false, error: recusaInteresse };
   try {
     const row = await db.transaction(async (tx) => {
       const conflito = await unidadeEmConflito(tx, ctx.tenant.id, dados.unitCode);
@@ -219,6 +222,9 @@ export async function updateCliente(formData: FormData): Promise<ResultadoClient
         .where(and(eq(schema.clientes.id, id), eq(schema.clientes.tenantId, ctx.tenant.id)))
         .limit(1);
       if (!antes) throw new Recusa("Cliente não encontrado.");
+      // 6.7 — fora de 1 a 5 só passa se for o valor já gravado (não é convertido).
+      const recusaInteresse = recusaDeInteresse(novo.interesse, antes.interesse);
+      if (recusaInteresse) throw new Recusa(recusaInteresse);
       const conflito = await unidadeEmConflito(tx, ctx.tenant.id, novo.unitCode, id);
       if (conflito) throw new Recusa(msgConflito(novo.unitCode, conflito));
       await tx

@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { bloqueiosDeExclusao, confirmacaoConfere, statusLiberaUnidade } from "./clientes-regras";
+import {
+  bloqueiosDeExclusao,
+  confirmacaoConfere,
+  interesseNaFaixa,
+  lerFiltrosClientes,
+  linkDaListagem,
+  montarOpcoesDeUnidade,
+  obraInicialDoCliente,
+  obrasDaUnidade,
+  recusaDeInteresse,
+  statusLiberaUnidade,
+  termosDaBusca,
+} from "./clientes-regras";
 
 describe("statusLiberaUnidade (Prompt M, 6.2)", () => {
   it("libera os status de distrato/cancelamento, sem diferenciar caixa, acento e espaço", () => {
@@ -34,5 +46,72 @@ describe("bloqueiosDeExclusao (6.1)", () => {
     expect(m).toHaveLength(5);
     expect(m[0]).toContain("A-101");
     expect(m[1]).toContain("2 conta(s) a receber");
+  });
+});
+
+describe("interesse (6.7)", () => {
+  it("1 a 5 inteiro está na faixa; o resto não", () => {
+    for (const n of [1, 2, 3, 4, 5]) expect(interesseNaFaixa(n)).toBe(true);
+    for (const n of [0, 6, -1, 10, 2.5, null, undefined]) expect(interesseNaFaixa(n)).toBe(false);
+  });
+  it("recusa valor novo fora da faixa; aceita vazio, 1–5 e o mesmo valor já gravado", () => {
+    expect(recusaDeInteresse(null)).toBeNull();
+    expect(recusaDeInteresse(3)).toBeNull();
+    expect(recusaDeInteresse(7)).toMatch(/1 a 5/);
+    expect(recusaDeInteresse(7, 7)).toBeNull(); // salvar sem mexer não é barrado
+    expect(recusaDeInteresse(8, 7)).toMatch(/1 a 5/);
+    expect(recusaDeInteresse(4, 7)).toBeNull(); // corrigir é aceito
+  });
+});
+
+describe("unidade por obra (6.6)", () => {
+  const obras = [
+    { id: "o1", name: "OBRA 1", kind: "proj" },
+    { id: "o2", name: "OBRA 2", kind: "proj" },
+    { id: "esc", name: "ESCRITÓRIO", kind: "office" },
+  ];
+  const unidades = [
+    { projectId: "o1", code: "101" },
+    { projectId: "o2", code: "101" },
+    { projectId: "o2", code: "202" },
+  ];
+  it("obrasDaUnidade: todas as obras com o código", () => {
+    expect(obrasDaUnidade(unidades, "101")).toEqual(["o1", "o2"]);
+    expect(obrasDaUnidade(unidades, "999")).toEqual([]);
+    expect(obrasDaUnidade(unidades, null)).toEqual([]);
+  });
+  it("abre na obra da unidade vinculada; entre várias, a preferida; senão a preferida ou a primeira", () => {
+    expect(obraInicialDoCliente(obras, unidades, "202")).toBe("o2");
+    expect(obraInicialDoCliente(obras, unidades, "202", "o1")).toBe("o2");
+    expect(obraInicialDoCliente(obras, unidades, "101", "o2")).toBe("o2");
+    expect(obraInicialDoCliente(obras, unidades, "101")).toBe("o1");
+    expect(obraInicialDoCliente(obras, unidades, "999", "o2")).toBe("o2");
+    expect(obraInicialDoCliente(obras, unidades, null, "outra-empresa")).toBe("o1");
+  });
+  it("montarOpcoesDeUnidade: escritório sem unidade fica fora da lista de obras", () => {
+    const r = montarOpcoesDeUnidade(obras, unidades, "202");
+    expect(r.obras.map((o) => o.id)).toEqual(["o1", "o2"]);
+    expect(r.obraInicial).toBe("o2");
+    const comUnidadeNoEscritorio = montarOpcoesDeUnidade(obras, [...unidades, { projectId: "esc", code: "S1" }], null);
+    expect(comUnidadeNoEscritorio.obras.map((o) => o.id)).toEqual(["o1", "o2", "esc"]);
+  });
+});
+
+describe("listagem (6.8)", () => {
+  it("lerFiltrosClientes: página inválida vira 1; busca aparada", () => {
+    expect(lerFiltrosClientes({ q: "  ana ", status: "Ativo", pagina: "3" })).toEqual({ q: "ana", status: "Ativo", pagina: 3 });
+    expect(lerFiltrosClientes({ pagina: "0" }).pagina).toBe(1);
+    expect(lerFiltrosClientes({ pagina: "abc" }).pagina).toBe(1);
+    expect(lerFiltrosClientes({ pagina: ["2", "5"] }).pagina).toBe(2);
+  });
+  it("termosDaBusca: sem acento e minúsculo, um termo por palavra", () => {
+    expect(termosDaBusca("  JOSÉ   Conceição ")).toEqual(["jose", "conceicao"]);
+    expect(termosDaBusca("")).toEqual([]);
+  });
+  it("linkDaListagem mantém os filtros e omite o padrão", () => {
+    const f = { q: "ana b", status: "Ativo", pagina: 1 };
+    expect(linkDaListagem(f)).toBe("/clientes?q=ana+b&status=Ativo");
+    expect(linkDaListagem(f, { pagina: 2 })).toBe("/clientes?q=ana+b&status=Ativo&pagina=2");
+    expect(linkDaListagem({ q: "", status: "", pagina: 1 })).toBe("/clientes");
   });
 });

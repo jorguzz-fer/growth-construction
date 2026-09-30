@@ -34,8 +34,7 @@ Agora confere.
   livre. Para virar lista fechada, é preciso saber **quais valores existem em
   produção** e quais serão aceitos. Levantamento em
   `docs/sql/v2-status-contrato.sql`.
-- 6.6 (unidade de outro projeto), 6.7 (interesse de 1 a 5) e 6.8 (busca,
-  filtro e paginação).
+- ~~6.6, 6.7 e 6.8~~ — entraram na 2ª metade, abaixo.
 - 6.9.3: não há ação de remover documento de cliente na tela. Fica registrado.
 
 ## Verificação
@@ -57,3 +56,73 @@ Agora confere.
   3. confirmação errada → mensagem;
   4. confirmação certa → volta à lista e o cliente saiu;
   5. nenhum erro de JavaScript.
+
+---
+
+# 2ª metade — 6.6, 6.7 e 6.8
+
+| Item | Antes | Agora |
+|---|---|---|
+| **6.6 · Unidade por obra** | o seletor listava os códigos de **todas** as obras misturados | primeiro se escolhe a **obra**, depois a unidade dela. A unidade já vinculada **aparece sempre**. Se não for da obra escolhida, vem marcada "vinculada, de outra obra" (ou "sem obra", se o código não existe em nenhuma), com um aviso dizendo de onde ela é. Nada é corrigido sozinho |
+| **6.7 · Interesse** | número livre (aceitava 0, 7, 99) | **seleção de 1 a 5**. Valor fora da faixa já gravado continua aparecendo, marcado "fora da faixa", na ficha e na lista. Salvar a ficha sem mexer nele **não** é barrado e **não** converte o valor; trocar por outro valor fora da faixa é recusado |
+| **6.8 · Lista** | todos os clientes numa página só, sem busca | **busca** por nome ou unidade (sem diferenciar acento e maiúsculas; cada palavra precisa aparecer), **filtro por status** (com a contagem de cada um e "Sem status"), **paginação** de 50 em 50. Tudo fica na URL (`?q=`, `?status=`, `?pagina=`) |
+
+### Como a obra da unidade é escolhida (6.6)
+
+O cliente **não tem coluna de obra**. Ele guarda só o código da unidade. A obra
+no formulário é um filtro de tela e **não é gravada**. Nenhuma mudança de
+banco.
+
+A obra em que o seletor abre segue esta ordem:
+
+1. a obra da unidade vinculada;
+2. se o código existir em mais de uma obra, a obra da aba (`?proj=`), quando
+   for uma delas;
+3. sem unidade vinculada, a obra da aba;
+4. senão, a primeira obra da lista.
+
+Entram na lista as obras e também os escritórios que tenham unidade. Os
+escritórios sem unidade ficam de fora.
+
+### Registro — código de unidade repetido entre obras
+
+A trava de "unidade já vendida" (6.3) compara **só o código**, na empresa
+inteira. Se duas obras têm uma unidade "101", um cliente na 101 da OBRA 1
+bloqueia a 101 da OBRA 2. **Não mexi nisso.** Mudar exigiria gravar a obra no
+cliente, o que é mudança de banco e de regra. Fica como pergunta para quando
+o cadastro de cliente ganhar vínculo com a obra.
+
+### Verificação (2ª metade)
+
+- `clientes-regras.test.ts`:
+  - faixa do interesse, e o que é recusado ou aceito;
+  - obras de uma unidade e a obra inicial;
+  - leitura dos filtros e montagem dos links.
+- `clientes-listagem.test.ts` (Postgres):
+  - unidades por obra, sem repetir entre versões e só da empresa;
+  - busca sem acento;
+  - busca por unidade;
+  - `%` e `_` tratados como texto;
+  - status com espaços sobrando;
+  - "Sem status" pega nulo e vazio;
+  - paginação estável;
+  - interesse 6 recusado no cadastro;
+  - interesse 7 já gravado: salvar sem mexer passa e fica 7, trocar por 9 é recusado, corrigir para 4 passa.
+- Suíte inteira: 897 passando. `typecheck`, `lint` e `next build` limpos.
+- Navegador (62 clientes de teste):
+  - a lista mostra 50 por página, e a página 2 mostra 12;
+  - "otavio orfao" acha "Otávio Órfão";
+  - "O7-101" acha pela unidade;
+  - o filtro Distratado mostra "20 de 62";
+  - interesse 7 aparece como "7 · fora da faixa";
+  - a ficha abre na obra da unidade;
+  - ao trocar de obra, a vinculada continua selecionada e marcada, com o aviso;
+  - salvar sem mexer mantém a unidade e o interesse 7;
+  - uma unidade inexistente aparece como "sem obra";
+  - nenhum erro de JavaScript.
+
+## Ainda pendente
+
+- **6.2 · domínio fechado do status:** aguarda o resultado de
+  `docs/sql/v2-status-contrato.sql` em produção.
+- **6.9.3:** não existe ação de remover documento de cliente.

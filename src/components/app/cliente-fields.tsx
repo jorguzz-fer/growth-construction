@@ -2,8 +2,15 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import type { ClienteRow } from "@/lib/queries";
 import { campoSensivelCliente } from "@/lib/clientes-sensivel";
+import {
+  INTERESSE_MAX,
+  INTERESSE_MIN,
+  interesseNaFaixa,
+  type OpcoesDeUnidade,
+} from "@/lib/clientes-regras";
+import { UnidadePorObra } from "@/components/app/unidade-por-obra";
 
-type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select";
+type FieldType = "text" | "number" | "unit" | "textarea" | "date" | "select" | "interesse";
 interface Field {
   name: keyof ClienteRow;
   label: string;
@@ -91,7 +98,7 @@ const GROUPS: Group[] = [
       { name: "motivacaoCompra", label: "Motivação de compra" },
       { name: "comoConheceu", label: "Como conheceu" },
       { name: "indicadoPor", label: "Indicado por" },
-      { name: "interesse", label: "Interesse (1–5)", type: "number" },
+      { name: "interesse", label: "Interesse (1–5)", type: "interesse" },
       { name: "obsEstrategicas", label: "Obs. estratégicas", type: "textarea", colSpan: "sm:col-span-4" },
     ],
   },
@@ -105,13 +112,13 @@ const GROUPS: Group[] = [
  */
 export function ClienteFields({
   cliente,
-  unitCodes,
+  unidades,
   veDados = false,
   editaDados = false,
   cpfMascarado = null,
 }: {
   cliente?: Partial<ClienteRow>;
-  unitCodes: string[];
+  unidades: OpcoesDeUnidade;
   veDados?: boolean;
   editaDados?: boolean;
   /** CPF já cadastrado, mascarado, para quem não vê o documento completo. */
@@ -140,6 +147,19 @@ export function ClienteFields({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {g.fields.map((f) => {
               const bloqueado = campoSensivelCliente(f.name) && !editaDados;
+              if (f.type === "unit") {
+                // Duas células da grade: a obra (filtro) e a unidade (6.6).
+                return (
+                  <UnidadePorObra
+                    key={f.name}
+                    label={f.label}
+                    obras={unidades.obras}
+                    unidades={unidades.unidades}
+                    obraInicial={unidades.obraInicial}
+                    vinculada={cliente?.unitCode ?? null}
+                  />
+                );
+              }
               return (
               <div key={f.name} className={f.colSpan}>
                 <Label>{f.label}</Label>
@@ -151,15 +171,31 @@ export function ClienteFields({
                     defaultValue=""
                     placeholder={cpfMascarado ? `${cpfMascarado} — digite para substituir` : ""}
                   />
-                ) : f.type === "unit" ? (
-                  <Select name={f.name} defaultValue={val(f.name)}>
-                    <option value="">—</option>
-                    {unitCodes.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </Select>
+                ) : f.type === "interesse" ? (
+                  // Seleção de 1 a 5 (6.7). Valor fora da faixa já gravado
+                  // continua como opção, sinalizado, até alguém corrigir.
+                  <>
+                    <Select name={f.name} defaultValue={val(f.name)} disabled={bloqueado}>
+                      <option value="">—</option>
+                      {cliente?.interesse != null && !interesseNaFaixa(cliente.interesse) && (
+                        <option value={String(cliente.interesse)}>
+                          {cliente.interesse} · fora da faixa
+                        </option>
+                      )}
+                      {Array.from({ length: INTERESSE_MAX - INTERESSE_MIN + 1 }, (_, i) => INTERESSE_MIN + i).map(
+                        (n) => (
+                          <option key={n} value={String(n)}>
+                            {n}
+                          </option>
+                        ),
+                      )}
+                    </Select>
+                    {cliente?.interesse != null && !interesseNaFaixa(cliente.interesse) && (
+                      <p className="mt-1 text-[11.5px] leading-snug text-[var(--color-warning)]">
+                        Gravado como {cliente.interesse}, fora da faixa de {INTERESSE_MIN} a {INTERESSE_MAX}.
+                      </p>
+                    )}
+                  </>
                 ) : f.type === "select" ? (
                   <Select name={f.name} defaultValue={val(f.name)} disabled={bloqueado}>
                     <option value="">—</option>

@@ -56,3 +56,119 @@ export function bloqueiosDeExclusao(v: VinculosDoCliente): string[] {
   if (v.recebimentosTerceiros > 0) m.push(`${v.recebimentosTerceiros} recebimento(s) por terceiro`);
   return m;
 }
+
+// ─────────────────────────── Interesse (6.7) ───────────────────────────
+
+export const INTERESSE_MIN = 1;
+export const INTERESSE_MAX = 5;
+
+export function interesseNaFaixa(v: number | null | undefined): boolean {
+  return v != null && Number.isInteger(v) && v >= INTERESSE_MIN && v <= INTERESSE_MAX;
+}
+
+/**
+ * O interesse enviado pode ser gravado? Vazio sempre pode; 1 a 5 também. Fora
+ * da faixa, só se for o MESMO valor já gravado — quem salva a ficha sem mexer
+ * no campo não é barrado, e nada já gravado é convertido. Retorna a mensagem
+ * de recusa, ou null.
+ */
+export function recusaDeInteresse(
+  novo: number | null | undefined,
+  anterior: number | null | undefined = null,
+): string | null {
+  if (novo == null || interesseNaFaixa(novo) || novo === anterior) return null;
+  return `Interesse vai de ${INTERESSE_MIN} a ${INTERESSE_MAX}.`;
+}
+
+// ─────────────────────── Unidade por obra (6.6) ───────────────────────
+
+export interface UnidadeDaObra {
+  projectId: string;
+  code: string;
+}
+
+/** Unidades por obra para o seletor da unidade comprada. */
+export interface OpcoesDeUnidade {
+  obras: { id: string; name: string }[];
+  unidades: UnidadeDaObra[];
+  obraInicial: string;
+}
+
+/**
+ * Monta as opções do seletor: as obras que têm unidade (e as obras que não
+ * são escritório), na ordem recebida, e a obra em que ele abre.
+ */
+export function montarOpcoesDeUnidade(
+  projetos: readonly { id: string; name: string; kind: string }[],
+  unidades: UnidadeDaObra[],
+  unitCode: string | null | undefined,
+  preferida?: string | null,
+): OpcoesDeUnidade {
+  const comUnidade = new Set(unidades.map((u) => u.projectId));
+  const obras = projetos
+    .filter((p) => comUnidade.has(p.id) || p.kind !== "office")
+    .map((p) => ({ id: p.id, name: p.name }));
+  return { obras, unidades, obraInicial: obraInicialDoCliente(obras, unidades, unitCode, preferida) };
+}
+
+/** Obras em que existe uma unidade com este código. */
+export function obrasDaUnidade(unidades: readonly UnidadeDaObra[], code: string | null | undefined): string[] {
+  if (!code) return [];
+  return [...new Set(unidades.filter((u) => u.code === code).map((u) => u.projectId))];
+}
+
+/**
+ * Obra que o seletor abre: a da unidade vinculada (se estiver em uma só, ou a
+ * preferida entre as que a têm); senão a preferida (a obra da aba); senão a
+ * primeira da lista.
+ */
+export function obraInicialDoCliente(
+  obras: readonly { id: string }[],
+  unidades: readonly UnidadeDaObra[],
+  unitCode: string | null | undefined,
+  preferida?: string | null,
+): string {
+  const daUnidade = obrasDaUnidade(unidades, unitCode).filter((id) => obras.some((o) => o.id === id));
+  if (daUnidade.length) return preferida && daUnidade.includes(preferida) ? preferida : daUnidade[0];
+  if (preferida && obras.some((o) => o.id === preferida)) return preferida;
+  return obras[0]?.id ?? "";
+}
+
+// ─────────────────────────── Listagem (6.8) ───────────────────────────
+
+export const CLIENTES_POR_PAGINA = 50;
+/** Valor do filtro de status para "sem status". */
+export const STATUS_EM_BRANCO = "__vazio__";
+
+export interface FiltrosClientes {
+  q: string;
+  status: string;
+  pagina: number;
+}
+
+const primeiro = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
+
+export function lerFiltrosClientes(params: Record<string, string | string[] | undefined>): FiltrosClientes {
+  const pagina = Number.parseInt(primeiro(params.pagina), 10);
+  return {
+    q: primeiro(params.q).trim().slice(0, 100),
+    status: primeiro(params.status).slice(0, 100),
+    pagina: Number.isFinite(pagina) && pagina > 0 ? pagina : 1,
+  };
+}
+
+/** Termos da busca, normalizados (sem acento, minúsculos). */
+export function termosDaBusca(q: string): string[] {
+  return normalizar(q).split(/\s+/).filter(Boolean).slice(0, 8);
+}
+
+/** Link da listagem com os filtros atuais, mudando só o que for passado. */
+export function linkDaListagem(f: FiltrosClientes, muda: Partial<FiltrosClientes> = {}): string {
+  const x = { ...f, ...muda };
+  const p = new URLSearchParams();
+  if (x.q) p.set("q", x.q);
+  if (x.status) p.set("status", x.status);
+  if (x.pagina > 1) p.set("pagina", String(x.pagina));
+  const s = p.toString();
+  return s ? `/clientes?${s}` : "/clientes";
+}

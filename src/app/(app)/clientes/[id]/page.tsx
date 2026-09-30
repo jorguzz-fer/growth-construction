@@ -3,12 +3,13 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, getTableColumns } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
-import { getUnitCodesByTenant } from "@/lib/queries";
+import { getUnidadesComObra } from "@/lib/queries";
+import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { can } from "@/lib/permissions";
 import { updateCliente, deleteCliente, uploadClienteDoc } from "@/lib/actions/clientes";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { vinculosDoCliente } from "@/lib/clientes-vinculos";
-import { bloqueiosDeExclusao, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
+import { bloqueiosDeExclusao, LIMITE_UPLOAD_MB, montarOpcoesDeUnidade } from "@/lib/clientes-regras";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,8 +28,10 @@ export const dynamic = "force-dynamic";
 
 export default async function EditarClientePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -69,11 +72,19 @@ export default async function EditarClientePage({
   const bloqueiosExclusao = canExcluir
     ? bloqueiosDeExclusao(await vinculosDoCliente(db, ctx.tenant.id, cliente))
     : [];
-  // Todas as unidades do tenant (não só do projeto do contexto). A unidade já
-  // vinculada a este cliente sempre aparece na lista, mesmo que vendida.
-  const unitCodesAll = await getUnitCodesByTenant(ctx.tenant.id);
+  // Unidades por obra (6.6): o seletor abre na obra da unidade vinculada, que
+  // aparece sempre — sinalizada quando não é da obra escolhida.
+  const sel = lerSelecaoDeProjeto(ctx.projects, await searchParams);
+  const unidadesComObra = await getUnidadesComObra(ctx.tenant.id);
+  const unidades = montarOpcoesDeUnidade(
+    ctx.projects,
+    unidadesComObra,
+    cliente.unitCode,
+    sel.tipo === "projeto" ? sel.projeto.id : null,
+  );
+  // O documento só ETIQUETA a unidade: a lista do tenant, com a vinculada.
   const unitCodes = [
-    ...new Set([...(cliente.unitCode ? [cliente.unitCode] : []), ...unitCodesAll]),
+    ...new Set([...(cliente.unitCode ? [cliente.unitCode] : []), ...unidadesComObra.map((u) => u.code)]),
   ].sort();
 
   // Documentos de venda/contrato vinculados a este cliente (mais recentes primeiro).
@@ -99,7 +110,7 @@ export default async function EditarClientePage({
             <input type="hidden" name="id" value={cliente.id} />
             <ClienteFields
               cliente={cliente}
-              unitCodes={unitCodes}
+              unidades={unidades}
               veDados={veDados}
               editaDados={editaDados}
               cpfMascarado={cpfMascarado}
