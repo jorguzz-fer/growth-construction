@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -242,7 +243,8 @@ export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
     .select()
     .from(schema.despesas)
     .where(eq(schema.despesas.versionId, versionId))
-    .orderBy(asc(schema.despesas.competencia));
+    // §37 — competência em texto: ordem cronológica, com desempate estável.
+    .orderBy(asc(chaveCompetencia(schema.despesas.competencia)), asc(schema.despesas.createdAt), asc(schema.despesas.id));
 }
 
 /**
@@ -309,7 +311,7 @@ export async function getDespesasByTenant(
         eq(schema.versions.kind, "atual"),
       ),
     )
-    .orderBy(asc(schema.despesas.competencia));
+    .orderBy(asc(chaveCompetencia(schema.despesas.competencia)), asc(schema.despesas.createdAt), asc(schema.despesas.id));
   return rows.map((r) => ({
     ...r.d,
     projectId: r.projectId,
@@ -1101,7 +1103,8 @@ export async function getCash(versionId: string): Promise<CashRow[]> {
     .select()
     .from(schema.cashEntries)
     .where(eq(schema.cashEntries.versionId, versionId))
-    .orderBy(asc(schema.cashEntries.data));
+    // §37 — data em texto: ordem cronológica; sem createdAt na tabela, o id desempata.
+    .orderBy(asc(chaveDataBR(schema.cashEntries.data)), asc(schema.cashEntries.id));
 }
 
 /** Lançamentos de caixa de todas as versões Atual do tenant (caixa real). */
@@ -1111,7 +1114,7 @@ export async function getCashByTenant(tenantId: string): Promise<CashRow[]> {
     .from(schema.cashEntries)
     .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
     .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.versions.kind, "atual")))
-    .orderBy(asc(schema.cashEntries.data));
+    .orderBy(asc(chaveDataBR(schema.cashEntries.data)), asc(schema.cashEntries.id));
   return rows.map((r) => r.c);
 }
 
@@ -1233,7 +1236,7 @@ export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
     .select()
     .from(schema.medicoes)
     .where(eq(schema.medicoes.versionId, versionId))
-    .orderBy(asc(schema.medicoes.competencia), asc(schema.medicoes.grupoCode));
+    .orderBy(asc(chaveCompetencia(schema.medicoes.competencia)), asc(schema.medicoes.grupoCode), asc(schema.medicoes.createdAt), asc(schema.medicoes.id));
 }
 
 /**
@@ -1958,7 +1961,7 @@ export async function getContasReceber(tenantId: string): Promise<ContaReceberRo
         eq(schema.contasReceber.cancelado, false),
       ),
     )
-    .orderBy(asc(schema.contasReceber.vencimento));
+    .orderBy(asc(chaveDataBR(schema.contasReceber.vencimento)), asc(schema.contasReceber.createdAt), asc(schema.contasReceber.id));
   return rows.map((r) => ({
     id: r.c.id,
     projectId: r.c.projectId,
