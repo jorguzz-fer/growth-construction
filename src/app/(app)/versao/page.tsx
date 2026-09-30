@@ -210,8 +210,10 @@ export default async function VersaoPage({
                 📥 Importar Dados
               </h3>
               <p className="mb-3 text-[13px] leading-relaxed text-[var(--color-ink2)]">
-                Faça o upload da planilha preenchida para importar os dados desta
-                versão. <strong>Os dados existentes serão substituídos.</strong>
+                Faça o upload da planilha preenchida. Unidades, despesas, permutas e
+                liberações <strong>só entram na versão Atual, e só onde a versão ainda
+                não tem nenhum registro daquele tipo</strong> — a importação nunca
+                apaga nem substitui o que já foi lançado. O INCC é atualizado mês a mês.
               </p>
               {canEdit ? (
                 <ImportVersion versionId={v.id} locked={v.locked} />
@@ -221,9 +223,9 @@ export default async function VersaoPage({
                 </p>
               )}
               <p className="mt-3 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-                ⓘ Os dados ficam isolados nesta versão e não afetam as demais.
-                Você pode importar quantas vezes quiser — cada import substitui os
-                dados anteriores desta versão.
+                ⓘ Se a versão já tiver registros de um tipo que a planilha traz, a
+                importação é recusada inteira e nada é gravado. Deixe essas abas vazias
+                ou lance pela tela.
               </p>
             </CardContent>
           </Card>

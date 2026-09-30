@@ -28,10 +28,14 @@ export function ImportVersion({
     start(async () => {
       try {
         const r = await importVersionData(fd);
-        setResult(r);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        setResult(r.result);
         router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha na importação.");
+      } catch {
+        setError("Falha na importação. Nada foi gravado.");
       }
     });
   }
@@ -93,7 +97,7 @@ export function ImportVersion({
 
       {result && (
         <p className="mt-3 rounded-[8px] bg-[#d1fae5] px-3 py-2 text-[13px] text-[#065f46]">
-          Importado: {result.units} unidades · {result.reembolsos} reembolsos ·{" "}
+          Importado: {result.units} unidades · {result.reembolsos} liberações ·{" "}
           {result.permutas} permutas · {result.despesas} despesas · {result.incc} meses INCC.
         </p>
       )}
