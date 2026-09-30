@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -19,6 +19,8 @@ import {
 import { CONTAS_CONTROLADORIA } from "@/lib/calc/constants";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { getAtualVersion } from "@/lib/queries";
+import { recusaDeAcerto, recusaDeObrasDoRateio, type DespesaParaAcerto } from "@/lib/acerto-regras";
+import { saldosReaisDasDespesas } from "@/lib/acerto-saldo";
 
 /**
  * ACERTO CONTÁBIL — Módulo 5.
@@ -53,8 +55,9 @@ export interface DespesaAbativel {
  * Despesas em aberto que podem ser vinculadas a um acerto.
  *
  * Traz de TODAS as obras do tenant de propósito (item 5.1): o pagamento único
- * que motiva este módulo cruza obras. Já descontado o que outros acertos
- * abateram, para o mesmo PED não ser pago duas vezes.
+ * que motiva este módulo cruza obras. O saldo é o REAL (§17): valor menos o
+ * que acertos ativos já abateram e menos o principal dos pagamentos — a
+ * mesma conta que o servidor refaz, com trava, ao concluir.
  */
 export async function getDespesasAbativeis(
   favorecidoId?: string | null,
@@ -78,33 +81,18 @@ export async function getDespesasAbativeis(
         eq(schema.despesas.tenantId, ctx.tenant.id),
         eq(schema.despesas.cancelado, false),
         ne(schema.despesas.status, "Pago"),
+        // Acerto é fato realizado: só PEDs da versão Atual, não congelada.
+        eq(schema.versions.kind, "atual"),
+        eq(schema.versions.locked, false),
       ),
     );
 
-  const ids = rows.map((r) => r.d.id);
-  const abatidos = new Map<string, number>();
-  if (ids.length > 0) {
-    const itens = await db
-      .select({
-        despesaId: schema.acertoItens.despesaId,
-        valor: schema.acertoItens.valorAbatido,
-        estornado: schema.acertos.estornado,
-      })
-      .from(schema.acertoItens)
-      .innerJoin(schema.acertos, eq(schema.acertoItens.acertoId, schema.acertos.id))
-      .where(inArray(schema.acertoItens.despesaId, ids));
-    for (const i of itens) {
-      // Acerto estornado não conta: as despesas dele foram reabertas.
-      if (i.estornado) continue;
-      abatidos.set(i.despesaId, (abatidos.get(i.despesaId) ?? 0) + Number(i.valor));
-    }
-  }
+  const saldos = await saldosReaisDasDespesas(db, ctx.tenant.id, rows.map((r) => r.d));
 
   return rows
     .filter((r) => !favorecidoId || r.d.fornecedorId === favorecidoId)
     .map((r) => {
-      const saldo =
-        Math.round((Number(r.d.valor) - (abatidos.get(r.d.id) ?? 0)) * 100) / 100;
+      const saldo = saldos.get(r.d.id)?.saldo ?? 0;
       return {
         id: r.d.id,
         numDoc: r.d.numDoc,
@@ -186,25 +174,56 @@ export async function concluirAcerto(input: AcertoInput): Promise<AcertoResult> 
   try {
     const out = await db.transaction(async (tx) => {
       const ids = input.itens.map((i) => i.despesaId);
+      // §17 — trava as despesas (FOR UPDATE): dois acertos simultâneos sobre
+      // o mesmo PED entram em fila, e o segundo enxerga o saldo já abatido.
       const despesas = await tx
         .select()
         .from(schema.despesas)
         .where(
           and(eq(schema.despesas.tenantId, ctx.tenant.id), inArray(schema.despesas.id, ids)),
-        );
+        )
+        .for("update");
       if (despesas.length !== ids.length) {
         throw new Error("Alguma despesa vinculada não foi encontrada.");
       }
       const porId = new Map(despesas.map((d) => [d.id, d]));
+      const versoes = await tx
+        .select({ id: schema.versions.id, kind: schema.versions.kind, locked: schema.versions.locked })
+        .from(schema.versions)
+        .where(inArray(schema.versions.id, [...new Set(despesas.map((d) => d.versionId))]));
+      const versaoPorId = new Map(versoes.map((v) => [v.id, v]));
 
-      // O valor abatido nunca excede o valor da despesa.
+      // Saldo REAL de cada PED, já com a trava: valor − abatimentos de acertos
+      // ativos − principal dos pagamentos. Nunca `despesa.valor`.
+      const saldos = await saldosReaisDasDespesas(tx, ctx.tenant.id, despesas);
+      const paraRegra = new Map<string, DespesaParaAcerto>(
+        despesas.map((d) => {
+          const v = versaoPorId.get(d.versionId);
+          return [
+            d.id,
+            {
+              id: d.id,
+              numDoc: d.numDoc,
+              saldo: saldos.get(d.id)?.saldo ?? 0,
+              cancelado: d.cancelado,
+              versionKind: v?.kind ?? "",
+              locked: v?.locked ?? true,
+            },
+          ];
+        }),
+      );
+      const recusa = recusaDeAcerto(input.itens, paraRegra);
+      if (recusa) throw new Error(recusa);
+
+      // O valor abatido cabe no saldo real (conferido acima); `quitado` sai do
+      // saldo que sobra, não do valor cheio da despesa.
       const abatimentos = abaterManual(
         input.itens.map((i) => ({ id: i.despesaId, valor: i.valor })),
         despesas.map((d) => ({
           id: d.id,
           competencia: d.competencia,
           numDoc: d.numDoc,
-          saldo: Number(d.valor),
+          saldo: saldos.get(d.id)?.saldo ?? 0,
         })),
       );
       const totalVinculado = abatimentos.totalAbatido;
@@ -378,78 +397,100 @@ export async function concluirAcerto(input: AcertoInput): Promise<AcertoResult> 
  * saída de caixa e cancela a despesa de diferença financeira. O acerto não é
  * apagado — fica marcado como estornado, preservando a trilha (RG-09).
  */
-export async function estornarAcerto(acertoId: string, motivo: string) {
+export async function estornarAcerto(acertoId: string, motivo: string): Promise<AcertoResult> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
-    throw new Error("Sem permissão para estornar acertos.");
+    return { ok: false, error: "Sem permissão para estornar acertos." };
   }
   const [acerto] = await db
     .select()
     .from(schema.acertos)
     .where(and(eq(schema.acertos.id, acertoId), eq(schema.acertos.tenantId, ctx.tenant.id)))
     .limit(1);
-  if (!acerto) throw new Error("Acerto não encontrado.");
-  if (acerto.estornado) throw new Error("Este acerto já foi estornado.");
+  if (!acerto) return { ok: false, error: "Acerto não encontrado." };
+  if (acerto.estornado) return { ok: false, error: "Este acerto já foi estornado." };
 
-  await db.transaction(async (tx) => {
-    const itens = await tx
-      .select()
-      .from(schema.acertoItens)
-      .where(eq(schema.acertoItens.acertoId, acertoId));
-
-    // Cada despesa volta ao status ANTERIOR ao acerto — não a um status
-    // arbitrário. Por isso `statusAnterior` é gravado na conclusão.
-    for (const i of itens) {
-      await tx
-        .update(schema.despesas)
-        .set({ status: i.statusAnterior ?? "A pagar", dataCaixa: null })
-        .where(eq(schema.despesas.id, i.despesaId));
-    }
-
-    // A diferença financeira é cancelada logicamente, não apagada (RG-09).
-    if (acerto.diferencaDespesaId) {
-      await tx
-        .update(schema.despesas)
-        .set({
-          cancelado: true,
-          canceladoPor: ctx.userEmail || ctx.userId || null,
-          motivoCancelamento: `Estorno do acerto ${acerto.numDoc ?? ""}: ${motivo}`.trim(),
-        })
-        .where(eq(schema.despesas.id, acerto.diferencaDespesaId));
-    }
-
-    // Estorno da saída de caixa: entrada compensatória, preservando o
-    // lançamento original.
-    if (acerto.cashEntryId) {
-      const [orig] = await tx
+  try {
+    await db.transaction(async (tx) => {
+      // Trava o acerto: dois estornos simultâneos não passam os dois.
+      await tx.execute(sql`select 1 from ${schema.acertos} where ${schema.acertos.id} = ${acertoId} for update`);
+      const [ainda] = await tx
+        .select({ estornado: schema.acertos.estornado })
+        .from(schema.acertos)
+        .where(eq(schema.acertos.id, acertoId));
+      if (ainda?.estornado) throw new Error("Este acerto já foi estornado.");
+      const itens = await tx
         .select()
-        .from(schema.cashEntries)
-        .where(eq(schema.cashEntries.id, acerto.cashEntryId))
-        .limit(1);
-      if (orig) {
-        await tx.insert(schema.cashEntries).values({
-          versionId: orig.versionId,
-          tenantId: ctx.tenant.id,
-          bankAccountId: orig.bankAccountId,
-          data: orig.data,
-          descricao: `Estorno do acerto ${acerto.numDoc ?? ""}`.trim(),
-          valor: String(Math.abs(Number(orig.valor))),
-          cat: "ajuste",
-          rec: true,
-        });
+        .from(schema.acertoItens)
+        .where(eq(schema.acertoItens.acertoId, acertoId));
+      // Versão congelada não recebe estorno: as despesas reabririam e o caixa
+      // ganharia uma entrada num período fechado.
+      if (itens.length > 0) {
+        const [congelada] = await tx
+          .select({ id: schema.versions.id })
+          .from(schema.despesas)
+          .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+          .where(and(inArray(schema.despesas.id, itens.map((i) => i.despesaId)), eq(schema.versions.locked, true)))
+          .limit(1);
+        if (congelada) throw new Error("Versão congelada — estorno bloqueado.");
       }
-    }
 
-    await tx
-      .update(schema.acertos)
-      .set({
-        estornado: true,
-        estornadoEm: new Date().toISOString().slice(0, 10),
-        estornadoPor: ctx.userEmail || ctx.userId || null,
-        obs: `${acerto.obs ?? ""}\nEstornado: ${motivo}`.trim(),
-      })
-      .where(eq(schema.acertos.id, acertoId));
-  });
+      // Cada despesa volta ao status ANTERIOR ao acerto — não a um status
+      // arbitrário. Por isso `statusAnterior` é gravado na conclusão.
+      for (const i of itens) {
+        await tx
+          .update(schema.despesas)
+          .set({ status: i.statusAnterior ?? "A pagar", dataCaixa: null })
+          .where(eq(schema.despesas.id, i.despesaId));
+      }
+
+      // A diferença financeira é cancelada logicamente, não apagada (RG-09).
+      if (acerto.diferencaDespesaId) {
+        await tx
+          .update(schema.despesas)
+          .set({
+            cancelado: true,
+            canceladoPor: ctx.userEmail || ctx.userId || null,
+            motivoCancelamento: `Estorno do acerto ${acerto.numDoc ?? ""}: ${motivo}`.trim(),
+          })
+          .where(eq(schema.despesas.id, acerto.diferencaDespesaId));
+      }
+
+      // Estorno da saída de caixa: entrada compensatória, preservando o
+      // lançamento original.
+      if (acerto.cashEntryId) {
+        const [orig] = await tx
+          .select()
+          .from(schema.cashEntries)
+          .where(eq(schema.cashEntries.id, acerto.cashEntryId))
+          .limit(1);
+        if (orig) {
+          await tx.insert(schema.cashEntries).values({
+            versionId: orig.versionId,
+            tenantId: ctx.tenant.id,
+            bankAccountId: orig.bankAccountId,
+            data: orig.data,
+            descricao: `Estorno do acerto ${acerto.numDoc ?? ""}`.trim(),
+            valor: String(Math.abs(Number(orig.valor))),
+            cat: "ajuste",
+            rec: true,
+          });
+        }
+      }
+
+      await tx
+        .update(schema.acertos)
+        .set({
+          estornado: true,
+          estornadoEm: new Date().toISOString().slice(0, 10),
+          estornadoPor: ctx.userEmail || ctx.userId || null,
+          obs: `${acerto.obs ?? ""}\nEstornado: ${motivo}`.trim(),
+        })
+        .where(eq(schema.acertos.id, acertoId));
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao estornar." };
+  }
 
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -463,6 +504,7 @@ export async function estornarAcerto(acertoId: string, motivo: string) {
   revalidatePath("/contaspagar");
   revalidatePath("/caixa");
   revalidatePath("/dre");
+  return { ok: true, acertoId, numDoc: acerto.numDoc ?? undefined };
 }
 
 export interface RateioInput {
@@ -500,6 +542,9 @@ export async function ratearEntreObras(
   // de custo, e um erro aqui contamina o resultado de cada obra.
   const erro = validarRateio(valorTotal, rateio);
   if (erro) return { ok: false, error: erro };
+  // §18 — obra repetida ou de outra empresa não passa, mesmo que a soma feche.
+  const erroObras = recusaDeObrasDoRateio(rateio, new Set(ctx.projects.map((p) => p.id)));
+  if (erroObras) return { ok: false, error: erroObras };
 
   const idem = input.idempotencyKey?.trim() || null;
   if (idem) {
@@ -546,6 +591,9 @@ export async function ratearEntreObras(
           throw new Error(
             "Uma das obras do rateio não tem versão Atual — crie-a antes de ratear.",
           );
+        }
+        if (versao.locked) {
+          throw new Error("Uma das obras do rateio está com a versão Atual congelada — rateio bloqueado.");
         }
         versaoPrimeira ??= versao.id;
         const numObra = await reserveDespesaNumber(ctx.tenant.id);
