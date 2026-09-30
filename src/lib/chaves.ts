@@ -37,6 +37,14 @@ export const CHAVES = [
     origem: "Prompt I, §10",
     previa: { href: "/contaspagar#previa", rotulo: "Contas a Pagar — as linhas de planejamento que deixam de aparecer" },
   },
+  {
+    id: "restituicao_segue_despesa",
+    titulo: "Saída da restituição segue a despesa",
+    efeito:
+      "A saída de caixa de uma restituição avulsa (e o estorno dela) cai na obra da despesa restituída; a entrada de um repasse cai na obra do recebimento. Antes, caíam na obra aberta na tela. Só daqui em diante: nada já lançado muda. O lote continua na obra da tela até a decisão B11.",
+    origem: "Prompt I, §21 (decisão B11, opção 2)",
+    previa: { href: "/restituicoes#previa", rotulo: "Restituições — em que obra cairão as próximas saídas" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

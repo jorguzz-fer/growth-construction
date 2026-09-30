@@ -5,7 +5,11 @@ import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
 import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
-import { getContaCorrenteTerceiros, getDespesaTerceiros } from "@/lib/actions/restituicoes";
+import Link from "next/link";
+import { getContaCorrenteTerceiros, getDespesaTerceiros, getPreviaSaidaPorObra, type PreviaSaidaPorObra } from "@/lib/actions/restituicoes";
+import { chaveLigada } from "@/lib/chaves-tenant";
+import { brl0 } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
 import { ContaCorrenteTerceiros } from "@/components/app/conta-corrente-terceiros";
 import { RestituicaoLote } from "@/components/app/restituicao-lote";
 import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-terceiro";
@@ -68,6 +72,12 @@ export default async function RestituicoesPage({
   ]);
   // Saldos dos DOIS lados por terceiro — base do encontro de contas (RG-05).
   const saldosConsolidados = await getSaldosConsolidadosTerceiros(ctx.tenant.id);
+  // §21 — prévia da chave "saída segue a despesa": só quem administra chaves.
+  const podeVerPrevia = can(ctx.perms, "chaves", "ver");
+  const [segueDespesa, previa] = await Promise.all([
+    chaveLigada(ctx.tenant.id, "restituicao_segue_despesa"),
+    podeVerPrevia ? getPreviaSaidaPorObra(ctx.tenant.id) : Promise.resolve([]),
+  ]);
   const rows = lista.map((r) => ({
     ...r,
     diasEmAberto: diasEmAberto(r.dataPrevistaRestituicao ?? r.dataPagamentoOriginal),
@@ -116,6 +126,55 @@ export default async function RestituicoesPage({
         projectId={project.id}
         canEditar={can(ctx.perms, "restituicoes", "editar")}
       />
+      {podeVerPrevia && <PreviaSaidaSegueDespesa linhas={previa} ligada={segueDespesa} obraDaTela={project.name} />}
     </>
+  );
+}
+
+/**
+ * §21 (B11) — prévia da chave `restituicao_segue_despesa`: em que obra cairão
+ * as próximas saídas de restituição. Desligada, tudo cai na obra aberta na
+ * tela; ligada, cada saída cai na obra da despesa restituída.
+ */
+function PreviaSaidaSegueDespesa({ linhas, ligada, obraDaTela }: { linhas: PreviaSaidaPorObra[]; ligada: boolean; obraDaTela: string }) {
+  const total = linhas.reduce((a, l) => a + l.saldo, 0);
+  return (
+    <Card id="previa" className="mt-6">
+      <CardContent className="p-5">
+        <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+          Prévia da chave “Saída da restituição segue a despesa” — {ligada ? "ligada" : "desligada"}
+        </h2>
+        <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+          {linhas.length === 0
+            ? "Não há obrigação pendente com terceiros. Ligar a chave não muda nenhum número hoje."
+            : ligada
+              ? `As próximas restituições avulsas (${brl0(total)} pendentes) caem na obra de cada despesa, como abaixo. Nada já lançado muda.`
+              : `Hoje toda saída de restituição cai na obra aberta na tela (${obraDaTela}). Com a chave ligada, as próximas restituições avulsas (${brl0(total)} pendentes) caem na obra de cada despesa, como abaixo. Nada já lançado muda; o lote continua na obra da tela.`}{" "}
+          <Link href="/chaves" className="text-[var(--color-accent2)] hover:underline">
+            Chaves de mudança
+          </Link>
+        </p>
+        {linhas.length > 0 && (
+          <table className="mt-3 w-full max-w-xl border-collapse text-[13px]">
+            <thead>
+              <tr className="text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                <th className="px-2 py-1">Obra da despesa</th>
+                <th className="px-2 py-1 text-right">Obrigações</th>
+                <th className="px-2 py-1 text-right">Saldo a restituir</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((l) => (
+                <tr key={l.projectId} className="border-t border-[var(--color-accent2)]/8">
+                  <td className="px-2 py-1">{l.projectName}</td>
+                  <td className="px-2 py-1 text-right font-[family-name:var(--font-mono)]">{l.obrigacoes}</td>
+                  <td className="px-2 py-1 text-right font-[family-name:var(--font-mono)]">{brl0(l.saldo)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

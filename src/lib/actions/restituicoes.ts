@@ -1,6 +1,8 @@
 "use server";
 
-import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, ne, or } from "drizzle-orm";
+import { chaveLigada } from "@/lib/chaves-tenant";
+import { montarContaCorrente, type ContaCorrenteTerceiro } from "@/lib/calc/conta-corrente";
 import { chaveDataBR } from "@/lib/db/ordem-data";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
@@ -334,6 +336,56 @@ export async function criarDespesaTerceiro(
   }
 }
 
+type Exec = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** §21 — a versão (e o lock) da despesa restituída, dentro da empresa. */
+async function versaoDaDespesa(exec: Exec, tenantId: string, despesaId: string) {
+  const [v] = await exec
+    .select({ id: schema.versions.id, locked: schema.versions.locked, projectId: schema.versions.projectId })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .where(and(eq(schema.despesas.id, despesaId), eq(schema.despesas.tenantId, tenantId)))
+    .limit(1);
+  return v ?? null;
+}
+
+export interface PreviaSaidaPorObra {
+  projectId: string;
+  projectName: string;
+  obrigacoes: number;
+  saldo: number;
+}
+
+/**
+ * Prévia da chave `restituicao_segue_despesa` (§21): as obrigações pendentes
+ * agrupadas pela obra da DESPESA — é nela que as próximas saídas cairão com a
+ * chave ligada. Só leitura.
+ */
+export async function getPreviaSaidaPorObra(tenantId: string): Promise<PreviaSaidaPorObra[]> {
+  const rows = await db
+    .select({
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      valorTotal: schema.despesaTerceiros.valorTotal,
+      valorRestituido: schema.despesaTerceiros.valorRestituido,
+    })
+    .from(schema.despesaTerceiros)
+    .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .where(and(eq(schema.despesaTerceiros.tenantId, tenantId), ne(schema.despesaTerceiros.status, "Cancelado")));
+  const porObra = new Map<string, PreviaSaidaPorObra>();
+  for (const r of rows) {
+    const saldo = Math.round((Number(r.valorTotal) - Number(r.valorRestituido)) * 100) / 100;
+    if (saldo <= 0.004) continue;
+    const p = porObra.get(r.projectId) ?? { projectId: r.projectId, projectName: r.projectName, obrigacoes: 0, saldo: 0 };
+    p.obrigacoes += 1;
+    p.saldo = Math.round((p.saldo + saldo) * 100) / 100;
+    porObra.set(r.projectId, p);
+  }
+  return [...porObra.values()].sort((a, b) => b.saldo - a.saldo);
+}
+
 /** §22 — o item do extrato existe e é desta empresa? */
 async function cashEntryDoTenant(tenantId: string, cashEntryId: string): Promise<boolean> {
   const [c] = await db
@@ -395,10 +447,13 @@ export async function registrarRestituicao(
   }
   // Obra da tela (Prompt A): a saída de caixa nova vai para a versão de
   // trabalho dela. Só é exigida quando há saída a criar (sem item do extrato).
-  const versaoCaixa = input.cashEntryId
+  // §21 (B11, opção 2) — com a chave ligada, a saída de caixa segue a despesa
+  // restituída; desligada, cai na obra da tela, como sempre.
+  const segueDespesa = await chaveLigada(ctx.tenant.id, "restituicao_segue_despesa");
+  const versaoCaixa = input.cashEntryId || segueDespesa
     ? null
     : await getWorkingVersion(ctx.tenant.id, input.projectId);
-  if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (!input.cashEntryId && !segueDespesa && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
   if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — restituição bloqueada." };
   // §22 — id de extrato vindo do navegador só vale se for desta empresa.
   if (input.cashEntryId && !(await cashEntryDoTenant(ctx.tenant.id, input.cashEntryId))) {
@@ -438,6 +493,13 @@ export async function registrarRestituicao(
         .limit(1);
       if (!dt) throw new Error("Obrigação não encontrada.");
       if (dt.status === "Cancelado") throw new Error("Obrigação cancelada.");
+      const versaoDaSaida = input.cashEntryId
+        ? null
+        : segueDespesa
+          ? await versaoDaDespesa(tx, ctx.tenant.id, dt.despesaId)
+          : versaoCaixa;
+      if (!input.cashEntryId && !versaoDaSaida) throw new Error("Versão da despesa não encontrada.");
+      if (versaoDaSaida?.locked) throw new Error("Versão congelada — restituição bloqueada.");
 
       const valor = Math.abs(input.valor);
       if (!(valor > 0)) throw new Error("Informe um valor maior que zero.");
@@ -497,7 +559,7 @@ export async function registrarRestituicao(
           .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)));
       } else {
         await tx.insert(schema.cashEntries).values({
-          versionId: versaoCaixa!.id,
+          versionId: versaoDaSaida!.id,
           tenantId: ctx.tenant.id,
           bankAccountId: input.bankAccountId || null,
           data: input.dataRestituicao || null,
@@ -520,6 +582,7 @@ export async function registrarRestituicao(
         despesaTerceiroId: input.despesaTerceiroId,
         valor: Math.abs(input.valor),
         cashEntryId: input.cashEntryId ?? null,
+        caixaSegueDespesa: segueDespesa,
       },
     });
     revalidatePath("/restituicoes");
@@ -580,16 +643,22 @@ export async function cancelarRestituicao(
     .limit(1);
   if (!rest) return { ok: false, error: "Restituição não encontrada." };
   if (rest.cancelada) return { ok: false, error: "Esta restituição já está cancelada." };
-  const versaoCaixa = rest.cashEntryId ? null : await getWorkingVersion(ctx.tenant.id, projectId);
-  if (!rest.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
-  if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — estorno bloqueado." };
-
   const [dt] = await db
     .select()
     .from(schema.despesaTerceiros)
     .where(and(eq(schema.despesaTerceiros.id, rest.despesaTerceiroId), eq(schema.despesaTerceiros.tenantId, ctx.tenant.id)))
     .limit(1);
   if (!dt) return { ok: false, error: "Obrigação não encontrada." };
+  // §21 (B11) — o estorno cai onde a saída cairia hoje: na obra da despesa com
+  // a chave ligada; na obra da tela, desligada.
+  const segueDespesa = await chaveLigada(ctx.tenant.id, "restituicao_segue_despesa");
+  const versaoCaixa = rest.cashEntryId
+    ? null
+    : segueDespesa
+      ? await versaoDaDespesa(db, ctx.tenant.id, dt.despesaId)
+      : await getWorkingVersion(ctx.tenant.id, projectId);
+  if (!rest.cashEntryId && !versaoCaixa) return { ok: false, error: segueDespesa ? "Versão da despesa não encontrada." : "Escolha o projeto." };
+  if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — estorno bloqueado." };
 
   const valor = Number(rest.valor);
   const hoje = new Date();
@@ -805,144 +874,72 @@ export interface SaldoTerceiroView {
   saldoDevido: number;
 }
 
-/**
- * Conta corrente de um terceiro (§13): todos os movimentos que formam o saldo.
- *
- * `desembolso` = o terceiro pagou um fornecedor pela empresa (aumenta a dívida).
- * `restituicao` = a empresa devolveu dinheiro a ele (diminui a dívida).
- *
- * Saldo devido = total desembolsado − total restituído.
- */
-export interface MovimentoTerceiro {
-  id: string;
-  tipo: "desembolso" | "restituicao";
-  data: string | null;
-  descricao: string;
-  numDoc: string | null;
-  valor: number;
-  /** Saldo devido acumulado APÓS este movimento. */
-  saldoAcumulado: number;
-}
-
-export interface ContaCorrenteTerceiro {
-  pagadorId: string | null;
-  pagador: string;
-  totalDesembolsado: number;
-  totalRestituido: number;
-  saldoDevido: number;
-  movimentos: MovimentoTerceiro[];
-}
-
-/** "MM/DD/YYYY" → número comparável; sem data vai para o fim da ordenação. */
-function ordData(d: string | null): number {
-  const p = (d ?? "").split("/");
-  if (p.length !== 3) return Number.MAX_SAFE_INTEGER;
-  const n = Number(p[2]) * 10000 + Number(p[0]) * 100 + Number(p[1]);
-  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
-}
+export type { ContaCorrenteTerceiro, MovimentoTerceiro } from "@/lib/calc/conta-corrente";
 
 /**
- * Conta corrente completa de cada terceiro/sócio do tenant (§13).
+ * Conta corrente completa de cada terceiro/sócio do tenant (§13, §26).
  *
  * Escopo TENANT, não versão: a dívida com um sócio é da empresa e não some
- * porque o usuário trocou o projeto ativo na tela. Obrigações canceladas ficam
- * de fora do saldo, mas nada é apagado — o cancelamento é lógico.
+ * porque o usuário trocou o projeto na tela. UMA lógica de movimentos
+ * (`montarContaCorrente`): desembolso, restituição, estorno, recebimento pelo
+ * terceiro, repasse e compensação. O saldo daqui bate com
+ * `valorTotal − valorRestituido` das obrigações, que já inclui compensações.
+ * Obrigações canceladas ficam de fora; nada é apagado.
  */
 export async function getContaCorrenteTerceiros(
   tenantId: string,
 ): Promise<ContaCorrenteTerceiro[]> {
-  const obrigacoes = await db
-    .select({
-      dt: schema.despesaTerceiros,
-      numDoc: schema.despesas.numDoc,
-      pagadorId: schema.stakeholders.id,
-      pagador: schema.stakeholders.nome,
-    })
-    .from(schema.despesaTerceiros)
-    .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
-    .leftJoin(
-      schema.stakeholders,
-      eq(schema.despesaTerceiros.pagadorTerceiroId, schema.stakeholders.id),
-    )
-    .where(eq(schema.despesaTerceiros.tenantId, tenantId));
-
-  const ativas = obrigacoes.filter((o) => o.dt.status !== "Cancelado");
-  const idsAtivas = ativas.map((o) => o.dt.id);
-  const rests = idsAtivas.length
-    ? await db
-        .select()
-        .from(schema.restituicoes)
-        .where(
-          and(
-            eq(schema.restituicoes.tenantId, tenantId),
-            // Canceladas ficam no histórico, fora dos saldos (§24).
-            eq(schema.restituicoes.cancelada, false),
-            sql`${schema.restituicoes.despesaTerceiroId} IN ${idsAtivas}`,
-          ),
-        )
-    : [];
-  const obrigacaoPorId = new Map(ativas.map((o) => [o.dt.id, o]));
-
-  const contas = new Map<string, ContaCorrenteTerceiro>();
-  const chaveDe = (id: string | null) => id ?? "—";
-  const abrir = (id: string | null, nome: string | null): ContaCorrenteTerceiro => {
-    const k = chaveDe(id);
-    let c = contas.get(k);
-    if (!c) {
-      c = {
-        pagadorId: id,
-        pagador: nome ?? "Não identificado",
-        totalDesembolsado: 0,
-        totalRestituido: 0,
-        saldoDevido: 0,
-        movimentos: [],
-      };
-      contas.set(k, c);
-    }
-    return c;
-  };
-
-  for (const o of ativas) {
-    const c = abrir(o.pagadorId ?? null, o.pagador);
-    c.totalDesembolsado += Number(o.dt.valorTotal);
-    c.movimentos.push({
+  const [obrigacoes, restituicoes, recebimentos, repasses, compensacoes] = await Promise.all([
+    db
+      .select({
+        dt: schema.despesaTerceiros,
+        numDoc: schema.despesas.numDoc,
+        pagadorId: schema.stakeholders.id,
+        pagador: schema.stakeholders.nome,
+      })
+      .from(schema.despesaTerceiros)
+      .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
+      .leftJoin(schema.stakeholders, eq(schema.despesaTerceiros.pagadorTerceiroId, schema.stakeholders.id))
+      .where(eq(schema.despesaTerceiros.tenantId, tenantId)),
+    db.select().from(schema.restituicoes).where(eq(schema.restituicoes.tenantId, tenantId)),
+    db
+      .select({ r: schema.recebimentosTerceiros, recebedor: schema.stakeholders.nome })
+      .from(schema.recebimentosTerceiros)
+      .leftJoin(schema.stakeholders, eq(schema.recebimentosTerceiros.recebedorTerceiroId, schema.stakeholders.id))
+      .where(eq(schema.recebimentosTerceiros.tenantId, tenantId)),
+    db.select().from(schema.repasses).where(eq(schema.repasses.tenantId, tenantId)),
+    db.select().from(schema.compensacoes).where(eq(schema.compensacoes.tenantId, tenantId)),
+  ]);
+  return montarContaCorrente({
+    obrigacoes: obrigacoes.map((o) => ({
       id: o.dt.id,
-      tipo: "desembolso",
+      pagadorId: o.pagadorId ?? null,
+      pagador: o.pagador,
+      valorTotal: Number(o.dt.valorTotal),
       data: o.dt.dataPagamentoOriginal,
-      descricao: "Pagamento a fornecedor pela empresa",
       numDoc: o.numDoc,
-      valor: Number(o.dt.valorTotal),
-      saldoAcumulado: 0,
-    });
-  }
-  for (const r of rests) {
-    const o = obrigacaoPorId.get(r.despesaTerceiroId);
-    if (!o) continue;
-    const c = abrir(o.pagadorId ?? null, o.pagador);
-    c.totalRestituido += Number(r.valor);
-    c.movimentos.push({
+      cancelada: o.dt.status === "Cancelado",
+    })),
+    restituicoes: restituicoes.map((r) => ({
       id: r.id,
-      tipo: "restituicao",
-      data: r.dataRestituicao,
-      descricao: r.cashEntryId ? "Restituição (conciliada no extrato)" : "Restituição",
-      numDoc: o.numDoc,
+      despesaTerceiroId: r.despesaTerceiroId,
       valor: Number(r.valor),
-      saldoAcumulado: 0,
-    });
-  }
-
-  for (const c of contas.values()) {
-    c.movimentos.sort((a, b) => ordData(a.data) - ordData(b.data) || a.id.localeCompare(b.id));
-    let acc = 0;
-    for (const m of c.movimentos) {
-      acc += m.tipo === "desembolso" ? m.valor : -m.valor;
-      m.saldoAcumulado = Math.round(acc * 100) / 100;
-    }
-    c.totalDesembolsado = Math.round(c.totalDesembolsado * 100) / 100;
-    c.totalRestituido = Math.round(c.totalRestituido * 100) / 100;
-    c.saldoDevido = Math.round((c.totalDesembolsado - c.totalRestituido) * 100) / 100;
-  }
-  return [...contas.values()].sort((a, b) => b.saldoDevido - a.saldoDevido);
+      data: r.dataRestituicao,
+      cancelada: r.cancelada,
+      canceladaEm: r.canceladaEm,
+      conciliada: !!r.cashEntryId,
+    })),
+    recebimentos: recebimentos.map((x) => ({
+      id: x.r.id,
+      recebedorId: x.r.recebedorTerceiroId,
+      recebedor: x.recebedor,
+      valorTotal: Number(x.r.valorTotal),
+      data: x.r.dataRecebimento,
+      cancelado: x.r.status === "Cancelado",
+    })),
+    repasses: repasses.map((p) => ({ id: p.id, recebimentoId: p.recebimentoTerceiroId, valor: Number(p.valor), data: p.dataRepasse })),
+    compensacoes: compensacoes.map((k) => ({ id: k.id, terceiroId: k.terceiroId, valor: Number(k.valor), data: k.data, numDoc: k.numDoc })),
+  });
 }
 
 /**

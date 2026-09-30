@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ContaCorrenteTerceiro } from "@/lib/actions/restituicoes";
+import { rotuloDoMovimento, type ContaCorrenteTerceiro } from "@/lib/calc/conta-corrente";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,9 @@ export function ContaCorrenteTerceiros({
                 <th className="px-2 py-2 text-right">Movimentos</th>
                 <th className="px-2 py-2 text-right">Total desembolsado</th>
                 <th className="px-2 py-2 text-right">Total restituído</th>
+                <th className="px-2 py-2 text-right">Compensado</th>
                 <th className="px-2 py-2 text-right">Saldo devido</th>
+                <th className="px-2 py-2 text-right">A repassar</th>
                 <th className="px-2 py-2 text-right">Extrato</th>
               </tr>
             </thead>
@@ -79,6 +81,9 @@ export function ContaCorrenteTerceiros({
                       <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
                         {brl0(c.totalRestituido)}
                       </td>
+                      <td className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                        {brl0(c.totalCompensado)}
+                      </td>
                       <td
                         className={`px-2 py-2 text-right font-[family-name:var(--font-mono)] font-semibold ${
                           c.saldoDevido > 0
@@ -95,6 +100,12 @@ export function ContaCorrenteTerceiros({
                       >
                         {brl0(c.saldoDevido)}
                       </td>
+                      <td
+                        className="px-2 py-2 text-right font-[family-name:var(--font-mono)]"
+                        title="Recebido do cliente pelo terceiro e ainda não repassado à empresa."
+                      >
+                        {brl0(c.saldoARepassar)}
+                      </td>
                       <td className="px-2 py-2 text-right">
                         <button
                           onClick={() => setAberta(aberto ? null : chave)}
@@ -106,7 +117,7 @@ export function ContaCorrenteTerceiros({
                     </tr>
                     {aberto && (
                       <tr key={`${chave}-ext`} className="border-b border-[var(--color-accent2)]/8">
-                        <td colSpan={6} className="bg-[var(--color-surface2)]/60 px-2 py-3">
+                        <td colSpan={8} className="bg-[var(--color-surface2)]/60 px-2 py-3">
                           <table className="w-full border-collapse text-[12.5px]">
                             <thead>
                               <tr className="text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink4)]">
@@ -115,6 +126,7 @@ export function ContaCorrenteTerceiros({
                                 <th className="px-2 py-1">Documento</th>
                                 <th className="px-2 py-1 text-right">Valor</th>
                                 <th className="px-2 py-1 text-right">Saldo devido</th>
+                                <th className="px-2 py-1 text-right">A repassar</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -124,10 +136,8 @@ export function ContaCorrenteTerceiros({
                                     {m.data ? dateBR(m.data) : "—"}
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Badge
-                                      tone={m.tipo === "desembolso" ? "warning" : "success"}
-                                    >
-                                      {m.tipo === "desembolso" ? "Desembolso" : "Restituição"}
+                                    <Badge tone={rotuloDoMovimento(m.tipo).tom}>
+                                      {rotuloDoMovimento(m.tipo).rotulo}
                                     </Badge>{" "}
                                     <span className="text-[var(--color-ink3)]">
                                       {m.descricao}
@@ -138,16 +148,20 @@ export function ContaCorrenteTerceiros({
                                   </td>
                                   <td
                                     className={`px-2 py-1 text-right font-[family-name:var(--font-mono)] ${
-                                      m.tipo === "desembolso"
+                                      m.efeitoRestituir > 0 || m.efeitoRepassar > 0
                                         ? "text-[var(--color-ink)]"
                                         : "text-[var(--color-success)]"
                                     }`}
+                                    title={m.tipo === "compensacao" ? "Baixa os dois lados pelo mesmo valor." : undefined}
                                   >
-                                    {m.tipo === "desembolso" ? "+" : "−"}
+                                    {m.efeitoRestituir > 0 || m.efeitoRepassar > 0 ? "+" : "−"}
                                     {brl0(m.valor)}
                                   </td>
                                   <td className="px-2 py-1 text-right font-[family-name:var(--font-mono)] font-medium">
                                     {brl0(m.saldoAcumulado)}
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                                    {brl0(m.saldoRepassarAcumulado)}
                                   </td>
                                 </tr>
                               ))}
