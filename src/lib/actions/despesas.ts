@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getProjectContext, getTenantContext } from "@/lib/context";
@@ -16,6 +16,7 @@ import {
   recusaDeValor,
 } from "@/lib/despesa-regras";
 import { vinculosDaDespesa } from "@/lib/despesa-vinculos";
+import { principalDoPagamento, recusaDePagamento, statusDaDespesaPorAcumulado } from "@/lib/pagamento-regras";
 import { mensagemColisaoNumDoc, reserveDespesaNumber } from "@/lib/db/numbering";
 import { FORMAS_PAGAMENTO, gerarParcelas } from "@/lib/calc";
 import { categoriasDeDespesa, validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
@@ -876,85 +877,150 @@ export interface PagarDespesaInput {
   multa?: number;
   desconto?: number;
   obs?: string;
+  /** Mesmo fato reenviado (duplo clique, retry, timeout) não vira dois pagamentos. */
+  idempotencyKey?: string | null;
 }
 
+export type ResultadoPagarDespesa = { ok: true; pagamentoId: string; jaExistia?: boolean } | { ok: false; error: string };
+
 /**
- * Marca uma despesa (sem parcelamento) como paga: registra o pagamento com
- * encargos, lança a saída real no Caixa (na data efetiva), atualiza o status e
- * a conta bancária. Estrutura pronta para pagamento parcial. Versão congelada
- * bloqueia (11.7). Transação, idempotência e status acumulado (§13) entram na
- * PR I-2.
+ * Paga uma despesa sem parcelamento (§13): registra o pagamento com encargos,
+ * lança a saída real no Caixa (na data efetiva), atualiza status e conta
+ * bancária — tudo numa transação, idempotente pela chave. O status sai do
+ * PRINCIPAL ACUMULADO de todos os pagamentos da despesa: 100 pagos como
+ * 60 + 40 é "Pago". Versão congelada bloqueia; só na Atual.
  */
-export async function pagarDespesa(input: PagarDespesaInput): Promise<Resultado> {
+export async function pagarDespesa(input: PagarDespesaInput): Promise<ResultadoPagarDespesa> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para registrar pagamentos." };
   }
+  const idem = input.idempotencyKey?.trim() || null;
+  const jaExiste = async () => {
+    if (!idem) return null;
+    const [e] = await db
+      .select({ id: schema.pagamentos.id })
+      .from(schema.pagamentos)
+      .where(and(eq(schema.pagamentos.tenantId, ctx.tenant.id), eq(schema.pagamentos.idempotencyKey, idem)))
+      .limit(1);
+    return e?.id ?? null;
+  };
+  const existente = await jaExiste();
+  if (existente) return { ok: true, pagamentoId: existente, jaExistia: true };
+
   const alvo = await despesaDoTenant(ctx.tenant.id, input.despesaId);
   if (!alvo) return { ok: false, error: "Despesa não encontrada." };
   const d = alvo.d;
   if (d.cancelado) return { ok: false, error: "Despesa cancelada não pode ser paga." };
   if (alvo.locked) return { ok: false, error: "Versão congelada — pagamento bloqueado." };
+  if (alvo.versionKind !== "atual") {
+    return { ok: false, error: "Esta despesa está numa versão de planejamento; pagamento só na versão Atual." };
+  }
 
   const juros = input.juros || 0;
   const multa = input.multa || 0;
   const desconto = input.desconto || 0;
   const valorPago = input.valorPago > 0 ? input.valorPago : Number(d.valor) + juros + multa - desconto;
+  const recusa = recusaDePagamento({ valorTotalPago: valorPago, dataPagamento: input.dataPagamento });
+  if (recusa) return { ok: false, error: recusa };
 
-  await db.insert(schema.pagamentos).values({
-    tenantId: ctx.tenant.id,
-    despesaId: d.id,
-    parcelaId: null,
-    valorOriginal: String(d.valor),
-    desconto: String(desconto),
-    multa: String(multa),
-    juros: String(juros),
-    outrosAcrescimos: "0",
-    valorTotalPago: String(valorPago),
-    dataPagamento: input.dataPagamento || null,
-    bankAccountId: input.bankAccountId || null,
-    obs: input.obs || null,
-    usuarioId: ctx.userId,
-  });
+  try {
+    const pagamentoId = await db.transaction(async (tx) => {
+      // Trava a despesa: dois pagamentos simultâneos não leem o mesmo acumulado.
+      await tx.execute(sql`select 1 from ${schema.despesas} where ${schema.despesas.id} = ${d.id} for update`);
+      const [pag] = await tx
+        .insert(schema.pagamentos)
+        .values({
+          tenantId: ctx.tenant.id,
+          despesaId: d.id,
+          parcelaId: null,
+          valorOriginal: String(d.valor),
+          desconto: String(desconto),
+          multa: String(multa),
+          juros: String(juros),
+          outrosAcrescimos: "0",
+          valorTotalPago: String(valorPago),
+          dataPagamento: input.dataPagamento,
+          bankAccountId: input.bankAccountId || null,
+          obs: input.obs || null,
+          idempotencyKey: idem,
+          usuarioId: ctx.userId,
+        })
+        .returning();
 
-  // Pagamento integral × parcial (estrutura pronta): status conforme o total.
-  const pagoTotal = valorPago + desconto >= Number(d.valor) - 0.01;
-  await db
-    .update(schema.despesas)
-    .set({
-      status: pagoTotal ? "Pago" : "Parcialmente paga",
-      dataCaixa: input.dataPagamento || d.dataCaixa,
-      formaPagamento: input.formaPagamento || d.formaPagamento,
-      bancoId: input.bankAccountId || d.bancoId,
-    })
-    .where(eq(schema.despesas.id, d.id));
+      // Status pelo principal ACUMULADO de todos os pagamentos desta despesa (§13).
+      const todos = await tx
+        .select({
+          valorTotalPago: schema.pagamentos.valorTotalPago,
+          desconto: schema.pagamentos.desconto,
+          multa: schema.pagamentos.multa,
+          juros: schema.pagamentos.juros,
+          outros: schema.pagamentos.outrosAcrescimos,
+        })
+        .from(schema.pagamentos)
+        .where(and(eq(schema.pagamentos.tenantId, ctx.tenant.id), eq(schema.pagamentos.despesaId, d.id)));
+      const principal = todos.reduce(
+        (a, p) =>
+          a +
+          principalDoPagamento({
+            valorTotalPago: Number(p.valorTotalPago),
+            desconto: Number(p.desconto),
+            multa: Number(p.multa),
+            juros: Number(p.juros),
+            outrosAcrescimos: Number(p.outros),
+          }),
+        0,
+      );
+      await tx
+        .update(schema.despesas)
+        .set({
+          status: statusDaDespesaPorAcumulado(Number(d.valor), principal),
+          dataCaixa: input.dataPagamento,
+          formaPagamento: input.formaPagamento || d.formaPagamento,
+          bancoId: input.bankAccountId || d.bancoId,
+        })
+        .where(and(eq(schema.despesas.id, d.id), eq(schema.despesas.tenantId, ctx.tenant.id)));
 
-  // Saída REAL no Controle de Caixa (valor efetivamente pago, na data real).
-  await db.insert(schema.cashEntries).values({
-    versionId: d.versionId,
-    tenantId: ctx.tenant.id,
-    bankAccountId: input.bankAccountId || null,
-    data: input.dataPagamento || null,
-    descricao: `Pagamento ${d.numDoc ?? "despesa"}`,
-    valor: String(-Math.abs(valorPago)),
-    cat: "despesa",
-    rec: true,
-  });
+      // Saída REAL no Controle de Caixa (valor efetivamente pago, na data real).
+      await tx.insert(schema.cashEntries).values({
+        versionId: d.versionId,
+        tenantId: ctx.tenant.id,
+        bankAccountId: input.bankAccountId || null,
+        data: input.dataPagamento,
+        descricao: `Pagamento ${d.numDoc ?? "despesa"}`,
+        valor: String(-Math.abs(valorPago)),
+        cat: "despesa",
+        rec: true,
+      });
 
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "despesa.pay",
-    entity: "despesa",
-    entityId: d.id,
-    meta: { valorPago, juros, multa, desconto, dataPagamento: input.dataPagamento },
-  });
-  revalidatePath("/despesas");
-  revalidatePath("/contaspagar");
-  revalidatePath("/caixa");
-  revalidatePath("/dre");
-  revalidatePath("/fluxocaixa");
-  return { ok: true };
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "despesa.pay",
+          entity: "despesa",
+          entityId: d.id,
+          meta: { valorPago, juros, multa, desconto, dataPagamento: input.dataPagamento, principalAcumulado: principal },
+        },
+        tx,
+      );
+      return pag.id;
+    });
+    revalidatePath("/despesas");
+    revalidatePath("/contaspagar");
+    revalidatePath("/caixa");
+    revalidatePath("/dre");
+    revalidatePath("/fluxocaixa");
+    return { ok: true, pagamentoId };
+  } catch (e) {
+    // Colisão no índice de idempotência: o mesmo fato chegou duas vezes ao
+    // mesmo tempo. Devolve o que já existe.
+    if (idem && /pagamento_idem_uq|duplicate key/i.test(e instanceof Error ? e.message : String(e))) {
+      const id = await jaExiste();
+      if (id) return { ok: true, pagamentoId: id, jaExistia: true };
+    }
+    throw e;
+  }
 }
 
 /**

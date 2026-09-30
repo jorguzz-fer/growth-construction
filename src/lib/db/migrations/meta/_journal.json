@@ -309,6 +309,13 @@
       "when": 1787064446285,
       "tag": "0043_tenant_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787064447285,
+      "tag": "0044_pagamento_idempotencia",
+      "breakpoints": true
     }
   ]
 }

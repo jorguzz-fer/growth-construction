@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   deleteDespesa,
@@ -14,6 +14,11 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { Button } from "@/components/ui/button";
+
+function novaChave(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export interface DespesaDTO {
   id: string;
@@ -213,11 +218,13 @@ function Row({
     });
   };
 
+  const chavePagamento = useRef(novaChave());
   const confirmarPagamento = () => {
     setError(null);
     start(async () => {
       try {
         const r = await pagarDespesa({
+          idempotencyKey: chavePagamento.current,
           despesaId: d.id,
           dataPagamento: pg.data,
           valorPago: Number(pg.valor) || 0,
@@ -232,6 +239,8 @@ function Row({
           setError(r.error);
           return;
         }
+        // Próximo pagamento desta linha é outro fato: chave nova.
+        chavePagamento.current = novaChave();
         setPaying(false);
         router.refresh();
       } catch (e) {

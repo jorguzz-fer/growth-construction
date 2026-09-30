@@ -1036,6 +1036,8 @@ export const pagamentos = pgTable("pagamento", {
   /** categoria DRE dos encargos (juros/multa). */
   categoriaEncargos: text("categoria_encargos").notNull().default("Despesas Financeiras"),
   obs: text("obs"),
+  /** Chave de idempotência (Prompt I, §13/§14): o mesmo pagamento reenviado não vira dois. */
+  idempotencyKey: text("idempotency_key"),
   usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
