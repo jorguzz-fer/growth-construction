@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { changePassword } from "@/lib/actions/account";
 import { mfaEnforced } from "@/lib/mfa";
 import { PageHeader } from "@/components/app/page-header";
@@ -14,7 +14,7 @@ import { FormComResultado } from "@/components/app/form-com-resultado";
 export const dynamic = "force-dynamic";
 
 export default async function PerfilPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !ctx.userId) return null;
   const [user] = await db
     .select()

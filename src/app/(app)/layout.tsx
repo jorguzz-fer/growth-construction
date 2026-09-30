@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { SairParaLogin } from "@/components/app/sair-para-login";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { AppShell } from "@/components/app/app-shell";
@@ -21,7 +21,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
 
   // Há login, mas não há contexto: sessão encerrada por troca de senha (AI
   // 1.3) ou vínculo removido. Antes caía na tela "Banco vazio", que manda rodar
@@ -68,25 +68,6 @@ export default async function AppLayout({
     );
   }
 
-  const vid = ctx.version.id;
-  const [unidades, reembolso, permuta] = await Promise.all([
-    db
-      .select({ id: schema.units.id })
-      .from(schema.units)
-      .where(eq(schema.units.versionId, vid))
-      .then((r) => r.length),
-    db
-      .select({ id: schema.reembolsos.id })
-      .from(schema.reembolsos)
-      .where(eq(schema.reembolsos.versionId, vid))
-      .then((r) => r.length),
-    db
-      .select({ id: schema.permutas.id })
-      .from(schema.permutas)
-      .where(eq(schema.permutas.versionId, vid))
-      .then((r) => r.length),
-  ]);
-
   const logoUrl =
     ctx.tenant.logoKey && isR2Configured()
       ? await readUrl(ctx.tenant.logoKey)
@@ -131,7 +112,6 @@ export default async function AppLayout({
       userName={userName}
       userRole={ctx.role}
       perms={ctx.perms}
-      badges={{ unidades, reembolso, permuta }}
     >
       {backupPending.has && (
         <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />

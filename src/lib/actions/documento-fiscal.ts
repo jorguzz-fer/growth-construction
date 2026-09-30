@@ -3,7 +3,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { diffAudit } from "@/lib/audit-diff";
@@ -37,7 +37,7 @@ export interface DocumentoFiscalRow {
 export async function getDocumentosFiscais(
   despesaId: string,
 ): Promise<DocumentoFiscalRow[]> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "ver")) return [];
   const rows = await db
     .select()
@@ -79,7 +79,7 @@ export async function buscarDocumentoDuplicado(
   doc: DocumentoFiscalEntrada,
   ignorarDespesaId?: string,
 ): Promise<DuplicidadeDocumento | null> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "ver")) return null;
   const chave = chaveDuplicidade(fornecedorId, doc);
   if (!chave) return null;
@@ -145,7 +145,7 @@ export async function salvarDocumentoFiscal(input: {
   chaveAcesso?: string | null;
   dataEmissao?: string | null;
 }): Promise<SalvarDocumentoResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para editar o documento fiscal." };
   }

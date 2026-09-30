@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -18,7 +18,7 @@ const str = (v: FormDataEntryValue | null): string | null => {
 
 /** Cadastra um item de estoque. */
 export async function addStockItem(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "estoque", "criar")) throw new Error("Sem permissão.");
   const nome = str(formData.get("nome"));
   if (!nome) throw new Error("Informe o nome do item.");
@@ -44,7 +44,7 @@ export async function addStockItem(formData: FormData) {
 
 /** Registra uma movimentação de estoque (entrada ou saída). */
 export async function addStockMovement(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "estoque", "criar")) throw new Error("Sem permissão.");
   const itemId = str(formData.get("itemId"));
   if (!itemId) throw new Error("Selecione o item.");
@@ -85,7 +85,7 @@ export async function addStockMovement(formData: FormData) {
 
 /** Exclui um item de estoque (e suas movimentações em cascata). */
 export async function deleteStockItem(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "estoque", "excluir")) return;
   // Exclusão física (as movimentações caem em cascata): o log guarda o que
   // existia, porque o registro deixa de existir (AK 1.1).

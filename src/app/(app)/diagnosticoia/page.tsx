@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AiDiagnosticPanel } from "@/components/app/ai-diagnostic-panel";
@@ -6,7 +6,7 @@ import { AiDiagnosticPanel } from "@/components/app/ai-diagnostic-panel";
 export const dynamic = "force-dynamic";
 
 export default async function DiagnosticoIaPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "diagnosticoia", "ver")) return null;
 

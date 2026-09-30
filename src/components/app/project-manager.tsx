@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import type { Project } from "@/lib/context";
-import { setActiveProject } from "@/lib/actions/context";
 import {
   createProject,
   updateProject,
@@ -60,7 +59,6 @@ function ClienteSelect({
 
 export function ProjectManager({
   projects,
-  activeId,
   perms,
   clientes,
   tenantName,
@@ -70,7 +68,6 @@ export function ProjectManager({
   tenantCodigoMunicipio = null,
 }: {
   projects: Project[];
-  activeId: string;
   perms: Perms;
   clientes: ClienteOpt[];
   tenantName: string;
@@ -112,7 +109,6 @@ export function ProjectManager({
           <ProjectRow
             key={p.id}
             project={p}
-            active={p.id === activeId}
             canDelete={canDelete}
             canEdit={perms.editar}
             clientes={clientes}
@@ -142,7 +138,6 @@ export function ProjectManager({
           <OfficeRow
             key={p.id}
             project={p}
-            active={p.id === activeId}
             canDelete={canDelete}
             canEdit={perms.editar}
           />
@@ -361,32 +356,6 @@ function SituacaoControl({
   );
 }
 
-function SelectActive({
-  id,
-  active,
-  pending,
-  start,
-}: {
-  id: string;
-  active: boolean;
-  pending: boolean;
-  start: (fn: () => void) => void;
-}) {
-  return active ? (
-    // "selecionado", não "ativo": Ativo agora é a situação do projeto (Prompt A, 4).
-    <Badge tone="accent">selecionado</Badge>
-  ) : (
-    <Button
-      size="sm"
-      variant="outline"
-      disabled={pending}
-      onClick={() => start(() => setActiveProject(id))}
-    >
-      Selecionar
-    </Button>
-  );
-}
-
 function DeleteButton({
   name,
   onDelete,
@@ -482,7 +451,6 @@ function ObraIncidencia({
 
 function ProjectRow({
   project,
-  active,
   canEdit,
   canDelete,
   clientes,
@@ -492,7 +460,6 @@ function ProjectRow({
   tenantCodigoMunicipio,
 }: {
   project: Project;
-  active: boolean;
   canEdit: boolean;
   canDelete: boolean;
   clientes: ClienteOpt[];
@@ -814,7 +781,6 @@ function ProjectRow({
         <ProjetoDocs projectId={project.id} docs={docs} canEdit={canEdit} r2={r2} />
 
         <div className="flex flex-wrap items-center gap-2 pb-1.5">
-          <SelectActive id={project.id} active={active} pending={pending} start={start} />
           {canEdit && (
             <Button size="sm" disabled={pending || !dirty} onClick={save}>
               Salvar
@@ -835,12 +801,10 @@ function ProjectRow({
 
 function OfficeRow({
   project,
-  active,
   canEdit,
   canDelete,
 }: {
   project: Project;
-  active: boolean;
   canEdit: boolean;
   canDelete: boolean;
 }) {
@@ -868,7 +832,6 @@ function OfficeRow({
             situacao={project.situacao ?? null}
             canEdit={canEdit}
           />
-          <SelectActive id={project.id} active={active} pending={pending} start={start} />
           {canEdit && (
             <Button size="sm" disabled={pending || !dirty} onClick={save}>
               Salvar

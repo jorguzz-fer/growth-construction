@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getAuditLog, getMembers } from "@/lib/queries";
 import { PageHeader } from "@/components/app/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +53,7 @@ function renderMeta(meta: unknown) {
 }
 
 export default async function AcoesPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

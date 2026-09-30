@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { getChartAccounts, type ChartAccountRow } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
@@ -53,7 +53,7 @@ const DRE_CATS = [
 ];
 
 export default async function PlanoContasPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

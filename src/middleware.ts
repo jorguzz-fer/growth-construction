@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 /*
  * Gate de autenticação (edge-safe): rotas do app exigem sessão. Faz apenas a
  * checagem de presença do cookie de sessão (redirect de UX); a validação real
- * do usuário/perfil acontece no servidor via getActiveContext().
+ * do usuário/perfil acontece no servidor via getTenantContext().
  */
 const PUBLIC_PATHS = ["/", "/login", "/plataforma/login"];
 

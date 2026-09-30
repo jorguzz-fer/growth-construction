@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getChartAccounts, getBudgetLines, getInccRows } from "@/lib/queries";
 import { RECEITA_ROWS, RECEITA_ROW_KEY, defaultDreCategory, isBudgetVersion } from "@/lib/budget/config";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 /** Exporta o lançamento simplificado (Receitas + Despesas) de uma versão em .xlsx. */
 export async function GET(req: Request) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return new Response("Não autorizado", { status: 403 });
 
   const wantedId = new URL(req.url).searchParams.get("v");

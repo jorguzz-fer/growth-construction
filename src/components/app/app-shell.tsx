@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import type { PermMatrix } from "@/lib/permissions";
-import type { NavBadges } from "@/lib/nav-menu";
 import { Sidebar } from "@/components/app/sidebar";
 import { AppHeader } from "@/components/app/app-header";
 
@@ -17,7 +16,6 @@ export function AppShell({
   userName,
   userRole,
   perms,
-  badges,
   children,
 }: {
   tenantName: string;
@@ -25,7 +23,6 @@ export function AppShell({
   userName: string;
   userRole: string;
   perms: PermMatrix;
-  badges: NavBadges;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -35,7 +32,6 @@ export function AppShell({
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         perms={perms}
-        badges={badges}
         mobileOpen={mobileOpen}
         onCloseMobile={closeMobile}
       />

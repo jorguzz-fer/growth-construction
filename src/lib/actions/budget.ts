@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import {
@@ -34,7 +34,7 @@ export interface BudgetCell {
   valor: number;
 }
 
-type Ctx = NonNullable<Awaited<ReturnType<typeof getActiveContext>>>;
+type Ctx = NonNullable<Awaited<ReturnType<typeof getTenantContext>>>;
 
 /**
  * Carrega a versão-alvo do lançamento simplificado direto do banco (por id,
@@ -122,7 +122,7 @@ export async function saveBudgetLines(
   kind: "receita" | "despesa",
   cells: BudgetCell[],
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   await loadBudgetTarget(ctx, versionId);
   await replaceLines(ctx.tenant.id, versionId, kind, cells);
@@ -222,7 +222,7 @@ export async function saveBudgetReceita(
   kind: "budget" | "forecast",
   cells: ReceitaProjetoCell[],
 ): Promise<{ skipped: string[] }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
 
   const byProject = new Map<string, ReceitaProjetoCell[]>();
@@ -292,7 +292,7 @@ export async function saveBudgetReceita(
 
 /** Copia os lançamentos do Budget do projeto para a versão Forecast. */
 export async function importFromBudget(forecastVersionId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const target = await loadBudgetTarget(ctx, forecastVersionId);
   const budget = await siblingVersion(target.projectId, "budget");
@@ -383,7 +383,7 @@ const groupCode = (label: string): string => {
  * linhas × meses) para o lançamento simplificado da versão.
  */
 export async function importBudgetXlsx(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const versionId = (formData.get("versionId") as string) || "";
   await loadBudgetTarget(ctx, versionId);
@@ -465,7 +465,7 @@ export async function saveBudgetDespesaLinhas(
   kind: "budget" | "forecast",
   lines: DespesaLinhaInput[],
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
 
   const [vers, projs] = await Promise.all([
@@ -541,7 +541,7 @@ export async function saveBudgetDespesaLinhas(
 
 /** Deriva os lançamentos simplificados a partir da versão "atual" (detalhada). */
 export async function replicateFromAtual(targetVersionId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const target = await loadBudgetTarget(ctx, targetVersionId);
   const atual = await siblingVersion(target.projectId, "atual");

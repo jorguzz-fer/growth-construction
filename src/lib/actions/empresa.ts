@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
@@ -21,7 +21,7 @@ import { ehAmbienteFiscal } from "@/lib/fiscal/tipos";
 
 /** Faz upload do logo da empresa para o R2 e salva a chave no tenant. */
 export async function uploadLogo(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "empresa", "editar")) {
     throw new Error("Sem permissão.");
   }
@@ -68,7 +68,7 @@ export async function uploadLogo(formData: FormData) {
  * mais caro.
  */
 export async function salvarDadosFiscais(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "empresa", "editar")) {
     throw new Error("Sem permissão para editar os dados fiscais.");
   }
@@ -147,7 +147,7 @@ export async function salvarDadosFiscais(formData: FormData) {
 }
 
 export async function renameTenant(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "empresa", "editar")) return;
   const name = ((formData.get("name") as string) || "").trim();
   if (!name) return;

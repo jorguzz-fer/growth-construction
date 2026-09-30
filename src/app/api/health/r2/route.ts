@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { isR2Configured, putObject, readUrl } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * Protegido: exige sessão de owner/admin (não expõe nada a anônimos).
  */
 export async function GET() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) {
     return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
   }

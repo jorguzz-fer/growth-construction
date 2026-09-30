@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import {
   getContasPagar,
@@ -14,7 +14,7 @@ import { FechamentoPanel } from "@/components/app/fechamento-panel";
 export const dynamic = "force-dynamic";
 
 export default async function FechamentoPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "fechamento", "ver")) return <AccessDenied />;
 

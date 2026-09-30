@@ -1,4 +1,4 @@
-import { getActiveContext, type Role } from "@/lib/context";
+import { getTenantContext, type Role } from "@/lib/context";
 import { SCREENS, can, effectivePermissions, type PermAction } from "@/lib/permissions";
 import { membroRestritoNoTenant, opcoesDoTenant } from "@/lib/membro-padrao";
 import { getMembers } from "@/lib/queries";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 const ACOES: PermAction[] = ["ver", "criar", "editar", "excluir"];
 
 export default async function AcessosPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   // A guarda do layout não basta: ele renderiza em paralelo com a página e

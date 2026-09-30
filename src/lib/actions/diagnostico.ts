@@ -3,7 +3,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { diffAudit } from "@/lib/audit-diff";
@@ -50,7 +50,7 @@ export interface DespesaSuspeita {
  * conferência veja o quadro inteiro sem que eles poluam a contagem de pendências.
  */
 export async function getDespesasSuspeitas(): Promise<DespesaSuspeita[]> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "ver")) return [];
 
   const rows = await db
@@ -118,7 +118,7 @@ export async function reclassificarDespesas(
   ids: string[],
   categoriaDre: string,
 ): Promise<ReclassificarResult> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para reclassificar lançamentos." };
   }
@@ -196,7 +196,7 @@ export interface PlanoSuspeito {
 export async function getPlanosSuspeitos(
   carenciaEsperadaMeses = 1,
 ): Promise<PlanoSuspeito[]> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "unidades", "ver")) return [];
 
   const rows = await db

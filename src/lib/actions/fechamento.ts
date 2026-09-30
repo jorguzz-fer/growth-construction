@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -44,7 +44,7 @@ function nextDayBR(dia: string): string {
  * mantendo histórico de auditoria.
  */
 export async function closeDia(input: CloseDiaInput): Promise<void> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fechamento", "criar")) {
     throw new Error("Sem permissão para fechar o caixa.");
   }

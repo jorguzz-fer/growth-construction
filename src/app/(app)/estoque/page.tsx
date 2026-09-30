@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import {
   getStockItems,
   getStockMovements,
@@ -13,7 +13,7 @@ import { EstoqueManager } from "@/components/app/estoque-manager";
 export const dynamic = "force-dynamic";
 
 export default async function EstoquePage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "estoque", "ver")) return <AccessDenied />;
 

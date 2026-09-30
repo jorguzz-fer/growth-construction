@@ -1,4 +1,4 @@
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getDespesaSequence } from "@/lib/actions/numeracao";
 import { ocupacaoDaFaixa } from "@/lib/db/numbering";
@@ -9,7 +9,7 @@ import { NumeracaoForm } from "@/components/app/numeracao-form";
 export const dynamic = "force-dynamic";
 
 export default async function NumeracaoPage() {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "numeracao", "ver")) return <AccessDenied />;
 

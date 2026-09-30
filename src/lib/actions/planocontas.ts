@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 
@@ -40,7 +40,7 @@ export async function addChartGroup(input: {
   name: string;
   natureza?: string;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "criar")) {
     throw new Error("Sem permissão para criar grupos.");
   }
@@ -84,7 +84,7 @@ export async function addChartItem(input: {
   name: string;
   natureza?: string;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "criar")) {
     throw new Error("Sem permissão para criar subitens.");
   }
@@ -120,7 +120,7 @@ export async function updateChartItem(
   id: string,
   patch: { code?: string; name?: string; natureza?: string },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
   const [current] = await db
     .select()
@@ -160,7 +160,7 @@ export async function updateChartItem(
 
 /** Ativa/inativa um subitem (exclusão lógica: some de novos lançamentos, fica no histórico). */
 export async function setChartAccountAtivo(id: string, ativo: boolean) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
   await db
     .update(schema.chartAccounts)
@@ -183,7 +183,7 @@ export async function setChartAccountAtivo(id: string, ativo: boolean) {
 
 /** Exclui um subitem. */
 export async function deleteChartItem(id: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "excluir")) return;
   await db
     .delete(schema.chartAccounts)
@@ -210,7 +210,7 @@ export async function renameChartGroup(input: {
   groupName?: string;
   newGroupCode?: string;
 }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
   const kind = normKind(input.kind);
   const set: { groupName?: string; groupCode?: string } = {};
@@ -239,7 +239,7 @@ export async function renameChartGroup(input: {
 
 /** Exclui um grupo inteiro (todos os seus subitens). */
 export async function deleteChartGroup(input: { kind: string; groupCode: string }) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "excluir")) return;
   const kind = normKind(input.kind);
   await db

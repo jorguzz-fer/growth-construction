@@ -1,14 +1,9 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import {
-  getActiveContext,
-  ACTIVE_PROJECT_COOKIE,
-  ACTIVE_VERSION_COOKIE,
-} from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
@@ -16,7 +11,6 @@ import { DEFAULT_INCC } from "@/lib/calc/constants";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { normalizarCodigoMunicipio } from "@/lib/calc/emitente-fiscal";
 
-const ONE_YEAR = 60 * 60 * 24 * 365;
 
 /** Versões padrão criadas junto com um projeto novo (ver seed.ts). */
 const DEFAULT_VERSIONS = [
@@ -77,7 +71,7 @@ export async function createProject(
     clienteId?: string | null;
   },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "criar")) {
     throw new Error("Sem permissão para criar projetos.");
   }
@@ -127,10 +121,7 @@ export async function createProject(
     return project.id;
   });
 
-  // Torna o novo projeto o ativo (e reseta a versão para a default).
-  const ck = await cookies();
-  ck.set(ACTIVE_PROJECT_COOKIE, projectId, { path: "/", maxAge: ONE_YEAR });
-  ck.delete(ACTIVE_VERSION_COOKIE);
+  // Criar NÃO muda contexto (Prompt A, 9): não há mais projeto ativo global.
 
   await logAudit({
     tenantId,
@@ -155,7 +146,7 @@ export async function setProjectSituacao(
   projectId: string,
   situacao: SituacaoProjeto,
 ): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) {
     return { ok: false, error: "Sem permissão para editar projetos." };
   }
@@ -226,7 +217,7 @@ export async function updateProject(
     art?: string | null;
   },
 ) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) return;
   // `ctx.projects` já vem filtrado pelo tenant — é essa a garantia de escopo
   // aqui, e é também o estado ANTERIOR usado na auditoria abaixo.
@@ -302,11 +293,11 @@ export async function updateProject(
 
 /**
  * Exclui um projeto e, em cascata, todas as suas versões e dados de movimento.
- * Não é permitido excluir o último projeto do tenant (o contexto exige ao menos
- * um). Se o projeto ativo for excluído, a seleção volta para o primeiro.
+ * Não é permitido excluir o último projeto do tenant. Não há projeto ativo a
+ * limpar (Prompt A, 34): as telas guardam a obra na própria URL.
  */
 export async function deleteProject(projectId: string) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "excluir")) return;
   const target = ctx.projects.find((p) => p.id === projectId);
   if (!target) return;
@@ -319,12 +310,6 @@ export async function deleteProject(projectId: string) {
     .delete(schema.projects)
     .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, ctx.tenant.id)));
 
-  // Se o projeto excluído era o ativo, limpa os cookies (fallback p/ projects[0]).
-  if (ctx.project.id === projectId) {
-    const ck = await cookies();
-    ck.delete(ACTIVE_PROJECT_COOKIE);
-    ck.delete(ACTIVE_VERSION_COOKIE);
-  }
 
   await logAudit({
     tenantId: ctx.tenant.id,
@@ -344,7 +329,7 @@ export async function deleteProject(projectId: string) {
  * posteriores do projeto. Requer permissão de edição de projeto.
  */
 export async function uploadProjetoDoc(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) {
     throw new Error("Sem permissão para anexar documentos ao projeto.");
   }
@@ -386,7 +371,7 @@ export async function uploadProjetoDoc(formData: FormData) {
 
 /** Remove um documento anexado ao projeto (registro; o objeto R2 fica órfão). */
 export async function deleteProjetoDoc(formData: FormData) {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "projeto", "editar")) {
     throw new Error("Sem permissão.");
   }

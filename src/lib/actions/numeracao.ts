@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { getActiveContext } from "@/lib/context";
+import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { CONFIRMACAO_RECUO } from "@/lib/numeracao-regras";
@@ -79,7 +79,7 @@ export async function updateDespesaSequence(
   patch: SequenceConfig,
   confirmacao?: string,
 ): Promise<ResultadoNumeracao> {
-  const ctx = await getActiveContext();
+  const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "numeracao", "editar")) {
     return { ok: false, error: "Sem permissão para configurar a numeração." };
   }
