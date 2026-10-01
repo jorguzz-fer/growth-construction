@@ -76,7 +76,7 @@ export function explicar(o: { status: StatusProjeto; definicaoNova: boolean }): 
     { painel: "Margem e produtividade", cartao: "Margem de contribuição", texto: `Receita da Atual (pelo vencimento) − custo e despesa variáveis da Atual; janela: ${janela}.` },
     { painel: "Margem e produtividade", cartao: "% margem de contribuição", texto: "Margem ÷ receita do cadastro do projeto — uma terceira base de receita, diferente das duas acima." },
     { painel: "Margem e produtividade", cartao: "Custo e receita por m²", texto: "Executado e receita da Atual ÷ metragem do cadastro." },
-    { painel: "Indicadores da obra", cartao: "Os dezesseis cartões", texto: "Cadastro do projeto (financiamento, CUB, metragem, %BDI) e medição por serviço, que ainda não está em uso. Não seguem versão nem período." },
+    { painel: "Indicadores da obra", cartao: "Indicadores da obra", texto: "Cadastro do projeto (financiamento, CUB, metragem, %BDI). Os indicadores de evolução física, liberação e saldo de financiamento estão desligados até o cadastro da PLS por obra. Não seguem versão nem período." },
   ];
 }
 

@@ -73,8 +73,8 @@ export const CHAVES = [
     id: "dashboard_definicao_nova",
     titulo: "Dashboard pela definição nova",
     efeito:
-      "No Dashboard: \"Entradas de caixa\" soma só a versão Atual (antes, todas as versões da obra); \"Executado\" é dividido por UM Orçamento, o mais recente que não é cópia (antes, a soma de todos); a margem usa a mesma janela de competências na receita e nos custos; o VGV vem da Atual em toda coluna; \"A receber\" do planejamento mostra o negativo; sem medição, liberação e saldo de financiamento mostram \"—\" em vez do valor do cadastro; e os painéis de status passam a seguir o período. Nada é gravado.",
-    origem: "Prompt AA, 4-B.1, 4-B.2, 4-B.3, 4.5, 4.2, 3.1 e 2.3.2 (10.2)",
+      "No Dashboard: \"Entradas de caixa\" soma só a versão Atual (antes, todas as versões da obra); \"Executado\" é dividido por UM Orçamento, o mais recente que não é cópia (antes, a soma de todos); a margem usa a mesma janela de competências na receita e nos custos; o VGV vem da Atual em toda coluna; \"A receber\" do planejamento mostra o negativo; e os painéis de status passam a seguir o período. Nada é gravado.",
+    origem: "Prompt AA, 4-B.1, 4-B.2, 4-B.3, 4.5, 4.2 e 2.3.2 (10.2)",
     previa: { href: "/chaves#previa-dashboard", rotulo: "Prévia — cada cartão hoje × definição nova, por obra" },
   },
   {

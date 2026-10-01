@@ -288,8 +288,7 @@ export default async function ChavesPage() {
           <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
             Por obra, cartão a cartão, sem filtro de período: o número exibido hoje, o pela definição nova e a diferença. Entradas de
             caixa passam a somar só a Atual; o Executado passa a ser dividido por um Orçamento só; a margem usa a mesma janela de
-            competências nos dois lados; VGV vem da Atual; A receber do planejamento mostra o negativo; sem medição, liberação e saldo
-            de financiamento ficam “—”. Nada é gravado.
+            competências nos dois lados; VGV vem da Atual; A receber do planejamento mostra o negativo. Nada é gravado.
           </p>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-[12.5px]" aria-label="Prévia do Dashboard pela definição nova">

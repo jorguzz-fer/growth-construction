@@ -426,7 +426,7 @@ export default async function DashboardPage({
 
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />
-      <IndicadoresObraPanel ind={indicadores} definicaoNova={dashNovo} />
+      <IndicadoresObraPanel ind={indicadores} />
       </div>
       <AssistenteDashboard usuario={ctx.userId ?? "anon"} analise={analise} />
       </div>
