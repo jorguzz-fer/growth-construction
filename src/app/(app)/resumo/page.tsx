@@ -16,6 +16,8 @@ import {
   toCalcUnit,
 } from "@/lib/queries";
 import { calcTotals, permutaCashByMonth } from "@/lib/calc";
+import { TEXTO_DA_BASE, indicadoresDoResumo, type IndicadorDoResumo } from "@/lib/resumo-tela";
+import { rotuloDaVersao } from "@/lib/dashboard-tela";
 import { brl0, dateBR, monthInRange } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
@@ -37,7 +39,7 @@ export const dynamic = "force-dynamic";
 /** Indicadores gerais (valores contratados) de uma versão. */
 async function versionIndicadores(
   version: Version,
-): Promise<{ label: string; value: number }[]> {
+): Promise<IndicadorDoResumo[]> {
   const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(version.tenantId, version.id),
     getPermutas(version.tenantId, version.id),
@@ -48,24 +50,7 @@ async function versionIndicadores(
     permToCalc(permRows),
     reembToCalc(reembRows),
   );
-  const permByTipo = (match: string) =>
-    permRows
-      .filter((p) => (p.tipoPermuta ?? "").toLowerCase().includes(match))
-      .reduce((a, p) => a + Number(p.estimado ?? 0), 0);
-  return [
-    { label: "VGV Total (tabela de preços)", value: totals.vgv },
-    { label: "AS + S1 + S2 + S3 (Sinais)", value: totals.sinais },
-    { label: "Mensais (c/INCC p.5+)", value: totals.mens },
-    { label: "Semestrais (c/INCC p.5+)", value: totals.sem },
-    { label: "Anuais (c/INCC p.5+)", value: totals.anu },
-    { label: "FGTS", value: totals.fgts },
-    { label: "Subsídio estimado", value: totals.sub },
-    { label: "Permuta Recebido (estimado)", value: totals.permRec },
-    { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
-    { label: "Permuta por Materiais", value: permByTipo("material") },
-    { label: "Permuta por Serviços de Terceiros", value: permByTipo("servi") },
-    { label: "Liberações de Obra", value: totals.reemb },
-  ];
+  return indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length });
 }
 
 export default async function ResumoPage({
@@ -112,10 +97,29 @@ export default async function ResumoPage({
 
   const compareVersions = resolveCompareVersions(sp.vs, versoesDaObra, versaoTrabalho);
   const multi = compareVersions.length > 1;
+  // Prompt AE, 3.5: a tela diz quando NÃO está na Atual — valores de
+  // planejamento não são "valores contratados".
+  const temAtual = versoesDaObra.some((v) => v.kind === "atual");
+  const foraDaAtual = compareVersions.filter((v) => v.kind !== "atual");
+  const avisoDaVersao =
+    foraDaAtual.length === 0
+      ? null
+      : !temAtual
+        ? `${obra.name} não tem versão Atual: a tela mostra ${foraDaAtual.map((v) => `${rotuloDaVersao(v).titulo} “${v.label}”`).join(", ")}, que é planejamento, não o contratado.`
+        : `${foraDaAtual.map((v) => `${rotuloDaVersao(v).titulo} “${v.label}”`).join(", ")}: valores de planejamento, não o contratado da Atual.`;
+  const aviso = avisoDaVersao ? (
+    <p className="mb-4 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]" role="status" data-aviso-versao>
+      {avisoDaVersao}
+    </p>
+  ) : null;
   const versionSelect = (
     <VersionMultiSelect
-      versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
+      versions={versoesDaObra.map((v) => {
+        const r = rotuloDaVersao(v);
+        return { id: v.id, label: `${r.titulo} · ${v.label}`, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora), marca: r.copia ? "cópia" : null };
+      })}
       selected={compareVersions.map((v) => v.id)}
+      noLimite="avisar"
     />
   );
 
@@ -131,15 +135,20 @@ export default async function ResumoPage({
       <>
         <PageHeader
           title="Resumo Executivo"
-          subtitle="Comparativo de versões · indicadores gerais (valores contratados)"
+          subtitle="Comparativo de versões · indicadores gerais"
           actions={
             <div className="flex flex-wrap items-end gap-3">
               {projectPicker}
-            <DateRangeFilter de={de} ate={ate} />
-              {versionSelect}
+              {/* 4.2 — o período não tem efeito na comparação: o filtro sai daqui. */}
             </div>
           }
         />
+        <div className="mb-4">{versionSelect}</div>
+        {aviso}
+        <p className="mb-3 text-[12px] text-[var(--color-ink3)]" data-criterios>
+          O VGV conta {TEXTO_DA_BASE.todas_unidades}; Sinais, Mensais, Semestrais, Anuais, FGTS e Subsídio contam {TEXTO_DA_BASE.vendidas};
+          valores nominais, sem INCC. O período não se aplica à comparação.
+        </p>
         <VersionCompareTable
           firstColLabel="Indicador"
           columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
@@ -176,28 +185,7 @@ export default async function ResumoPage({
   );
   const totalUnidades = totals.vend + totals.res + totals.disp;
 
-  // Permuta por tipo (estimado), quando classificada em tipoPermuta.
-  const permByTipo = (match: string) =>
-    permRows
-      .filter((p) => (p.tipoPermuta ?? "").toLowerCase().includes(match))
-      .reduce((a, p) => a + Number(p.estimado ?? 0), 0);
-  const permMateriais = permByTipo("material");
-  const permServicos = permByTipo("servi");
-
-  const indicadores: { label: string; value: number }[] = [
-    { label: "VGV Total (tabela de preços)", value: totals.vgv },
-    { label: "AS + S1 + S2 + S3 (Sinais)", value: totals.sinais },
-    { label: "Mensais (c/INCC p.5+)", value: totals.mens },
-    { label: "Semestrais (c/INCC p.5+)", value: totals.sem },
-    { label: "Anuais (c/INCC p.5+)", value: totals.anu },
-    { label: "FGTS", value: totals.fgts },
-    { label: "Subsídio estimado", value: totals.sub },
-    { label: "Permuta Recebido (estimado)", value: totals.permRec },
-    { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
-    { label: "Permuta por Materiais", value: permMateriais },
-    { label: "Permuta por Serviços de Terceiros", value: permServicos },
-    { label: "Liberações de Obra", value: totals.reemb },
-  ];
+  const indicadores = indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length });
 
   return (
     <>
@@ -209,11 +197,12 @@ export default async function ResumoPage({
           <div className="flex flex-wrap items-end gap-3">
             {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
-            {versionSelect}
           </div>
         }
       />
+      <div className="mb-4">{versionSelect}</div>
 
+      {aviso}
       {hasRange && (
         <Card className="mb-6">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
@@ -242,8 +231,13 @@ export default async function ResumoPage({
               Indicadores Gerais
             </h2>
             <p className="mb-4 text-[11px] text-[var(--color-ink3)]">
-              Valores contratados (acumulados) — não variam por período. O recorte
-              por data afeta os recebimentos previstos acima.
+              Valores acumulados da versão, não variam por período.{" "}
+              {/* 4.3 — só aponta para o cartão de período quando ele existe. */}
+              {hasRange
+                ? "O recorte por data afeta só os recebimentos previstos acima."
+                : "Para ver os recebimentos de um período, informe as datas acima."}{" "}
+              Valores nominais, sem INCC. O VGV conta {TEXTO_DA_BASE.todas_unidades}; Sinais a Subsídio contam{" "}
+              {TEXTO_DA_BASE.vendidas}.
             </p>
             <Table>
               <THead>
@@ -255,15 +249,17 @@ export default async function ResumoPage({
               <tbody>
                 {indicadores.map((i) => (
                   <TR key={i.label}>
-                    <TD className="text-[var(--color-ink2)]">{i.label}</TD>
+                    <TD className="text-[var(--color-ink2)]" title={`Base: ${TEXTO_DA_BASE[i.base]}`}>{i.label}</TD>
                     <TD
                       className={`text-right font-[family-name:var(--font-mono)] font-medium ${
                         i.value > 0
                           ? "text-[var(--color-accent2)]"
                           : "text-[var(--color-ink4)]"
                       }`}
+                      title={i.vazio ? `Sem registro na base (${TEXTO_DA_BASE[i.base]})` : undefined}
                     >
-                      {brl0(i.value)}
+                      {/* 4.4 — sem nada de onde somar é "—"; zero de fato é R$ 0. */}
+                      {i.vazio ? "—" : brl0(i.value)}
                     </TD>
                   </TR>
                 ))}
@@ -301,7 +297,8 @@ export default async function ResumoPage({
                 <h2 className="text-sm font-semibold text-[var(--color-ink)]">
                   Financiamento Banco
                 </h2>
-                <Badge tone="danger">não gera projeção</Badge>
+                {/* 2.8 — o selo fala desta tela: o financiamento é projetado em outras (Projeção, DRE, Fluxo). */}
+                <Badge tone="neutral">não entra nos totais desta tela</Badge>
               </div>
               <dl className="space-y-3">
                 <div className="flex items-center justify-between">
