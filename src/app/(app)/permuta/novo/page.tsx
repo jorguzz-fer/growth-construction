@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function NovoAtivoPermutaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; assistente?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -60,6 +60,9 @@ export default async function NovoAtivoPermutaPage({
         unidades={unitCodes}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
         tipos={TIPOS_PERMUTA}
+        // 7.3 — veio do assistente: o formulário lê a proposta guardada no
+        // navegador e mostra cada campo; gravar continua sendo o botão.
+        propostaDoAssistente={sp.assistente === "1"}
       />
     </>
   );

@@ -9,6 +9,10 @@ import { previaDaRevenda, resultadoDaRevenda } from "@/lib/calc/permuta-ganho";
 import { PermutaActions } from "@/components/app/permuta-actions";
 import { PermutaImportExport } from "@/components/app/permuta-import-export";
 import { inventario, totaisPorTipo } from "@/lib/permuta-inventario";
+import { analisarPermutas } from "@/lib/permuta-analise";
+import { AssistentePermuta } from "@/components/app/assistente-permuta";
+import { isAiConfigured } from "@/lib/ai/client";
+import { getUnits } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -70,6 +74,25 @@ export default async function PermutaPage({
   );
   const emEstoque = inventario(rows, hojeYmd);
   const porTipo = totaisPorTipo(emEstoque);
+  // Seção 7.5 — análises do assistente, em código puro, sobre o que a página
+  // carregou (a duplicidade com o plano lê a linha "Permuta" das unidades).
+  const unidades = await getUnits(ctx.tenant.id, version.id);
+  const analise = analisarPermutas(
+    rows.map((p) => ({
+      id: p.id,
+      unitCode: p.unitCode,
+      clienteNome: p.clienteNome,
+      tipo: p.tipo,
+      descricao: p.descricao,
+      estimado: Number(p.estimado ?? 0),
+      status: p.status,
+      dataVenda: p.dataVenda,
+      valorVenda: Number(p.valorVenda ?? 0),
+      cancelado: p.cancelado,
+    })),
+    emEstoque,
+    unidades.map((u) => ({ code: u.code, permutaNoPlano: Number(u.paymentPlan?.Permuta?.val ?? 0) })),
+  );
 
   return (
     <>
@@ -95,6 +118,9 @@ export default async function PermutaPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {(sp.salvo || sp.cancelado) && (
         <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
           {sp.cancelado ? "Ativo cancelado. Ele continua na lista, fora dos totais." : "Ativo gravado."}
@@ -309,6 +335,9 @@ export default async function PermutaPage({
           </tbody>
         </Table>
       </section>
+      </div>
+      <AssistentePermuta usuario={ctx.userEmail ?? "anon"} projectId={project.id} iaDisponivel={isAiConfigured()} podeCriar={canCriar} analise={analise} />
+      </div>
     </>
   );
 }

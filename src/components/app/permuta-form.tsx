@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addPermuta, updatePermuta } from "@/lib/actions/receitas";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
+import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
+import type { Alerta } from "@/lib/ai/campos";
+import { CHAVE_PROPOSTA_PERMUTA, ROTULO_CAMPO_ATIVO, type CampoAtivo, type PropostaGuardadaPermuta } from "@/lib/ai/permuta-doc";
 
 /**
  * Formulário do ativo de permuta (Prompt P, 3.1/3.2). Cliente porque a action
@@ -43,6 +46,7 @@ export function PermutaForm({
   tipos,
   initial,
   docsSlot,
+  propostaDoAssistente = false,
 }: {
   projectId: string;
   unidades: string[];
@@ -52,6 +56,8 @@ export function PermutaForm({
   initial?: PermutaInicial;
   /** 6.2 — bloco de documentos do ativo, entre a revenda e as observações (só na edição). */
   docsSlot?: React.ReactNode;
+  /** 7.3 — veio do assistente: lê a proposta guardada no navegador e mostra cada campo com alerta. */
+  propostaDoAssistente?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -62,10 +68,47 @@ export function PermutaForm({
   const [forma, setForma] = useState(initial?.formaVenda ?? "avista");
   const formRef = useRef<HTMLFormElement>(null);
   const vendido = status === "Vendido";
+  // 7.3 — proposta do assistente: os valores entram como defaultValue, por
+  // isso o formulário só renderiza depois de ler o sessionStorage. Alerta por
+  // campo some quando o usuário mexe no campo (quem editou já conferiu).
+  const [proposta, setProposta] = useState<{ unitCode: string; clienteId: string; clienteNome: string; dataRecebimento: string; tipo: string; descricao: string } | null>(null);
+  const [alertas, setAlertas] = useState<Partial<Record<CampoAtivo, Alerta>>>({});
+  const [leitura, setLeitura] = useState<{ resumo: string; preenchidos: string[]; observacoes: string[] } | null>(null);
+  const [pronto, setPronto] = useState(!propostaDoAssistente || !!initial);
+  const limparAlerta = (campo: CampoAtivo) =>
+    setAlertas((a) => {
+      if (!a[campo]) return a;
+      const { [campo]: _fora, ...resto } = a;
+      void _fora;
+      return resto;
+    });
+  useEffect(() => {
+    if (!propostaDoAssistente || initial) return;
+    let guardada: PropostaGuardadaPermuta | null = null;
+    try {
+      const bruto = window.sessionStorage.getItem(CHAVE_PROPOSTA_PERMUTA);
+      guardada = bruto ? (JSON.parse(bruto) as PropostaGuardadaPermuta) : null;
+      window.sessionStorage.removeItem(CHAVE_PROPOSTA_PERMUTA);
+    } catch {
+      guardada = null;
+    }
+    if (guardada?.proposta && guardada.projectId === projectId) {
+      const v = guardada.proposta.valores;
+      setProposta({ unitCode: v.unitCode, clienteId: v.clienteId, clienteNome: v.clienteNome, dataRecebimento: v.dataRecebimento, tipo: v.tipo, descricao: v.descricao });
+      setEstimado(v.estimado);
+      setAlertas(guardada.proposta.alertas);
+      setLeitura({ resumo: guardada.proposta.resumo, preenchidos: guardada.proposta.preenchidos, observacoes: guardada.proposta.observacoes });
+    } else {
+      setAviso("A proposta do assistente não foi encontrada — descreva o bem de novo ou preencha à mão.");
+    }
+    setPronto(true);
+  }, [propostaDoAssistente, initial, projectId]);
+
   // 3.6 — registro antigo só com o nome: a opção aparece marcada como
   // "gravado por nome" e continua valendo até alguém escolher do cadastro.
   const nomeLegado = initial && !initial.clienteId && initial.cliente ? initial.cliente : null;
   const unidadesComALegada = initial?.unitCode && !unidades.includes(initial.unitCode) ? [initial.unitCode, ...unidades] : unidades;
+  const clienteLegadoOuProposto = nomeLegado ?? (proposta && !proposta.clienteId && proposta.clienteNome ? proposta.clienteNome : null);
 
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -81,6 +124,8 @@ export function PermutaForm({
     });
   };
 
+  if (!pronto) return null;
+
   return (
     <Card>
       <CardContent className="p-5">
@@ -88,10 +133,14 @@ export function PermutaForm({
           {/* Obra desta tela (Prompt A): o ativo vai para a versão de trabalho dela. */}
           <input type="hidden" name="projectId" value={projectId} />
           {initial && <input type="hidden" name="id" value={initial.id} />}
-          {nomeLegado && <input type="hidden" name="cliente" value={nomeLegado} />}
-          <div>
-            <Label>Unidade de origem *</Label>
-            <Select name="unitCode" defaultValue={initial?.unitCode ?? ""} required>
+          {clienteLegadoOuProposto && <input type="hidden" name="cliente" value={clienteLegadoOuProposto} />}
+          {leitura && (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <ResumoLeituraIA origem="Descrição do bem" titulo="Lançamento assistido" resumo={leitura.resumo} preenchidos={leitura.preenchidos} alertas={alertas as Record<string, Alerta>} rotulos={ROTULO_CAMPO_ATIVO} observacoes={leitura.observacoes} onFechar={() => setAlertas({})} />
+            </div>
+          )}
+          <CampoIA label="Unidade de origem *" alerta={alertas.unitCode}>
+            <Select name="unitCode" defaultValue={initial?.unitCode ?? proposta?.unitCode ?? ""} required onChange={() => limparAlerta("unitCode")}>
               <option value="">— selecione —</option>
               {unidadesComALegada.map((c) => (
                 <option key={c} value={c}>
@@ -99,40 +148,42 @@ export function PermutaForm({
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>Cliente *</Label>
-            <Select name="clienteId" defaultValue={initial?.clienteId ?? ""} required={!nomeLegado}>
-              <option value="">{nomeLegado ? `${nomeLegado} (gravado por nome)` : "— selecione —"}</option>
+          </CampoIA>
+          <CampoIA label="Cliente *" alerta={alertas.cliente}>
+            <Select name="clienteId" defaultValue={initial?.clienteId ?? proposta?.clienteId ?? ""} required={!clienteLegadoOuProposto} onChange={() => limparAlerta("cliente")}>
+              <option value="">{nomeLegado ? `${nomeLegado} (gravado por nome)` : clienteLegadoOuProposto ? `${clienteLegadoOuProposto} (fora do cadastro)` : "— selecione —"}</option>
               {clientes.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nome}
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>Data de recebimento *</Label>
-            <DateField name="dataRecebimento" defaultValue={initial?.dataRecebimento ?? ""} required />
-          </div>
-          <div>
-            <Label>Tipo do bem / serviço *</Label>
-            <Select name="tipo" defaultValue={initial?.tipo ?? tipos[0] ?? ""}>
+          </CampoIA>
+          <CampoIA label="Data de recebimento *" alerta={alertas.dataRecebimento}>
+            <DateField name="dataRecebimento" defaultValue={initial?.dataRecebimento ?? proposta?.dataRecebimento ?? ""} required onChange={() => limparAlerta("dataRecebimento")} />
+          </CampoIA>
+          <CampoIA label="Tipo do bem / serviço *" alerta={alertas.tipo}>
+            <Select name="tipo" defaultValue={initial?.tipo ?? proposta?.tipo ?? tipos[0] ?? ""} onChange={() => limparAlerta("tipo")}>
               {tipos.map((t) => (
                 <option key={t} value={t}>
                   {t}
                 </option>
               ))}
             </Select>
-          </div>
-          <div className="lg:col-span-2">
-            <Label>Descrição</Label>
-            <Input name="descricao" defaultValue={initial?.descricao ?? ""} placeholder="" />
-          </div>
-          <div>
-            <Label>Valor estimado (R$) *</Label>
-            <MoneyInput name="estimado" value={estimado} onChange={setEstimado} />
-          </div>
+          </CampoIA>
+          <CampoIA label="Descrição" alerta={alertas.descricao} className="lg:col-span-2">
+            <Input name="descricao" defaultValue={initial?.descricao ?? proposta?.descricao ?? ""} placeholder="" onChange={() => limparAlerta("descricao")} />
+          </CampoIA>
+          <CampoIA label="Valor estimado (R$) *" alerta={alertas.estimado}>
+            <MoneyInput
+              name="estimado"
+              value={estimado}
+              onChange={(v) => {
+                limparAlerta("estimado");
+                setEstimado(v);
+              }}
+            />
+          </CampoIA>
           <div>
             <Label>Status</Label>
             <Select name="status" value={status} onChange={(e) => setStatus(e.target.value)}>
