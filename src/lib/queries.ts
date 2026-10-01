@@ -737,6 +737,11 @@ export interface FaturaCartaoView {
   valorCompras: number;
   valorPago: number;
   qtdCompras: number;
+  /** 4.1 — compras lançadas neste ciclo (1ª parcela) e parcelas de compras anteriores que caem nele. */
+  valorNovas: number;
+  valorParceladas: number;
+  /** 3.4 — já tem a despesa de juros cobrados? */
+  jurosDespesaId: string | null;
 }
 
 export async function getFaturasCartao(tenantId: string, cartaoId?: string): Promise<FaturaCartaoView[]> {
@@ -748,6 +753,8 @@ export async function getFaturasCartao(tenantId: string, cartaoId?: string): Pro
       valorCompras: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
       valorPago: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false then ${schema.despesaParcelas.valorPago} else 0 end), 0)`,
       qtdCompras: sql<number>`count(distinct case when ${schema.despesas.cancelado} = false then ${schema.despesas.id} end)::int`,
+      valorNovas: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false and ${schema.despesaParcelas.numeroParcela} = 1 then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
+      valorParceladas: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false and ${schema.despesaParcelas.numeroParcela} > 1 then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
     })
     .from(schema.faturasCartao)
     .innerJoin(schema.cartoesCredito, eq(schema.faturasCartao.cartaoId, schema.cartoesCredito.id))
@@ -765,6 +772,9 @@ export async function getFaturasCartao(tenantId: string, cartaoId?: string): Pro
     valorCompras: Number(r.valorCompras),
     valorPago: Number(r.valorPago),
     qtdCompras: Number(r.qtdCompras),
+    valorNovas: Number(r.valorNovas),
+    valorParceladas: Number(r.valorParceladas),
+    jurosDespesaId: r.f.jurosDespesaId,
   }));
 }
 

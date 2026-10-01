@@ -24,19 +24,26 @@ export interface FaturaParaEstado {
   valorCompras: number;
   /** soma dos pagamentos já feitos (0 até o pagamento existir). */
   valorPago: number;
+  /** 3.3 — saldo não pago das faturas anteriores (pagas parcialmente) que esta fatura traz. */
+  rotativoAnterior?: number;
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const hojeYmd = (hojeISO: string) => Number(hojeISO.replace(/-/g, ""));
 
-export function saldoDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "valorPago">): number {
-  return Math.max(0, r2(f.valorCompras - f.valorPago));
+/** Total devido de uma fatura: compras do ciclo + rotativo que ela traz (2.8; sem estimativa de juros). */
+export function totalDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "rotativoAnterior">): number {
+  return r2(f.valorCompras + (f.rotativoAnterior ?? 0));
+}
+
+export function saldoDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "valorPago" | "rotativoAnterior">): number {
+  return Math.max(0, r2(totalDaFatura(f) - f.valorPago));
 }
 
 export function estadoDaFatura(f: FaturaParaEstado, hojeISO: string): EstadoDaFatura {
   const fecha = ymd(f.fechamento) ?? 0;
   if (fecha >= hojeYmd(hojeISO)) return "aberta";
-  if (f.valorCompras > 0 && saldoDaFatura(f) === 0) return "paga";
+  if (totalDaFatura(f) > 0 && saldoDaFatura(f) === 0) return "paga";
   if (f.valorPago > 0) return "paga parcialmente";
   return "fechada";
 }
@@ -46,8 +53,10 @@ export function statusDaFatura(f: FaturaParaEstado, hojeISO: string): string {
   const e = estadoDaFatura(f, hojeISO);
   if (e === "aberta") return "Prevista";
   if (e === "paga") return "Pago";
+  // 3.3 — paga parcialmente: o saldo foi levado à fatura seguinte (que tem o
+  // próprio vencimento); esta não fica "Vencida".
+  if (e === "paga parcialmente") return "Parcialmente paga";
   const vencida = (ymd(f.vencimento) ?? 0) < hojeYmd(hojeISO);
-  if (e === "paga parcialmente") return vencida ? STATUS_VENCIDA : "Parcialmente paga";
   return vencida ? STATUS_VENCIDA : "A pagar";
 }
 
@@ -56,6 +65,83 @@ export interface FaturaParaLinha extends FaturaParaEstado {
   cartaoId: string;
   cartaoNome: string;
   qtdCompras: number;
+}
+
+/**
+ * 3.3 — o saldo não pago de uma fatura paga PARCIALMENTE vira rotativo e a
+ * fatura seguinte o traz. Calcula, por cartão e em ordem de fechamento, o
+ * rotativo que cada fatura recebe das anteriores: enquanto a fatura seguinte
+ * não paga esse saldo, ele continua rolando. Puro.
+ */
+export function comRotativo<T extends FaturaParaLinha>(faturas: readonly T[], hojeISO: string): (T & { rotativoAnterior: number })[] {
+  const porCartao = new Map<string, T[]>();
+  for (const f of faturas) porCartao.set(f.cartaoId, [...(porCartao.get(f.cartaoId) ?? []), f]);
+  const out: (T & { rotativoAnterior: number })[] = [];
+  for (const lista of porCartao.values()) {
+    let carry = 0;
+    for (const f of emOrdem(lista)) {
+      const g = { ...f, rotativoAnterior: r2(carry) };
+      out.push(g);
+      carry = proximoCarry(g, hojeISO);
+    }
+  }
+  return out;
+}
+
+const emOrdem = <T extends { fechamento: string }>(lista: readonly T[]) => [...lista].sort((a, b) => (ymd(a.fechamento) ?? 0) - (ymd(b.fechamento) ?? 0));
+
+/** O que fica em aberto numa fatura fechada com pagamento parcial rola para a seguinte — o saldo já inclui o rotativo que ela mesma trazia. */
+function proximoCarry(f: FaturaParaEstado, hojeISO: string): number {
+  return estadoDaFatura(f, hojeISO) === "paga parcialmente" ? saldoDaFatura(f) : 0;
+}
+
+/** 4.1 — o rotativo que o ciclo que fecha em `fechamentoDoCiclo` recebe das faturas anteriores do MESMO cartão (mesmo cálculo de `comRotativo`). */
+export function rotativoParaOCiclo(faturasDoCartao: readonly FaturaParaLinha[], fechamentoDoCiclo: string, hojeISO: string): number {
+  const limite = ymd(fechamentoDoCiclo) ?? 0;
+  let carry = 0;
+  for (const f of emOrdem(faturasDoCartao)) {
+    if ((ymd(f.fechamento) ?? 0) >= limite) break;
+    carry = proximoCarry({ ...f, rotativoAnterior: carry }, hojeISO);
+  }
+  return r2(carry);
+}
+
+/**
+ * 4.1 — projeção do ciclo em curso, para a tela do cartão. Só o juro é
+ * ESTIMATIVA (4.2), e só existe com taxa cadastrada (BU-3); nunca entra no
+ * valor de Contas a Pagar (4.3). Puro.
+ */
+export interface ProjecaoDoCiclo {
+  comprasDoCiclo: number;
+  parcelasAnteriores: number;
+  rotativoAnterior: number;
+  /** o que Contas a Pagar mostra: compras + parcelas + rotativo, sem juro. */
+  totalPrevisto: number;
+  /** null sem taxa (BU-3): a tela diz que não projeta. */
+  juroEstimado: number | null;
+  /** totalPrevisto + juroEstimado (ou igual ao previsto, sem taxa). */
+  totalProjetado: number;
+}
+
+export function projecaoDoCiclo(p: { comprasDoCiclo: number; parcelasAnteriores: number; rotativoAnterior: number; taxaRotativo: number | null }): ProjecaoDoCiclo {
+  const totalPrevisto = r2(p.comprasDoCiclo + p.parcelasAnteriores + p.rotativoAnterior);
+  const juroEstimado = p.taxaRotativo != null && p.rotativoAnterior > 0 ? r2((p.rotativoAnterior * p.taxaRotativo) / 100) : p.taxaRotativo != null ? 0 : null;
+  return { comprasDoCiclo: r2(p.comprasDoCiclo), parcelasAnteriores: r2(p.parcelasAnteriores), rotativoAnterior: r2(p.rotativoAnterior), totalPrevisto, juroEstimado, totalProjetado: r2(totalPrevisto + (juroEstimado ?? 0)) };
+}
+
+/** 3.1/3.3 — distribui um pagamento pelas parcelas em aberto, na ordem recebida (FIFO); devolve os abatimentos e a sobra. Puro. */
+export function distribuirPagamento<T extends { id: string; saldo: number }>(valor: number, parcelas: readonly T[]): { abatimentos: (T & { abatido: number })[]; sobra: number } {
+  let resta = Math.round(valor * 100);
+  const abatimentos: (T & { abatido: number })[] = [];
+  for (const p of parcelas) {
+    if (resta <= 0) break;
+    const saldo = Math.round(p.saldo * 100);
+    if (saldo <= 0) continue;
+    const x = Math.min(saldo, resta);
+    abatimentos.push({ ...p, abatido: x / 100 });
+    resta -= x;
+  }
+  return { abatimentos, sobra: resta / 100 };
 }
 
 export interface LinhaDeFatura {
@@ -94,15 +180,23 @@ const dataBR = (s: string) => {
 /** Uma fatura como linha de Contas a Pagar (1.6/1.7): fornecedor = o cartão; link vai para /cartoes. */
 export function linhaDaFatura(f: FaturaParaLinha, hojeISO: string): LinhaDeFatura {
   const estado = estadoDaFatura(f, hojeISO);
+  const rotativo = f.rotativoAnterior ?? 0;
+  // 3.3 — paga parcialmente: o saldo foi levado à fatura seguinte; aqui a
+  // linha fica com saldo zero para o mesmo dinheiro não aparecer duas vezes.
+  const parcial = estado === "paga parcialmente";
+  const partes = [`${f.qtdCompras} compra(s)`, `fecha ${dataBR(f.fechamento)}`];
+  if (estado === "aberta") partes.push("ainda recebe compras");
+  if (rotativo > 0) partes.push(`traz rotativo de ${rotativo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`);
+  if (parcial) partes.push(`saldo de ${saldoDaFatura(f).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} levado à fatura seguinte`);
   return {
     id: `fatura:${f.id}`,
     numDoc: null,
     fornecedorNome: `Fatura · ${f.cartaoNome}`,
-    descricao: `${f.qtdCompras} compra(s) · fecha ${dataBR(f.fechamento)}${estado === "aberta" ? " · ainda recebe compras" : ""}`,
+    descricao: partes.join(" · "),
     categoriaDre: null,
     contaCef: null,
-    valor: r2(f.valorCompras),
-    saldo: saldoDaFatura(f),
+    valor: totalDaFatura(f),
+    saldo: parcial ? 0 : saldoDaFatura(f),
     versionKind: "atual",
     versionLabel: "Atual",
     vencimento: f.vencimento,
@@ -135,6 +229,8 @@ export function linhasComFaturas<T extends { id: string; cartaoId?: string | nul
   const semCartao = despesas.filter((d) => !d.cartaoId);
   return {
     compras: linhasPorObrigacao(semCartao, parcelas),
-    faturas: faturas.filter((f) => f.qtdCompras > 0 || f.valorPago > 0).map((f) => linhaDaFatura(f, hojeISO)),
+    faturas: comRotativo(faturas, hojeISO)
+      .filter((f) => f.qtdCompras > 0 || f.valorPago > 0 || f.rotativoAnterior > 0)
+      .map((f) => linhaDaFatura(f, hojeISO)),
   };
 }

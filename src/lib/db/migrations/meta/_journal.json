@@ -386,6 +386,13 @@
       "when": 1790837223626,
       "tag": "0054_fatura_cartao",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790838182275,
+      "tag": "0055_fatura_pagamento",
+      "breakpoints": true
     }
   ]
 }

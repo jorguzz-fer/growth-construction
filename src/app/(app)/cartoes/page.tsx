@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/app/page-header";
 import { CartaoForm } from "@/components/app/cartao-form";
 import { CartoesManager } from "@/components/app/cartoes-manager";
 import { FaturasCartao } from "@/components/app/faturas-cartao";
+import { ProjecaoCartao } from "@/components/app/projecao-cartao";
+import { getPagamentosDaFatura } from "@/lib/actions/faturas";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +36,9 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
     usado[c.id] = f ? Math.max(0, f.valorCompras - f.valorPago) : 0;
   }
   const faturaAberta = sp.fatura && faturas.some((f) => f.id === sp.fatura) ? sp.fatura : null;
-  const compras = faturaAberta ? await getComprasDaFatura(ctx.tenant.id, faturaAberta) : [];
+  const [compras, pagamentos] = await Promise.all([faturaAberta ? getComprasDaFatura(ctx.tenant.id, faturaAberta) : Promise.resolve([]), getPagamentosDaFatura(ctx.tenant.id, faturas.map((f) => f.id))]);
+  const projetos = ctx.projects.map((p) => ({ id: p.id, nome: p.name }));
+  const contaDoCartao: Record<string, string | null> = Object.fromEntries(cartoes.map((c) => [c.id, c.bankAccountId]));
 
   return (
     <>
@@ -47,7 +51,8 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
       </div>
       {can(ctx.perms, "cartoes", "criar") && <CartaoForm contas={contas} />}
       <CartoesManager cartoes={cartoes} contas={contas} usado={usado} vinculos={vinculos} hoje={hoje} canEditar={can(ctx.perms, "cartoes", "editar")} canExcluir={can(ctx.perms, "cartoes", "excluir")} />
-      <FaturasCartao faturas={faturas} hoje={hoje} aberta={faturaAberta} compras={compras} />
+      <ProjecaoCartao cartoes={cartoes} faturas={faturas} hoje={hoje} />
+      <FaturasCartao faturas={faturas} hoje={hoje} aberta={faturaAberta} compras={compras} pagamentos={pagamentos} contas={contas} projetos={projetos} contaDoCartao={contaDoCartao} canPagar={can(ctx.perms, "cartoes", "editar")} />
     </>
   );
 }
