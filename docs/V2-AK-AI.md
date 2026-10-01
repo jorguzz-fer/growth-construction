@@ -102,3 +102,11 @@ sem o destravamento do 2.3 pode deixar alguém fora da conta.
   7. o seletor do próprio papel fica desabilitado;
   8. promover a owner pede confirmação.
 - Migração 0041: aplicar, `down`, reaplicar — ok.
+
+## Atualização — Prompt AL (01/10/2026)
+
+- A tela Contabilidade saiu; o convite e a mensagem de erro ficam só em
+  Usuários.
+- BAK-2: o Log de Auditoria (`acoes`) continua sendo a única tela de Config no
+  padrão do contador. Isso agora é ajustável por membro em Gestão de Acessos,
+  sempre só leitura.

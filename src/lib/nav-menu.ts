@@ -159,7 +159,6 @@ export const NAV_MENU: NavModule[] = [
       { href: "/numeracao", label: "Numeração de despesas" },
       { href: "/chaves", label: "Chaves de mudança" },
       { href: "/backup", label: "Backup" },
-      { href: "/contabilidade", label: "Acesso do contador" },
       {
         href: "/diagnostico/categorias-invertidas",
         label: "Conferência de lançamentos",

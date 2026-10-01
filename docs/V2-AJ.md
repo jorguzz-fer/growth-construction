@@ -106,3 +106,14 @@ foi para `nav-menu.ts`, sem a afirmação errada).
   - "voltar ao padrão" descarta e registra no log;
   - com a chave ligada, o membro sem override vê só as telas decididas, e
     `/dre` e `/usuarios` negam acesso.
+
+## Atualização — Prompt AL (01/10/2026)
+
+- O contador **deixa de ser exceção**: é um papel configurável como os
+  outros. O padrão do papel (as oito telas de `CONTADOR_VE`) é o ponto de
+  partida, e owner ou admin ajustam por membro nesta tela.
+- O contador tem **teto de leitura**: `criar`, `editar` e `excluir` são
+  negados no último passo de `effectivePermissions`, depois do merge, como o
+  clamp desta tarefa.
+- A tela `contabilidade` saiu de `SCREENS`: a matriz passa de **38 para 37
+  telas**. Override gravado com essa chave fica no banco, inerte.

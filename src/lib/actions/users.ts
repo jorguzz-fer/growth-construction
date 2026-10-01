@@ -92,16 +92,11 @@ async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResul
     meta: { email, role },
   });
   revalidatePath("/usuarios");
-  revalidatePath("/contabilidade");
   return { ok: true };
 }
 
 export async function inviteMember(formData: FormData): Promise<ActionResult> {
   return invite(formData);
-}
-
-export async function inviteContador(formData: FormData): Promise<ActionResult> {
-  return invite(formData, "contador");
 }
 
 /** Lê o vínculo do membro alvo no tenant do contexto. */
