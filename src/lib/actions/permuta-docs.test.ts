@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 /**
  * Prompt P, PR P-5 — documentos do ativo (6.2–6.7). Integração: só com
@@ -90,7 +90,8 @@ describe.skipIf(!HAS_DB)("Permuta — documentos do ativo (Prompt P, PR P-5)", a
     expect(docs.every((d) => d.permutaId === permutaId && d.projectId === projectId && d.unitCode === "A-1")).toBe(true);
     expect(enviados).toHaveLength(5);
     expect(enviados.every((k) => k.startsWith(`tenants/${tenantId}/permuta/${permutaId}/`))).toBe(true);
-    const logs = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "permuta.doc.upload")));
+    // ordem explícita: sem ORDER BY, `logs[0]` variava sob carga (intermitente)
+    const logs = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "permuta.doc.upload"))).orderBy(asc(schema.auditLog.createdAt), asc(schema.auditLog.id));
     expect(logs).toHaveLength(4);
     expect(logs[0].meta).toMatchObject({ tipo: TIPO, arquivos: [{ filename: "contrato-v1.pdf", versao: 1 }] });
   });
