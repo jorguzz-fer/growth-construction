@@ -75,13 +75,15 @@ export default async function PlanoContasPage() {
         subtitle="Dupla classificação: Grupo CEF/Obra + Categoria DRE"
       />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+      {/* Prompt G, Parte 1 — restyle no ponto de uso (cartão 16px / `--color-line`);
+          `Card` compartilhado não muda. Conteúdo, textos e ordem: idênticos. */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <PlanoContasManager cef={cef} comp={comp} perms={perms} />
 
-        <aside>
-          <Card>
+        <aside aria-label="Categorias DRE">
+          <Card className="rounded-[16px] border-[var(--color-line)] shadow-[0_1px_3px_rgba(22,35,59,.06)] lg:sticky lg:top-20">
             <CardContent className="p-5">
-              <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">
+              <h2 className="mb-4 text-[15px] font-semibold text-[var(--color-v2-ink)]">
                 Categorias DRE
               </h2>
               <div className="space-y-3">
@@ -90,7 +92,7 @@ export default async function PlanoContasPage() {
                     key={c.name}
                     className={`flex items-start gap-3 ${
                       i < DRE_CATS.length - 1
-                        ? "border-b border-[var(--color-accent2)]/10 pb-3"
+                        ? "border-b border-[#EDF1F7] pb-3"
                         : ""
                     }`}
                   >
@@ -102,17 +104,17 @@ export default async function PlanoContasPage() {
                       {c.icon}
                     </span>
                     <div>
-                      <div className="text-[13px] font-semibold text-[var(--color-ink)]">
+                      <div className="text-[13px] font-semibold text-[var(--color-v2-ink)]">
                         {c.name}
                       </div>
-                      <div className="text-[12px] leading-snug text-[var(--color-ink3)]">
+                      <div className="text-[12px] leading-snug text-[var(--color-v2-ink2)]">
                         {c.desc}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-              <p className="mt-4 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-ink3)]">
+              <p className="mt-4 rounded-[13px] border border-[#EDF1F7] bg-[#FCFDFF] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-v2-ink2)]">
                 ⓘ As categorias DRE são fixas (estrutura do relatório) e não são
                 editáveis. A edição de inserir/editar/excluir vale para os grupos e
                 subitens CEF / complementares.
