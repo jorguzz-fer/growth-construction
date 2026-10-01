@@ -452,7 +452,7 @@ export interface ReceivableRow {
  * vendidas (versão Atual de cada obra) em recebíveis datados, com projeto e
  * cliente comprador. Base do painel "Receitas a Receber do Dia".
  */
-export async function getReceivables(tenantId: string): Promise<ReceivableRow[]> {
+export async function getReceivables(tenantId: string, projectId?: string): Promise<ReceivableRow[]> {
   const rows = await db
     .select({
       u: schema.units,
@@ -470,7 +470,14 @@ export async function getReceivables(tenantId: string): Promise<ReceivableRow[]>
         eq(schema.clientes.tenantId, tenantId),
       ),
     )
-    .where(and(eq(schema.units.tenantId, tenantId), eq(schema.versions.kind, "atual")));
+    // CR-06 — a obra filtra na consulta, não em memória depois.
+    .where(
+      and(
+        eq(schema.units.tenantId, tenantId),
+        eq(schema.versions.kind, "atual"),
+        ...(projectId ? [eq(schema.versions.projectId, projectId)] : []),
+      ),
+    );
 
   const out: ReceivableRow[] = [];
   for (const r of rows) {
@@ -1238,6 +1245,24 @@ export async function getUnidadesComObra(
     .orderBy(asc(schema.units.code));
 }
 
+/**
+ * Códigos de unidade da versão Atual de cada obra, por obra (Prompt K, CR-07):
+ * o seletor de unidade de uma conta a receber só oferece as unidades da obra
+ * escolhida. `getUnitCodesByTenant` (todas as obras, todas as versões)
+ * continua como está para as telas que já a usam.
+ */
+export async function getUnidadesAtuaisPorObra(tenantId: string): Promise<Record<string, string[]>> {
+  const rows = await db
+    .selectDistinct({ projectId: schema.versions.projectId, code: schema.units.code })
+    .from(schema.units)
+    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
+    .where(and(eq(schema.units.tenantId, tenantId), eq(schema.versions.tenantId, tenantId), eq(schema.versions.kind, "atual")))
+    .orderBy(asc(schema.units.code));
+  const out: Record<string, string[]> = {};
+  for (const r of rows) (out[r.projectId] ??= []).push(r.code);
+  return out;
+}
+
 export type MedicaoRow = typeof schema.medicoes.$inferSelect;
 
 export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
@@ -1956,7 +1981,7 @@ export interface ContaReceberRow {
 }
 
 /** Contas a receber criadas manualmente / convertidas do extrato (não canceladas). */
-export async function getContasReceber(tenantId: string): Promise<ContaReceberRow[]> {
+export async function getContasReceber(tenantId: string, projectId?: string): Promise<ContaReceberRow[]> {
   const rows = await db
     .select({
       c: schema.contasReceber,
@@ -1966,10 +1991,12 @@ export async function getContasReceber(tenantId: string): Promise<ContaReceberRo
     .from(schema.contasReceber)
     .innerJoin(schema.projects, eq(schema.contasReceber.projectId, schema.projects.id))
     .leftJoin(schema.clientes, eq(schema.contasReceber.clienteId, schema.clientes.id))
+    // CR-06 — a obra filtra na consulta, não em memória depois.
     .where(
       and(
         eq(schema.contasReceber.tenantId, tenantId),
         eq(schema.contasReceber.cancelado, false),
+        ...(projectId ? [eq(schema.contasReceber.projectId, projectId)] : []),
       ),
     )
     .orderBy(asc(chaveDataBR(schema.contasReceber.vencimento)), asc(schema.contasReceber.createdAt), asc(schema.contasReceber.id));

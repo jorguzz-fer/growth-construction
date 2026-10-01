@@ -1285,7 +1285,7 @@ export const contasReceber = pgTable("conta_receber", {
   vencimento: text("vencimento"),
   dataRecebimento: text("data_recebimento"),
   valorRecebido: numeric("valor_recebido", { precision: 15, scale: 2 }).notNull().default("0"),
-  /** A receber | Recebido | Parcialmente recebido | Cancelado. */
+  /** A receber | Parcialmente recebido | Recebido | Cancelada (lista em `conta-receber-regras.ts`; K-2 deriva). */
   status: text("status").notNull().default("A receber"),
   bancoId: uuid("banco_id").references(() => bankAccounts.id, { onDelete: "set null" }),
   /** rastreabilidade: item do extrato que originou/conciliou esta conta. */
