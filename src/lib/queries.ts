@@ -1858,6 +1858,78 @@ export async function getMovimentosParaObra(tenantId: string, de?: string | null
   }));
 }
 
+/* ───────────── Prompt Z — Funcionários ───────────── */
+
+export type FuncionarioRow = typeof schema.funcionarios.$inferSelect;
+export type DependenteRow = typeof schema.funcionarioDependentes.$inferSelect;
+
+/**
+ * Lista de funcionários (7.1): CPF já MASCARADO e sem nenhum campo sensível —
+ * a lista nunca precisa deles. A ficha (`getFuncionario`) decide pelo papel.
+ */
+export interface FuncionarioLista {
+  id: string;
+  nome: string;
+  cpfMascarado: string | null;
+  cargo: string | null;
+  setor: string | null;
+  projectName: string | null;
+  admissao: string | null;
+  desligamento: string | null;
+  tipoContrato: string | null;
+  dependentes: number;
+}
+export async function getFuncionarios(tenantId: string): Promise<FuncionarioLista[]> {
+  const { mascararDocumento } = await import("@/lib/clientes-sensivel");
+  const rows = await db
+    .select({
+      id: schema.funcionarios.id,
+      nome: schema.funcionarios.nome,
+      cpf: schema.funcionarios.cpf,
+      cargo: schema.funcionarios.cargo,
+      setor: schema.funcionarios.setor,
+      projectName: schema.projects.name,
+      admissao: schema.funcionarios.admissao,
+      desligamento: schema.funcionarios.desligamento,
+      tipoContrato: schema.funcionarios.tipoContrato,
+      dependentes: sql<number>`(select count(*)::int from funcionario_dependente d where d.funcionario_id = ${schema.funcionarios.id})`,
+    })
+    .from(schema.funcionarios)
+    .leftJoin(schema.projects, eq(schema.funcionarios.projectId, schema.projects.id))
+    .where(eq(schema.funcionarios.tenantId, tenantId))
+    .orderBy(asc(schema.funcionarios.nome));
+  return rows.map((r) => ({ ...r, cpfMascarado: mascararDocumento(r.cpf), cpf: undefined })).map(({ cpf: _c, ...r }) => { void _c; return r; });
+}
+
+/** Ficha: com `podeVerSensiveis = false`, endereço, salário, jornada e banco voltam NULOS do servidor (7.2). */
+export async function getFuncionario(tenantId: string, id: string, podeVerSensiveis: boolean): Promise<(FuncionarioRow & { projectName: string | null; dependentes: DependenteRow[] }) | null> {
+  const { semSensiveis } = await import("@/lib/funcionario-regras");
+  const [row] = await db
+    .select({ f: schema.funcionarios, projectName: schema.projects.name })
+    .from(schema.funcionarios)
+    .leftJoin(schema.projects, eq(schema.funcionarios.projectId, schema.projects.id))
+    .where(and(eq(schema.funcionarios.id, id), eq(schema.funcionarios.tenantId, tenantId)))
+    .limit(1);
+  if (!row) return null;
+  const dependentes = podeVerSensiveis ? await db.select().from(schema.funcionarioDependentes).where(eq(schema.funcionarioDependentes.funcionarioId, id)).orderBy(asc(schema.funcionarioDependentes.nome)) : [];
+  return { ...semSensiveis(row.f as unknown as Record<string, unknown>, podeVerSensiveis) as FuncionarioRow, projectName: row.projectName, dependentes };
+}
+
+/** CPFs para o aviso de duplicidade (2.5): funcionários e fornecedores PF. Só nome e CPF; nada mais sai. */
+export async function getCpfsConhecidos(tenantId: string): Promise<{ origem: "funcionario" | "fornecedor"; nome: string; cpf: string | null; id: string }[]> {
+  const [f, s] = await Promise.all([
+    db.select({ id: schema.funcionarios.id, nome: schema.funcionarios.nome, cpf: schema.funcionarios.cpf }).from(schema.funcionarios).where(and(eq(schema.funcionarios.tenantId, tenantId), isNotNull(schema.funcionarios.cpf))),
+    db.select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, cpf: schema.stakeholders.doc }).from(schema.stakeholders).where(and(eq(schema.stakeholders.tenantId, tenantId), eq(schema.stakeholders.tipo, "PF"), isNotNull(schema.stakeholders.doc))),
+  ]);
+  return [...f.map((x) => ({ origem: "funcionario" as const, ...x })), ...s.map((x) => ({ origem: "fornecedor" as const, ...x }))];
+}
+
+/** 2.4 — quantas alocações o funcionário tem (para recusar exclusão). */
+export async function contarAlocacoesDoFuncionario(tenantId: string, funcionarioId: string): Promise<number> {
+  const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.equipesProjeto).where(and(eq(schema.equipesProjeto.tenantId, tenantId), eq(schema.equipesProjeto.funcionarioId, funcionarioId)));
+  return r?.n ?? 0;
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */

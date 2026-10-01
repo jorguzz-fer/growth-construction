@@ -21,6 +21,7 @@ export type ModuleIcon =
   | "despesas"
   | "caixa"
   | "obra"
+  | "pessoas"
   | "config";
 
 export interface NavItem {
@@ -121,9 +122,16 @@ export const NAV_MENU: NavModule[] = [
       { href: "/medicao", label: "Medição de Obra" },
       { href: "/medicaolanc", label: "Lançamento de Medição" },
       { href: "/estoque", label: "Estoque" },
-      { href: "/ponto", label: "Ponto" },
       { href: "/parametros", label: "Parâmetros / INCC" },
     ],
+  },
+  {
+    // Prompt Z — módulo novo, depois de Obra: operação de obra, não relatório.
+    // "Equipes de Projetos" entra quando a tela existir (PR Z-3).
+    id: "pessoas",
+    label: "Pessoas",
+    icon: "pessoas",
+    items: [{ href: "/funcionarios", label: "Funcionários" }],
   },
   {
     id: "config",

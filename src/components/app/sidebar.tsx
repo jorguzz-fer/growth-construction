@@ -12,6 +12,7 @@ import {
   ChevronsRight,
   HandCoins,
   HardHat,
+  Users,
   Receipt,
   Settings,
   Wallet,
@@ -32,6 +33,7 @@ const ICONS: Record<ModuleIcon, LucideIcon> = {
   despesas: Receipt,
   caixa: Wallet,
   obra: HardHat,
+  pessoas: Users,
   config: Settings,
 };
 

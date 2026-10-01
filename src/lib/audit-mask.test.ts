@@ -30,9 +30,12 @@ const META_CLIENTE_UPDATE = {
 };
 
 describe("campoProtegido", () => {
-  it("reconhece os oito campos aprovados", () => {
+  it("reconhece os oito campos aprovados (BAK-2) e os doze do trabalhador (Prompt Z, 7.3)", () => {
     for (const c of CAMPOS_PROTEGIDOS) expect(campoProtegido(c)).toBe(true);
-    expect(CAMPOS_PROTEGIDOS).toHaveLength(8);
+    expect(CAMPOS_PROTEGIDOS.slice(0, 8)).toEqual(["cpfCnpj", "nascimento", "rendaBruta", "rendaLiquida", "comprometimento", "saldoFgts", "scoreCredito", "restricoes"]);
+    expect(CAMPOS_PROTEGIDOS).toHaveLength(20);
+    expect(campoProtegido("salario")).toBe(true);
+    expect(campoProtegido("pix_chave")).toBe(true);
   });
 
   it("não depende da grafia: camelCase, snake_case e maiúsculas", () => {

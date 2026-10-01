@@ -428,6 +428,13 @@
       "when": 1790950000000,
       "tag": "0060_estoque_estorno_docs",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0061_modulo_pessoas",
+      "breakpoints": true
     }
   ]
 }
