@@ -37,11 +37,12 @@ describe.skipIf(!HAS_DB)("Ressarcimentos com obra explícita", async () => {
   };
   const caixaDe = (versionId: string) =>
     db.select().from(schema.cashEntries).where(eq(schema.cashEntries.versionId, versionId));
+  // Prompt T, 2.2 — a action só vincula lançamento existente (o modo "despesa
+  // nova" saiu): a base aponta para uma despesa já lançada na obra 2.
+  let despesaA2 = "";
   const base = () => ({
     pagadorTerceiroId: socio,
-    valor: "500",
-    categoriaDre: "Custo Variável",
-    competencia: "09/2026",
+    despesaId: despesaA2,
     dataPagamentoOriginal: "09/01/2026",
     idempotencyKey: Math.random().toString(36),
   });
@@ -63,6 +64,8 @@ describe.skipIf(!HAS_DB)("Ressarcimentos com obra explícita", async () => {
     }
     const [s] = await db.insert(schema.stakeholders).values({ tenantId: tA.id, nome: "Sócio X" }).returning();
     socio = s.id;
+    const [d] = await db.insert(schema.despesas).values({ tenantId: tA.id, versionId: v.a2.id, valor: "500", categoriaDre: "Custo Variável", competencia: "09/2026", status: "A pagar", numDoc: "PED-T2" }).returning();
+    despesaA2 = d.id;
     ctxRef.current = {
       tenant: tA,
       projects: [p.a1, p.a2],
@@ -82,8 +85,14 @@ describe.skipIf(!HAS_DB)("Ressarcimentos com obra explícita", async () => {
       ok: false,
       error: "Escolha o projeto.",
     });
-    const ds = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tA.id));
-    expect(ds).toHaveLength(0);
+    const obs = await db.select().from(schema.despesaTerceiros).where(eq(schema.despesaTerceiros.tenantId, tA.id));
+    expect(obs).toHaveLength(0);
+  });
+
+  it("criarDespesaTerceiro sem PED: recusa e aponta para Despesas (Prompt T, 2.2)", async () => {
+    const r = await criarDespesaTerceiro(fd({ ...base(), despesaId: "", projectId: p.a2.id }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/lançada em Despesas/);
   });
 
   it("criarDespesaTerceiro: empresa responsável de outra empresa é recusada", async () => {
@@ -94,7 +103,7 @@ describe.skipIf(!HAS_DB)("Ressarcimentos com obra explícita", async () => {
   });
 
   let obrigacaoId = "";
-  it("criarDespesaTerceiro grava a despesa na obra da tela; sem empresa escolhida, é ela", async () => {
+  it("criarDespesaTerceiro vincula o PED; sem empresa escolhida, a responsável é a obra da tela", async () => {
     const r = await criarDespesaTerceiro(fd({ ...base(), projectId: p.a2.id }));
     expect(r.ok).toBe(true);
     obrigacaoId = r.obrigacaoId!;

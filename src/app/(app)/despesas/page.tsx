@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
-import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getSocios, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds } from "@/lib/queries";
-import { opcoesDeSelecao } from "@/lib/stakeholder-regras";
+import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds } from "@/lib/queries";
+import { opcoesDeSelecao, pagadoresPorTerceiro } from "@/lib/stakeholder-regras";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
 import { ProjectPicker } from "@/components/app/project-picker";
@@ -111,7 +111,7 @@ export default async function DespesasPage({
   const versionId = version?.id ?? null;
   const nomeDoProjeto = (id: string) => ctx.projects.find((p) => p.id === id)?.name ?? "";
 
-  const [despesasRaw, fornecedores, contas, bancos, socios] = await Promise.all([
+  const [despesasRaw, fornecedores, contas, bancos] = await Promise.all([
     // Sem versão Atual não se lista nada: mostrar a versão de outro projeto
     // seria exibir dados de outra obra sob o nome desta.
     isAll
@@ -122,8 +122,11 @@ export default async function DespesasPage({
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
-    getSocios(ctx.tenant.id),
   ]);
+  // Prompt S 3-B.3 / T 2.3 — "pago por terceiro" oferece só quem tem o papel
+  // de Pagador por Terceiro (ativo), concedido em Ressarcimentos; antes era a
+  // lista de sócios. A obrigação continua nascendo aqui, em addDespesa.
+  const pagadores = pagadoresPorTerceiro(fornecedores);
   const despesas: Array<
     Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
   > = despesasRaw;
@@ -280,7 +283,7 @@ export default async function DespesasPage({
     contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
     categorias: CATEGORIAS_DRE,
-    socios,
+    pagadores,
     aiConfigured,
     r2Configured,
     canExcluir,

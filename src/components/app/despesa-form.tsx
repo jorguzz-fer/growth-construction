@@ -139,7 +139,7 @@ export function DespesaForm({
   contas,
   bancos,
   categorias,
-  socios = [],
+  pagadores = [],
   aiConfigured,
   r2Configured,
   canExcluir = false,
@@ -153,7 +153,8 @@ export function DespesaForm({
   contas: Conta[];
   bancos: Banco[];
   categorias: readonly string[];
-  socios?: { id: string; nome: string }[];
+  /** Prompt T, 2.3 — quem tem o papel "Pagador por Terceiro" (ativo). */
+  pagadores?: { id: string; nome: string }[];
   aiConfigured: boolean;
   r2Configured: boolean;
   /** Habilita cancelar/excluir a despesa a partir da tela de edição. */
@@ -1286,22 +1287,22 @@ export function DespesaForm({
                 onChange={(e) => setPagoPorSocio(e.target.checked)}
                 className="h-4 w-4 accent-[var(--color-accent2)]"
               />
-              Despesa paga por sócio (não movimenta o caixa da empresa no cadastro)
+              Paga por terceiro — sócio ou pagador cadastrado (não movimenta o caixa da empresa no lançamento)
             </label>
             {pagoPorSocio && (
               <>
-                {socios.length === 0 && (
+                {pagadores.length === 0 && (
                   <p className="text-[12px] text-[var(--color-warning)]">
-                    Nenhum sócio cadastrado. Cadastre um stakeholder com o papel
-                    &ldquo;Sócio/Quotista&rdquo; para usar esta opção.
+                    Nenhum cadastro ativo tem o papel &ldquo;Pagador por Terceiro&rdquo;. Conceda o papel em{" "}
+                    <a href="/restituicoes" className="underline">Ressarcimentos</a> (bloco Pagadores terceiros) — item a item.
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div>
-                    <Label>Sócio pagador</Label>
+                    <Label>Quem desembolsou</Label>
                     <Select value={socioId} onChange={(e) => setSocioId(e.target.value)}>
                       <option value="">— selecione —</option>
-                      {socios.map((so) => (
+                      {pagadores.map((so) => (
                         <option key={so.id} value={so.id}>
                           {so.nome}
                         </option>
@@ -1326,8 +1327,8 @@ export function DespesaForm({
                 </div>
                 <p className="text-[11.5px] text-[var(--color-ink3)]">
                   {socioReembolsavel
-                    ? "Gera uma obrigação a reembolsar ao sócio. O caixa só se move quando o reembolso for registrado (tela Restituições)."
-                    : "Paga definitivamente pelo sócio: registrada na DRE/projeto, sem obrigação e sem movimentar o caixa da empresa."}
+                    ? "Gera uma obrigação a ressarcir a quem desembolsou, na mesma transação. O caixa só se move quando o ressarcimento for registrado (tela Ressarcimentos)."
+                    : "Paga definitivamente por quem desembolsou (sócio): registrada na DRE/projeto, sem obrigação e sem movimentar o caixa da empresa."}
                 </p>
               </>
             )}
