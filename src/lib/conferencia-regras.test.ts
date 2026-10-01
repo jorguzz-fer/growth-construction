@@ -84,3 +84,26 @@ describe("Prompt AN · regras da Conferência", () => {
       .toBe("3 selecionado(s) · 1 reclassificado(s) · 2 pulado(s): 1 cancelada — o registro está encerrado; 1 já estava nessa categoria.");
   });
 });
+
+import { avisoDaSelecao, homogeneidade } from "./conferencia-regras";
+
+describe("Prompt AN · Parte 3 — lote híbrido", () => {
+  const l = (id: string, fornecedorId: string | null, contaCef: string | null) => ({ id, fornecedorId, contaCef });
+  it("mesmo fornecedor é homogêneo; mesma conta CEF também", () => {
+    expect(homogeneidade([l("a", "F1", "1.1"), l("b", "F1", "2.2")])).toMatchObject({ homogenea: true, criterio: "fornecedor" });
+    expect(homogeneidade([l("a", "F1", "1.1"), l("b", "F2", "1.1")])).toMatchObject({ homogenea: true, criterio: "conta CEF" });
+  });
+  it("11 — fornecedores e contas diferentes: não homogêneo, e o aviso diz quantos fornecedores", () => {
+    const h = homogeneidade([l("a", "F1", "1.1"), l("b", "F2", "2.2"), l("c", "F3", "3.3")]);
+    expect(h).toMatchObject({ homogenea: false, fornecedores: 3 });
+    expect(avisoDaSelecao(h, 3)).toMatch(/3 fornecedores diferentes.*linha a linha/);
+  });
+  it("sem fornecedor não prova nada: dois lançamentos sem fornecedor e sem conta não formam lote", () => {
+    expect(homogeneidade([l("a", null, null), l("b", null, "")]).homogenea).toBe(false);
+  });
+  it("um lançamento só é sempre homogêneo, sem aviso", () => {
+    const h = homogeneidade([l("a", null, null)]);
+    expect(h.homogenea).toBe(true);
+    expect(avisoDaSelecao(h, 1)).toBeNull();
+  });
+});

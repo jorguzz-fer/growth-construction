@@ -32,7 +32,7 @@ vi.mock("server-only", () => ({}));
 describe.skipIf(!HAS_DB)("Prompt AN — Conferência de lançamentos", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
-  const { getDespesasSuspeitas, reclassificarDespesas } = await import("./diagnostico");
+  const { getDespesasSuspeitas, reclassificarDespesas, reclassificarItens } = await import("./diagnostico");
   let tenantId = "";
   let projA = "";
   let projB = "";
@@ -153,6 +153,36 @@ describe.skipIf(!HAS_DB)("Prompt AN — Conferência de lançamentos", async () 
     expect(r.ok).toBe(false);
     const [d] = await db.select().from(schema.despesas).where(eq(schema.despesas.id, ids.credora));
     expect({ valor: d.valor, competencia: d.competencia, vencimento: d.vencimento, status: d.status, numDoc: d.numDoc }).toEqual({ valor: "500.00", competencia: "09/2026", vencimento: "09/10/2026", status: "A pagar", numDoc: "PED-credora" });
+  });
+
+  it("3.1 — cada linha com o seu destino, numa chamada só", async () => {
+    const r = await reclassificarItens([
+      { id: ids.zero, categoriaDre: "Despesa Fixa" },
+      { id: ids.semcomp, categoriaDre: "Custo Fixo" },
+    ]);
+    expect(r).toMatchObject({ ok: true, selecionadas: 2, alteradas: 2 });
+    const ds = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tenantId));
+    expect(ds.find((d) => d.id === ids.zero)!.categoriaDre).toBe("Despesa Fixa");
+    expect(ds.find((d) => d.id === ids.semcomp)!.categoriaDre).toBe("Custo Fixo");
+    expect(ds.find((d) => d.id === ids.semcomp)!.competencia).toBeNull();
+  });
+
+  it("10 — uma categoria credora em qualquer item recusa o pedido inteiro, antes de gravar", async () => {
+    const r = await reclassificarItens([
+      { id: ids.brancos, categoriaDre: "Custo Fixo" },
+      { id: ids.varios, categoriaDre: "Receita" },
+    ]);
+    expect(r.ok).toBe(false);
+    const [d] = await db.select().from(schema.despesas).where(eq(schema.despesas.id, ids.brancos));
+    expect(d.categoriaDre).toBe("Custo Variável");
+  });
+
+  it("o mesmo lançamento com dois destinos é recusado", async () => {
+    const r = await reclassificarItens([
+      { id: ids.brancos, categoriaDre: "Custo Fixo" },
+      { id: ids.brancos, categoriaDre: "Despesa Fixa" },
+    ]);
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/duas categorias/) });
   });
 
   it("sem permissão de ver Despesas, nada sai", async () => {

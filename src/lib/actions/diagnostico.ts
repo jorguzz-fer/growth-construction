@@ -204,21 +204,41 @@ export interface ReclassificarResult {
  * Nunca é chamada automaticamente, nunca infere a categoria "certa" sozinha e
  * nunca toca em valor, competência, vencimento, status ou número PED. Cada
  * alteração vai para a auditoria com valor anterior e novo (RG-09).
- *
- * AN, Parte 2: o laço inteiro — updates E logs — roda numa transação só. Se
- * qualquer item falhar, nada fica reclassificado nem registrado.
  */
 export async function reclassificarDespesas(
   ids: string[],
   categoriaDre: string,
 ): Promise<ReclassificarResult> {
+  return reclassificarItens(ids.map((id) => ({ id, categoriaDre })));
+}
+
+/**
+ * AN, Parte 3: cada lançamento com o seu destino, escolhido linha a linha (o
+ * lote da tela só preenche o destino de seleção homogênea). Toda categoria é
+ * validada ANTES de qualquer leitura ou escrita.
+ *
+ * AN, Parte 2: o laço inteiro — updates E logs — roda numa transação só. Se
+ * qualquer item falhar, nada fica reclassificado nem registrado.
+ */
+export async function reclassificarItens(
+  itens: { id: string; categoriaDre: string }[],
+): Promise<ReclassificarResult> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "editar")) {
     return { ok: false, error: "Sem permissão para reclassificar lançamentos." };
   }
-  const erro = validarCategoriaDespesa(categoriaDre);
-  if (erro) return { ok: false, error: erro };
-  const alvos = [...new Set(ids.filter(Boolean))];
+  if (!Array.isArray(itens)) return { ok: false, error: "Nenhum lançamento selecionado." };
+  const destino = new Map<string, string>();
+  for (const it of itens) {
+    if (!it || typeof it.id !== "string" || !it.id) continue;
+    const erro = validarCategoriaDespesa(it.categoriaDre);
+    if (erro) return { ok: false, error: erro };
+    if (destino.has(it.id) && destino.get(it.id) !== it.categoriaDre) {
+      return { ok: false, error: "O mesmo lançamento recebeu duas categorias diferentes." };
+    }
+    destino.set(it.id, it.categoriaDre);
+  }
+  const alvos = [...destino.keys()];
   if (alvos.length === 0) return { ok: false, error: "Nenhum lançamento selecionado." };
 
   const existentes = await db
@@ -243,6 +263,7 @@ export async function reclassificarDespesas(
     alteradas = await db.transaction(async (tx) => {
       let n = 0;
       for (const d of existentes) {
+        const categoriaDre = destino.get(d.id)!;
         // Cancelada não é reclassificada: o registro está encerrado.
         if (d.cancelado) {
           puladas.push({ id: d.id, numDoc: d.numDoc, motivo: "cancelada" });
