@@ -22,6 +22,8 @@ import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-tercei
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { RestituicoesManager } from "@/components/app/restituicoes-manager";
+import { analisarRessarcimentos } from "@/lib/ressarcimento-analise";
+import { AssistenteRessarcimentos } from "@/components/app/assistente-ressarcimentos";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +90,14 @@ export default async function RestituicoesPage({
     .filter((s) => (s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO))
     .map((s) => ({ id: s.id, nome: s.nome, docMascarado: mascararDocumento(s.doc), ativo: s.ativo, obrigacoes: usoPorId.get(s.id)?.obrigacoes ?? 0, saldoDevido: saldoPorTerceiro.get(s.id) ?? 0 }));
   const candidatos = stakeholders.filter((s) => s.ativo && !(s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO)).map((s) => ({ id: s.id, nome: s.nome, papeis: s.papeis ?? [] }));
+  // Prompt T, 10 — assistente somente leitura, em código puro, sobre o que a
+  // página carregou. Recebe só nome, valores e datas: nenhum dado bancário
+  // ou PIX entra na análise (12d).
+  const analise = analisarRessarcimentos(
+    lista.map((r) => ({ id: r.id, numDoc: r.numDoc, pagador: r.pagador, projectName: r.projectName, valorTotal: r.valorTotal, valorRestituido: r.valorRestituido, saldoPendente: r.saldoPendente, dataPagamentoOriginal: r.dataPagamentoOriginal, dataPrevistaRestituicao: r.dataPrevistaRestituicao, status: r.status })),
+    saldosConsolidados.map((s) => ({ terceiro: s.terceiro, saldoARestituir: s.saldoARestituir, saldoARepassar: s.saldoARepassar })),
+    hoje,
+  );
 
   return (
     <>
@@ -104,6 +114,9 @@ export default async function RestituicoesPage({
       />
       <LembrarProjeto projectId={project.id} />
 
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {/* Conta corrente por terceiro: saldo devido e o extrato dos movimentos
           que o formam. NÃO é saldo bancário disponível — é obrigação. */}
       <PagadoresTerceiros pagadores={pagadores} candidatos={candidatos} canEditar={can(ctx.perms, "restituicoes", "editar")} />
@@ -136,6 +149,9 @@ export default async function RestituicoesPage({
       {/* Prompt T, 7 — a compensação existe, tem número e guarda os saldos de antes; agora é visível. */}
       <Compensacoes linhas={compensacoes} />
       {podeVerPrevia && <PreviaSaidaSegueDespesa linhas={previa} ligada={segueDespesa} obraDaTela={project.name} />}
+      </div>
+      <AssistenteRessarcimentos usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
