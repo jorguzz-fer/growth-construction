@@ -2,6 +2,7 @@ import { getTenantContext } from "@/lib/context";
 import Link from "next/link";
 import { getContasPagar, getContasPagarEmPlanejamento, getParcelasContasPagar, type ContaPagarRow } from "@/lib/queries";
 import { linhasPorObrigacao } from "@/lib/contas-pagar-regras";
+import { hojeISO } from "@/lib/despesa-status";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,7 +80,8 @@ export default async function ContasPagarPage() {
         title="Contas a Pagar"
         subtitle="Uma linha por obrigação que vence: despesa, parcela ou restituição. Filtre por período, fornecedor, cliente, projeto, categoria e status; clique no cabeçalho para ordenar."
       />
-      <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} />
+      {/* Prompt R, 4.5 — hoje vem do servidor: o relógio do navegador não decide o que está vencido. */}
+      <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} hoje={hojeISO()} />
       {podeVerPrevia && <PreviaPlanejamento linhas={planejamento} chaveLigada={soAtual} />}
     </>
   );
