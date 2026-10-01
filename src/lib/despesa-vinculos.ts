@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { MovimentoConciliado, VinculosDaDespesa } from "@/lib/despesa-regras";
 
@@ -11,7 +11,7 @@ type Exec = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function vinculosDaDespesa(exec: Exec, tenantId: string, despesaId: string): Promise<VinculosDaDespesa> {
   const n = async (q: Promise<{ n: number }[]>) => (await q)[0]?.n ?? 0;
   const count = sql<number>`count(*)::int`;
-  const [parcelas, parcelasPagas, pagamentos, acertos, restituicoes, caixaConciliado, terceiros, documentosFiscais, anexos] = await Promise.all([
+  const [parcelas, parcelasPagas, pagamentos, acertos, restituicoes, caixaConciliado, terceiros, documentosFiscais, anexos, cartao] = await Promise.all([
     n(exec.select({ n: count }).from(schema.despesaParcelas).where(and(eq(schema.despesaParcelas.tenantId, tenantId), eq(schema.despesaParcelas.despesaId, despesaId)))),
     n(
       exec
@@ -48,8 +48,10 @@ export async function vinculosDaDespesa(exec: Exec, tenantId: string, despesaId:
     n(exec.select({ n: count }).from(schema.despesaTerceiros).where(and(eq(schema.despesaTerceiros.tenantId, tenantId), eq(schema.despesaTerceiros.despesaId, despesaId)))),
     n(exec.select({ n: count }).from(schema.documentosFiscais).where(and(eq(schema.documentosFiscais.tenantId, tenantId), eq(schema.documentosFiscais.despesaId, despesaId)))),
     n(exec.select({ n: count }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.despesaId, despesaId)))),
+    // Prompt U — compra no cartão (parcelas vinculadas à fatura).
+    n(exec.select({ n: count }).from(schema.despesas).where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.id, despesaId), isNotNull(schema.despesas.cartaoId)))),
   ]);
-  return { parcelas, parcelasPagas, pagamentos, acertos, restituicoes, caixaConciliado, terceiros, documentosFiscais, anexos };
+  return { parcelas, parcelasPagas, pagamentos, acertos, restituicoes, caixaConciliado, terceiros, documentosFiscais, anexos, cartao };
 }
 
 /**

@@ -647,6 +647,8 @@ export const despesas = pgTable("despesa", {
   chequeStatus: text("cheque_status"),
   /** Fase 4: despesa paga por terceiro (não gera saída de caixa na competência). */
   pagoPorTerceiro: boolean("pago_por_terceiro").notNull().default(false),
+  /** Prompt U — compra no cartão de crédito: a saída de caixa é da fatura, não da compra. */
+  cartaoId: uuid("cartao_id").references(() => cartoesCredito.id, { onDelete: "set null" }),
   /** Cancelamento lógico: mantém histórico, sai de saldos/relatórios. */
   cancelado: boolean("cancelado").notNull().default(false),
   canceladoEm: text("cancelado_em"),
@@ -684,6 +686,31 @@ export const cartoesCredito = pgTable("cartao_credito", {
   ativo: boolean("ativo").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Fatura de cartão (Prompt U, seção 2): uma por cartão e data de fechamento.
+ * O valor NÃO é gravado: é a soma das parcelas vinculadas (2.8), e o estado
+ * (aberta/fechada/paga) é derivado das datas e dos pagamentos — a mesma linha
+ * muda de prevista para firme sem nascer uma segunda (2.9).
+ */
+export const faturasCartao = pgTable(
+  "fatura_cartao",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    cartaoId: uuid("cartao_id")
+      .notNull()
+      .references(() => cartoesCredito.id, { onDelete: "cascade" }),
+    /** "MM/DD/YYYY" — dia em que o ciclo fecha. */
+    fechamento: text("fechamento").notNull(),
+    /** "MM/DD/YYYY" — dia em que a fatura vence. */
+    vencimento: text("vencimento").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("fatura_cartao_ciclo_uq").on(t.cartaoId, t.fechamento)],
+);
 
 export const despesaTerceiros = pgTable("despesa_terceiro", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1050,6 +1077,8 @@ export const despesaParcelas = pgTable(
     bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
       onDelete: "set null",
     }),
+    /** Prompt U, 2.3 — em que fatura de cartão esta parcela cai (nula fora do cartão). */
+    faturaId: uuid("fatura_id").references(() => faturasCartao.id, { onDelete: "set null" }),
     /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado */
     /** Pendente | Pago | Pago parcialmente | Vencido | Renegociado | Cancelado.
      *  Para CHEQUE o ciclo é próprio: Pendente | Compensado | Devolvido |

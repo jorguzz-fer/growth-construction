@@ -78,6 +78,8 @@ export interface VinculosDaDespesa {
   parcelas: number;
   documentosFiscais: number;
   anexos: number;
+  /** Prompt U — 1 quando a compra foi no cartão (parcelas seguem a fatura). */
+  cartao?: number;
 }
 
 export function temFatoFinanceiro(v: VinculosDaDespesa): boolean {
@@ -88,6 +90,8 @@ export function temFatoFinanceiro(v: VinculosDaDespesa): boolean {
 
 /** Campos que a edição não pode mudar quando há fato financeiro (11.6). */
 export const CAMPOS_TRAVADOS_COM_FATO = ["valor", "status", "competencia", "vencimento", "formaPagamento"] as const;
+/** Prompt U — na compra no cartão, valor, vencimento, forma e status seguem a fatura; a competência continua livre (2.4). */
+export const CAMPOS_TRAVADOS_NO_CARTAO = ["valor", "status", "vencimento", "formaPagamento"] as const;
 
 /**
  * 11.6 — o que a edição recusa. Com pagamento, acerto, restituição, terceiro
@@ -132,6 +136,10 @@ export function detalheDaConciliacao(d: DetalhesDaRecusa | undefined): string {
 }
 
 export function recusaDeEdicao(v: VinculosDaDespesa, campos: readonly string[], detalhes?: DetalhesDaRecusa): string | null {
+  if (v.cartao) {
+    const travados = campos.filter((c) => (CAMPOS_TRAVADOS_NO_CARTAO as readonly string[]).includes(c));
+    if (travados.length) return `Compra no cartão de crédito: ${travados.join(", ")} seguem a fatura e não podem ser alterados. Cancele a compra e lance de novo.`;
+  }
   const motivos: string[] = [];
   if (v.pagamentos) motivos.push(`${v.pagamentos} pagamento(s)`);
   if (v.parcelasPagas) motivos.push(`${v.parcelasPagas} parcela(s) paga(s)`);

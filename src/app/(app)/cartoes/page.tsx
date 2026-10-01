@@ -1,10 +1,12 @@
 import { getTenantContext } from "@/lib/context";
-import { getBankAccounts, getCartoes } from "@/lib/queries";
+import { getBankAccounts, getCartoes, getComprasDaFatura, getFaturasCartao, getVinculosDosCartoes } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { hojeISO } from "@/lib/despesa-status";
+import { cicloAberto } from "@/lib/calc/cartao-ciclo";
 import { PageHeader } from "@/components/app/page-header";
 import { CartaoForm } from "@/components/app/cartao-form";
 import { CartoesManager } from "@/components/app/cartoes-manager";
+import { FaturasCartao } from "@/components/app/faturas-cartao";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
@@ -12,18 +14,27 @@ export const dynamic = "force-dynamic";
 /**
  * Cartões de Crédito (Prompt U). Esta tela NÃO lança despesa: a compra é
  * lançada em /despesas com a forma "Cartão de crédito" e cai na fatura do
- * ciclo. Aqui: cadastro (seção 1), faturas, projeção e conferência (PRs
- * seguintes).
+ * ciclo. Aqui: cadastro (seção 1) e faturas (seção 2); pagamento, projeção e
+ * conferência nos PRs seguintes.
  */
-export default async function CartoesPage() {
+export default async function CartoesPage({ searchParams }: { searchParams: Promise<{ fatura?: string }> }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "cartoes", "ver")) return <AccessDenied />;
-  const [cartoes, bancos] = await Promise.all([getCartoes(ctx.tenant.id), getBankAccounts(ctx.tenant.id)]);
+  const sp = await searchParams;
+  const [cartoes, bancos, faturas, vinculos] = await Promise.all([getCartoes(ctx.tenant.id), getBankAccounts(ctx.tenant.id), getFaturasCartao(ctx.tenant.id), getVinculosDosCartoes(ctx.tenant.id)]);
   const contas = bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }));
-  // "Usado no ciclo" soma as compras e parcelas vinculadas à fatura aberta;
-  // o vínculo compra→fatura nasce no PR seguinte (seção 2). Até lá, zero.
+  const hoje = hojeISO();
+  // 1.3 — "usado no ciclo": o acumulado da fatura ABERTA de cada cartão (as
+  // compras e parcelas que caem no ciclo em curso).
   const usado: Record<string, number> = {};
+  for (const c of cartoes) {
+    const ciclo = cicloAberto(hoje, c);
+    const f = ciclo ? faturas.find((x) => x.cartaoId === c.id && x.fechamento === ciclo.fechamento) : null;
+    usado[c.id] = f ? Math.max(0, f.valorCompras - f.valorPago) : 0;
+  }
+  const faturaAberta = sp.fatura && faturas.some((f) => f.id === sp.fatura) ? sp.fatura : null;
+  const compras = faturaAberta ? await getComprasDaFatura(ctx.tenant.id, faturaAberta) : [];
 
   return (
     <>
@@ -35,7 +46,8 @@ export default async function CartoesPage() {
         </p>
       </div>
       {can(ctx.perms, "cartoes", "criar") && <CartaoForm contas={contas} />}
-      <CartoesManager cartoes={cartoes} contas={contas} usado={usado} hoje={hojeISO()} canEditar={can(ctx.perms, "cartoes", "editar")} />
+      <CartoesManager cartoes={cartoes} contas={contas} usado={usado} vinculos={vinculos} hoje={hoje} canEditar={can(ctx.perms, "cartoes", "editar")} canExcluir={can(ctx.perms, "cartoes", "excluir")} />
+      <FaturasCartao faturas={faturas} hoje={hoje} aberta={faturaAberta} compras={compras} />
     </>
   );
 }

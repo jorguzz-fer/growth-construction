@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
-import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds } from "@/lib/queries";
+import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds, getCartoes } from "@/lib/queries";
 import { opcoesDeSelecao, pagadoresPorTerceiro } from "@/lib/stakeholder-regras";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
@@ -111,7 +111,7 @@ export default async function DespesasPage({
   const versionId = version?.id ?? null;
   const nomeDoProjeto = (id: string) => ctx.projects.find((p) => p.id === id)?.name ?? "";
 
-  const [despesasRaw, fornecedores, contas, bancos] = await Promise.all([
+  const [despesasRaw, fornecedores, contas, bancos, cartoesTodos] = await Promise.all([
     // Sem versão Atual não se lista nada: mostrar a versão de outro projeto
     // seria exibir dados de outra obra sob o nome desta.
     isAll
@@ -122,7 +122,10 @@ export default async function DespesasPage({
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
+    // Prompt U / S 3-B.4 — cartões para a forma "Cartão de crédito".
+    getCartoes(ctx.tenant.id),
   ]);
+  const cartoes = cartoesTodos.filter((c) => c.ativo).map((c) => ({ id: c.id, nome: `${c.apelido}${c.ultimos4 ? " •••• " + c.ultimos4 : ""}`, diaFechamento: c.diaFechamento, diaVencimento: c.diaVencimento }));
   // Prompt S 3-B.3 / T 2.3 — "pago por terceiro" oferece só quem tem o papel
   // de Pagador por Terceiro (ativo), concedido em Ressarcimentos; antes era a
   // lista de sócios. A obrigação continua nascendo aqui, em addDespesa.
@@ -263,6 +266,7 @@ export default async function DespesasPage({
           valor: String(editRow.valor),
           status: editRow.status,
           formaPagamento: editRow.formaPagamento,
+          cartao: editRow.cartaoId ? { nome: cartoesTodos.find((c) => c.id === editRow.cartaoId)?.apelido ?? "cartão" } : null,
           obs: editRow.obs,
           documentos: editDocsComUrl,
           r2Configured,
@@ -284,6 +288,7 @@ export default async function DespesasPage({
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
     categorias: CATEGORIAS_DRE,
     pagadores,
+    cartoes,
     aiConfigured,
     r2Configured,
     canExcluir,

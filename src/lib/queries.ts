@@ -587,9 +587,15 @@ export interface ContaPagarRow {
    * que vem de `getContasPagar`, cujo retorno não mudou — ela também alimenta
    * Dashboard, Fechamento e a conciliação do extrato.
    */
-  origem?: "despesa" | "obrigacao";
+  origem?: "despesa" | "obrigacao" | "fatura";
   /** ID da obrigação quando `origem === "obrigacao"`. */
   obrigacaoId?: string;
+  /** Prompt U — a compra foi no cartão: em Contas a Pagar quem aparece é a fatura (2.6). */
+  cartaoId?: string | null;
+  /** Prompt U — ID da fatura quando `origem === "fatura"`. */
+  faturaId?: string;
+  /** Prompt U, 2.7 — fatura do ciclo aberto: obrigação prevista, o valor ainda cresce. */
+  prevista?: boolean;
 }
 
 /**
@@ -713,6 +719,113 @@ async function lerContasPagar(tenantId: string, versoes: "atual" | "planejamento
     projectName: r.projectName,
     clienteId: r.clienteId,
     clienteNome: r.clienteNome,
+    cartaoId: r.d.cartaoId,
+  }));
+}
+
+/**
+ * Prompt U, 2 — as faturas de cartão do tenant com o acumulado das compras
+ * (soma das parcelas vinculadas, só de despesas não canceladas) e o que já
+ * foi pago. Estado e saldo são derivados em `calc/fatura.ts`.
+ */
+export interface FaturaCartaoView {
+  id: string;
+  cartaoId: string;
+  cartaoNome: string;
+  fechamento: string;
+  vencimento: string;
+  valorCompras: number;
+  valorPago: number;
+  qtdCompras: number;
+}
+
+export async function getFaturasCartao(tenantId: string, cartaoId?: string): Promise<FaturaCartaoView[]> {
+  const rows = await db
+    .select({
+      f: schema.faturasCartao,
+      apelido: schema.cartoesCredito.apelido,
+      ultimos4: schema.cartoesCredito.ultimos4,
+      valorCompras: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
+      valorPago: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false then ${schema.despesaParcelas.valorPago} else 0 end), 0)`,
+      qtdCompras: sql<number>`count(distinct case when ${schema.despesas.cancelado} = false then ${schema.despesas.id} end)::int`,
+    })
+    .from(schema.faturasCartao)
+    .innerJoin(schema.cartoesCredito, eq(schema.faturasCartao.cartaoId, schema.cartoesCredito.id))
+    .leftJoin(schema.despesaParcelas, eq(schema.despesaParcelas.faturaId, schema.faturasCartao.id))
+    .leftJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .where(and(eq(schema.faturasCartao.tenantId, tenantId), cartaoId ? eq(schema.faturasCartao.cartaoId, cartaoId) : undefined))
+    .groupBy(schema.faturasCartao.id, schema.cartoesCredito.apelido, schema.cartoesCredito.ultimos4)
+    .orderBy(schema.cartoesCredito.apelido, schema.faturasCartao.fechamento);
+  return rows.map((r) => ({
+    id: r.f.id,
+    cartaoId: r.f.cartaoId,
+    cartaoNome: `${r.apelido}${r.ultimos4 ? " •••• " + r.ultimos4 : ""}`,
+    fechamento: r.f.fechamento,
+    vencimento: r.f.vencimento,
+    valorCompras: Number(r.valorCompras),
+    valorPago: Number(r.valorPago),
+    qtdCompras: Number(r.qtdCompras),
+  }));
+}
+
+/** Prompt U, 1.4 — quantas compras e faturas cada cartão tem (decide excluir × inativar). */
+export async function getVinculosDosCartoes(tenantId: string): Promise<Record<string, { compras: number; faturas: number }>> {
+  const n = sql<number>`count(*)::int`;
+  const [compras, faturas] = await Promise.all([
+    db.select({ id: schema.despesas.cartaoId, n }).from(schema.despesas).where(and(eq(schema.despesas.tenantId, tenantId), isNotNull(schema.despesas.cartaoId))).groupBy(schema.despesas.cartaoId),
+    db.select({ id: schema.faturasCartao.cartaoId, n }).from(schema.faturasCartao).where(eq(schema.faturasCartao.tenantId, tenantId)).groupBy(schema.faturasCartao.cartaoId),
+  ]);
+  const out: Record<string, { compras: number; faturas: number }> = {};
+  for (const c of compras) if (c.id) out[c.id] = { compras: Number(c.n), faturas: 0 };
+  for (const f of faturas) out[f.id] = { compras: out[f.id]?.compras ?? 0, faturas: Number(f.n) };
+  return out;
+}
+
+/** Prompt U, 2 — as compras (parcelas) de uma fatura, para a tela do cartão. */
+export interface CompraDaFatura {
+  parcelaId: string;
+  despesaId: string;
+  numDoc: string | null;
+  descricao: string | null;
+  fornecedorNome: string | null;
+  projectId: string;
+  projectName: string;
+  competencia: string | null;
+  numero: number;
+  total: number;
+  valor: number;
+  valorPago: number;
+}
+
+export async function getComprasDaFatura(tenantId: string, faturaId: string): Promise<CompraDaFatura[]> {
+  const rows = await db
+    .select({
+      p: schema.despesaParcelas,
+      d: schema.despesas,
+      fornecedorNome: schema.stakeholders.nome,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+    })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(schema.despesaParcelas.tenantId, tenantId), eq(schema.despesaParcelas.faturaId, faturaId), eq(schema.despesas.cancelado, false)))
+    .orderBy(schema.despesas.numDoc, schema.despesaParcelas.numeroParcela);
+  return rows.map((r) => ({
+    parcelaId: r.p.id,
+    despesaId: r.d.id,
+    numDoc: r.d.numDoc,
+    descricao: r.d.obs,
+    fornecedorNome: r.fornecedorNome,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    competencia: r.d.competencia,
+    numero: r.p.numeroParcela,
+    total: r.d.qtdParcelas ?? 1,
+    valor: Number(r.p.valorOriginal),
+    valorPago: Number(r.p.valorPago ?? 0),
   }));
 }
 

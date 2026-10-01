@@ -86,6 +86,16 @@ export function faturaSeguinte(f: FaturaDoCiclo, c: CicloDoCartao): FaturaDoCicl
   return l ? faturaDoMes(mesSeguinte(l.am), c) : null;
 }
 
+/** Divide o total em N parcelas de centavos exatos; a última absorve o arredondamento (soma fecha sempre). */
+export function valoresDasParcelas(total: number, n: number): number[] {
+  const qtd = Math.max(1, Math.floor(n));
+  const cents = Math.round(total * 100);
+  const base = Math.floor(cents / qtd);
+  const out = Array.from({ length: qtd }, () => base);
+  out[qtd - 1] = cents - base * (qtd - 1);
+  return out.map((c) => c / 100);
+}
+
 /** Limite disponível = limite − comprometido (ciclo aberto + parcelas futuras); null sem limite cadastrado. */
 export function disponivelDoLimite(limite: number | null, comprometido: number): number | null {
   if (limite == null) return null;

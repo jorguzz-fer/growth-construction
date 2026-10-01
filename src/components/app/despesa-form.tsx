@@ -36,6 +36,7 @@ import {
   type DuplicidadeDocumento,
 } from "@/lib/actions/documento-fiscal";
 import { dateBR } from "@/lib/utils";
+import { faturasDasParcelas } from "@/lib/calc/cartao-ciclo";
 import { ConfirmarExclusaoDespesa } from "@/components/app/confirmar-exclusao-despesa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,8 @@ export interface EditDespesa {
   valor: string;
   status: string | null;
   formaPagamento?: string | null;
+  /** Prompt U — compra no cartão: valor, vencimento, forma e status seguem a fatura. */
+  cartao?: { nome: string } | null;
   /** Descrição/observação da compra (campo separado do nº do pedido). */
   obs?: string | null;
   /** Documentos anexados à despesa (para visualizar/baixar na edição). */
@@ -140,6 +143,7 @@ export function DespesaForm({
   bancos,
   categorias,
   pagadores = [],
+  cartoes = [],
   aiConfigured,
   r2Configured,
   canExcluir = false,
@@ -155,6 +159,8 @@ export function DespesaForm({
   categorias: readonly string[];
   /** Prompt T, 2.3 — quem tem o papel "Pagador por Terceiro" (ativo). */
   pagadores?: { id: string; nome: string }[];
+  /** Prompt U / S 3-B.4 — cartões ativos para a forma "Cartão de crédito". */
+  cartoes?: { id: string; nome: string; diaFechamento: number; diaVencimento: number }[];
   aiConfigured: boolean;
   r2Configured: boolean;
   /** Habilita cancelar/excluir a despesa a partir da tela de edição. */
@@ -385,6 +391,14 @@ export function DespesaForm({
   // Fase 2 — forma/condição de pagamento e parcelas
   const [formaPagamento, setFormaPagamento] = useState("");
   const [formaDesc, setFormaDesc] = useState("");
+  // Prompt U / S 3-B.4 — compra no cartão: qual cartão, data da compra e nº de
+  // parcelas; a fatura é calculada pelo ciclo (uma parcela por fatura).
+  const [cartaoId, setCartaoId] = useState("");
+  const [cartaoData, setCartaoData] = useState("");
+  const [cartaoParcelas, setCartaoParcelas] = useState("1");
+  const noCartao = !isEdit && formaPagamento === "Cartão de crédito";
+  const cartaoEscolhido = cartoes.find((c) => c.id === cartaoId) ?? null;
+  const faturasPrevistas = noCartao && cartaoEscolhido && cartaoData ? faturasDasParcelas(cartaoData, Math.max(1, Number(cartaoParcelas) || 1), cartaoEscolhido) : [];
   const [condicao, setCondicao] = useState("");
   const [qtdPers, setQtdPers] = useState("2");
   // Parcelas com todos os campos (item 2.1): forma, cheque, banco e status por
@@ -652,7 +666,13 @@ export function DespesaForm({
     if (condicao === "personalizado") fd.set("qtdParcelas", qtdPers);
     // A grade completa vai para o servidor: cada parcela leva sua forma, seu
     // cheque, seu banco e seu status (item 2.1/2.5).
-    if (parcelas.length > 0) fd.set("parcelasJson", JSON.stringify(parcelas));
+    if (parcelas.length > 0 && !noCartao) fd.set("parcelasJson", JSON.stringify(parcelas));
+    // Prompt U — compra no cartão: o servidor calcula as faturas pelo ciclo.
+    if (noCartao) {
+      fd.set("cartaoId", cartaoId);
+      fd.set("cartaoDataCompra", cartaoData);
+      fd.set("cartaoParcelas", cartaoParcelas);
+    }
     if (formaPagamento === "Boleto") {
       fd.set("boletoLinhaDigitavel", bo.linha);
       fd.set("boletoCodigoBarras", bo.barras);
@@ -710,6 +730,9 @@ export function DespesaForm({
         setDupConfirmada(false);
         setRecorrente(false);
         setRecMeses("12");
+        setCartaoId("");
+        setCartaoData("");
+        setCartaoParcelas("1");
         setPagoPorSocio(false);
         setSocioId("");
         setSocioData("");
@@ -750,6 +773,12 @@ export function DespesaForm({
         {isEdit && parcelaDeOrigem && (
           <p role="status" className="rounded-[8px] border border-[var(--color-warning)]/40 bg-[#fef3c7]/60 px-3 py-2 text-[12.5px] text-[#92400e]">
             Você veio da <strong>parcela {parcelaDeOrigem}</strong> em Contas a Pagar. Este formulário edita o <strong>cabeçalho</strong> da despesa (valor total, datas e campos comuns), não a parcela isolada.
+          </p>
+        )}
+        {/* Prompt U — compra no cartão: valor, vencimento, forma e status seguem a fatura. */}
+        {isEdit && edit?.cartao && (
+          <p role="status" className="rounded-[8px] border border-[var(--color-accent2)]/30 bg-[var(--color-accent4)] px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+            Compra no cartão <strong>{edit.cartao.nome}</strong>: valor, vencimento, forma e status seguem a fatura e não mudam aqui. Para corrigir, cancele e lance de novo. A competência continua livre.
           </p>
         )}
         {/* Anexos da despesa — permite visualizar/baixar o documento original. */}
@@ -1365,6 +1394,30 @@ export function DespesaForm({
                   <Input value={formaDesc} onChange={(e) => setFormaDesc(e.target.value)} />
                 </div>
               )}
+              {noCartao && (
+                <>
+                  <div>
+                    <Label>Cartão</Label>
+                    <Select value={cartaoId} onChange={(e) => setCartaoId(e.target.value)} aria-label="Cartão">
+                      <option value="">— selecione —</option>
+                      {cartoes.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Data da compra</Label>
+                    <DateField value={cartaoData} onChange={setCartaoData} />
+                  </div>
+                  <div>
+                    <Label>Parcelas no cartão</Label>
+                    <Input type="number" min={1} max={48} value={cartaoParcelas} onChange={(e) => setCartaoParcelas(e.target.value)} aria-label="Parcelas no cartão" />
+                  </div>
+                </>
+              )}
+              {!noCartao && (
               <div>
                 <Label>Condição</Label>
                 <Select value={condicao} onChange={(e) => setCondicao(e.target.value)}>
@@ -1376,7 +1429,8 @@ export function DespesaForm({
                   ))}
                 </Select>
               </div>
-              {condicao === "personalizado" && (
+              )}
+              {!noCartao && condicao === "personalizado" && (
                 <div>
                   <Label>Nº de parcelas</Label>
                   <Input
@@ -1387,6 +1441,7 @@ export function DespesaForm({
                   />
                 </div>
               )}
+              {!noCartao && (
               <div className="flex items-end">
                 <Button type="button" variant="outline" onClick={abrirPainelParcelas}>
                   {parcelas.length > 0
@@ -1394,7 +1449,17 @@ export function DespesaForm({
                     : "Configurar parcelas"}
                 </Button>
               </div>
+              )}
             </div>
+            {noCartao && (
+              <p className="text-[11.5px] text-[var(--color-ink3)]" role="status">
+                {cartoes.length === 0
+                  ? "Nenhum cartão ativo cadastrado — cadastre em Cartões de Crédito."
+                  : faturasPrevistas.length === 0
+                    ? "Nenhuma saída de caixa agora: a compra fica vinculada à fatura do ciclo e o caixa sai no pagamento da fatura. A competência é a informada acima."
+                    : `Nenhuma saída de caixa agora. ${faturasPrevistas.length === 1 ? "Cai na fatura" : `1ª parcela na fatura`} que fecha ${dateBR(faturasPrevistas[0].fechamento)} e vence ${dateBR(faturasPrevistas[0].vencimento)}${faturasPrevistas.length > 1 ? `; última na que vence ${dateBR(faturasPrevistas[faturasPrevistas.length - 1].vencimento)}` : ""}. A competência continua a informada acima.`}
+              </p>
+            )}
 
             {/* Campos de boleto */}
             {formaPagamento === "Boleto" && (
