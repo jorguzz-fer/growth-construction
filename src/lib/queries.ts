@@ -1794,6 +1794,60 @@ export async function getDocumentsByPermuta(tenantId: string, permutaId: string)
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Prompt Y, 4-A — documentos de uma página de movimentos de estoque. */
+export async function getDocumentsByStockMovements(tenantId: string, movementIds: readonly string[]): Promise<DocumentRow[]> {
+  if (movementIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.stockMovementId, [...movementIds])))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
+export interface MovimentoParaObraRow {
+  id: string;
+  tipo: string;
+  quantidade: number;
+  valor: number;
+  projectId: string | null;
+  despesaId: string | null;
+  permutaId: string | null;
+  despesaProjectId: string | null;
+  estornoDeId: string | null;
+  itemId: string;
+  itemNome: string;
+  unidade: string;
+  data: string | null;
+}
+/** Prompt Y, 4.4 / 4.6 — movimentos com a obra da despesa de origem, no período (ISO), para consumo e confronto. Só leitura. */
+export async function getMovimentosParaObra(tenantId: string, de?: string | null, ate?: string | null): Promise<MovimentoParaObraRow[]> {
+  const conds = [eq(schema.stockMovements.tenantId, tenantId)];
+  if (de) conds.push(gte(chaveDataBR(schema.stockMovements.data), de.replace(/-/g, "")));
+  if (ate) conds.push(lte(chaveDataBR(schema.stockMovements.data), ate.replace(/-/g, "")));
+  const rows = await db
+    .select({ m: schema.stockMovements, itemNome: schema.stockItems.nome, unidade: schema.stockItems.unidade, despesaProjectId: schema.versions.projectId })
+    .from(schema.stockMovements)
+    .innerJoin(schema.stockItems, eq(schema.stockMovements.itemId, schema.stockItems.id))
+    .leftJoin(schema.despesas, eq(schema.stockMovements.despesaId, schema.despesas.id))
+    .leftJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .where(and(...conds));
+  return rows.map((r) => ({
+    id: r.m.id,
+    tipo: r.m.tipo,
+    quantidade: Number(r.m.quantidade),
+    valor: Math.round(Number(r.m.quantidade) * Number(r.m.custoUnit) * 100) / 100,
+    projectId: r.m.projectId,
+    despesaId: r.m.despesaId,
+    permutaId: r.m.permutaId,
+    despesaProjectId: r.despesaProjectId ?? null,
+    estornoDeId: r.m.estornoDeId,
+    itemId: r.m.itemId,
+    itemNome: r.itemNome,
+    unidade: r.unidade,
+    data: r.m.data,
+  }));
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addStockItem, addStockMovement, deleteStockItem, estornarMovimento, setStockItemAtivo, updateStockItem } from "@/lib/actions/estoque";
 import { ENTRADA_ORIGENS, SAIDA_MOTIVOS, UNIDADES } from "@/lib/estoque-regras";
 import type { DespesaParaEstoque } from "@/lib/queries";
+import type { ConfrontoDaObra, ConsumoDaObra } from "@/lib/calc/estoque-obra";
+import { EstoqueDocs, type DocDoMovimento } from "@/components/app/estoque-docs";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -82,7 +84,10 @@ function urlDe(f: Partial<FiltrosDaTela> & { tab: "itens" | "mov" }): string {
   return `/estoque?${q.toString()}`;
 }
 
-export function EstoqueManager({ items, movimentos, filtros, projetos, despesas, permutas, canCriar, canEditar, canExcluir }: { items: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; canCriar: boolean; canEditar: boolean; canExcluir: boolean }) {
+export type ConsumoView = ConsumoDaObra & { projectName: string };
+export type ConfrontoView = ConfrontoDaObra & { projectName: string };
+
+export function EstoqueManager({ items, movimentos, filtros, projetos, despesas, permutas, docsPorMov, r2, consumo, confronto, canCriar, canEditar, canExcluir }: { items: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[]; canCriar: boolean; canEditar: boolean; canExcluir: boolean }) {
   const ativos = items.filter((i) => i.ativo);
   const valorTotal = Math.round(ativos.reduce((a, i) => a + i.valorEstoque, 0) * 100) / 100;
   const abaixoMin = ativos.filter((i) => i.minimo > 0 && i.saldo <= i.minimo).length;
@@ -108,7 +113,7 @@ export function EstoqueManager({ items, movimentos, filtros, projetos, despesas,
       {filtros.tab === "itens" ? (
         <ItensTab items={items} canCriar={canCriar} canEditar={canEditar} canExcluir={canExcluir} />
       ) : (
-        <MovTab items={ativos} movimentos={movimentos} filtros={filtros} projetos={projetos} despesas={despesas} permutas={permutas} canCriar={canCriar} todosItens={items} />
+        <MovTab items={ativos} movimentos={movimentos} filtros={filtros} projetos={projetos} despesas={despesas} permutas={permutas} canCriar={canCriar} todosItens={items} docsPorMov={docsPorMov} r2={r2} consumo={consumo} confronto={confronto} />
       )}
     </div>
   );
@@ -292,8 +297,9 @@ function ItensTab({ items, canCriar, canEditar, canExcluir }: { items: ItemView[
 
 /* ───────────────────────── Movimentos ───────────────────────── */
 
-function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, permutas, canCriar }: { items: ItemView[]; todosItens: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; canCriar: boolean }) {
+function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, permutas, canCriar, docsPorMov, r2, consumo, confronto }: { items: ItemView[]; todosItens: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; canCriar: boolean; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[] }) {
   const router = useRouter();
+  const [docsAbertos, setDocsAbertos] = useState<string | null>(null);
   const [saving, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [tipo, setTipo] = useState<"entrada" | "saida">("entrada");
@@ -473,6 +479,47 @@ function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, pe
         </CardContent>
       </Card>
 
+      {/* 4.4 / 4.6 — leitura de gestão: onde o material foi parar × onde foi comprado. Nunca correção. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="text-sm font-semibold text-[var(--color-ink)]">Consumo por obra <span className="font-normal text-[var(--color-ink3)]">{filtros.de || filtros.ate ? "no período filtrado" : "desde o início"}</span></h3>
+            <p className="mb-2 text-[11.5px] text-[var(--color-ink3)]">Quanto cada obra retirou, a custo. Sem efeito contábil: o consumo não vira custo da obra — ele já é, pela despesa de compra.</p>
+            {consumo.length === 0 ? <p className="text-[12px] text-[var(--color-ink4)]">Nenhuma saída de consumo.</p> : (
+              <ul className="space-y-1.5" data-consumo>
+                {consumo.map((c) => (
+                  <li key={c.projectId} className="text-[12.5px]">
+                    <span className="font-medium text-[var(--color-ink)]">{c.projectName}</span> · <span className="font-[family-name:var(--font-mono)]">{brl0(c.valor)}</span>
+                    <span className="block text-[11px] text-[var(--color-ink3)]">{c.itens.slice(0, 5).map((i) => `${i.itemNome} ${qtd(i.quantidade, i.unidade)}`).join(" · ")}{c.itens.length > 5 ? " · …" : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="text-sm font-semibold text-[var(--color-ink)]">Compra × consumo por obra</h3>
+            <p className="mb-2 text-[11.5px] text-[var(--color-ink3)]">Comprou = entradas cuja despesa é da obra; consumiu = saídas com destino nela. Diferença positiva: comprou mais do que usou (foi para outra obra ou está no almoxarifado). É leitura — nada é corrigido automaticamente.</p>
+            {confronto.length === 0 ? <p className="text-[12px] text-[var(--color-ink4)]">Sem compras nem consumo no período.</p> : (
+              <table className="w-full text-[12px]" data-confronto>
+                <thead><tr className="text-[10px] uppercase tracking-wide text-[var(--color-ink4)]"><th className="text-left font-normal">Obra</th><th className="text-right font-normal">Comprou</th><th className="text-right font-normal">Consumiu</th><th className="text-right font-normal">Diferença</th></tr></thead>
+                <tbody className="font-[family-name:var(--font-mono)]">
+                  {confronto.map((c) => (
+                    <tr key={c.projectId} className="border-t border-[var(--color-line)]">
+                      <td className="py-1 font-[family-name:var(--font-sans)] text-[var(--color-ink)]">{c.projectName}</td>
+                      <td className="text-right">{brl0(c.comprou)}</td>
+                      <td className="text-right">{brl0(c.consumiu)}</td>
+                      <td className={`text-right ${Math.abs(c.diferenca) > 0.005 ? "text-[var(--color-warning)]" : "text-[var(--color-success)]"}`}>{brl0(c.diferenca)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardContent className="p-0">
           <div className="tbl-scroll overflow-x-auto">
@@ -489,12 +536,14 @@ function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, pe
                   <TH>Obra</TH>
                   <TH>Vínculo</TH>
                   <TH>Responsável</TH>
+                  <TH>Docs</TH>
                   {canCriar && <TH></TH>}
                 </tr>
               </THead>
               <tbody>
                 {movimentos.rows.map((m) => (
-                  <TR key={m.id} className={m.estornado ? "opacity-60" : ""} data-mov={m.id}>
+                  <Fragment key={m.id}>
+                  <TR className={m.estornado ? "opacity-60" : ""} data-mov={m.id}>
                     <TD className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">{m.data ? dateBR(m.data) : "—"}</TD>
                     <TD className="font-medium text-[var(--color-ink)]">{m.itemNome}</TD>
                     <TD>
@@ -509,15 +558,28 @@ function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, pe
                     <TD className="text-[var(--color-ink2)]">{m.projectName ?? (m.tipo === "entrada" ? "almoxarifado" : "—")}</TD>
                     <TD className="text-[var(--color-ink3)]">{m.despesaId ? `Despesa ${m.despesaNumDoc ?? "s/ nº"}` : m.permutaId ? `Permuta · ${m.permutaDescricao ?? "s/ descrição"}` : m.doc ?? "—"}</TD>
                     <TD className="whitespace-nowrap text-[var(--color-ink3)]">{m.responsavel ?? "—"}</TD>
+                    <TD className="whitespace-nowrap text-[12px]">
+                      <button type="button" className="text-[var(--color-accent2)] hover:underline" aria-expanded={docsAbertos === m.id} onClick={() => setDocsAbertos(docsAbertos === m.id ? null : m.id)}>
+                        {(docsPorMov[m.id]?.length ?? 0) > 0 ? `${docsPorMov[m.id].length} doc(s)` : "anexar"}
+                      </button>
+                    </TD>
                     {canCriar && (
                       <TD className="text-right text-[12px]">
                         {!m.estornado && !m.estornoDeId && <button type="button" className="text-[var(--color-danger)] hover:underline" disabled={saving} onClick={() => estornar(m)}>Estornar</button>}
                       </TD>
                     )}
                   </TR>
+                  {docsAbertos === m.id && (
+                    <TR>
+                      <TD colSpan={12} className="bg-[var(--color-surface2)]/40">
+                        <EstoqueDocs movimentoId={m.id} tipoMovimento={m.tipo} docs={docsPorMov[m.id] ?? []} canEdit={canCriar} r2={r2} />
+                      </TD>
+                    </TR>
+                  )}
+                  </Fragment>
                 ))}
                 {movimentos.rows.length === 0 && (
-                  <TR><TD colSpan={11} className="py-8 text-center text-[var(--color-ink4)]">Nenhuma movimentação.</TD></TR>
+                  <TR><TD colSpan={12} className="py-8 text-center text-[var(--color-ink4)]">Nenhuma movimentação.</TD></TR>
                 )}
               </tbody>
             </Table>
