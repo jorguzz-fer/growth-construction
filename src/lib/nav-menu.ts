@@ -33,6 +33,16 @@ export interface NavItem {
    * permissões de Despesas e Unidades, como já faziam no menu antigo.
    */
   perm?: string;
+  /**
+   * Segunda chave que também mostra o item (Prompt V, 0.2): a tela única de
+   * Medição de Obra tem duas permissões (relatório e lançamento) e UM item —
+   * quem tem qualquer uma delas vê o item; a página manda cada um à sua aba.
+   */
+  permAlt?: string;
+  /** Rota do item para quem só tem `permAlt` (a guarda central nega `href`). */
+  hrefAlt?: string;
+  /** Outras rotas que destacam este item (as abas da tela única). */
+  tambem?: string[];
 }
 
 export interface NavModule {
@@ -118,9 +128,10 @@ export const NAV_MENU: NavModule[] = [
     label: "Obra",
     icon: "obra",
     items: [
-      // Duas entradas até o Prompt V fundir as telas em uma com abas.
-      { href: "/medicao", label: "Medição de Obra" },
-      { href: "/medicaolanc", label: "Lançamento de Medição" },
+      // Prompt V, 0.2: UM item. /medicao (relatório) e /medicaolanc (lançar e
+      // lançadas) continuam como rotas e abas da mesma tela; quem só tem a
+      // permissão de lançamento é levado à aba dele pela própria página.
+      { href: "/medicao", label: "Medição de Obra", permAlt: "medicaolanc", hrefAlt: "/medicaolanc", tambem: ["/medicaolanc"] },
       { href: "/estoque", label: "Estoque" },
       { href: "/parametros", label: "Parâmetros / INCC" },
     ],
@@ -174,7 +185,14 @@ export function permOf(item: NavItem): string {
  */
 export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): NavModule[] {
   return menu
-    .map((m) => ({ ...m, items: m.items.filter((it) => can(perms, permOf(it), "ver")) }))
+    .map((m) => ({
+      ...m,
+      items: m.items
+        .filter((it) => can(perms, permOf(it), "ver") || (!!it.permAlt && can(perms, it.permAlt, "ver")))
+        // Só com a permissão alternativa: o item aponta para a rota dela (a
+        // guarda central negaria `href`); a página de lá abre na aba certa.
+        .map((it) => (!can(perms, permOf(it), "ver") && it.hrefAlt ? { ...it, href: it.hrefAlt, tambem: [...(it.tambem ?? []), it.href] } : it)),
+    }))
     .filter((m) => m.items.length > 0);
 }
 
@@ -183,9 +201,9 @@ export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): Na
  * SEGMENTO (seção 12): `/clientes/novo` ativa Clientes, mas `/contaspagar` não
  * ativa `/contas`, nem `/medicaolanc` ativa `/medicao`.
  */
-export function isItemActive(pathname: string | null | undefined, href: string): boolean {
+export function isItemActive(pathname: string | null | undefined, href: string, tambem: readonly string[] = []): boolean {
   if (!pathname) return false;
-  return pathname === href || pathname.startsWith(href + "/");
+  return [href, ...tambem].some((h) => pathname === h || pathname.startsWith(h + "/"));
 }
 
 /** Módulo que contém a rota atual (o que precisa ficar aberto), ou null. */
@@ -194,7 +212,7 @@ export function activeModuleId(
   menu: NavModule[] = NAV_MENU,
 ): string | null {
   for (const m of menu) {
-    if (m.items.some((it) => isItemActive(pathname, it.href))) return m.id;
+    if (m.items.some((it) => isItemActive(pathname, it.href, it.tambem))) return m.id;
   }
   return null;
 }
