@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
+import type { CalcPermutaRevenda } from "@/lib/calc/permuta-ganho";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
 import {
@@ -225,6 +226,18 @@ export function permToCalc(rows: PermutaRow[]): CalcPermuta[] {
     estimado: Number(p.estimado ?? 0),
     status: p.status ?? "",
     valorVenda: Number(p.valorVenda ?? 0),
+  }));
+}
+
+/** Mapeia permutas → dados para o resultado da revenda (Prompt P, 4.1; prévia da §57). */
+export function permToRevenda(rows: PermutaRow[]): CalcPermutaRevenda[] {
+  return rows.map((p) => ({
+    estimado: Number(p.estimado ?? 0),
+    status: p.status ?? "",
+    valorVenda: Number(p.valorVenda ?? 0),
+    dataVenda: p.dataVenda ?? "",
+    formaVenda: p.formaVenda ?? "",
+    dataPrimParcela: p.dataPrimParcela ?? "",
   }));
 }
 

@@ -4,7 +4,8 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getPermutasDaTela } from "@/lib/queries";
+import { getPermutasDaTela, permToRevenda } from "@/lib/queries";
+import { previaDaRevenda, resultadoDaRevenda } from "@/lib/calc/permuta-ganho";
 import { PermutaActions } from "@/components/app/permuta-actions";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
@@ -54,9 +55,9 @@ export default async function PermutaPage({
   const rows = await getPermutasDaTela(ctx.tenant.id, version.id);
   const ativos = rows.filter((p) => !p.cancelado);
   const estimado = ativos.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
-  const projetada = ativos
-    .filter((p) => p.status === "Vendido")
-    .reduce((a, p) => a + Number(p.valorVenda ?? 0), 0);
+  // 4.1 / BP-3 — a revenda é caixa; o resultado é a diferença. A DRE ainda lê
+  // o valor cheio até a chave única da §57 (I-9); aqui vai a prévia.
+  const previa = previaDaRevenda(permToRevenda(ativos));
   const canCriar = can(ctx.perms, "permuta", "criar");
   const canEditar = can(ctx.perms, "permuta", "editar");
   const canExcluir = can(ctx.perms, "permuta", "excluir");
@@ -91,11 +92,21 @@ export default async function PermutaPage({
         </p>
       )}
 
-      <p className="mb-6 text-sm text-[var(--color-ink3)]">
-        Estimado: <strong className="text-[var(--color-ink)]">{brl0(estimado)}</strong>{" "}
-        · Receita projetada:{" "}
-        <strong className="text-[var(--color-success)]">{brl0(projetada)}</strong>
+      <p className="mb-2 text-sm text-[var(--color-ink3)]">
+        Em inventário (estimado): <strong className="text-[var(--color-ink)]">{brl0(estimado)}</strong>{" "}
+        · Revenda (caixa projetado): <strong className="text-[var(--color-ink)]">{brl0(previa.valorCheio)}</strong>{" "}
+        · Resultado das revendas:{" "}
+        <strong className={previa.resultado < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}>
+          {previa.resultado > 0 ? "+" : ""}
+          {brl0(previa.resultado)}
+        </strong>
       </p>
+      {previa.revendidos > 0 && (
+        <p className="mb-6 text-[12px] text-[var(--color-ink3)]">
+          Prévia da §57 (Prompt I) e da decisão BP-3: no resultado entra a diferença entre a venda e o valor de entrada ({brl0(previa.resultado)}), não o
+          valor cheio ({brl0(previa.valorCheio)}). A DRE continua mostrando o valor cheio até a chave de reconhecimento ser ligada.
+        </p>
+      )}
 
       <Table>
         <THead>
@@ -110,6 +121,7 @@ export default async function PermutaPage({
             <TH>Status</TH>
             <TH>Dt.venda</TH>
             <TH className="text-right">Val.venda</TH>
+            <TH className="text-right">Resultado</TH>
             <TH>Tipo perm.</TH>
             <TH>Obs.</TH>
             <TH className="text-right">Ações</TH>
@@ -118,7 +130,7 @@ export default async function PermutaPage({
         <tbody>
           {rows.length === 0 ? (
             <TR>
-              <TD colSpan={13} className="py-8 text-center text-[var(--color-ink4)]">
+              <TD colSpan={14} className="py-8 text-center text-[var(--color-ink4)]">
                 Nenhum ativo de permuta nesta versão.
               </TD>
             </TR>
@@ -165,6 +177,16 @@ export default async function PermutaPage({
                     }`}
                   >
                     {sold ? brl0(Number(p.valorVenda ?? 0)) : "—"}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">
+                    {sold && Number(p.valorVenda ?? 0) > 0 ? (
+                      (() => {
+                        const r = resultadoDaRevenda({ estimado: Number(p.estimado ?? 0), valorVenda: Number(p.valorVenda ?? 0), status: p.status ?? "" });
+                        return <span className={r < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}>{r > 0 ? "+" : ""}{brl0(r)}</span>;
+                      })()
+                    ) : (
+                      "—"
+                    )}
                   </TD>
                   <TD>{p.tipoPermuta || "—"}</TD>
                   <TD>{p.obs || "—"}</TD>
