@@ -35,7 +35,8 @@ const MENU_ANTIGO: Record<string, string> = {
   "/estoque": "estoque",
   "/ponto": "ponto",
   "/caixa": "caixa",
-  "/fechamento": "fechamento",
+  // "/fechamento" saiu no Prompt L, Parte 9: fechar o dia é ação no cartão do
+  // Caixa e o histórico já é o Balanço do Dia (9.8). A chave "fechamento" fica.
   "/dashboard": "dashboard",
   "/projecao": "projecao",
   "/consolidado": "consolidado",
@@ -67,11 +68,11 @@ const ESPERADO = { ...MENU_ANTIGO, ...TELAS_NOVAS };
 const todos = NAV_MENU.flatMap((m) => m.items);
 
 describe("NAV_MENU — nenhuma tela se perde", () => {
-  it("tem as 40 telas do menu antigo, mais as novas declaradas, sem duplicata", () => {
+  it("tem as 39 telas do menu antigo (40 menos /fechamento), mais as novas declaradas, sem duplicata", () => {
     const hrefs = todos.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect([...hrefs].sort()).toEqual(Object.keys(ESPERADO).sort());
-    expect(Object.keys(MENU_ANTIGO)).toHaveLength(40);
+    expect(Object.keys(MENU_ANTIGO)).toHaveLength(39);
   });
 
   it("cada tela mantém a mesma chave de permissão", () => {

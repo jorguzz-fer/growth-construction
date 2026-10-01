@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadeiaDeSaldo, diasDesdeAtualizacao, pareamentoPorData, quebrasDaCadeia, type MovimentoDeCaixa } from "./cadeia-caixa";
+import { cadeiaDeSaldo, diasDesdeAtualizacao, pareamentoPorData, quebrasDaCadeia, recusaDoFechamento, resumoParaFechar, type MovimentoDeCaixa } from "./cadeia-caixa";
 
 const HOJE = "2026-09-30";
 const mov = (p: Partial<MovimentoDeCaixa> & { id: string; data: string; valor: number }): MovimentoDeCaixa => ({ rec: false, cat: "extrato", importado: true, bankAccountId: "B", ...p });
@@ -72,5 +72,33 @@ describe("cadeia de saldo (Prompt L, Parte 1)", () => {
   it("5a / 5b — dias desde a última atualização do saldo", () => {
     expect(diasDesdeAtualizacao("2026-09-20T10:00:00.000Z", HOJE)).toBe(10);
     expect(diasDesdeAtualizacao(null, HOJE)).toBeNull();
+  });
+});
+
+describe("fechar o dia no cartão (Prompt L, Parte 9)", () => {
+  it("9.3 — o cartão fechado carrega o gravado; dia aberto antes de um fechado é buraco", () => {
+    const c = cadeiaDeSaldo({ movimentos: base, saldoEmContaAtual: 1000, hojeISO: HOJE, diasPassados: 3, diasFuturos: 0, fechamentos: [{ dia: "09/29/2026", saldoFinal: 920, id: "F2", responsavel: "ana" }] });
+    expect(c.dias.map((d) => d.dia)).toEqual(["2026-09-27", "2026-09-28", "2026-09-29", "2026-09-30"]);
+    expect(c.dias[2].fechado).toBe(true);
+    expect(c.dias[2].fechamento?.id).toBe("F2");
+    expect(c.dias[2].divergeDoGravado).toBe(false);
+    expect(c.dias[1].buraco).toBe(true); // 28 aberto, 29 fechado
+    expect(c.dias[0].buraco).toBe(true);
+    expect(c.dias[3].buraco).toBe(false); // hoje, depois do último fechado
+    expect(quebrasDaCadeia(c)).toEqual([]);
+  });
+  it("9.6 — lançamento posterior muda o recalculado: o cartão sinaliza a divergência com o gravado, sem travar", () => {
+    const c = cadeiaDeSaldo({ movimentos: base, saldoEmContaAtual: 1000, hojeISO: HOJE, diasPassados: 3, diasFuturos: 0, fechamentos: [{ dia: "09/29/2026", saldoFinal: 900, id: "F2" }] });
+    expect(c.dias[2].conciliado.final).toBe(920);
+    expect(c.dias[2].divergeDoGravado).toBe(true);
+  });
+  it("9.2 / 9.4 / 9.5 — o resumo é calculado da cadeia; recusa futuro, fora da cadeia e já fechado", () => {
+    const c = cadeiaDeSaldo({ movimentos: base, saldoEmContaAtual: 1000, hojeISO: HOJE, diasPassados: 2, diasFuturos: 1 });
+    const d29 = c.dias[1];
+    expect(resumoParaFechar(d29)).toEqual({ dia: "2026-09-29", saldoInicial: 950, entradas: 0, saidas: 30, ajustes: 0, saldoFinal: 920, saldoEmConta: 1000, divergencia: 80, naturezas: { extratoSemLancamento: 50, lancamentoSemExtrato: -30, valorDivergente: 0, dataTrocada: 0 } });
+    expect(recusaDoFechamento(c.dias[3], HOJE)).toMatch(/futuro/);
+    expect(recusaDoFechamento(undefined, HOJE)).toMatch(/fora da cadeia/);
+    expect(recusaDoFechamento({ ...d29, fechamento: { dia: "09/29/2026", saldoFinal: 920, responsavel: "ana" } }, HOJE)).toMatch(/já está fechado por ana/);
+    expect(recusaDoFechamento(d29, HOJE)).toBeNull();
   });
 });

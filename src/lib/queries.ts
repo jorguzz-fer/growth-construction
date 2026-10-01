@@ -1780,6 +1780,17 @@ export async function getCashByTenant(tenantId: string): Promise<CashRow[]> {
   return rows.map((r) => r.c);
 }
 
+/** Prompt L, 9.9 — o caixa da empresa: todas as versões Atual, com a obra de cada lançamento. */
+export async function getCashDaEmpresa(tenantId: string): Promise<(CashRow & { projectId: string })[]> {
+  const rows = await db
+    .select({ c: schema.cashEntries, projectId: schema.versions.projectId })
+    .from(schema.cashEntries)
+    .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
+    .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.versions.kind, "atual")))
+    .orderBy(asc(chaveDataBR(schema.cashEntries.data)), asc(schema.cashEntries.id));
+  return rows.map((r) => ({ ...r.c, projectId: r.projectId }));
+}
+
 export type ClienteRow = typeof schema.clientes.$inferSelect;
 
 /**

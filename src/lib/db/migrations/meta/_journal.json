@@ -414,6 +414,13 @@
       "when": 1790841676247,
       "tag": "0058_conciliacao_despesa",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0059_daily_closing_no_caixa",
+      "breakpoints": true
     }
   ]
 }

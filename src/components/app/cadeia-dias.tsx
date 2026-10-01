@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { brl0 } from "@/lib/utils";
 import { ROTULO_NATUREZA, type CadeiaDeSaldo, type Natureza } from "@/lib/calc/cadeia-caixa";
+import { FecharDia } from "@/components/app/fechar-dia";
 
 const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -12,13 +13,20 @@ const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
  * Dia passado com pendência é distinguido do fechado (1.6).
  * A faixa é independente do filtro de período da tabela (1.5): declarado.
  */
-export function CadeiaDias({ cadeia }: { cadeia: CadeiaDeSaldo }) {
+const quando = (iso: string | null | undefined) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+export function CadeiaDias({ cadeia, canFechar = false, canReabrir = false }: { cadeia: CadeiaDeSaldo; canFechar?: boolean; canReabrir?: boolean }) {
   return (
     <div className="mb-6">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-[var(--color-ink)]">Cadeia de saldo — 2 dias realizados, hoje e 7 à frente</h2>
         <p className="text-[11px] text-[var(--color-ink3)]">
-          Faixa fixa, independente do filtro de período da tabela. Parte do {cadeia.inicio.fonte === "fechamento" ? "saldo final gravado no fechamento" : "saldo em conta calculado"} de {cadeia.inicio.dia.split("-").reverse().join("/")}: {brl0(cadeia.inicio.conciliado)}.
+          Faixa fixa, independente do filtro de período da tabela. Parte do {cadeia.inicio.fonte === "fechamento" ? "saldo final gravado no fechamento" : "saldo em conta calculado"} de {cadeia.inicio.dia.split("-").reverse().join("/")}: {brl0(cadeia.inicio.conciliado)}. Fechar o dia registra os números; não trava lançamento.
         </p>
       </div>
       <div className="-mx-1 overflow-x-auto pb-1">
@@ -34,6 +42,7 @@ export function CadeiaDias({ cadeia }: { cadeia: CadeiaDeSaldo }) {
                   <div className="flex items-center justify-between gap-1">
                     <div className={`font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wide ${tom}`}>{x.rotulo}</div>
                     {x.fechado && <Badge tone="success">fechado</Badge>}
+                    {x.buraco && <Badge tone="warning" title="Dia aberto antes de um dia fechado: a cadeia tem buraco (9.3).">aberto antes de um fechado</Badge>}
                   </div>
                   <div className="text-sm font-semibold text-[var(--color-ink)]">
                     {dow} <span className="font-[family-name:var(--font-mono)] text-[11px] font-normal text-[var(--color-ink3)]">{String(d).padStart(2, "0")}/{String(m).padStart(2, "0")}</span>
@@ -91,6 +100,26 @@ export function CadeiaDias({ cadeia }: { cadeia: CadeiaDeSaldo }) {
                     </ul>
                   )}
                   {x.rotulo === "Projeção" && <div className="mt-1 text-[10px] text-[var(--color-ink4)]">Projeção: o banco ainda não registrou nada neste dia.</div>}
+                  {x.fechamento && (
+                    <div className="mt-2 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-bg)] px-2 py-1.5 text-[10.5px] text-[var(--color-ink2)]" data-fechado="1">
+                      <div>
+                        <strong>Gravado:</strong> final {brl0(x.fechamento.saldoFinal)}
+                        {x.fechamento.saldoEmConta != null ? ` · em conta ${brl0(x.fechamento.saldoEmConta)}` : ""}
+                        {x.fechamento.divergencia != null ? ` · divergência ${brl0(x.fechamento.divergencia)}` : ""}
+                      </div>
+                      <div className="text-[var(--color-ink3)]">
+                        por {x.fechamento.responsavel ?? "—"}{x.fechamento.fechadoEm ? ` em ${quando(x.fechamento.fechadoEm)}` : ""}
+                      </div>
+                      {x.divergeDoGravado && (
+                        <div className="mt-1 text-[var(--color-danger)]" role="status">
+                          Lançado depois do fechamento: o recalculado ({brl0(x.conciliado.final)}) difere do gravado.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {x.rotulo !== "Projeção" && (canFechar || canReabrir) && (
+                    <FecharDia dia={x.dia} resumo={{ saldoFinal: x.conciliado.final, saldoEmConta: x.emConta?.final ?? null, diferenca: x.diferenca }} fechamento={x.fechamento?.id ? { id: x.fechamento.id } : null} canFechar={canFechar} canReabrir={canReabrir} />
+                  )}
                 </CardContent>
               </Card>
             );

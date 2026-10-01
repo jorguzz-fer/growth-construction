@@ -6,6 +6,7 @@ import { AjusteCaixaForm } from "@/components/app/ajuste-caixa-form";
 export interface AjusteLinha {
   id: string;
   data: string | null;
+  obra: string | null;
   conta: string | null;
   valor: number;
   motivo: string | null;
@@ -18,7 +19,8 @@ export interface AjusteLinha {
 
 /**
  * Aba Ajustes (Prompt L, 4.2.4): o único lançamento desta tela e o seu
- * histórico completo — data, conta, valor, motivo, autor e o saldo
+ * histórico completo (da empresa, todas as obras — como a cadeia, 9.9) —
+ * data, obra, conta, valor, motivo, autor e o saldo
  * conciliado antes e depois. Com filtro por período (o da tela) e por conta,
  * e o total sempre à vista no topo. Se esse total cresce, não é o ajuste que
  * está errado: é o lançamento que não está sendo feito.
@@ -55,6 +57,7 @@ export function AjustesCaixa({ ajustes, contas, contaFiltro, projectId, canAjust
             <THead>
               <tr>
                 <TH>Data</TH>
+                <TH>Obra</TH>
                 <TH>Conta</TH>
                 <TH className="text-right">Valor</TH>
                 <TH>Motivo</TH>
@@ -67,6 +70,7 @@ export function AjustesCaixa({ ajustes, contas, contaFiltro, projectId, canAjust
               {ajustes.map((a) => (
                 <TR key={a.id}>
                   <TD className="font-[family-name:var(--font-mono)]">{dateBR(a.data)}</TD>
+                  <TD>{a.obra ?? "—"}</TD>
                   <TD>{a.conta ?? "—"}</TD>
                   <TD className={`text-right font-[family-name:var(--font-mono)] ${a.valor < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>{brl0(a.valor)}</TD>
                   <TD>{a.motivo ?? "—"}</TD>
@@ -80,11 +84,11 @@ export function AjustesCaixa({ ajustes, contas, contaFiltro, projectId, canAjust
               ))}
               {ajustes.length === 0 && (
                 <TR>
-                  <TD colSpan={7} className="py-6 text-center text-[var(--color-ink4)]">Nenhum ajuste no período.</TD>
+                  <TD colSpan={8} className="py-6 text-center text-[var(--color-ink4)]">Nenhum ajuste no período.</TD>
                 </TR>
               )}
               <TR>
-                <TD colSpan={2} className="font-semibold text-[var(--color-ink)]">Total de ajustes no filtro</TD>
+                <TD colSpan={3} className="font-semibold text-[var(--color-ink)]">Total de ajustes no filtro</TD>
                 <TD className="text-right font-[family-name:var(--font-mono)] font-semibold">{brl0(total)}</TD>
                 <TD colSpan={4} className="text-[11px] text-[var(--color-ink3)]">Se este total cresce, o problema é lançamento que não está sendo feito — o ajuste é o último recurso.</TD>
               </TR>

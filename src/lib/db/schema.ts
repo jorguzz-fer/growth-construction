@@ -1712,6 +1712,7 @@ export const dailyClosings = pgTable("daily_closing", {
   totalEntradas: numeric("total_entradas", { precision: 15, scale: 2 }).notNull().default("0"),
   totalSaidas: numeric("total_saidas", { precision: 15, scale: 2 }).notNull().default("0"),
   saldoFinal: numeric("saldo_final", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** em conta − conciliado ao fim do dia, CALCULADA no servidor (Prompt L, 9.4). */
   divergencias: numeric("divergencias", { precision: 15, scale: 2 }).notNull().default("0"),
   responsavelId: text("responsavel_id").references(() => users.id, {
     onDelete: "set null",
@@ -1719,6 +1720,17 @@ export const dailyClosings = pgTable("daily_closing", {
   responsavelNome: text("responsavel_nome"),
   obs: text("obs"),
   closedAt: timestamp("closed_at", { mode: "date" }).notNull().defaultNow(),
+  // Prompt L, Parte 9 (migração 0059): o fechamento vem do cartão da cadeia.
+  /** saldo do extrato ao fim do dia; null nos fechamentos antigos. */
+  saldoEmConta: numeric("saldo_em_conta", { precision: 15, scale: 2 }),
+  /** ajustes do dia (Parte 4), para a identidade da cadeia fechar. */
+  ajustes: numeric("ajustes", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** a divergência classificada nas quatro naturezas (1.3). */
+  naturezas: jsonb("naturezas").$type<Record<string, number>>(),
+  /** reabrir é operação própria (9.5): a linha fica, marcada. */
+  reabertoEm: timestamp("reaberto_em", { mode: "date" }),
+  reabertoPor: text("reaberto_por"),
+  motivoReabertura: text("motivo_reabertura"),
 });
 
 /**

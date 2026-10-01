@@ -24,7 +24,7 @@ export default async function BalancoDiaPage() {
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Balanço do Dia"
-        subtitle="Fechamentos operacionais diários — filtre por período, obra e cliente; imprima ou exporte."
+        subtitle="Histórico dos fechamentos do dia (o dia é fechado no cartão do Caixa) — filtre por período; imprima ou exporte."
       />
       <BalancoDiaTable
         rows={closings.map((c) => ({
@@ -39,6 +39,10 @@ export default async function BalancoDiaPage() {
           projectName: c.projectName,
           clienteNome: c.clienteNome,
           fechadoEm: fmtDateTime(c.closedAt),
+          saldoEmConta: c.saldoEmConta == null ? null : Number(c.saldoEmConta),
+          reabertoEm: c.reabertoEm ? fmtDateTime(c.reabertoEm) : null,
+          reabertoPor: c.reabertoPor,
+          motivoReabertura: c.motivoReabertura,
         }))}
       />
     </>
