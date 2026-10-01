@@ -400,6 +400,13 @@
       "when": 1790839101905,
       "tag": "0056_extrato_estorno_cartao",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790840234109,
+      "tag": "0057_bank_account_ativo",
+      "breakpoints": true
     }
   ]
 }

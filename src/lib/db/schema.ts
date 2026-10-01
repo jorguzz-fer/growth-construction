@@ -568,6 +568,8 @@ export const bankAccounts = pgTable("bank_account", {
   saldoSource: text("saldo_source").notNull().default("manual"),
   openFinanceId: text("open_finance_id"),
   lastSync: timestamp("last_sync", { mode: "date" }),
+  /** Prompt X, 3.2 — inativa fica no cadastro e sai do saldo total. */
+  ativo: boolean("ativo").notNull().default(true),
 });
 
 /**
