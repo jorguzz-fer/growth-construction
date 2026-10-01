@@ -103,5 +103,5 @@ Prompt Z (24 de 42). Módulo novo (`/funcionarios`, `/equipes`), extingue
 | Z-4 | Dois assistentes (6.1 somente leitura, 6.2 propõe) e relatório final |
 
 ## Base local — antes
-`time_entry` 0 · `stakeholder` 18 (conferir pelo SQL) · `despesa` 75 /
+`time_entry` 0 · `stakeholder` 3 · `despesa` 75 /
 R$ 43.701,75 · `project` 3.
