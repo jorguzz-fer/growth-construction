@@ -7,6 +7,9 @@ import { AccessDenied } from "@/components/app/access-denied";
 import { ProjectManager } from "@/components/app/project-manager";
 import { ProjectPicker } from "@/components/app/project-picker";
 import type { ProjetoDoc } from "@/components/app/projeto-docs";
+import { OrcadoRealizado } from "@/components/app/orcado-realizado";
+import { getOrcadoRealizado } from "@/lib/dre-inputs";
+import { montarCard } from "@/lib/calc/orcado-realizado";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +34,14 @@ export default async function ProjetoPage({
     selecionado === "all" ? null : ctx.projects.find((p) => p.id === selecionado) ?? null;
 
   const r2 = isR2Configured();
-  const [clientes, projDocs, registrosDePonto] = await Promise.all([
+  const obraSel = projetoSel && projetoSel.kind !== "office" ? projetoSel : null;
+  const [clientes, projDocs, registrosDePonto, oxr] = await Promise.all([
     getClientes(ctx.tenant.id),
     // Só os documentos de projeto (Prompt B, 13) — e não todos os da empresa.
     getDocumentsByProjects(ctx.tenant.id),
-    projetoSel && projetoSel.kind !== "office" ? contarPontoDoProjeto(ctx.tenant.id, projetoSel.id) : Promise.resolve(0),
+    obraSel ? contarPontoDoProjeto(ctx.tenant.id, obraSel.id) : Promise.resolve(0),
+    // Orçado x Realizado (19–20): só na visão de uma obra; fontes da Fase 1.
+    obraSel ? getOrcadoRealizado(ctx.tenant.id, obraSel.id) : Promise.resolve(null),
   ]);
   // URLs assinadas em paralelo, não uma a uma.
   const urls = await Promise.all(projDocs.map((d) => (r2 ? readUrl(d.storageKey) : Promise.resolve(null))));
@@ -92,6 +98,7 @@ export default async function ProjetoPage({
         r2Configured={r2}
         tenantCodigoMunicipio={ctx.tenant.codigoMunicipio}
         registrosDePonto={registrosDePonto}
+        orcadoRealizado={obraSel && oxr ? <OrcadoRealizado projectId={obraSel.id} card={montarCard(oxr.orcado, oxr.realizado)} /> : undefined}
         perms={{
           criar: can(ctx.perms, "projeto", "criar"),
           editar: can(ctx.perms, "projeto", "editar"),

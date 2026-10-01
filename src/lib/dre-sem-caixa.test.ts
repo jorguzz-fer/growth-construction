@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
  */
 describe("DRE não lê o caixa (Prompt L, 6.1)", () => {
   it("página da DRE e cálculo de natureza não citam cash_entry nem getCash", () => {
-    for (const f of ["src/app/(app)/dre/page.tsx", "src/lib/calc/natureza-dre.ts", "src/components/app/dre-controls.tsx"]) {
+    for (const f of ["src/app/(app)/dre/page.tsx", "src/lib/dre-inputs.ts", "src/lib/calc/dre-cascata.ts", "src/lib/calc/natureza-dre.ts", "src/components/app/dre-controls.tsx"]) {
       const src = readFileSync(f, "utf8");
       expect(src, f).not.toMatch(/cashEntries|cash_entry|getCash\b|getCashAll/);
     }
