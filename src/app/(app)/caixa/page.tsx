@@ -3,11 +3,16 @@ import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
-import { saldoDisponivel } from "@/lib/contas-saldo";
+import { isContaDaEmpresa, saldoDisponivel } from "@/lib/contas-saldo";
+import { cadeiaDeSaldo, diasDesdeAtualizacao } from "@/lib/calc/cadeia-caixa";
+import { CadeiaDias } from "@/components/app/cadeia-dias";
+import { SaldosCaixa } from "@/components/app/saldos-caixa";
+import { hojeISO } from "@/lib/despesa-status";
 import {
   getBankAccounts,
   getCash,
   getConciliacaoData,
+  getDailyClosings,
   getInccRows,
   getPermutas,
   getReembolsos,
@@ -46,22 +51,12 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-
 type Tab = "lancamentos" | "conciliacao" | "previstas";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
   { key: "conciliacao", label: "Conciliação" },
   { key: "previstas", label: "Previstas" },
 ];
-
-const parseData = (d: string | null): Date | null => {
-  if (!d) return null;
-  const p = d.split("/");
-  if (p.length !== 3) return null;
-  const dt = new Date(Number(p[2]), Number(p[0]) - 1, Number(p[1]));
-  return isNaN(dt.getTime()) ? null : dt;
-};
 
 export default async function CaixaPage({
   searchParams,
@@ -198,42 +193,37 @@ export default async function CaixaPage({
   // Filtro de período (item 3): entradas/saídas dentro do intervalo.
   const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
-  // Exclui contas do tipo "Terceiros": são obrigações com sócios/terceiros,
-  // não dinheiro disponível da empresa.
+  // Exclui contas do tipo "Terceiros" e inativas: não são caixa da empresa.
   const saldoTotal = saldoDisponivel(contas);
   const conciliados = cash.filter((c) => c.rec).length;
 
-  // Janela de caixa: 2 dias realizados, hoje e 7 de projeção (uma semana à
-  // frente). A faixa rola horizontalmente para visualizar os dias futuros.
-  const DIAS_PASSADOS = 2;
-  const DIAS_FUTUROS = 7;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const cashByDay = new Map<number, { entradas: number; saidas: number }>();
-  for (const c of cashAll) {
-    const dt = parseData(c.data);
-    if (!dt) continue;
-    dt.setHours(0, 0, 0, 0);
-    const key = dt.getTime();
-    const cur = cashByDay.get(key) ?? { entradas: 0, saidas: 0 };
-    const v = Number(c.valor);
-    if (v >= 0) cur.entradas += v;
-    else cur.saidas += -v;
-    cashByDay.set(key, cur);
-  }
-  let acumulado = saldoTotal;
-  const dias = Array.from({ length: DIAS_PASSADOS + 1 + DIAS_FUTUROS }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - DIAS_PASSADOS + i);
-    const mov = cashByDay.get(d.getTime()) ?? { entradas: 0, saidas: 0 };
-    const saldoDia = mov.entradas - mov.saidas;
-    acumulado += saldoDia;
-    const rel = d < today ? "Realizado" : d.getTime() === today.getTime() ? "Hoje" : "Projeção";
-    return { d, ...mov, saldoDia, acumulado, rel };
+  // Prompt L, Parte 1 — a cadeia de saldo: dois saldos por dia (em conta e
+  // conciliado), encadeados, partindo do fechamento gravado do dia anterior
+  // à janela ou do saldo em conta calculado. A faixa (2 realizados, hoje, 7
+  // à frente) é independente do filtro de período da tabela (1.5) — e diz.
+  const hoje = hojeISO();
+  const fechamentos = (await getDailyClosings(ctx.tenant.id)).filter((f) => !f.projectId).map((f) => ({ dia: f.dia, saldoFinal: Number(f.saldoFinal) }));
+  const movimentos = cashAll.map((c) => ({ id: c.id, data: c.data, valor: Number(c.valor), rec: c.rec, cat: c.cat, importado: !!c.importHash, bankAccountId: c.bankAccountId }));
+  const cadeia = cadeiaDeSaldo({ movimentos, saldoEmContaAtual: saldoTotal, fechamentos, hojeISO: hoje });
+  const hojeNaCadeia = cadeia.dias.find((d) => d.dia === hoje);
+  const contasDaEmpresa = contas.filter((c) => isContaDaEmpresa(c));
+  const saldosPorConta = contasDaEmpresa.map((c) => {
+    const propria = cadeiaDeSaldo({ movimentos: movimentos.filter((m) => m.bankAccountId === c.id), saldoEmContaAtual: Number(c.saldo), fechamentos: [], hojeISO: hoje });
+    const atualizadoEm = c.lastSync ? c.lastSync.toISOString() : null;
+    return {
+      id: c.id,
+      nome: `${c.banco}${c.cc ? " · " + c.cc : ""}`,
+      emConta: Number(c.saldo),
+      conciliado: propria.dias.find((d) => d.dia === hoje)?.conciliado.final ?? Number(c.saldo),
+      origem: (c.saldoSource === "auto" ? "auto" : "manual") as "auto" | "manual",
+      atualizadoEm,
+      diasDesde: diasDesdeAtualizacao(atualizadoEm, hoje),
+      conectada: !!c.openFinanceId,
+    };
   });
 
   // Resumo do dia (hoje): entradas, saídas e saldo do dia.
-  const movHoje = cashByDay.get(today.getTime()) ?? { entradas: 0, saidas: 0 };
+  const movHoje = hojeNaCadeia ?? { entradas: 0, saidas: 0 };
   const saldoHoje = movHoje.entradas - movHoje.saidas;
 
   return (
@@ -245,9 +235,6 @@ export default async function CaixaPage({
           <div className="flex flex-wrap items-end gap-3">
             {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
-            <Badge tone={pluggyCfg() ? "success" : "neutral"}>
-              Open Finance {pluggyCfg() ? "ativo" : "não configurado"}
-            </Badge>
             {versionSelect}
           </div>
         }
@@ -292,105 +279,23 @@ export default async function CaixaPage({
         </Card>
       </div>
 
-      {/* Saldo das contas correntes */}
-      <Card className="mb-6">
-        <CardContent className="p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
-              Saldo das contas correntes
-            </h2>
-            <Link
-              href="/contas"
-              className="text-[11px] text-[var(--color-accent2)] hover:underline"
-            >
-              gerenciar contas
-            </Link>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {contas.map((c) => (
-              <div
-                key={c.id}
-                className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] px-4 py-2.5"
-              >
-                <div className="text-[11px] text-[var(--color-ink3)]">
-                  {c.banco} · {c.cc || "—"}{" "}
-                  <span className="text-[var(--color-ink4)]">
-                    ({c.saldoSource === "auto" ? "auto" : "manual"})
-                  </span>
-                </div>
-                <div className="font-[family-name:var(--font-mono)] text-lg font-semibold text-[var(--color-ink)]">
-                  {brl0(Number(c.saldo))}
-                </div>
-              </div>
-            ))}
-            <div className="ml-auto rounded-[10px] bg-[var(--color-accent)] px-4 py-2.5 text-white">
-              <div className="text-[11px] opacity-80">Saldo total</div>
-              <div className="font-[family-name:var(--font-mono)] text-lg font-semibold">
-                {brl0(saldoTotal)}
-              </div>
-            </div>
-          </div>
-          {contas.length === 0 && (
-            <p className="text-[13px] text-[var(--color-ink4)]">
-              Nenhuma conta cadastrada — cadastre em{" "}
-              <Link href="/contas" className="text-[var(--color-accent2)] hover:underline">
-                Contas Correntes
-              </Link>
-              .
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      {/* Prompt L, 1.0/1.2 — os dois saldos por conta e no total; importar e Open Finance no topo. */}
+      <SaldosCaixa
+        contas={saldosPorConta}
+        total={{ emConta: saldoTotal, conciliado: hojeNaCadeia?.conciliado.final ?? saldoTotal }}
+        importar={
+          <ImportExtratoButton
+            contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
+            aiConfigured={aiConfigured}
+            projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+            projectId={project.id}
+          />
+        }
+        openFinance={{ configurado: pluggyCfg(), podeConfigurar: can(ctx.perms, "contas", "editar") }}
+      />
 
-      {/* Janela de caixa — role para a direita para ver a semana à frente */}
-      <div className="mb-6 -mx-1 overflow-x-auto pb-1">
-        <div className="flex gap-3 px-1">
-        {dias.map((x, i) => (
-          <Card
-            key={i}
-            className={`w-40 shrink-0 ${
-              x.rel === "Hoje" ? "ring-2 ring-[var(--color-accent2)]" : ""
-            }`}
-          >
-            <CardContent className="p-4">
-              <div
-                className={`font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wide ${
-                  x.rel === "Realizado"
-                    ? "text-[var(--color-ink4)]"
-                    : x.rel === "Hoje"
-                      ? "text-[var(--color-accent)]"
-                      : "text-[var(--color-warning)]"
-                }`}
-              >
-                {x.rel}
-              </div>
-              <div className="text-sm font-semibold text-[var(--color-ink)]">
-                {DOW[x.d.getDay()]}
-              </div>
-              <div className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">
-                {String(x.d.getDate()).padStart(2, "0")}/{String(x.d.getMonth() + 1).padStart(2, "0")}
-              </div>
-              <div className="mt-2 text-[11px] text-[var(--color-success)]">
-                ↓ Entradas {x.entradas > 0 ? brl0(x.entradas) : "—"}
-              </div>
-              <div className="text-[11px] text-[var(--color-danger)]">
-                ↑ Saídas {x.saidas > 0 ? brl0(x.saidas) : "—"}
-              </div>
-              <div className="mt-2 border-t border-[var(--color-accent2)]/8 pt-1.5 text-[10px] text-[var(--color-ink3)]">
-                Saldo do dia
-              </div>
-              <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--color-ink)]">
-                {brl0(x.saldoDia)}
-              </div>
-              <div className="mt-1 text-[10px] text-[var(--color-ink3)]">Saldo acumulado</div>
-              <div className="font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink2)]">
-                {brl0(x.acumulado)}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        </div>
-      </div>
+      {/* Prompt L, 1.4-A — cadeia de saldo com inicial e final, em conta e conciliado. */}
+      <CadeiaDias cadeia={cadeia} />
 
       {/* Abas */}
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
@@ -411,13 +316,7 @@ export default async function CaixaPage({
       </div>
 
       {tab === "lancamentos" && (
-        <Lancamentos
-          cash={cash}
-          contas={contas}
-          aiConfigured={aiConfigured}
-          projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
-          projectId={project.id}
-        />
+        <Lancamentos cash={cash} contas={contas} projectId={project.id} />
       )}
       {tab === "conciliacao" && (
         <Conciliacao
@@ -435,27 +334,16 @@ export default async function CaixaPage({
 function Lancamentos({
   cash,
   contas,
-  aiConfigured,
-  projetos,
   projectId,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   contas: Awaited<ReturnType<typeof getBankAccounts>>;
-  aiConfigured: boolean;
-  projetos: { id: string; nome: string }[];
   /** obra da tela: os lançamentos vão para a versão de trabalho dela. */
   projectId: string;
 }) {
   return (
     <>
-      <div className="mb-4">
-        <ImportExtratoButton
-          contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
-          aiConfigured={aiConfigured}
-          projetos={projetos}
-          projectId={projectId}
-        />
-      </div>
+      {/* Importar extrato subiu para o topo da tela (Prompt L, 1.0.3). */}
       <CaixaEntryForm
         contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
         projectId={projectId}
