@@ -380,6 +380,49 @@ export async function getChartAccounts(
     .where(eq(schema.chartAccounts.tenantId, tenantId));
 }
 
+/**
+ * Uso real do Plano de Contas (Prompt G, Parte 2 — somente leitura).
+ * Só contagens, por (conta, categoria DRE, competência) nos lançamentos de
+ * despesa das obras informadas, e em quais obras cada conta tem linha de
+ * Orçamento/Previsão. Nenhum valor. Filtro de tenant explícito nas duas
+ * consultas (8.5); a página só chama quando o usuário vê a tela de origem.
+ */
+export async function getUsoDoPlanoDeContas(
+  tenantId: string,
+  projectIds: string[],
+): Promise<{
+  lancamentos: { code: string; categoria: string | null; competencia: string | null; ultimaCriacao: string; n: number }[];
+  orcamento: { code: string; kind: string; categoria: string | null; projeto: string }[];
+}> {
+  if (projectIds.length === 0) return { lancamentos: [], orcamento: [] };
+  const [lanc, orc] = await Promise.all([
+    db
+      .select({
+        code: schema.despesas.contaCef,
+        categoria: schema.despesas.categoriaDre,
+        competencia: schema.despesas.competencia,
+        ultima: max(schema.despesas.createdAt),
+        n: count(),
+      })
+      .from(schema.despesas)
+      .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+      .where(and(eq(schema.despesas.tenantId, tenantId), inArray(schema.versions.projectId, projectIds), isNotNull(schema.despesas.contaCef)))
+      .groupBy(schema.despesas.contaCef, schema.despesas.categoriaDre, schema.despesas.competencia),
+    db
+      .selectDistinct({ code: schema.budgetAccounts.rowKey, kind: schema.budgetAccounts.kind, categoria: schema.budgetAccounts.dreCategory, projeto: schema.projects.name })
+      .from(schema.budgetAccounts)
+      .innerJoin(schema.versions, eq(schema.budgetAccounts.versionId, schema.versions.id))
+      .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+      .where(and(eq(schema.budgetAccounts.tenantId, tenantId), inArray(schema.versions.projectId, projectIds))),
+  ]);
+  return {
+    lancamentos: lanc
+      .filter((l) => !!l.code)
+      .map((l) => ({ code: l.code as string, categoria: l.categoria ?? null, competencia: l.competencia ?? null, ultimaCriacao: l.ultima ? new Date(l.ultima).toISOString().slice(0, 10) : "", n: Number(l.n) })),
+    orcamento: orc.map((o) => ({ code: o.code, kind: o.kind, categoria: o.categoria ?? null, projeto: o.projeto })),
+  };
+}
+
 export async function getDespesas(versionId: string): Promise<DespesaRow[]> {
   return db
     .select()

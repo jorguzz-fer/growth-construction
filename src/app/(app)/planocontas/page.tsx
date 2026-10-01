@@ -1,5 +1,7 @@
 import { getTenantContext } from "@/lib/context";
-import { getChartAccounts, type ChartAccountRow } from "@/lib/queries";
+import { getChartAccounts, getUsoDoPlanoDeContas, type ChartAccountRow } from "@/lib/queries";
+import { analisarPlano } from "@/lib/planocontas-analise";
+import { AssistentePlanoContas } from "@/components/app/assistente-planocontas";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,6 +69,27 @@ export default async function PlanoContasPage() {
     editar: can(ctx.perms, "planocontas", "editar"),
     excluir: can(ctx.perms, "planocontas", "excluir"),
   };
+  // Prompt G, Parte 2 — assistente somente leitura. 8.5: o uso vem das telas
+  // de origem, e só para quem as vê — sem Despesas, nenhuma contagem de
+  // lançamento, nem agregada; sem Orçamentos, nenhuma linha de orçamento.
+  // Escopo: as obras que o usuário vê (declaradas no painel).
+  const comLancamentos = can(ctx.perms, "despesas", "ver");
+  const comOrcamento = can(ctx.perms, "budget", "ver");
+  const uso = comLancamentos || comOrcamento ? await getUsoDoPlanoDeContas(ctx.tenant.id, ctx.projects.map((p) => p.id)) : null;
+  const analise = analisarPlano(
+    rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      kind: r.kind === "cef" ? "cef" : "complementar",
+      natureza: r.natureza === "receita" ? "receita" : "despesa",
+      ativo: r.ativo ?? true,
+      groupCode: r.groupCode,
+      groupName: r.groupName,
+    })),
+    uso,
+    { projetos: ctx.projects.map((p) => p.name), comLancamentos, comOrcamento },
+  );
 
   return (
     <>
@@ -80,8 +103,10 @@ export default async function PlanoContasPage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <PlanoContasManager cef={cef} comp={comp} perms={perms} />
 
-        <aside aria-label="Categorias DRE">
-          <Card className="rounded-[16px] border-[var(--color-line)] shadow-[0_1px_3px_rgba(22,35,59,.06)] lg:sticky lg:top-20">
+        <aside>
+          {/* 8.6 — o painel entra ACIMA da coluna de Categorias DRE, que permanece. */}
+          <AssistentePlanoContas usuario={ctx.userEmail ?? "anon"} analise={analise} />
+          <Card aria-label="Categorias DRE" className="rounded-[16px] border-[var(--color-line)] shadow-[0_1px_3px_rgba(22,35,59,.06)]">
             <CardContent className="p-5">
               <h2 className="mb-4 text-[15px] font-semibold text-[var(--color-v2-ink)]">
                 Categorias DRE
