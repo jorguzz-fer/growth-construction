@@ -85,7 +85,7 @@ describe.skipIf(!HAS_DB)("Parâmetros / INCC — o que a tela declara (Prompt Q,
     expect(rows.every((r) => r.v === "INCC-M")).toBe(true);
     const [l] = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "incc.variante")));
     expect(l.meta).toMatchObject({ variante: { de: null, para: "INCC-M" } });
-    ctxRef.current = { tenant, projects, userId: null, userEmail: "quem@teste", role: "viewer", perms: defaultPermissions("viewer") };
+    ctxRef.current = { tenant, projects, userId: null, userEmail: "quem@teste", role: "viewer", perms: defaultPermissions("viewer" as "owner") };
     expect(await definirVarianteIncc(projectId, "INCC-DI")).toEqual({ ok: false, error: expect.stringMatching(/permissão/) });
   });
 });

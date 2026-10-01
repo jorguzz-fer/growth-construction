@@ -3,7 +3,11 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getInccTabela } from "@/lib/queries";
+import { getInccTabela, getAtualVersion, getUnits } from "@/lib/queries";
+import { expandUnitReceivables } from "@/lib/calc/receivables";
+import { analisarIncc, mesDaData } from "@/lib/incc-analise";
+import { ordDeHoje } from "@/lib/incc-regras";
+import { AssistenteIncc } from "@/components/app/assistente-incc";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { InccEditor } from "@/components/app/incc-editor";
@@ -31,6 +35,12 @@ export default async function ParametrosPage({
   const project = selecao.projeto;
   const { linhas, variante } = await getInccTabela(ctx.tenant.id, project.id);
   const canEdit = can(ctx.perms, "parametros", "editar");
+  // Seção 6.3 — análises do assistente (puras): meses faltantes, curva,
+  // cobertura (vencimentos das vendas da versão Atual e janela da obra).
+  const atual = await getAtualVersion(ctx.tenant.id, project.id);
+  const unidades = atual ? await getUnits(ctx.tenant.id, atual.id) : [];
+  const mesesComVencimento = unidades.flatMap((u) => expandUnitReceivables(u.paymentPlan, u.status).map((r) => mesDaData(r.dia))).filter((m): m is string => !!m);
+  const analise = analisarIncc(linhas, ordDeHoje(), mesesComVencimento, { inicio: mesDaData(project.startDate), fim: mesDaData(project.endDate) });
 
   return (
     <>
@@ -46,6 +56,9 @@ export default async function ParametrosPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {/* Prompt Q, seção 5 — o que a tela governa, declarado onde o usuário lê. */}
       <div className="mb-4 grid grid-cols-1 gap-2 text-[12.5px] text-[var(--color-ink2)] sm:grid-cols-2">
         <p className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface2)] px-3 py-2">
@@ -59,6 +72,9 @@ export default async function ParametrosPage({
         </p>
       </div>
       <InccEditor projectId={project.id} initial={linhas} variante={variante} canEdit={canEdit} />
+      </div>
+      <AssistenteIncc usuario={ctx.userEmail ?? "anon"} rows={linhas.map((l) => ({ m: l.m, mo: l.mo, ac: l.ac, projected: l.projected }))} variante={variante} analise={analise} />
+      </div>
     </>
   );
 }

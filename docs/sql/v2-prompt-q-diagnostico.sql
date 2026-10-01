@@ -54,7 +54,7 @@ ORDER BY 1, 2, 3;
 -- ---------------------------------------------------------------------------
 SELECT t.name AS empresa, p.name AS obra,
        min(i.mes) AS incc_primeiro, max(i.mes) AS incc_ultimo,
-       p.data_inicio, p.data_fim
+       p.start_date, p.end_date
 FROM project p
 JOIN tenant t ON t.id = p.tenant_id
 LEFT JOIN incc_rate i ON i.project_id = p.id
