@@ -8,7 +8,10 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { avisoDaDespesa, avisoDeSaldo, movimentoInverso, numeroDoCampo, recusaDaExclusaoDoItem, recusaDoEstorno, recusaDoItem, recusaDoMovimento, TIPOS_DOC_ESTOQUE, valorDoMovimento } from "@/lib/estoque-regras";
 import { desc } from "drizzle-orm";
-import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { getObjectBytes, isR2Configured, putObject } from "@/lib/storage/r2";
+import { AI_ACCEPTED_MIME, AI_MAX_DOCS, isAiConfigured } from "@/lib/ai/despesa-extract";
+import { extrairItensDaNota } from "@/lib/ai/estoque-itens";
+import { casarItensComCadastro, type PropostaDeEntrada } from "@/lib/estoque-analise";
 import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 
 /**
@@ -300,4 +303,38 @@ export async function deleteStockMovementDoc(documentId: string): Promise<Result
   await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.doc.unlink", entity: "stock_movement", entityId: doc.stockMovementId, meta: { documentId: doc.id, filename: doc.filename, storageKey: doc.storageKey, tipo: doc.tipo, versao: doc.versao } });
   revalidatePath("/estoque");
   return { ok: true, id: doc.id };
+}
+
+/* ───────────── 7.1 — ler a nota e PROPOR as entradas ───────────── */
+
+export type ResultadoProposta = { ok: true; propostas: PropostaDeEntrada[]; observacoes: string[]; documentos: string[] } | { ok: false; error: string };
+
+/**
+ * Lê os documentos (PDF/imagem) já anexados à despesa e devolve PROPOSTAS de
+ * entrada, uma por item da nota, casadas com o cadastro. NADA é gravado: a
+ * pessoa confere, ajusta e confirma item a item (a gravação é dela, pela
+ * mesma `addStockMovement`). Item sem cadastro vira proposta de cadastro (7.2).
+ */
+export async function proporEntradasDaNota(despesaId: string): Promise<ResultadoProposta> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, "estoque", "ver")) return { ok: false, error: "Sem permissão para ver o estoque." };
+  if (!isAiConfigured()) return { ok: false, error: "Leitura por IA não configurada (ANTHROPIC_API_KEY)." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (R2) não configurado — os documentos da despesa não podem ser lidos." };
+  const [despesa] = await db.select({ id: schema.despesas.id, numDoc: schema.despesas.numDoc }).from(schema.despesas).where(and(eq(schema.despesas.id, despesaId), eq(schema.despesas.tenantId, ctx.tenant.id))).limit(1);
+  if (!despesa) return { ok: false, error: "Despesa não encontrada nesta empresa." };
+  const docs = await db.select().from(schema.documents).where(and(eq(schema.documents.tenantId, ctx.tenant.id), eq(schema.documents.despesaId, despesa.id))).orderBy(desc(schema.documents.uploadedAt));
+  const legiveis = docs.filter((d) => (AI_ACCEPTED_MIME as readonly string[]).includes(d.contentType ?? "")).slice(0, AI_MAX_DOCS);
+  if (legiveis.length === 0) return { ok: false, error: "A despesa não tem PDF ou imagem anexado. Anexe a nota na tela de Despesas e tente de novo." };
+  const materiais = await db.select().from(schema.stockItems).where(and(eq(schema.stockItems.tenantId, ctx.tenant.id), eq(schema.stockItems.ativo, true)));
+  try {
+    const paraLeitura = await Promise.all(legiveis.map(async (d) => ({ bytes: await getObjectBytes(d.storageKey), mime: d.contentType ?? "application/pdf", filename: d.filename })));
+    const lido = await extrairItensDaNota(paraLeitura, { materiais: materiais.map((m) => ({ nome: m.nome, unidade: m.unidade, sku: m.sku })) });
+    const propostas = casarItensComCadastro(lido.itens, materiais.map((m) => ({ id: m.id, nome: m.nome, sku: m.sku, unidade: m.unidade, custoUnit: Number(m.custoUnit), minimo: Number(m.minimo), saldo: 0, ativo: m.ativo })));
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.ia.proposta", entity: "despesa", entityId: despesa.id, meta: { documentos: legiveis.map((d) => d.filename), itens: propostas.length, semCadastro: propostas.filter((x) => !x.materialId).length } });
+    return { ok: true, propostas, observacoes: lido.observacoes, documentos: legiveis.map((d) => d.filename) };
+  } catch (e) {
+    console.error("[estoque] falha na leitura da nota por IA:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao ler a nota." };
+  }
 }
