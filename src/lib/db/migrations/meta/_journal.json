@@ -407,6 +407,13 @@
       "when": 1790840234109,
       "tag": "0057_bank_account_ativo",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790841676247,
+      "tag": "0058_conciliacao_despesa",
+      "breakpoints": true
     }
   ]
 }

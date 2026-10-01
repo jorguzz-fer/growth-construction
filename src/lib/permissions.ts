@@ -68,6 +68,10 @@ export const SCREENS: Screen[] = [
   { id: "planocontas", label: "Plano de Contas", modulo: "Planejamento" },
   // Prompt X, 6 — conta corrente é instrumento de caixa, não de despesa.
   { id: "contas", label: "Contas Correntes", modulo: "Conciliação de Caixa" },
+  // Prompt L, 4.2.2 e 5.1 — permissões PRÓPRIAS do Caixa, distintas de editar:
+  // "criar" = lançar ajuste de caixa; "excluir" = desfazer conciliação. Não é
+  // rota: é chave de permissão (sem página própria).
+  { id: "conciliacao", label: "Conciliação — ajustar e desfazer", modulo: "Conciliação de Caixa" },
   { id: "estoque", label: "Controle de Estoques", modulo: "Despesas" },
   { id: "ponto", label: "Controle de Ponto", modulo: "Despesas" },
   { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },

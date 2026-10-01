@@ -791,6 +791,36 @@ export const estornosCartao = pgTable("estorno_cartao", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/**
+ * Vínculo com valor entre um movimento do extrato e uma despesa (Prompt L,
+ * Parte 2). N:N: um movimento quita várias despesas; uma despesa recebe
+ * vários movimentos. O `pagamentoId` é o registro de pagamento que o vínculo
+ * gerou (saldo real §15). Desfazer é estorno lógico (`desfeito`). As quatro
+ * colunas antigas de `cashEntries` continuam gravadas (2.8).
+ */
+export const conciliacoesDespesa = pgTable("conciliacao_despesa", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  cashEntryId: uuid("cash_entry_id")
+    .notNull()
+    .references(() => cashEntries.id, { onDelete: "cascade" }),
+  despesaId: uuid("despesa_id")
+    .notNull()
+    .references(() => despesas.id, { onDelete: "cascade" }),
+  pagamentoId: uuid("pagamento_id").references(() => pagamentos.id, { onDelete: "set null" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull(),
+  /** "manual" (tela), "importacao" (correspondência inequívoca, 2.7) ou "assistente" (proposta confirmada). */
+  origem: text("origem").notNull().default("manual"),
+  criadoPor: text("criado_por"),
+  criadoEm: timestamp("criado_em").notNull().defaultNow(),
+  desfeito: boolean("desfeito").notNull().default(false),
+  desfeitoEm: text("desfeito_em"),
+  desfeitoPor: text("desfeito_por"),
+  motivoDesfazer: text("motivo_desfazer"),
+});
+
 export const despesaTerceiros = pgTable("despesa_terceiro", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id")

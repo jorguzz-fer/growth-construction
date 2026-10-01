@@ -189,7 +189,8 @@ export default async function CaixaPage({
     getBankAccounts(ctx.tenant.id),
     getConciliacaoData(ctx.tenant.id, version.id),
   ]);
-  const canDesfazerConc = can(ctx.perms, "caixa", "excluir");
+  // Prompt L, 5.1 — permissão PRÓPRIA de desfazer, distinta de editar o caixa.
+  const canDesfazerConc = can(ctx.perms, "conciliacao", "excluir");
   // Filtro de período (item 3): entradas/saídas dentro do intervalo.
   const cash = de || ate ? cashAll.filter((c) => dateInRange(c.data, de, ate)) : cashAll;
 
@@ -514,6 +515,10 @@ function CashTable({
                   <ConciliarToggle id={c.id} rec={c.rec} />
                   {!c.rec && c.cat === "extrato" && (
                     <Badge tone="danger">divergência</Badge>
+                  )}
+                  {/* BL-2 / 6.6 — `rec` sem vínculo é estado próprio, não "conciliado". */}
+                  {c.rec && c.cat !== "ajuste" && !c.conciliadoDespesaId && !c.conciliadoContaReceberId && (
+                    <Badge tone="warning" title="Marcado como conciliado sem registro de com o quê casou. Veja a lista de conferência na Conciliação.">sem vínculo</Badge>
                   )}
                 </div>
               ) : (
