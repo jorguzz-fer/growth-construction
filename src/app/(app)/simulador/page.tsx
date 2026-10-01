@@ -55,7 +55,7 @@ export default async function SimuladorPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
-      <SimulatorForm incc={incc} obra={{ nome: project.name, variante }} janelaObra={janelaObra} clientes={clientes} podeVerRenda={podeVerRenda} />
+      <SimulatorForm incc={incc} obra={{ nome: project.name, variante }} janelaObra={janelaObra} clientes={clientes} podeVerRenda={podeVerRenda} usuario={ctx.userEmail ?? "anon"} />
     </>
   );
 }
