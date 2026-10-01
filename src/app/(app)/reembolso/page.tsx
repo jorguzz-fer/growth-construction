@@ -8,18 +8,11 @@ import { getReembolsos } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
-
-/** Normaliza status legado ("received") para o rótulo em português. */
-function statusLabel(status: string | null): string {
-  if (!status) return "Recebido";
-  return status.toLowerCase() === "received" ? "Recebido" : status;
-}
 
 export default async function ReembolsoPage({
   searchParams,
@@ -39,7 +32,7 @@ export default async function ReembolsoPage({
   const escolhido =
     selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
   if (!escolhido?.trabalho) {
-    return <PedirProjeto titulo="Liberação de Obra" projetos={ctx.projects} oQue="ver as liberações de obra" />;
+    return <PedirProjeto titulo="Liberações de Obra" projetos={ctx.projects} oQue="ver as liberações de obra" />;
   }
   const { project, trabalho: version } = escolhido;
   const rows = await getReembolsos(version.id);
@@ -49,9 +42,9 @@ export default async function ReembolsoPage({
   return (
     <>
       <PageHeader
-        title="Liberação de Obra"
+        title="Liberações de Obra"
         eyebrow={`${project.name} · ${version.label}`}
-        subtitle="Aba própria — Data REAL + SERIAL automático"
+        subtitle="Parcelas do financiamento da obra liberadas pela instituição financeira após a medição. Entrada de caixa, não receita."
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <ProjectPicker
@@ -63,7 +56,7 @@ export default async function ReembolsoPage({
                 href={`/reembolso/novo?proj=${project.id}`}
                 className={buttonVariants({ size: "sm" })}
               >
-                + Nova Liberação
+                + Nova liberação
               </Link>
             )}
           </div>
@@ -77,34 +70,24 @@ export default async function ReembolsoPage({
         {rows.length} lançamento(s)
       </p>
 
-      <div className="mb-6 flex items-start gap-2 rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-accent4)] px-4 py-3 text-[13px] leading-relaxed text-[var(--color-ink2)]">
-        <span aria-hidden className="mt-px">
-          ⓘ
-        </span>
-        <p>
-          A data deve ser uma <strong>DATA REAL</strong>. O <strong>SERIAL</strong>{" "}
-          é calculado automaticamente via{" "}
-          <code className="font-[family-name:var(--font-mono)]">INT(Data)</code>. A
-          Projeção usa <strong>SUMIFS</strong> comparando col SERIAL com seriais de
-          cada mês.
-        </p>
-      </div>
+      {/* Prompt O, 2.1/2.2 — o aviso sobre SERIAL/SUMIFS e a coluna Serial
+          saíram: descreviam a planilha de origem, não este sistema. A coluna
+          `serial` continua gravada, exportada e reimportada. 5.2 — a coluna
+          Status saiu da listagem: era gravada fixa e nunca lida. */}
 
       <Table>
         <THead>
           <tr>
-            <TH>Data (DD/MM/AAAA)</TH>
+            <TH>Data</TH>
             <TH>Origem</TH>
             <TH className="text-right">Valor R$</TH>
             <TH>Observações</TH>
-            <TH className="text-right">Serial (auto)</TH>
-            <TH>Status</TH>
           </tr>
         </THead>
         <tbody>
           {rows.length === 0 ? (
             <TR>
-              <TD colSpan={6} className="py-8 text-center text-[var(--color-ink4)]">
+              <TD colSpan={4} className="py-8 text-center text-[var(--color-ink4)]">
                 Nenhuma liberação lançada nesta versão.
               </TD>
             </TR>
@@ -119,12 +102,6 @@ export default async function ReembolsoPage({
                   {brl0(Number(r.valor ?? 0))}
                 </TD>
                 <TD>{r.obs || "—"}</TD>
-                <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                  {r.serial ?? "—"}
-                </TD>
-                <TD>
-                  <Badge tone="success">✓ {statusLabel(r.status)}</Badge>
-                </TD>
               </TR>
             ))
           )}

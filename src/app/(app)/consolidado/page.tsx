@@ -109,7 +109,7 @@ export default async function ConsolidadoPage({
         values: perVersion.map((rv) => sumFiltered(rv.sources[s])),
       })),
       {
-        label: "Reembolso",
+        label: "Liberações de Obra",
         values: perVersion.map((rv) => sumFiltered(rv.reemb)),
       },
       {
@@ -195,7 +195,7 @@ export default async function ConsolidadoPage({
   // Linhas: fontes + reembolso; TOTAL por coluna e geral.
   const rowMaps: { label: string; map: MonthlyProjection }[] = [
     ...PROJECTION_SOURCES.map((s) => ({ label: s, map: sources[s] })),
-    { label: "Reembolso", map: reembMonth },
+    { label: "Liberações de Obra", map: reembMonth },
   ];
   const rows = rowMaps.map((r) => ({
     label: r.label,
@@ -211,7 +211,7 @@ export default async function ConsolidadoPage({
     <>
       <PageHeader
         title="Consolidado"
-        subtitle="Reembolso incluído no TOTAL"
+        subtitle="Liberações de Obra incluídas no TOTAL"
         actions={
           <div className="flex flex-wrap items-end gap-3">
             {projectPicker}

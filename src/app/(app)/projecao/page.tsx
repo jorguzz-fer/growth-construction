@@ -112,7 +112,7 @@ export default async function ProjecaoPage({
         label: s,
         values: perVersion.map((rv) => sumFiltered(rv.sources[s])),
       })),
-      { label: "Reembolso", values: perVersion.map((rv) => sumFiltered(rv.reemb)) },
+      { label: "Liberações de Obra", values: perVersion.map((rv) => sumFiltered(rv.reemb)) },
       {
         label: "TOTAL",
         emphasis: "final" as const,
@@ -210,7 +210,7 @@ export default async function ProjecaoPage({
   const exportMatrix: ExportMatrix = {
     months: axis,
     rows: [
-      { label: "Reembolso", values: axis.map((m) => reembMonth[m] || 0), total: reembGrand },
+      { label: "Liberações de Obra", values: axis.map((m) => reembMonth[m] || 0), total: reembGrand },
       {
         label: "TOTAL (todas as unidades)",
         values: axis.map((m) => (unitsProj[m] || 0) + (reembMonth[m] || 0)),
@@ -258,7 +258,7 @@ export default async function ProjecaoPage({
                   borderRadius: 4,
                 },
                 {
-                  label: "Reembolso",
+                  label: "Liberações de Obra",
                   data: yearMonths.map((m) => reembMonth[m] || 0),
                   backgroundColor: CHART_COLORS.green,
                   borderRadius: 4,
@@ -284,7 +284,7 @@ export default async function ProjecaoPage({
             months={yearMonths}
             rows={[
               {
-                label: "Reembolso",
+                label: "Liberações de Obra",
                 values: yearMonths.map((m) => reembMonth[m] || 0),
                 total: reembGrand,
               },

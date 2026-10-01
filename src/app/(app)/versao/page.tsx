@@ -89,7 +89,7 @@ export default async function VersaoPage({
   const nat = NATUREZA[v.kind] ?? NATUREZA.custom;
   const cards = [
     { icon: "🏢", label: "Unidades", value: units },
-    { icon: "↩︎", label: "Reembolsos", value: reembolsos },
+    { icon: "↩︎", label: "Liberações de Obra", value: reembolsos },
     { icon: "⇄", label: "Ativos de Permuta", value: permutas },
     { icon: "🧾", label: "Lançamentos de despesa", value: despesas },
   ];
