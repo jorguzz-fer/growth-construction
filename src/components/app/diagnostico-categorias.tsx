@@ -5,12 +5,13 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   reclassificarDespesas,
-  type DespesaSuspeita,
+  type PaginaConferencia,
 } from "@/lib/actions/diagnostico";
+import { mensagemDoLote, selecionavel } from "@/lib/conferencia-regras";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label, Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
@@ -23,14 +24,20 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
  * competência, vencimento, status e número PED nunca são tocados.
  */
 export function DiagnosticoCategorias({
-  rows,
+  pagina,
+  filtros,
+  projetos,
   categorias,
   canEditar,
 }: {
-  rows: DespesaSuspeita[];
+  pagina: PaginaConferencia;
+  filtros: { projeto: string; competencia: string; fornecedor: string; cursor: string };
+  projetos: { id: string; nome: string }[];
   categorias: string[];
   canEditar: boolean;
 }) {
+  const rows = pagina.rows;
+  const filtrando = !!(filtros.projeto || filtros.competencia || filtros.fornecedor);
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [categoria, setCategoria] = useState("");
@@ -42,7 +49,8 @@ export function DiagnosticoCategorias({
   // Só lançamentos ainda ativos podem ser reclassificados; os cancelados ficam
   // visíveis para conferência, mas fora da seleção.
   const selecionaveis = useMemo(
-    () => rows.filter((r) => !r.motivos.includes("lançamento cancelado")),
+    // AN 4.4 — o CÓDIGO do motivo governa a seleção, não o texto.
+    () => rows.filter((r) => selecionavel(r.motivos)),
     [rows],
   );
   const marcadas = useMemo(
@@ -69,7 +77,7 @@ export function DiagnosticoCategorias({
         return;
       }
       setMsg(
-        `${res.alteradas} lançamento(s) reclassificado(s) para "${categoria}". A alteração está registrada na auditoria.`,
+        `Categoria "${categoria}": ${mensagemDoLote({ selecionadas: res.selecionadas ?? 0, alteradas: res.alteradas ?? 0, puladas: res.puladas ?? [] })}`,
       );
       setSel(new Set());
       setPreview(false);
@@ -77,11 +85,60 @@ export function DiagnosticoCategorias({
     });
   };
 
-  if (rows.length === 0) {
+  const qs = (extra: Record<string, string>) => {
+    const p = new URLSearchParams();
+    const tudo = { projeto: filtros.projeto, competencia: filtros.competencia, fornecedor: filtros.fornecedor, ...extra };
+    for (const [k, v] of Object.entries(tudo)) if (v) p.set(k, v);
+    const t = p.toString();
+    return t ? `?${t}` : "?";
+  };
+
+  const formFiltros = (
+    <form method="get" className="flex flex-wrap items-end gap-3 text-[13px]">
+      <div className="min-w-[200px]">
+        <Label>Projeto</Label>
+        <Select name="projeto" defaultValue={filtros.projeto}>
+          <option value="">Todos</option>
+          {projetos.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nome}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="w-[130px]">
+        <Label>Competência</Label>
+        <Input name="competencia" defaultValue={filtros.competencia} placeholder="MM/AAAA" inputMode="numeric" />
+      </div>
+      <div className="min-w-[200px]">
+        <Label>Fornecedor</Label>
+        <Select name="fornecedor" defaultValue={filtros.fornecedor}>
+          <option value="">Todos</option>
+          {pagina.fornecedores.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.nome}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Button type="submit" variant="outline">
+        Filtrar
+      </Button>
+      {filtrando && (
+        <Link href="?" className="text-[12px] text-[var(--color-ink3)] hover:underline">
+          Limpar filtros
+        </Link>
+      )}
+    </form>
+  );
+
+  if (pagina.totalGeral === 0) {
     return (
       <Card>
         <CardContent className="p-8 text-center text-[var(--color-ink3)]">
-          Nenhum lançamento fora das regras novas. Nada a conferir.
+          Nenhum lançamento nas quatro condições desta conferência (categoria de
+          receita, sem categoria, valor zero, sem competência). Isso não confirma
+          que os lançamentos estão certos — só que nenhum caiu nessas condições.
         </CardContent>
       </Card>
     );
@@ -100,14 +157,23 @@ export function DiagnosticoCategorias({
         </CardContent>
       </Card>
 
+      {formFiltros}
+
       <div className="flex flex-wrap items-center gap-3 text-[13px]">
-        <Badge tone="warning">{rows.length} a conferir</Badge>
+        {/* AN 4.3 — o badge e a soma contam o conjunto inteiro, não a página. */}
+        <Badge tone="warning">{pagina.totalGeral} a conferir</Badge>
         <span className="text-[var(--color-ink3)]">
           Total{" "}
           <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">
-            {brl0(rows.reduce((a, r) => a + r.valor, 0))}
+            {brl0(pagina.somaGeral)}
           </strong>
         </span>
+        {filtrando && (
+          <span className="text-[var(--color-ink3)]">
+            · no filtro: <strong className="text-[var(--color-ink)]">{pagina.total}</strong> lançamento(s),{" "}
+            <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl0(pagina.soma)}</strong>
+          </span>
+        )}
         {sel.size > 0 && <Badge tone="info">{sel.size} selecionado(s)</Badge>}
       </div>
 
@@ -173,7 +239,7 @@ export function DiagnosticoCategorias({
             </THead>
             <tbody>
               {rows.map((r) => {
-                const cancelada = r.motivos.includes("lançamento cancelado");
+                const cancelada = !selecionavel(r.motivos);
                 return (
                   <TR key={r.id}>
                     {canEditar && (
@@ -206,7 +272,7 @@ export function DiagnosticoCategorias({
                       {brl0(r.valor)}
                     </TD>
                     <TD className="text-[12px] text-[var(--color-ink3)]">
-                      {r.motivos.join(" · ")}
+                      {r.motivos.map((m) => m.texto).join(" · ")}
                     </TD>
                     <TD className="text-right">
                       <Link
@@ -223,6 +289,26 @@ export function DiagnosticoCategorias({
           </Table>
         </CardContent>
       </Card>
+
+      {rows.length === 0 && (
+        <p className="text-center text-sm text-[var(--color-ink3)]">Nenhum lançamento com esses filtros.</p>
+      )}
+      {(filtros.cursor || pagina.proximoCursor) && (
+        <div className="flex items-center justify-between text-[13px]">
+          {filtros.cursor ? (
+            <Link href={qs({})} className="text-[var(--color-accent2)] hover:underline">
+              ← Voltar ao início
+            </Link>
+          ) : (
+            <span />
+          )}
+          {pagina.proximoCursor && (
+            <Link href={qs({ cursor: pagina.proximoCursor })} className="text-[var(--color-accent2)] hover:underline">
+              Próxima página →
+            </Link>
+          )}
+        </div>
+      )}
 
       {preview && (
         <div
