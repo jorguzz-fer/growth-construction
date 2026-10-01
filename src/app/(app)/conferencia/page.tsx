@@ -1,6 +1,7 @@
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
-import { getDespesasSuspeitas } from "@/lib/actions/diagnostico";
+import { getAnaliseConferencia, getDespesasSuspeitas } from "@/lib/actions/diagnostico";
+import { AssistenteConferencia } from "@/components/app/assistente-conferencia";
 import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
@@ -40,7 +41,7 @@ export default async function ConferenciaPage({
     fornecedorId: /^[0-9a-f-]{36}$/i.test(sp.fornecedor ?? "") ? sp.fornecedor! : null,
     cursor: sp.cursor ?? null,
   };
-  const pagina = await getDespesasSuspeitas(filtros);
+  const [pagina, analise] = await Promise.all([getDespesasSuspeitas(filtros), getAnaliseConferencia()]);
 
   return (
     <>
@@ -49,13 +50,19 @@ export default async function ConferenciaPage({
         title="Conferência de lançamentos"
         subtitle="Despesas gravadas com categoria de receita, sem categoria, com valor zero ou sem competência. Somente leitura: nada aqui é corrigido sozinho."
       />
-      <DiagnosticoCategorias
-        pagina={pagina}
-        filtros={{ projeto: projetoValido, competencia: sp.competencia ?? "", fornecedor: filtros.fornecedorId ?? "", cursor: filtros.cursor ?? "" }}
-        projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
-        categorias={categoriasDeDespesa(CATEGORIAS_DRE)}
-        canEditar={can(ctx.perms, "despesas", "editar")}
-      />
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+        <div className="min-w-0 flex-1">
+          <DiagnosticoCategorias
+            pagina={pagina}
+            filtros={{ projeto: projetoValido, competencia: sp.competencia ?? "", fornecedor: filtros.fornecedorId ?? "", cursor: filtros.cursor ?? "" }}
+            projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+            categorias={categoriasDeDespesa(CATEGORIAS_DRE)}
+            canEditar={can(ctx.perms, "despesas", "editar")}
+          />
+        </div>
+        {/* Prompt AN, Parte 7 — somente leitura; não reclassifica. */}
+        {analise && <AssistenteConferencia usuario={ctx.userId ?? "anon"} analise={analise} />}
+      </div>
     </>
   );
 }
