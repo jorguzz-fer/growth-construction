@@ -8,47 +8,59 @@ import {
   rotuloDoEscopo,
 } from "@/lib/projeto-selecao";
 import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
-import { getInccRows } from "@/lib/queries";
+import { getInccRows, getVersionsDoProjeto } from "@/lib/queries";
 import { calendarYearWindows } from "@/lib/planning";
-import { addInto, aggregateInputs, emptyInputs, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
-import { projectInputs, projectInputsByMonth, versionInputs, versionInputsByMonth } from "@/lib/dre-inputs";
+import { aggregateInputs, emptyInputs, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
+import { versionInputsByMonth } from "@/lib/dre-inputs";
+import {
+  ROTULO_CENARIO,
+  TETO_CELULAS_MENSAL,
+  TETO_VERSOES,
+  cenariosDaUrl,
+  ehCopia,
+  ordenarMeses,
+  pctDaReceita,
+  resolverCenario,
+  resolverPeriodo,
+  rotuloDaColuna,
+  selecaoDaUrl,
+  selecaoPadrao,
+  textoDaCobertura,
+} from "@/lib/dre";
 import { brl0, pct1 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { DreControls } from "@/components/app/dre-controls";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
+import { CenarioMultiSelect } from "@/components/app/cenario-multiselect";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-/** Índice absoluto de mês a partir de "MM/YYYY" (ou null se inválido). */
-function monthIndex(mm: string): number | null {
-  const p = mm.split("/");
-  if (p.length !== 2) return null;
-  const m = Number(p[0]);
-  const y = Number(p[1]);
-  if (!m || !y) return null;
-  return y * 12 + (m - 1);
+/** Uma coluna da comparação: uma versão (projeto) ou um cenário (Empresa toda). */
+interface Serie {
+  key: string;
+  titulo: string;
+  complemento?: string;
+  color?: string;
+  /** Inputs por mês de cada projeto que compõe a série (1 na visão de projeto). */
+  porProjeto: Record<string, Inputs>[];
 }
 
-/** Competências "MM/YYYY" entre `de` e `ate` (inclusive; aceita ordem trocada). */
-function enumMonths(de: string, ate: string): string[] {
-  const a = monthIndex(de);
-  const b = monthIndex(ate);
-  if (a == null || b == null) return [];
-  const [lo, hi] = a <= b ? [a, b] : [b, a];
-  const out: string[] = [];
-  for (let i = lo; i <= hi; i++) {
-    const y = Math.floor(i / 12);
-    const m = (i % 12) + 1;
-    out.push(`${String(m).padStart(2, "0")}/${y}`);
-  }
+/** Soma os meses de várias séries de projeto num mapa só. */
+function somarPorMes(lista: Record<string, Inputs>[]): Record<string, Inputs> {
+  const out: Record<string, Inputs> = {};
+  for (const bm of lista)
+    for (const [mm, inp] of Object.entries(bm)) {
+      const t = (out[mm] ??= emptyInputs());
+      t.receita += inp.receita;
+      t.custoVar += inp.custoVar;
+      for (const [k, v] of Object.entries(inp.byCat)) t.byCat[k] = (t.byCat[k] || 0) + v;
+    }
   return out;
 }
 
-/** Soma os inputs mensais dentro do período (ou tudo, quando `periodMonths` é nulo). */
 export default async function DREPage({
   searchParams,
 }: {
@@ -60,6 +72,7 @@ export default async function DREPage({
     de?: string;
     ate?: string;
     vkind?: string;
+    cen?: string;
   }>;
 }) {
   const ctx = await getTenantContext();
@@ -93,57 +106,21 @@ export default async function DREPage({
       : escopo.tipo === "todos"
         ? TODOS_OS_PROJETOS
         : escopo.tipo;
-  // Versões da obra escolhida (antes: as da obra do cookie, e só ela podia
-  // comparar versões).
+  // Versões da obra escolhida, com tenant no where (Prompt A; AC 1.1).
   const daObra =
     escopo.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, escopo.projeto.id) : null;
   const versoesDaObra = daObra?.versions ?? [];
 
-  // Janelas de ano a partir da tabela INCC. Para "empresa toda", usa a união
-  // dos meses de todos os projetos selecionados, de modo que o filtro de
-  // período continua editável em qualquer combinação de filtros.
-  const inccAll = await Promise.all(
-    selectedProjects.map((p) => getInccRows(p.tenantId, p.id)),
-  );
-  // Eixo a partir da tabela INCC dos projetos selecionados (âncora dos dados).
-  const axis = [
-    ...new Set(inccAll.flat().map((r) => r.m)),
-  ].sort((a, b) => {
-    const [ma, ya] = a.split("/").map(Number);
-    const [mb, yb] = b.split("/").map(Number);
-    return ya - yb || ma - mb;
-  });
+  // Eixo a partir da tabela INCC dos projetos selecionados (Parte 7 muda isso).
+  const inccAll = await Promise.all(selectedProjects.map((p) => getInccRows(p.tenantId, p.id)));
+  const axis = ordenarMeses(new Set(inccAll.flat().map((r) => r.m)));
   // Recortes por ano-calendário: 2025, 2026, … até o ano atual + 5.
   const years = calendarYearWindows(axis, new Date().getFullYear());
   const periodo = sp.periodo ?? "acum";
   const customDe = (sp.de ?? "").trim();
   const customAte = (sp.ate ?? "").trim();
-  let periodMonths: Set<string> | null;
-  if (periodo === "custom") {
-    // Recorte customizado por competência (De / Até em MM/AAAA).
-    if (customDe && customAte) {
-      periodMonths = new Set(enumMonths(customDe, customAte));
-    } else if (customDe || customAte) {
-      // Limite aberto de um lado: filtra o eixo pelo(s) limite(s) informado(s).
-      const a = customDe ? monthIndex(customDe) : null;
-      const b = customAte ? monthIndex(customAte) : null;
-      periodMonths = new Set(
-        axis.filter((m) => {
-          const idx = monthIndex(m);
-          if (idx == null) return false;
-          if (a != null && idx < a) return false;
-          if (b != null && idx > b) return false;
-          return true;
-        }),
-      );
-    } else {
-      periodMonths = null; // sem limites → acumulado
-    }
-  } else if (periodo !== "acum") {
-    periodMonths = new Set(years.find((y) => y.value === periodo)?.months ?? []);
-  } else {
-    periodMonths = null;
-  }
+  // 1.6 — o período é UM SÓ para todas as colunas.
+  const { periodMonths, label: periodLabel } = resolverPeriodo(periodo, customDe, customAte, axis, years);
 
   const scopeLabel =
     escopo.tipo === "projeto"
@@ -152,85 +129,61 @@ export default async function DREPage({
         ? "Empresa toda (matriz + filiais + projetos)"
         : rotuloDoEscopo(escopo.tipo);
 
-  // Comparação de 1–3 versões: quando há UMA obra escolhida (antes, só a obra
-  // do cookie). Numericamente igual à coluna agregada: as duas somam a versão
-  // de trabalho (Atual) da obra.
-  const canCompareVersions = !!daObra?.trabalho;
-  // Sem seleção explícita, a DRE abre na versão ATUAL (dados reais).
-  const atualVersion = daObra?.trabalho ?? null;
-  const vsIds = (sp.vs ?? "").split(",").filter(Boolean);
-  const compareVersions =
-    canCompareVersions && atualVersion
-      ? (vsIds.length
-          ? versoesDaObra.filter((v) => vsIds.includes(v.id))
-          : [atualVersion]
-        ).slice(0, 3)
-      : [];
-  const obraId = escopo.tipo === "projeto" ? escopo.projeto.id : "";
-
-  // Tipo de versão para a agregação por projeto (visão "Empresa toda" e
-  // projetos não-ativos): Atual (padrão) / Forecast / Budget.
-  const vkind = ["atual", "forecast", "budget"].includes(sp.vkind ?? "")
-    ? (sp.vkind as string)
-    : "atual";
-
-  let columns: { label: string; color?: string; wf: ReturnType<typeof waterfall> }[];
-  if (monthly) {
-    // Visão mensal: uma coluna por mês do período + coluna "Total". Usa a série
-    // selecionada (versão de comparação, quando aplicável, ou o escopo agregado).
-    let byMonth: Record<string, Inputs>;
-    if (canCompareVersions && compareVersions.length >= 1) {
-      byMonth = await versionInputsByMonth(ctx.tenant.id, compareVersions[0].id, obraId);
-    } else {
-      byMonth = {};
-      const perP = await Promise.all(
-        selectedProjects.map((p) => projectInputsByMonth(p, vkind)),
-      );
-      for (const bm of perP)
-        for (const [mm, inp] of Object.entries(bm))
-          addInto((byMonth[mm] ??= emptyInputs()), inp);
-    }
-    const monthsToShow = periodMonths
-      ? [...periodMonths].sort((a, b) => (monthIndex(a) ?? 0) - (monthIndex(b) ?? 0))
-      : axis;
-    columns = monthsToShow.map((mm) => ({
-      label: mm,
-      wf: waterfall([byMonth[mm] ?? emptyInputs()]),
-    }));
-    columns.push({
-      label: "Total",
-      wf: waterfall([aggregateInputs(byMonth, periodMonths)]),
+  // ── As séries (colunas) ────────────────────────────────────────────────
+  const series: Serie[] = [];
+  const cobertura: string[] = [];
+  let selecionadas: typeof versoesDaObra = [];
+  const cenarios = cenariosDaUrl(sp.cen, sp.vkind);
+  if (escopo.tipo === "projeto") {
+    // 1.1/1.4 — qualquer projeto compara; todas as versões são selecionáveis;
+    // ?vs= é validado contra as versões DESTE projeto. Padrão: Atual + o
+    // Orçamento e a Previsão mais recentes, sem cópia.
+    const vsIds = (sp.vs ?? "").split(",").filter(Boolean);
+    const daUrl = vsIds.length ? selecaoDaUrl(versoesDaObra, vsIds) : [];
+    selecionadas = daUrl.length ? daUrl : selecaoPadrao(versoesDaObra);
+    const porVersao = await Promise.all(
+      selecionadas.map((v) => versionInputsByMonth(ctx.tenant.id, v.id, escopo.projeto.id)),
+    );
+    selecionadas.forEach((v, i) => {
+      const r = rotuloDaColuna(v);
+      series.push({ key: v.id, titulo: r.titulo, complemento: r.complemento, color: v.color, porProjeto: [porVersao[i]] });
     });
-  } else if (compareVersions.length >= 1) {
-    const perV = await Promise.all(
-      compareVersions.map((v) => versionInputs(ctx.tenant.id, v.id, obraId, periodMonths)),
-    );
-    columns = compareVersions.map((v, i) => ({
-      label: v.label,
-      color: v.color,
-      wf: waterfall([perV[i]]),
-    }));
   } else {
-    const all = await Promise.all(
-      selectedProjects.map((p) => projectInputs(p, periodMonths, vkind)),
+    // 1.2 — Empresa toda compara CENÁRIOS: para cada cenário e cada projeto,
+    // a versão daquele kind NAQUELE projeto. Sem a chave da DRE (AC-3), vale
+    // a regra de antes (fallback), agora DECLARADA na cobertura.
+    const versoesPorProjeto = await Promise.all(
+      selectedProjects.map((p) => getVersionsDoProjeto(ctx.tenant.id, p.id)),
     );
-    columns = [{ label: scopeLabel, wf: waterfall(all) }];
+    const projetos = selectedProjects.map((p, i) => ({ id: p.id, name: p.name, versoes: versoesPorProjeto[i] }));
+    for (const c of cenarios) {
+      const res = resolverCenario(c, projetos, true);
+      const texto = textoDaCobertura(c, res);
+      if (texto) cobertura.push(texto);
+      const porProjeto = await Promise.all(
+        res.filter((r) => r.versao).map((r) => versionInputsByMonth(ctx.tenant.id, r.versao!.id, r.projetoId)),
+      );
+      series.push({ key: c, titulo: ROTULO_CENARIO[c], porProjeto });
+    }
   }
-  const multi = columns.length > 1;
 
-  const periodLabel =
-    periodo === "custom"
-      ? customDe && customAte
-        ? `Personalizado (${customDe} – ${customAte})`
-        : customDe
-          ? `Personalizado (a partir de ${customDe})`
-          : customAte
-            ? `Personalizado (até ${customAte})`
-            : "Personalizado (informe De / Até)"
-      : periodMonths
-        ? years.find((y) => y.value === periodo)?.label
-        : "Acumulado (todo o horizonte)";
-  const labels = columns[0].wf.rows;
+  const multi = series.length > 1;
+  const nomesDasColunas = series.map((s) => s.titulo).join(", ");
+  const recorte = `${selectedProjects.length} projeto(s) · ${isAll ? "cenários" : "versões"}: ${nomesDasColunas || "nenhuma"} · ${periodLabel}`;
+
+  // Meses da matriz (1.5): os do período, ou o eixo no acumulado.
+  const meses = periodMonths ? ordenarMeses(periodMonths) : axis;
+  const celulasMensal = meses.length * series.length;
+  const mensalAcimaDoTeto = monthly && multi && celulasMensal > TETO_CELULAS_MENSAL;
+
+  // Valores: por série, a cascata do período (e, no mensal, a de cada mês).
+  const totalDe = (s: Serie) => waterfall(s.porProjeto.map((bm) => aggregateInputs(bm, periodMonths)));
+  const porMesDaSerie = new Map(series.map((s) => [s.key, somarPorMes(s.porProjeto)]));
+  const mesDe = (s: Serie, mm: string) => waterfall([porMesDaSerie.get(s.key)![mm] ?? emptyInputs()]);
+  const totais = series.map(totalDe);
+  const linhas = (totais[0] ?? waterfall([emptyInputs()])).rows;
+
+  const semVersao = escopo.tipo === "projeto" && versoesDaObra.length === 0;
 
   return (
     <>
@@ -238,11 +191,7 @@ export default async function DREPage({
         eyebrow={scopeLabel}
         title="DRE — Demonstração de Resultado"
         subtitle={`${periodLabel}${
-          monthly
-            ? " · visão mensal"
-            : multi
-              ? " · comparativo de versões"
-              : " · análise vertical (% da receita)"
+          monthly ? " · visão mensal" : multi ? (isAll ? " · comparativo de cenários" : " · comparativo de versões") : " · análise vertical (% da receita)"
         }`}
         actions={
           <div className="flex flex-wrap items-end gap-3">
@@ -263,19 +212,30 @@ export default async function DREPage({
               vs={sp.vs ?? ""}
               de={customDe}
               ate={customAte}
-              showVersionKind={isAll}
-              versionKind={vkind}
+              showVersionKind={false}
+              versionKind="atual"
             />
-            {canCompareVersions && (
-              <VersionMultiSelect
-                versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
-                selected={compareVersions.map((v) => v.id)}
-              />
-            )}
           </div>
         }
       />
 
+      {/* Seletores da comparação abaixo do cabeçalho: com muitas versões, no
+          cabeçalho eles espremiam o título. */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        {escopo.tipo === "projeto" && versoesDaObra.length > 0 && (
+          <VersionMultiSelect
+            versions={versoesDaObra.map((v) => ({
+              id: v.id,
+              label: ehCopia(v) ? `${v.label} · cópia` : v.label,
+              color: v.color,
+              aviso: avisoNoSeletor(v, rascunhoFora),
+            }))}
+            selected={selecionadas.map((v) => v.id)}
+            max={TETO_VERSOES}
+          />
+        )}
+        {isAll && <CenarioMultiSelect selected={cenarios} />}
+      </div>
       {escopo.tipo === "projeto" && <LembrarProjeto projectId={escopo.projeto.id} />}
       {doEscopo && doEscopo.semSituacao > 0 && (
         <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
@@ -293,71 +253,131 @@ export default async function DREPage({
             Projetos.
           </CardContent>
         </Card>
+      ) : semVersao ? (
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            Este projeto não tem nenhuma versão — não há o que demonstrar.
+          </CardContent>
+        </Card>
       ) : (
       <Card>
         <CardContent className="p-5">
-          <Table>
-            <THead>
-              <tr>
-                <TH>Item</TH>
-                {columns.map((c) => (
-                  <TH key={c.label} className="text-right">
-                    <span className="inline-flex items-center gap-1.5">
-                      {c.color && (
-                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+          {/* 1.8 — o cabeçalho declara o recorte e a cobertura. */}
+          <p className="mb-1 text-[12.5px] text-[var(--color-ink2)]" data-recorte>
+            {recorte}
+          </p>
+          {cobertura.map((c) => (
+            <p key={c} className="mb-1 text-[12px] text-[var(--color-warning)]" data-cobertura>
+              {c}
+            </p>
+          ))}
+          {selecionadas.length > TETO_VERSOES && (
+            <p className="mb-1 text-[12px] text-[var(--color-warning)]">
+              {selecionadas.length} versões selecionadas — acima de {TETO_VERSOES} a tabela fica larga. Todas estão na tela; desmarque as que não precisa.
+            </p>
+          )}
+          {mensalAcimaDoTeto && (
+            <p role="status" className="mb-2 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+              {meses.length} meses × {series.length} colunas = {celulasMensal} colunas — acima de {TETO_CELULAS_MENSAL}. Reduza o
+              período (escolha um ano ou De/Até) ou desmarque versões. Abaixo, só o total de cada coluna; nenhuma foi descartada.
+            </p>
+          )}
+          <div className="tbl-scroll mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                {monthly && multi && !mensalAcimaDoTeto ? (
+                  <>
+                    <tr className="border-b border-[var(--color-line)]">
+                      <th rowSpan={2} className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                        Item
+                      </th>
+                      {[...meses, "Total"].map((mm) => (
+                        <th key={mm} colSpan={series.length} className="border-l border-[var(--color-line)] px-2 py-1.5 text-center font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                          {mm}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-[var(--color-line)]">
+                      {[...meses, "Total"].flatMap((mm) =>
+                        series.map((s, i) => (
+                          <th key={`${mm}-${s.key}`} className={`px-2 py-1.5 text-right text-[11px] font-medium text-[var(--color-ink2)] ${i === 0 ? "border-l border-[var(--color-line)]" : ""}`}>
+                            {s.titulo}
+                          </th>
+                        )),
                       )}
-                      {c.label}
-                    </span>
-                  </TH>
-                ))}
-                {!multi && <TH className="text-right">% Receita</TH>}
-              </tr>
-            </THead>
-            <tbody>
-              {labels.map((lbl, ri) => {
-                const isSub = lbl.kind !== "item";
-                return (
-                  <TR key={lbl.label} className={isSub ? "bg-[var(--color-surface2)]" : undefined}>
-                    <TD
-                      className={
-                        lbl.kind === "final"
-                          ? "font-semibold text-[var(--color-accent)]"
-                          : isSub
-                            ? "font-semibold text-[var(--color-ink)]"
-                            : "text-[var(--color-ink2)]"
-                      }
+                    </tr>
+                  </>
+                ) : (
+                  <tr className="border-b border-[var(--color-line)]">
+                    <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Item</th>
+                    {monthly && !multi
+                      ? [...meses, "Total"].map((mm) => (
+                          <th key={mm} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                            {mm}
+                          </th>
+                        ))
+                      : series.map((s) => [
+                          <th key={s.key} className="px-2 py-2 text-right text-[12px] font-semibold text-[var(--color-ink)]">
+                            <span className="inline-flex items-center gap-1.5">
+                              {s.color && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />}
+                              {s.titulo}
+                            </span>
+                            {s.complemento && <span className="block text-[10.5px] font-normal text-[var(--color-ink3)]">{s.complemento}</span>}
+                          </th>,
+                          <th key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                            % Receita
+                          </th>,
+                        ])}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {linhas.map((lbl, ri) => {
+                  const isSub = lbl.kind !== "item";
+                  const cel = (v: number, key: string, extra = "") => (
+                    <td
+                      key={key}
+                      className={`whitespace-nowrap px-2 py-2 text-right font-[family-name:var(--font-mono)] ${extra} ${isSub ? "font-semibold" : ""} ${
+                        v < 0 ? "text-[var(--color-danger)]" : lbl.kind === "final" || lbl.kind === "sub" ? "text-[var(--color-success)]" : "text-[var(--color-ink)]"
+                      }`}
                     >
-                      {lbl.label}
-                    </TD>
-                    {columns.map((c) => {
-                      const v = c.wf.rows[ri].value;
-                      return (
-                        <TD
-                          key={c.label}
-                          className={`text-right font-[family-name:var(--font-mono)] ${
-                            isSub ? "font-semibold" : ""
-                          } ${
-                            v < 0
-                              ? "text-[var(--color-danger)]"
-                              : lbl.kind === "final" || lbl.kind === "sub"
-                                ? "text-[var(--color-success)]"
-                                : "text-[var(--color-ink)]"
-                          }`}
-                        >
-                          {brl0(v)}
-                        </TD>
-                      );
-                    })}
-                    {!multi && (
-                      <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                        {pct1(columns[0].wf.R > 0 ? (columns[0].wf.rows[ri].value / columns[0].wf.R) * 100 : 0)}
-                      </TD>
-                    )}
-                  </TR>
-                );
-              })}
-            </tbody>
-          </Table>
+                      {brl0(v)}
+                    </td>
+                  );
+                  return (
+                    <tr key={lbl.label} className={`border-b border-[var(--color-line)] ${isSub ? "bg-[var(--color-surface2)]" : ""}`}>
+                      <td
+                        className={`sticky left-0 z-10 whitespace-nowrap px-2 py-2 ${isSub ? "bg-[var(--color-surface2)]" : "bg-white"} ${
+                          lbl.kind === "final" ? "font-semibold text-[var(--color-accent)]" : isSub ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink2)]"
+                        }`}
+                      >
+                        {lbl.label}
+                      </td>
+                      {monthly && multi && !mensalAcimaDoTeto
+                        ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : ""))),
+                           ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : ""))]
+                        : monthly && !multi
+                          ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm)), cel(totais[0].rows[ri].value, "tot")]
+                          : series.flatMap((s, i) => {
+                              const p = pctDaReceita(totais[i].rows[ri].value, totais[i].R);
+                              return [
+                                cel(totais[i].rows[ri].value, s.key),
+                                <td key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                                  {p == null ? "—" : pct1(p)}
+                                </td>,
+                              ];
+                            })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {!monthly && totais.some((t) => t.R <= 0) && (
+            <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
+              “—” em % Receita: a coluna não tem receita positiva para servir de base.
+            </p>
+          )}
         </CardContent>
       </Card>
       )}
