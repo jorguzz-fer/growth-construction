@@ -156,9 +156,11 @@ describe.skipIf(!HAS_DB)("Exclusões — integridade (Prompt I, §12 e §24)", a
       .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.cashEntries.descricao, "Estorno de restituição")));
     expect(estorno).toHaveLength(1);
     expect(estorno[0].valor).toBe("120.00");
-    const cc = await getContaCorrenteTerceiros(tenantId);
-    const linhasDaRest = JSON.stringify(cc).includes(rest.id);
-    expect(linhasDaRest).toBe(false);
+    // A cancelada sai do saldo e fica no extrato como par (saída + estorno).
+    const conta = (await getContaCorrenteTerceiros(tenantId)).find((c) => c.pagadorId === socio.id)!;
+    expect(conta.totalRestituido).toBe(0);
+    expect(conta.saldoDevido).toBe(300);
+    expect(conta.movimentos.some((m) => m.tipo === "estorno" && m.id === `${rest.id}:estorno`)).toBe(true);
     expect((await cancelarRestituicao(rest.id, projectId)).ok).toBe(false); // já cancelada
   });
 });

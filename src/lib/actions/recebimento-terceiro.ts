@@ -1,6 +1,8 @@
 "use server";
 
 import { and, eq, ne, sql } from "drizzle-orm";
+import { chaveLigada } from "@/lib/chaves-tenant";
+import { getAtualVersion } from "@/lib/queries";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
@@ -250,10 +252,13 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
   if (!ctx || !can(ctx.perms, "restituicoes", "editar")) {
     return { ok: false, error: "Sem permissão para registrar repasses." };
   }
-  const versaoCaixa = input.cashEntryId
+  // §21 (B11, opção 2) — com a chave ligada, a entrada de caixa cai na Atual da
+  // obra do recebimento; desligada, na obra da tela, como sempre.
+  const segueRecebimento = await chaveLigada(ctx.tenant.id, "restituicao_segue_despesa");
+  const versaoCaixa = input.cashEntryId || segueRecebimento
     ? null
     : await getWorkingVersion(ctx.tenant.id, input.projectId);
-  if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (!input.cashEntryId && !segueRecebimento && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
   if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — repasse bloqueado." };
   // §22 — id de extrato vindo do navegador só vale se for desta empresa.
   if (input.cashEntryId) {
@@ -297,6 +302,15 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
         .limit(1);
       if (!rec) throw new Error("Recebimento não encontrado.");
       if (rec.status === "Cancelado") throw new Error("Recebimento cancelado.");
+      let versaoDaEntrada = versaoCaixa;
+      if (!input.cashEntryId && segueRecebimento) {
+        // Sem obra no recebimento (registro antigo), vale a obra da tela.
+        versaoDaEntrada = rec.projectId
+          ? await getAtualVersion(ctx.tenant.id, rec.projectId)
+          : await getWorkingVersion(ctx.tenant.id, input.projectId);
+        if (!versaoDaEntrada) throw new Error("A obra do recebimento não tem versão Atual.");
+        if (versaoDaEntrada.locked) throw new Error("Versão congelada — repasse bloqueado.");
+      }
 
       const valor = Math.abs(input.valor);
       const saldo = saldoARepassar(Number(rec.valorTotal), Number(rec.valorRepassado));
@@ -356,7 +370,7 @@ export async function registrarRepasse(input: RepasseInput): Promise<RepasseResu
         // Entrada de caixa POSITIVA: o dinheiro chega agora. `cat: "repasse"`
         // mantém a origem identificável e fora de qualquer soma de receita.
         await tx.insert(schema.cashEntries).values({
-          versionId: versaoCaixa!.id,
+          versionId: versaoDaEntrada!.id,
           tenantId: ctx.tenant.id,
           bankAccountId: input.bankAccountId || null,
           data: input.dataRepasse || null,
