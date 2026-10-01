@@ -228,11 +228,12 @@ export async function getPermutaDoTenant(
   return row ? { permuta: row.p, projectId: row.projectId, versionLabel: row.versionLabel, locked: !!row.locked } : undefined;
 }
 
-export async function getInccRows(projectId: string): Promise<InccRow[]> {
+/** Tabela INCC da obra — da empresa (Prompt Q, 4.2: antes filtrava só o projeto). */
+export async function getInccRows(tenantId: string, projectId: string): Promise<InccRow[]> {
   const rows = await db
     .select()
     .from(schema.inccRates)
-    .where(eq(schema.inccRates.projectId, projectId))
+    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
     .orderBy(asc(schema.inccRates.ordem));
   return toInccRows(rows);
 }
@@ -1783,7 +1784,7 @@ export async function getRevenueBySource(
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(versao?.tenantId ?? "", versionId),
     getReembolsos(versao?.tenantId ?? "", versionId),
-    getInccRows(projectId),
+    getInccRows(versao?.tenantId ?? "", projectId),
   ]);
   for (const u of unitRows) {
     const bs = calcProjectionBySource(toCalcUnit(u), incc);

@@ -124,21 +124,12 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
     expect(l.meta).toMatchObject({ nome: "Cimento", saldo: 7, movimentacoesExcluidas: 2 });
   });
 
-  it("saveIncc → incc.save com de/para; salvar igual não registra", async () => {
-    const { saveIncc } = await import("./incc");
-    await saveIncc(ids.project, [
-      { mes: "01/2026", mo: 0.5 },
-      { mes: "02/2026", mo: 0.4 },
-    ]);
-    const [l] = await logs("incc.save");
-    const meta = l.meta as { mesesAlterados: number; mudancas: { mes: string; mensal: { de: number; para: number } }[] };
-    expect(meta.mesesAlterados).toBe(1);
-    expect(meta.mudancas[0]).toMatchObject({ mes: "02/2026", mensal: { de: 0.3, para: 0.4 } });
-    await saveIncc(ids.project, [
-      { mes: "01/2026", mo: 0.5 },
-      { mes: "02/2026", mo: 0.4 },
-    ]);
-    expect(await logs("incc.save")).toHaveLength(1);
+  it("updateInccMonth → incc.update com de/para do mês e dos meses reprojetados (Prompt Q, 3.2)", async () => {
+    const { updateInccMonth } = await import("./incc");
+    const r = await updateInccMonth(ids.project, "02/2026", 0.4);
+    expect(r.ok).toBe(true);
+    const [l] = await logs("incc.update");
+    expect(l.meta).toMatchObject({ mes: "02/2026", mensal: { de: 0.3, para: 0.4 }, eraProjetado: false, mesesReescritos: 0, reprojetados: [] });
   });
 
   it("setDefaultVersion → version.setDefault com de/para", async () => {

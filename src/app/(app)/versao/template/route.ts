@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   if (!alvo) return new Response("Versão não encontrada", { status: 404 });
   const { version, project } = alvo;
 
-  const incc = await getInccRows(project.id);
+  const incc = await getInccRows(ctx.tenant.id, project.id);
   const buffer = buildTemplateBuffer(incc);
   const slug = version.label.replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
   const filename = `Growth_Tools_Modelo_${slug || "versao"}.xlsx`;

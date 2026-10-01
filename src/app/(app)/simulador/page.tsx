@@ -29,7 +29,7 @@ export default async function SimuladorPage({
     return <PedirProjeto titulo="Simulador de Unidade" projetos={ctx.projects} oQue="simular com o INCC da obra" />;
   }
   const project = selecao.projeto;
-  const incc = await getInccRows(project.id);
+  const incc = await getInccRows(ctx.tenant.id, project.id);
 
   return (
     <>

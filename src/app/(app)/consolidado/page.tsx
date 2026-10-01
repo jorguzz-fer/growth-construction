@@ -149,7 +149,7 @@ export default async function ConsolidadoPage({
   const selected = compareVersions[0];
   const [{ sources, reemb: reembMonth }, incc] = await Promise.all([
     getRevenueBySource(selected.id, obra.id),
-    getInccRows(obra.id),
+    getInccRows(obra.tenantId, obra.id),
   ]);
 
   // Horizonte (48 meses INCC + extras) e janelas de ano. Com período informado

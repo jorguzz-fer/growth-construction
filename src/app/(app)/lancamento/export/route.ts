@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   const [chart, lines, incc] = await Promise.all([
     getChartAccounts(ctx.tenant.id),
     getBudgetLines(version.id),
-    getInccRows(version.projectId),
+    getInccRows(ctx.tenant.id, version.projectId),
   ]);
   const months = incc.map((r) => r.m);
 

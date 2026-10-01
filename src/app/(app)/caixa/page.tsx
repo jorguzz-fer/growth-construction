@@ -516,7 +516,7 @@ async function Previstas({
   const [unitRows, reembRows, incc, permutas] = await Promise.all([
     getUnits(tenantId, versionId),
     getReembolsos(tenantId, versionId),
-    getInccRows(projectId),
+    getInccRows(tenantId, projectId),
     getPermutas(tenantId, versionId),
   ]);
   const monthly: MonthlyProjection = {};

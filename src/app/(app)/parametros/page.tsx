@@ -29,7 +29,7 @@ export default async function ParametrosPage({
     return <PedirProjeto titulo="Parâmetros / INCC" projetos={ctx.projects} oQue="editar o INCC" />;
   }
   const project = selecao.projeto;
-  const incc = await getInccRows(project.id);
+  const incc = await getInccRows(ctx.tenant.id, project.id);
   const canEdit = can(ctx.perms, "parametros", "editar");
 
   return (
