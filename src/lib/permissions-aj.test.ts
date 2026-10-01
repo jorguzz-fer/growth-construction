@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  HERDA_DE,
   MEMBRO_TELAS,
   SCREENS,
   TELAS_SO_ADMIN,
@@ -45,8 +46,10 @@ function antigoDefault(role: Role): PermMatrix {
 }
 function antigoEfetivo(role: Role, o?: PermMatrix | null): PermMatrix {
   const base = antigoDefault(role);
-  if (!o) return base;
-  for (const s of SCREENS) if (o[s.id]) base[s.id] = { ...base[s.id], ...o[s.id] };
+  if (o) for (const s of SCREENS) if (o[s.id]) base[s.id] = { ...base[s.id], ...o[s.id] };
+  // Prompt AN, 5.4: antes do id `conferencia`, a tela era alcançada pela
+  // permissão de Despesas — "antes" para ela é a célula de Despesas.
+  for (const [filha, mae] of Object.entries(HERDA_DE)) base[filha] = { ...base[mae] };
   return base;
 }
 
@@ -120,13 +123,15 @@ describe("Parte 1 — padrão novo do membro", () => {
 
   it("alcança exatamente as 11 telas decididas, com ver/criar/editar e sem excluir", () => {
     for (const s of SCREENS) {
-      expect(perms[s.id], s.id).toEqual(MEMBRO_TELAS.has(s.id) ? EDIT : NONE);
+      // `conferencia` acompanha Despesas (Prompt AN, 5.4).
+      const tela = HERDA_DE[s.id] ?? s.id;
+      expect(perms[s.id], s.id).toEqual(MEMBRO_TELAS.has(tela) ? EDIT : NONE);
     }
     expect(MEMBRO_TELAS.size).toBe(11);
   });
 
   it("tela nova nasce negada (critério positivo)", () => {
-    const fora = SCREENS.filter((s) => !MEMBRO_TELAS.has(s.id) && s.modulo !== "Config");
+    const fora = SCREENS.filter((s) => !MEMBRO_TELAS.has(s.id) && !HERDA_DE[s.id] && s.modulo !== "Config");
     expect(fora.length).toBeGreaterThan(0);
     for (const s of fora) expect(perms[s.id]).toEqual(NONE);
   });

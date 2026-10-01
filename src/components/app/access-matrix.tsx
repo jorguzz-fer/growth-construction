@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import {
   CONTADOR_VE,
+  HERDA_DE,
   SCREENS,
   TELAS_SO_ADMIN,
   temTetoDeLeitura,
@@ -168,7 +169,7 @@ function MemberMatrix({
   };
 
   function toggle(screenId: string, action: PermAction) {
-    if (!editable || TELAS_SO_ADMIN.has(screenId)) return;
+    if (!editable || TELAS_SO_ADMIN.has(screenId) || HERDA_DE[screenId]) return;
     if (soLeitura && action !== "ver") return;
     setSaved(false);
     setDirty(true);
@@ -182,7 +183,10 @@ function MemberMatrix({
       } else if (action !== "ver" && val) {
         cur.ver = true;
       }
-      return { ...prev, [screenId]: cur };
+      const next = { ...prev, [screenId]: cur };
+      // Telas que acompanham esta (AN 5.4) mudam junto, na hora.
+      for (const [filha, mae] of Object.entries(HERDA_DE)) if (mae === screenId) next[filha] = { ...cur };
+      return next;
     });
   }
 
@@ -284,6 +288,11 @@ function MemberMatrix({
                     <tr key={s.id} className="border-b border-[var(--color-accent2)]/8">
                       <td className="px-2 py-2 text-[var(--color-ink2)]">
                         {s.label}
+                        {HERDA_DE[s.id] && (
+                          <span className="ml-1.5 text-[11px] text-[var(--color-ink3)]">
+                            · acompanha {SCREENS.find((x) => x.id === HERDA_DE[s.id])?.label}
+                          </span>
+                        )}
                         {!ownerFull && TELAS_SO_ADMIN.has(s.id) && (
                           <span className="ml-1.5 text-[11px] text-[var(--color-ink3)]">
                             · exclusiva de owner e admin
@@ -299,14 +308,20 @@ function MemberMatrix({
                           );
                         }
                         const checked = ownerFull ? true : perms[s.id]?.[a.key] ?? false;
-                        const restrita = !ownerFull && TELAS_SO_ADMIN.has(s.id);
+                        const restrita = (!ownerFull && TELAS_SO_ADMIN.has(s.id)) || !!HERDA_DE[s.id];
                         return (
                           <td key={a.key} className="px-2 py-2 text-center">
                             <input
                               type="checkbox"
                               checked={checked}
                               disabled={!editable || pending || restrita}
-                              title={restrita ? "Usuários e Gestão de Acessos são exclusivas de owner e admin." : undefined}
+                              title={
+                                HERDA_DE[s.id]
+                                  ? "Esta tela acompanha a permissão de Lançamentos de Despesas."
+                                  : restrita
+                                    ? "Usuários e Gestão de Acessos são exclusivas de owner e admin."
+                                    : undefined
+                              }
                               onChange={() => toggle(s.id, a.key)}
                             />
                           </td>

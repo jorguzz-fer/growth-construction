@@ -29,6 +29,11 @@ const nextConfig: NextConfig = {
       // lá confere que esta lista bate). 307, não 308: o navegador não grava.
       { source: "/contabilidade", destination: "/usuarios?de=contabilidade", permanent: false },
       { source: "/contabilidade/:path*", destination: "/usuarios?de=contabilidade", permanent: false },
+      { source: "/diagnostico/planos-recebiveis", destination: "/unidades?de=planos-recebiveis", permanent: false },
+      { source: "/diagnostico/planos-recebiveis/:path*", destination: "/unidades?de=planos-recebiveis", permanent: false },
+      // Prompt AN, Parte 5: a Conferência mudou de endereço para ter id próprio
+      // em SCREENS. Filtros na URL antiga seguem junto (query preservada).
+      { source: "/diagnostico/categorias-invertidas", destination: "/conferencia", permanent: false },
     ];
   },
   experimental: {

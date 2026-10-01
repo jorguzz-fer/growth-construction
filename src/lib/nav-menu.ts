@@ -159,16 +159,9 @@ export const NAV_MENU: NavModule[] = [
       { href: "/numeracao", label: "Numeração de despesas" },
       { href: "/chaves", label: "Chaves de mudança" },
       { href: "/backup", label: "Backup" },
-      {
-        href: "/diagnostico/categorias-invertidas",
-        label: "Conferência de lançamentos",
-        perm: "despesas",
-      },
-      {
-        href: "/diagnostico/planos-recebiveis",
-        label: "Conferência de planos",
-        perm: "unidades",
-      },
+      // Prompt AN: id próprio (acompanha Despesas). A Conferência de planos
+      // saiu; a data impossível virou aviso no cadastro da unidade.
+      { href: "/conferencia", label: "Conferência de lançamentos" },
     ],
   },
 ];

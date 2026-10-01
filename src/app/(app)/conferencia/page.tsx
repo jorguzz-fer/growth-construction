@@ -20,13 +20,16 @@ export const dynamic = "force-dynamic";
  * Prompt AN: quarta condição (sem competência), triagem no SQL, filtros por
  * projeto, competência e fornecedor, e paginação por cursor.
  */
-export default async function CategoriasInvertidasPage({
+export default async function ConferenciaPage({
   searchParams,
 }: {
   searchParams?: Promise<{ projeto?: string; competencia?: string; fornecedor?: string; cursor?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
+  // Duas camadas (AN 5.3): o id próprio, que o enforcement central também
+  // cobre, e a checagem de Despesas — o dado aqui é dado de despesa.
+  if (!can(ctx.perms, "conferencia", "ver")) return <AccessDenied />;
   if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
 
   const sp = (await searchParams) ?? {};
@@ -43,7 +46,7 @@ export default async function CategoriasInvertidasPage({
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
-        title="Diagnóstico — lançamentos a conferir"
+        title="Conferência de lançamentos"
         subtitle="Despesas gravadas com categoria de receita, sem categoria, com valor zero ou sem competência. Somente leitura: nada aqui é corrigido sozinho."
       />
       <DiagnosticoCategorias

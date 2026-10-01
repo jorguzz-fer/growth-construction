@@ -67,6 +67,11 @@ export const SCREENS: Screen[] = [
   { id: "restituicoes", label: "Ressarcimentos (pago por terceiro)", modulo: "Despesas" },
   { id: "cartoes", label: "Cartões de Crédito", modulo: "Despesas" },
   { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
+  // Prompt AN, Parte 5: a Conferência de lançamentos ganha id próprio (e rota
+  // /conferencia) para passar pelo enforcement central. A permissão ACOMPANHA
+  // a de Lançamentos de Despesas, inclusive o override de cada membro — ver
+  // HERDA_DE. Quem alcançava a tela por `despesas` continua alcançando.
+  { id: "conferencia", label: "Conferência de lançamentos", modulo: "Despesas" },
   { id: "planocontas", label: "Plano de Contas", modulo: "Planejamento" },
   // Prompt X, 6 — conta corrente é instrumento de caixa, não de despesa.
   { id: "contas", label: "Contas Correntes", modulo: "Conciliação de Caixa" },
@@ -99,6 +104,14 @@ export const SCREENS: Screen[] = [
 ];
 
 export const SCREEN_IDS = SCREENS.map((s) => s.id);
+
+/**
+ * Telas cuja permissão é SEMPRE a de outra (Prompt AN, 5.4): a célula é cópia
+ * da tela-mãe, depois do merge dos overrides dela e antes dos clamps. Override
+ * gravado na própria chave não vale — a tela não se configura à parte, e por
+ * isso ninguém ganha nem perde acesso com a chegada do id.
+ */
+export const HERDA_DE: Readonly<Record<string, string>> = { conferencia: "despesas" };
 
 const NONE: ScreenPerm = { ver: false, criar: false, editar: false, excluir: false };
 const VIEW: ScreenPerm = { ver: true, criar: false, editar: false, excluir: false };
@@ -206,6 +219,7 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
       out[s.id] = CONTADOR_VE.has(s.id) ? { ...VIEW } : { ...NONE };
     }
   }
+  for (const [filha, mae] of Object.entries(HERDA_DE)) out[filha] = { ...out[mae] };
   return out;
 }
 
@@ -227,10 +241,12 @@ export function effectivePermissions(
   const base = defaultPermissions(role, opts);
   if (overrides) {
     for (const s of SCREENS) {
+      if (HERDA_DE[s.id]) continue;
       const o = overrides[s.id];
       if (o) base[s.id] = { ...base[s.id], ...o };
     }
   }
+  for (const [filha, mae] of Object.entries(HERDA_DE)) base[filha] = { ...base[mae] };
   const total = role === "owner" || role === "admin";
   const soLeitura = temTetoDeLeitura(role);
   for (const s of SCREENS) {
@@ -264,6 +280,8 @@ export function overridesDivergentes(
   const acoes: PermAction[] = ["ver", "criar", "editar", "excluir"];
   const out: PermMatrix = {};
   for (const s of SCREENS) {
+    // Tela que acompanha outra não se grava (AN 5.4): segue a mãe.
+    if (HERDA_DE[s.id]) continue;
     const m = matriz[s.id];
     if (!m) continue;
     const difereDoVigente = acoes.some((a) => m[a] !== vigente[s.id][a]);
