@@ -3,14 +3,12 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getChartAccounts, getMedicoes } from "@/lib/queries";
-import { addMedicao } from "@/lib/actions/medicao";
 import { can } from "@/lib/permissions";
 import { brl0 } from "@/lib/utils";
+import { idsDuplicados, podeTocarMedicao, rotuloDoAutor, textoDoVazio, veSoAsProprias } from "@/lib/medicao-regras";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
-import { MonthField } from "@/components/ui/date-field";
+import { MedicaoForm } from "@/components/app/medicao-form";
 import { MedicaoTable } from "@/components/app/medicao-manager";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { AccessDenied } from "@/components/app/access-denied";
@@ -41,14 +39,18 @@ export default async function MedicaoLancamentoPage({
     return <PedirProjeto titulo="Lançamento de Medição" projetos={projetos} oQue="lançar a medição" />;
   }
   const selectedProject = selecao.projeto;
-  // Versão de trabalho do projeto medido (Atual; a medição alimenta o
-  // realizado da DRE) — mesma regra que valia para a obra do cookie.
+  // Versão de trabalho do projeto medido (Atual). A medição é informação
+  // auxiliar: alimenta o Relatório CEF, não a DRE (Prompt V, seção 2).
   const atual = atualOuNada;
 
+  // 0.5.2 — o engenheiro recebe só as próprias (e as sem autor), filtrado NA
+  // CONSULTA: medição de outro autor não chega ao navegador.
+  const soAsProprias = veSoAsProprias(ctx.role);
   const [rows, chart] = await Promise.all([
-    getMedicoes(atual.id),
+    getMedicoes(ctx.tenant.id, atual.id, { autor: soAsProprias ? ctx.userId : null }),
     getChartAccounts(ctx.tenant.id),
   ]);
+  const duplicadas = idsDuplicados(rows.map((r) => ({ id: r.id, competencia: r.competencia, grupoCode: r.grupoCode, valor: Number(r.valor) })));
 
   // Grupos CEF distintos (para o seletor de grupo de obra).
   const grupos = [
@@ -70,7 +72,7 @@ export default async function MedicaoLancamentoPage({
       <PageHeader
         eyebrow={`${selectedProject.name} · ${atual.label}`}
         title="Lançamento de Medição"
-        subtitle={`${rows.length} lançamentos · total ${brl0(total)} — alimenta o Custo Variável da DRE`}
+        subtitle={`${rows.length} lançamentos · total ${brl0(total)} — alimenta o Relatório CEF (orçado × medido); não entra na DRE`}
         actions={
           <ProjectPicker
             projects={projetos.map((p) => ({ id: p.id, label: p.name }))}
@@ -89,37 +91,7 @@ export default async function MedicaoLancamentoPage({
       {canCriar && !locked && (
         <Card className="mb-6">
           <CardContent className="p-5">
-            <form action={addMedicao} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
-              <input type="hidden" name="projectId" value={selectedProject.id} />
-              <div>
-                <Label>Competência</Label>
-                <MonthField name="competencia" required />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Grupo de obra (CEF)</Label>
-                <Select name="grupo" defaultValue="">
-                  <option value="">Selecione...</option>
-                  {grupos.map((g) => (
-                    <option key={g.code} value={`${g.code}|${g.name}`}>
-                      {g.code} — {g.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Valor medido</Label>
-                <Input name="valor" type="number" step="0.01" placeholder="0" />
-              </div>
-              <div className="sm:col-span-4">
-                <Label>Observação</Label>
-                <Input name="obs" placeholder="" />
-              </div>
-              <div className="flex items-end sm:col-span-2">
-                <Button type="submit" className="w-full">
-                  Lançar medição
-                </Button>
-              </div>
-            </form>
+            <MedicaoForm projectId={selectedProject.id} grupos={grupos} />
           </CardContent>
         </Card>
       )}
@@ -132,9 +104,15 @@ export default async function MedicaoLancamentoPage({
           grupoName: r.grupoName,
           valor: Number(r.valor),
           obs: r.obs ?? "",
+          autor: rotuloDoAutor(r),
+          semAutor: !r.createdBy,
+          quando: r.createdAt.toLocaleDateString("pt-BR"),
+          podeTocar: podeTocarMedicao(r, { userId: ctx.userId, role: ctx.role }),
+          duplicada: duplicadas.has(r.id),
         }))}
         canEditar={canEditar && !locked}
         canExcluir={canExcluir && !locked}
+        vazio={textoDoVazio({ soAsProprias, filtrado: false })}
       />
     </>
   );

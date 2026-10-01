@@ -49,7 +49,7 @@ export default async function ReembolsoPage({
   // Seção 6 — análises do assistente (somente leitura), em código puro,
   // sobre o que a página carregou: liberações, medições e o financiamento
   // previsto das unidades vendidas desta versão.
-  const [medicoes, unidades] = await Promise.all([getMedicoes(version.id), getUnits(ctx.tenant.id, version.id)]);
+  const [medicoes, unidades] = await Promise.all([getMedicoes(ctx.tenant.id, version.id), getUnits(ctx.tenant.id, version.id)]);
   const analise = analisarLiberacoes(
     rows.map((r) => ({ id: r.id, data: r.data, origem: r.origem, valor: Number(r.valor ?? 0), pct: r.pct, cancelado: r.cancelado })),
     medicoes.map((m) => ({ competencia: m.competencia, valor: Number(m.valor) })),

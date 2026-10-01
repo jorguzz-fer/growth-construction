@@ -55,7 +55,8 @@ export default async function MedicaoPage({
   const [budgetLines, medicoes] = await Promise.all([
     // Prompt H: o orçado do relatório CEF respeita a situação da versão.
     budgetV ? getBudgetLines(budgetV.id, { respeitarSituacao: true }) : Promise.resolve([]),
-    getMedicoes(atualV.id),
+    // 0.5.4 — o relatório soma TODOS os autores: sem recorte de autoria.
+    getMedicoes(ctx.tenant.id, atualV.id),
   ]);
 
   // Orçado por grupo de obra (prefixo antes do primeiro ponto do rowKey/CEF).

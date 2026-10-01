@@ -449,6 +449,13 @@
       "when": 1791100000000,
       "tag": "0063_budget_selecao",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791200000000,
+      "tag": "0064_medicao_autoria_docs",
+      "breakpoints": true
     }
   ]
 }

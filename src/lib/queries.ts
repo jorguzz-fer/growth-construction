@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
@@ -2487,14 +2487,30 @@ export async function getUnidadesAtuaisPorObra(tenantId: string): Promise<Record
   return out;
 }
 
-export type MedicaoRow = typeof schema.medicoes.$inferSelect;
+export type MedicaoRow = typeof schema.medicoes.$inferSelect & { autorNome: string | null; autorEmail: string | null };
 
-export async function getMedicoes(versionId: string): Promise<MedicaoRow[]> {
-  return db
-    .select()
+/**
+ * Medições de uma versão, no tenant (4.2), com o autor (0.5).
+ *
+ * `autor` (0.5.2): recorte de autoria aplicado NA CONSULTA — vêm só as do
+ * usuário e as SEM autor (0.5.3: medição anterior à coluna é de todos).
+ * Registros de outro autor não saem do banco. O Relatório CEF NÃO passa
+ * `autor` (0.5.4): soma o projeto inteiro.
+ */
+export async function getMedicoes(tenantId: string, versionId: string, opts: { autor?: string | null } = {}): Promise<MedicaoRow[]> {
+  const rows = await db
+    .select({ m: schema.medicoes, autorNome: schema.users.name, autorEmail: schema.users.email })
     .from(schema.medicoes)
-    .where(eq(schema.medicoes.versionId, versionId))
+    .leftJoin(schema.users, eq(schema.users.id, schema.medicoes.createdBy))
+    .where(
+      and(
+        eq(schema.medicoes.tenantId, tenantId),
+        eq(schema.medicoes.versionId, versionId),
+        opts.autor ? or(isNull(schema.medicoes.createdBy), eq(schema.medicoes.createdBy, opts.autor)) : undefined,
+      ),
+    )
     .orderBy(asc(chaveCompetencia(schema.medicoes.competencia)), asc(schema.medicoes.grupoCode), asc(schema.medicoes.createdAt), asc(schema.medicoes.id));
+  return rows.map((r) => ({ ...r.m, autorNome: r.autorNome, autorEmail: r.autorEmail }));
 }
 
 /**

@@ -63,23 +63,23 @@ describe.skipIf(!HAS_DB)("Medição com obra explícita", async () => {
   });
 
   it("sem obra: recusa — não cai na obra do cookie", async () => {
-    await expect(addMedicao(fd(base))).rejects.toThrow(/Escolha o projeto/);
+    expect(await addMedicao(fd(base))).toMatchObject({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     expect(await medicoesDe(v.a1.id)).toHaveLength(0);
   });
 
   it("obra de outra empresa: recusa", async () => {
-    await expect(addMedicao(fd({ ...base, projectId: p.b1.id }))).rejects.toThrow(/Escolha o projeto/);
+    expect(await addMedicao(fd({ ...base, projectId: p.b1.id }))).toMatchObject({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     expect(await medicoesDe(v.b1.id)).toHaveLength(0);
   });
 
   it("grava na Atual da obra informada (a segunda da lista)", async () => {
-    await addMedicao(fd({ ...base, projectId: p.a2.id }));
+    expect((await addMedicao(fd({ ...base, projectId: p.a2.id }))).ok).toBe(true);
     expect(await medicoesDe(v.a2.id)).toHaveLength(1);
     expect(await medicoesDe(v.a1.id)).toHaveLength(0);
   });
 
   it("versão congelada bloqueia", async () => {
     await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, v.a1.id));
-    await expect(addMedicao(fd({ ...base, projectId: p.a1.id }))).rejects.toThrow(/congelada/);
+    expect(await addMedicao(fd({ ...base, projectId: p.a1.id }))).toMatchObject({ ok: false, error: expect.stringMatching(/congelada/) });
   });
 });

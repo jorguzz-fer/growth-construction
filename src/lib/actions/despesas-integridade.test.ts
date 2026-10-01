@@ -166,10 +166,10 @@ describe.skipIf(!HAS_DB)("Despesas — integridade (Prompt I, §11 e §19)", asy
     expect((await updateMedicao(m.id, { valor: "600" })).ok).toBe(true);
     await lock(true);
     expect((await updateMedicao(m.id, { valor: "700" })).ok).toBe(false);
-    expect((await deleteMedicao(m.id)).ok).toBe(false);
+    expect((await deleteMedicao(m.id, true)).ok).toBe(false);
     await lock(false);
-    expect(await deleteMedicao("00000000-0000-0000-0000-000000000000")).toEqual({ ok: false, error: "Medição não encontrada." });
-    expect((await deleteMedicao(m.id)).ok).toBe(true);
+    expect(await deleteMedicao("00000000-0000-0000-0000-000000000000", true)).toEqual({ ok: false, error: "Medição não encontrada." });
+    expect((await deleteMedicao(m.id, true)).ok).toBe(true);
     const [l] = await db
       .select()
       .from(schema.auditLog)
