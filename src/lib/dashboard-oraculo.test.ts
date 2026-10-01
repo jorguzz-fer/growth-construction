@@ -310,7 +310,7 @@ describe.skipIf(!HAS_DB)("Prompt AA-1 — mesmos números do Dashboard (oráculo
 
   it("composição declarada: 2 Orçamentos, R$ 300 de caixa fora da Atual", async () => {
     const st = await getStatusProjeto(tenantId, [ids.A]);
-    expect(st.composicao).toEqual({ orcamentos: 2, caixaForaDaAtual: 300, semAtual: 0 });
+    expect(st.composicao).toMatchObject({ orcamentos: 2, caixaForaDaAtual: 300, semAtual: 0, definicaoNova: false, janela: null });
     expect(st.despesaPrevista).toBe(4000);
     expect(st.erroOrcamento).toBe(false);
   });

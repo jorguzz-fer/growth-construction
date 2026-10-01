@@ -4,6 +4,7 @@
  * frases que declaram de onde cada número vem.
  */
 import { ehCopia, selecaoPadrao, type VersaoLeve } from "@/lib/dre";
+import { dateBR } from "@/lib/utils";
 
 /** 1.1 — a natureza é o rótulo principal; o nome digitado, complemento. */
 export const ROTULO_DA_NATUREZA: Record<string, string> = {
@@ -46,7 +47,8 @@ export function proximaSelecao(atual: readonly string[], id: string, max: number
   return { proxima: [...atual, id], aviso: null };
 }
 
-const dataBR = (d: string) => (d ? d.split("-").reverse().join("/") : "");
+// `de`/`ate` vêm do filtro no formato interno MM/DD/YYYY.
+const dataBR = (d: string) => (d ? dateBR(d) : "");
 
 /** 1.6 — o recorte em texto: projetos, versões e período. */
 export function textoDoRecorte(o: { projetos: number; nomeDoProjeto?: string; versoes: string[]; de: string; ate: string }): string {
@@ -73,5 +75,17 @@ export const DEFINICAO_DO_KPI: Record<"vgv" | "realizado" | "aReceber" | "aPagar
   aPagar: {
     atual: "Atual: contas a pagar em aberto, pelo saldo das parcelas, de todas as versões da obra.",
     planejamento: "Orçamento/Previsão: “—”, porque planejamento não tem conta a pagar.",
+  },
+};
+
+/** Chave "dashboard_definicao_nova" ligada: as definições que mudam (4.5, 4.2). */
+export const DEFINICAO_NOVA_DO_KPI: Pick<typeof DEFINICAO_DO_KPI, "vgv" | "aReceber"> = {
+  vgv: {
+    atual: "VGV da versão Atual da obra, em toda coluna: unidade é fato da obra, não cenário.",
+    planejamento: "Orçamento/Previsão: mostram o mesmo VGV da Atual; as unidades gravadas nelas não entram.",
+  },
+  aReceber: {
+    atual: "Atual: recebíveis em aberto das unidades, pela data.",
+    planejamento: "Orçamento/Previsão: receita planejada menos o realizado — saldo a realizar, não recebível. Negativo quando o realizado passou do planejado.",
   },
 };

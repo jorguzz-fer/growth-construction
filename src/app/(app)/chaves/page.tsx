@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
@@ -7,9 +8,10 @@ import { CHAVES } from "@/lib/chaves";
 import { getPlanejamentoNaoAprovado } from "@/lib/queries";
 import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
 import { previaFluxoDefinicaoNova } from "@/lib/fluxo-caixa";
+import { previaDashboardDefinicaoNova } from "@/lib/dashboard-previa";
 import { getBankAccounts } from "@/lib/queries";
 import { saldoDisponivel } from "@/lib/contas-saldo";
-import { brl } from "@/lib/utils";
+import { brl, pct1 } from "@/lib/utils";
 import { membroRestritoPorAmbiente } from "@/lib/membro-padrao";
 import { definirChave } from "@/lib/actions/chaves";
 import { FormComResultado } from "@/components/app/form-com-resultado";
@@ -44,6 +46,8 @@ export default async function ChavesPage() {
   const dreLigada = estado.get("dre_definicao_nova")?.ligada ?? false;
   // Prompt AD, 8.1: prévia da chave "fluxo_definicao_nova" (só leitura).
   const previaFluxo = await previaFluxoDefinicaoNova(ctx.tenant.id, ctx.projects, saldoDisponivel(await getBankAccounts(ctx.tenant.id)));
+  // Prompt AA, 10.3: prévia da chave "dashboard_definicao_nova" (só leitura).
+  const previaDashboard = await previaDashboardDefinicaoNova(ctx.tenant.id, ctx.projects);
   // A chave do membro também liga pela variável de ambiente, de antes do B4.
   const peloAmbiente: Record<string, boolean> = {
     membro_padrao_restrito: membroRestritoPorAmbiente(ctx.tenant.id),
@@ -269,6 +273,52 @@ export default async function ChavesPage() {
                     <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.permutaNoPlanejamento)}</td>
                     <td className="py-1.5 text-right tabular-nums">{brl(p.caixaForaDaAtual)}</td>
                   </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-dashboard">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · Dashboard pela definição nova</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Por obra, cartão a cartão, sem filtro de período: o número exibido hoje, o pela definição nova e a diferença. Entradas de
+            caixa passam a somar só a Atual; o Executado passa a ser dividido por um Orçamento só; a margem usa a mesma janela de
+            competências nos dois lados; VGV vem da Atual; A receber do planejamento mostra o negativo; sem medição, liberação e saldo
+            de financiamento ficam “—”. Nada é gravado.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]" aria-label="Prévia do Dashboard pela definição nova">
+              <thead>
+                <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  <th className="py-1.5 pr-3">Obra · cartão</th>
+                  <th className="py-1.5 pr-3 text-right">Hoje</th>
+                  <th className="py-1.5 pr-3 text-right">Definição nova</th>
+                  <th className="py-1.5 text-right">Diferença</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaDashboard.map((o) => (
+                  <Fragment key={o.projeto}>
+                    <tr className="border-b border-[var(--color-line)] bg-[var(--color-surface2)]">
+                      <td colSpan={4} className="py-1.5 pr-3 font-semibold text-[var(--color-ink)]">{o.projeto}</td>
+                    </tr>
+                    {o.linhas.map((l) => {
+                      const f = (n: number | null) => (n == null ? "—" : l.tipo === "pct" ? pct1(n) : brl(n));
+                      const dif = l.hoje != null && l.nova != null ? l.nova - l.hoje : null;
+                      return (
+                        <tr key={l.cartao} className="border-b border-[var(--color-line)]/60" data-previa-dashboard={l.cartao}>
+                          <td className="py-1.5 pr-3 pl-3">{l.cartao}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{f(l.hoje)}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{f(l.nova)}</td>
+                          <td className={`py-1.5 text-right tabular-nums ${dif ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink4)]"}`}>
+                            {dif == null ? (l.hoje == null && l.nova == null ? "—" : "vira “—”") : dif === 0 ? "igual" : `${dif > 0 ? "+" : "−"}${l.tipo === "pct" ? pct1(Math.abs(dif)) : brl(Math.abs(dif))}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

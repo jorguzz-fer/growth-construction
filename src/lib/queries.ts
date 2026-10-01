@@ -27,6 +27,8 @@ import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
 import { entraNosRelatorios } from "./situacao-versao";
 import { saldosReaisDasDespesas } from "./acerto-saldo";
+import { janelaDaMargem, naJanela, orcamentoDaObra, type OrigemDaJanela } from "./dashboard-definicao";
+import { dateInRange, monthInRange } from "./utils";
 import type {
   CalcPermuta,
   CalcReembolso,
@@ -3376,6 +3378,13 @@ export interface IndicadoresObra {
 export async function getIndicadoresObra(
   tenantId: string,
   projectId: string,
+  /**
+   * Prompt AA, 3.1 — chave "dashboard_definicao_nova". Ligada: sem medição,
+   * "Liberação acumulada" e "Saldo de financiamento" NÃO assumem os valores do
+   * cadastro (ficam zerados e `temMedicao` falso faz o cartão mostrar "—").
+   * Desligada: os fallbacks de antes.
+   */
+  opts: { definicaoNova?: boolean } = {},
 ): Promise<IndicadoresObra> {
   const [proj] = await db
     .select()
@@ -3462,9 +3471,9 @@ export async function getIndicadoresObra(
     evolucaoAcumulada: ultimaEvol?.acumulado ?? 0,
     evolucaoMes: ultimaEvol?.variacao ?? 0,
     liberacaoMes: ultimo?.liberacao ?? 0,
-    liberacaoAcumulada: ultimo?.liberacaoAcumulada ?? financiamentoTerreno,
+    liberacaoAcumulada: ultimo?.liberacaoAcumulada ?? (opts.definicaoNova ? 0 : financiamentoTerreno),
     saldoFinanciamento:
-      ultimo?.saldoFinanciamento ?? financiamentoConstrucao,
+      ultimo?.saldoFinanciamento ?? (opts.definicaoNova ? 0 : financiamentoConstrucao),
     custoEstimadoMes: ultimo?.custoEstimado ?? 0,
     geracaoCaixaMes: ultimo?.caixa ?? 0,
     pctRecebido: ultimo?.pctRecebido ?? 0,
@@ -3486,9 +3495,10 @@ export async function getIndicadoresObra(
 export async function getIndicadoresObraConsolidado(
   tenantId: string,
   projectIds: string[],
+  opts: { definicaoNova?: boolean } = {},
 ): Promise<IndicadoresObra> {
   const todos = await Promise.all(
-    projectIds.map((id) => getIndicadoresObra(tenantId, id)),
+    projectIds.map((id) => getIndicadoresObra(tenantId, id, opts)),
   );
   const soma = (f: (i: IndicadoresObra) => number) =>
     todos.reduce((a, i) => a + f(i), 0);
@@ -3578,6 +3588,12 @@ export interface StatusProjeto {
     caixaForaDaAtual: number;
     /** Projetos sem versão Atual (não entram em executado nem na margem). */
     semAtual: number;
+    /** Chave ligada: o rótulo do Orçamento usado em cada obra (4-B.2). */
+    orcamentosUsados: string[];
+    /** Chave ligada: a janela da margem (4-B.3); null com a chave desligada. */
+    janela: OrigemDaJanela | null;
+    /** A definição nova estava ligada nesta leitura? */
+    definicaoNova: boolean;
   };
   /** 4-B.5: a leitura do Orçamento falhou — "Executado" não tem denominador. */
   erroOrcamento: boolean;
@@ -3602,7 +3618,18 @@ export function razao(n: number, d: number): number {
 export async function getStatusProjeto(
   tenantId: string,
   projectIds: string[],
+  /**
+   * Prompt AA — chave "dashboard_definicao_nova" (nasce desligada). Ligada:
+   * entradas só da Atual (4-B.1), UM Orçamento por obra (4-B.2), margem na
+   * mesma janela de competências (4-B.3) e o período aplicado (2.3.2).
+   * Desligada (padrão): exatamente o de antes — e o teste-oráculo confere.
+   */
+  opts: { definicaoNova?: boolean; de?: string; ate?: string } = {},
 ): Promise<StatusProjeto> {
+  const nova = !!opts.definicaoNova;
+  const de = nova ? opts.de ?? "" : "";
+  const ate = nova ? opts.ate ?? "" : "";
+  const comPeriodo = !!(de || ate);
   if (projectIds.length === 0) {
     return {
       receitaPrevista: 0, recebido: 0, pctRecebido: 0,
@@ -3610,7 +3637,7 @@ export async function getStatusProjeto(
       margemContribuicao: 0, pctMargem: 0,
       receitaAtual: 0, custoVariavel: 0, despesaVariavel: 0,
       metragem: 0, custoPorM2: 0, receitaPorM2: 0,
-      composicao: { orcamentos: 0, caixaForaDaAtual: 0, semAtual: 0 },
+      composicao: { orcamentos: 0, caixaForaDaAtual: 0, semAtual: 0, orcamentosUsados: [], janela: null, definicaoNova: nova },
       erroOrcamento: false,
     };
   }
@@ -3628,14 +3655,22 @@ export async function getStatusProjeto(
   const receitaPrevista = projs.reduce((a, p) => a + num(p.valorConstrucao) + num(p.valorTerreno), 0);
 
   const idsAtual = versoesProj.filter((v) => v.kind === "atual").map((v) => v.id);
-  const idsBudget = versoesProj.filter((v) => v.kind === "budget").map((v) => v.id);
-  const todosIds = versoesProj.map((v) => v.id);
+  // 4-B.2 (chave): um Orçamento por obra, o mais recente que não é cópia.
+  const orcamentosUsados = nova
+    ? projectIds.map((pid) => orcamentoDaObra(versoesProj.filter((v) => v.projectId === pid))).filter((v): v is NonNullable<typeof v> => !!v)
+    : [];
+  const idsBudget = nova
+    ? orcamentosUsados.map((v) => v.id)
+    : versoesProj.filter((v) => v.kind === "budget").map((v) => v.id);
+  // 4-B.1 (chave): entradas de caixa só da Atual.
+  const todosIds = nova ? idsAtual : versoesProj.map((v) => v.id);
+  const janela = nova ? janelaDaMargem({ de, ate, projetos: projs }) : null;
 
   // 4-B.5: a falha do Orçamento não vira zero em silêncio — vira estado.
   let erroOrcamento = false;
   const [cashRows, despRows, budgetRows] = await Promise.all([
     todosIds.length
-      ? db.select({ valor: schema.cashEntries.valor, versionId: schema.cashEntries.versionId })
+      ? db.select({ valor: schema.cashEntries.valor, versionId: schema.cashEntries.versionId, data: schema.cashEntries.data })
           .from(schema.cashEntries)
           .where(and(eq(schema.cashEntries.tenantId, tenantId), inArray(schema.cashEntries.versionId, todosIds)))
       : Promise.resolve([]),
@@ -3645,12 +3680,13 @@ export async function getStatusProjeto(
           categoriaDre: schema.despesas.categoriaDre,
           cancelado: schema.despesas.cancelado,
           versionId: schema.despesas.versionId,
+          competencia: schema.despesas.competencia,
         })
         .from(schema.despesas)
         .where(and(eq(schema.despesas.tenantId, tenantId), inArray(schema.despesas.versionId, idsAtual)))
       : Promise.resolve([]),
     idsBudget.length
-      ? db.select({ valor: schema.budgetLines.valor, versionId: schema.budgetLines.versionId })
+      ? db.select({ valor: schema.budgetLines.valor, versionId: schema.budgetLines.versionId, mes: schema.budgetLines.mes })
           .from(schema.budgetLines)
           .where(and(
             eq(schema.budgetLines.tenantId, tenantId),
@@ -3660,25 +3696,32 @@ export async function getStatusProjeto(
           .catch((e: unknown) => {
             console.error("[dashboard] falha ao ler o Orçamento (budget_line)", e);
             erroOrcamento = true;
-            return [] as { valor: string; versionId: string }[];
+            return [] as { valor: string; versionId: string; mes: string }[];
           })
       : Promise.resolve([]),
   ]);
 
   // Recebido = entradas de caixa das versões do projeto.
-  const entradas = cashRows.filter((c) => num(c.valor) > 0);
+  // 2.3.2 (chave): com período, só as do período, pela data.
+  const entradas = cashRows.filter((c) => num(c.valor) > 0 && (!comPeriodo || dateInRange(c.data, de, ate)));
   const recebido = entradas.reduce((a, c) => a + num(c.valor), 0);
   const atuais = new Set(idsAtual);
   const caixaForaDaAtual = entradas.filter((c) => !atuais.has(c.versionId)).reduce((a, c) => a + num(c.valor), 0);
 
   // Despesa prevista = planejamento da versão Budget.
-  const despesaPrevista = budgetRows.reduce((a, b) => a + num(b.valor), 0);
+  const despesaPrevista = budgetRows
+    .filter((b) => !comPeriodo || monthInRange(b.mes, de, ate))
+    .reduce((a, b) => a + num(b.valor), 0);
 
   // Executado = despesas lançadas na versão Atual, exceto canceladas.
+  // 2.3.2 (chave): com período, pela competência.
   const daAtual = despRows.filter((d) => !d.cancelado);
-  const executado = daAtual.reduce((a, d) => a + num(d.valor), 0);
+  const executadas = comPeriodo ? daAtual.filter((d) => monthInRange(d.competencia, de, ate)) : daAtual;
+  const executado = executadas.reduce((a, d) => a + num(d.valor), 0);
+  // 4-B.3 (chave): os custos da margem na MESMA janela da receita.
+  const daMargem = janela ? daAtual.filter((d) => naJanela(d.competencia, janela, de, ate)) : daAtual;
   const porCat = (cat: string) =>
-    daAtual.filter((d) => d.categoriaDre === cat).reduce((a, d) => a + num(d.valor), 0);
+    daMargem.filter((d) => d.categoriaDre === cat).reduce((a, d) => a + num(d.valor), 0);
   const custoVariavel = porCat("Custo Variável");
   const despesaVariavel = porCat("Despesa Variável");
 
@@ -3692,7 +3735,9 @@ export async function getStatusProjeto(
       continue;
     }
     const mensal = await getMonthlyRevenue(vid, pid);
-    receitaAtual += Object.values(mensal).reduce((a, v) => a + v, 0);
+    receitaAtual += Object.entries(mensal)
+      .filter(([mm]) => !janela || naJanela(mm, janela, de, ate))
+      .reduce((a, [, v]) => a + v, 0);
   }
 
   // Definição de negócio confirmada pelo cliente:
@@ -3718,7 +3763,14 @@ export async function getStatusProjeto(
     metragem,
     custoPorM2: razao(executado, metragem),
     receitaPorM2: razao(receitaAtual, metragem),
-    composicao: { orcamentos: idsBudget.length, caixaForaDaAtual, semAtual },
+    composicao: {
+      orcamentos: idsBudget.length,
+      caixaForaDaAtual,
+      semAtual,
+      orcamentosUsados: orcamentosUsados.map((v) => v.label),
+      janela: janela?.origem ?? null,
+      definicaoNova: nova,
+    },
     erroOrcamento,
   };
 }

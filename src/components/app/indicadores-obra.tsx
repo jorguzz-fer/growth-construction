@@ -1,5 +1,6 @@
 import type { IndicadoresObra, StatusProjeto } from "@/lib/queries";
 import { brl0 } from "@/lib/utils";
+import { TEXTO_DA_JANELA } from "@/lib/dashboard-definicao";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -49,7 +50,7 @@ function KPI({
  * %BDI) e das medições por serviço. Quando esses dados ainda não existem, o
  * painel diz o que falta em vez de exibir valor inventado.
  */
-export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
+export function IndicadoresObraPanel({ ind, definicaoNova = false }: { ind: IndicadoresObra; definicaoNova?: boolean }) {
   // Prompt AA, 3.2/3.5: sem serviço cadastrado, nada de zero — estado próprio.
   const semServico = ind.qtdServicos === 0;
   const SEM_SERVICO = "depende do cadastro de serviços (medição por serviço, ainda não usada — Prompt V)";
@@ -87,13 +88,15 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
           />
           <KPI
             label="Saldo de financiamento"
-            value={semFinanciamento && !ind.temMedicao ? "—" : brl0(ind.saldoFinanciamento)}
+            value={(semFinanciamento || definicaoNova) && !ind.temMedicao ? "—" : brl0(ind.saldoFinanciamento)}
             hint={
               ind.temMedicao
                 ? "ainda não liberado"
                 : semFinanciamento
                   ? "informe no cadastro do projeto"
-                  : "sem medição: é o financiamento da construção do cadastro, não um saldo apurado"
+                  : definicaoNova
+                    ? "sem medição registrada — não há saldo apurado"
+                    : "sem medição: é o financiamento da construção do cadastro, não um saldo apurado"
             }
             tone={ind.saldoFinanciamento > 0 ? "normal" : "muted"}
           />
@@ -159,13 +162,15 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
           />
           <KPI
             label="Liberação acumulada"
-            value={semFinanciamento && !ind.temMedicao ? "—" : brl0(ind.liberacaoAcumulada)}
+            value={(semFinanciamento || definicaoNova) && !ind.temMedicao ? "—" : brl0(ind.liberacaoAcumulada)}
             hint={
               ind.temMedicao
                 ? `${pct(ind.pctRecebido * 100)} do financiado`
                 : semFinanciamento
                   ? "informe no cadastro do projeto"
-                  : "sem medição: é o financiamento do terreno do cadastro, não uma liberação registrada"
+                  : definicaoNova
+                    ? "sem medição registrada — nenhuma liberação apurada"
+                    : "sem medição: é o financiamento do terreno do cadastro, não uma liberação registrada"
             }
             tone={ind.temMedicao ? "normal" : "muted"}
           />
@@ -215,9 +220,12 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
  *   %MC = MC ÷ Receita Total do Projeto (valor global do cadastro)
  */
 export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
-  const { orcamentos, caixaForaDaAtual } = st.composicao;
-  const deOrcamento =
-    orcamentos === 0
+  const { orcamentos, caixaForaDaAtual, definicaoNova, orcamentosUsados, janela } = st.composicao;
+  const deOrcamento = definicaoNova
+    ? orcamentos === 0
+      ? "nenhuma obra tem Orçamento (que não seja cópia)"
+      : `de ${brl0(st.despesaPrevista)} — um Orçamento por obra, o mais recente: ${orcamentosUsados.map((l) => `“${l}”`).join(", ")}`
+    : orcamentos === 0
       ? "a obra não tem Orçamento"
       : orcamentos === 1
         ? `de ${brl0(st.despesaPrevista)} no Orçamento`
@@ -225,11 +233,19 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
   return (
     <div className="mt-6 space-y-4">
       {/* Prompt AA, 2.3.3 e 4-B.4: o painel e cada cartão declaram a base. */}
-      <p className="text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="status">
-        <strong className="text-[var(--color-ink2)]">Status e margem</strong>: não seguem o seletor de versão nem o de período. Somam,
-        do começo da obra até hoje, as entradas de caixa de todas as versões, as despesas da Atual e o Orçamento; os percentuais
-        de entradas e de margem são sobre a receita do <strong>cadastro</strong> do projeto (construção + terreno).
-      </p>
+      {definicaoNova ? (
+        <p className="text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="status">
+          <strong className="text-[var(--color-ink2)]">Status e margem</strong> (definição nova): não seguem o seletor de versão — leem a
+          Atual e um Orçamento por obra. Seguem o <strong>período</strong>: o caixa pela data, as despesas e o Orçamento pela competência.
+          A receita do <strong>cadastro</strong> (construção + terreno), base dos percentuais, não tem data e é sempre o total.
+        </p>
+      ) : (
+        <p className="text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="status">
+          <strong className="text-[var(--color-ink2)]">Status e margem</strong>: não seguem o seletor de versão nem o de período. Somam,
+          do começo da obra até hoje, as entradas de caixa de todas as versões, as despesas da Atual e o Orçamento; os percentuais
+          de entradas e de margem são sobre a receita do <strong>cadastro</strong> do projeto (construção + terreno).
+        </p>
+      )}
       <div>
         <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
           Status atual
@@ -238,7 +254,7 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
           <KPI
             label="Entradas de caixa"
             value={brl0(st.recebido)}
-            hint={`regime de caixa, toda entrada (não só venda), conciliada ou não${
+            hint={`regime de caixa, ${definicaoNova ? "só a versão Atual, " : ""}toda entrada (não só venda), conciliada ou não${
               caixaForaDaAtual > 0 ? ` · inclui ${brl0(caixaForaDaAtual)} gravados em versões que não são a Atual` : ""
             }`}
           />
@@ -288,7 +304,11 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
           <KPI
             label="Margem de contribuição"
             value={brl0(st.margemContribuicao)}
-            hint="receita da Atual (vencimento, todo o horizonte) − custo e despesa variáveis lançados na Atual (qualquer competência)"
+            hint={
+              definicaoNova && janela
+                ? `receita da Atual − custo e despesa variáveis da Atual · ${TEXTO_DA_JANELA[janela]}`
+                : "receita da Atual (vencimento, todo o horizonte) − custo e despesa variáveis lançados na Atual (qualquer competência)"
+            }
             tone={st.margemContribuicao >= 0 ? "good" : "warn"}
           />
           <KPI
