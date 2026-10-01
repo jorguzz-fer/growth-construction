@@ -38,6 +38,7 @@ export function FaturasCartao({ faturas, hoje, aberta, compras, pagamentos, cont
                 <TH>Estado</TH>
                 <TH className="text-right">Compras</TH>
                 <TH className="text-right">Rotativo</TH>
+                <TH className="text-right">Créditos</TH>
                 <TH className="text-right">Total</TH>
                 <TH className="text-right">Pago</TH>
                 <TH className="text-right">Saldo</TH>
@@ -49,7 +50,7 @@ export function FaturasCartao({ faturas, hoje, aberta, compras, pagamentos, cont
                 const estado = estadoDaFatura(f, hoje);
                 const st = statusDaFatura(f, hoje);
                 const total = totalDaFatura(f);
-                const saldo = Math.max(0, Math.round((total - f.valorPago) * 100) / 100);
+                const saldo = Math.max(0, Math.round((total - f.valorPago - f.creditos) * 100) / 100);
                 const pags = pagamentos.filter((p) => p.faturaId === f.id);
                 return (
                   <TR key={f.id} className={f.id === aberta ? "bg-[var(--color-surface2)]" : undefined}>
@@ -67,6 +68,7 @@ export function FaturasCartao({ faturas, hoje, aberta, compras, pagamentos, cont
                     </TD>
                     <TD className="text-right font-[family-name:var(--font-mono)]" title={`${f.qtdCompras} compra(s)`}>{brl0(f.valorCompras)}</TD>
                     <TD className="text-right font-[family-name:var(--font-mono)]">{f.rotativoAnterior > 0 ? brl0(f.rotativoAnterior) : "—"}</TD>
+                    <TD className="text-right font-[family-name:var(--font-mono)]" title="Estornos ainda não aplicados num pagamento">{f.creditos > 0 ? `− ${brl0(f.creditos)}` : "—"}</TD>
                     <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(total)}</TD>
                     <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(f.valorPago)}</TD>
                     <TD className="text-right font-[family-name:var(--font-mono)] font-semibold">

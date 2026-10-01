@@ -739,6 +739,56 @@ export const faturaPagamentos = pgTable("fatura_pagamento", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/**
+ * Extrato do cartão (Prompt U, seção 5): só o registro do arquivo subido,
+ * para conferência. `importHash` evita duplicar o mesmo extrato (5.3).
+ * Valor positivo = compra; negativo = crédito/estorno. Nada aqui lança
+ * despesa (5.4).
+ */
+export const extratoCartao = pgTable("extrato_cartao", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  cartaoId: uuid("cartao_id")
+    .notNull()
+    .references(() => cartoesCredito.id, { onDelete: "cascade" }),
+  importHash: text("import_hash"),
+  data: text("data"),
+  descricao: text("descricao"),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * Estorno de compra no cartão (Prompt U, seção 6): lançamento PRÓPRIO que
+ * reduz a fatura; a compra original não é apagada nem editada (6.2). Nasce
+ * "antecipado" (o usuário sabe da devolução) ou "extrato" (o crédito veio no
+ * extrato). O crédito de um antecipado é reconhecido quando o extrato chega
+ * (`extratoItemId`), sem segundo estorno (6.3). É aplicado no pagamento da
+ * fatura (`aplicadoEm`).
+ */
+export const estornosCartao = pgTable("estorno_cartao", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  cartaoId: uuid("cartao_id")
+    .notNull()
+    .references(() => cartoesCredito.id, { onDelete: "cascade" }),
+  despesaId: uuid("despesa_id").references(() => despesas.id, { onDelete: "set null" }),
+  faturaId: uuid("fatura_id").references(() => faturasCartao.id, { onDelete: "set null" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull(),
+  data: text("data"),
+  origem: text("origem").notNull().default("antecipado"),
+  extratoItemId: uuid("extrato_item_id").references(() => extratoCartao.id, { onDelete: "set null" }),
+  aplicadoEm: text("aplicado_em"),
+  faturaPagamentoId: uuid("fatura_pagamento_id").references(() => faturaPagamentos.id, { onDelete: "set null" }),
+  obs: text("obs"),
+  usuarioId: text("usuario_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const despesaTerceiros = pgTable("despesa_terceiro", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id")

@@ -128,6 +128,11 @@ export interface EditDespesa {
  */
 export interface PrefillDespesa {
   valor?: string | null;
+  /** Prompt U, BU-2 — proposta da conferência do extrato: forma, cartão, data e descrição. */
+  formaPagamento?: string | null;
+  cartaoId?: string | null;
+  cartaoDataCompra?: string | null;
+  obs?: string | null;
   /** vencimento "MM/DD/YYYY". */
   vencimento?: string | null;
   /** competência "MM/YYYY". */
@@ -202,7 +207,7 @@ export function DespesaForm({
   const [vencimento, setVencimento] = useState(edit?.vencimento ?? prefill?.vencimento ?? "");
   const [valor, setValor] = useState(edit?.valor ?? prefill?.valor ?? "");
   const [status, setStatus] = useState(edit?.status ?? "A pagar");
-  const [obs, setObs] = useState(edit?.obs ?? "");
+  const [obs, setObs] = useState(edit?.obs ?? prefill?.obs ?? "");
   // Bloco Documento Fiscal (item 1.2). Tudo opcional no lançamento: a nota
   // costuma chegar depois, e travar isso impediria o uso real do sistema.
   const [docFiscal, setDocFiscal] = useState({
@@ -389,12 +394,12 @@ export function DespesaForm({
   const [socioReembolsavel, setSocioReembolsavel] = useState(true);
 
   // Fase 2 — forma/condição de pagamento e parcelas
-  const [formaPagamento, setFormaPagamento] = useState("");
+  const [formaPagamento, setFormaPagamento] = useState(prefill?.formaPagamento ?? "");
   const [formaDesc, setFormaDesc] = useState("");
   // Prompt U / S 3-B.4 — compra no cartão: qual cartão, data da compra e nº de
   // parcelas; a fatura é calculada pelo ciclo (uma parcela por fatura).
-  const [cartaoId, setCartaoId] = useState("");
-  const [cartaoData, setCartaoData] = useState("");
+  const [cartaoId, setCartaoId] = useState(prefill?.cartaoId ?? "");
+  const [cartaoData, setCartaoData] = useState(prefill?.cartaoDataCompra ?? "");
   const [cartaoParcelas, setCartaoParcelas] = useState("1");
   const noCartao = !isEdit && formaPagamento === "Cartão de crédito";
   const cartaoEscolhido = cartoes.find((c) => c.id === cartaoId) ?? null;

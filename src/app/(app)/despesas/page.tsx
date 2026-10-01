@@ -52,6 +52,10 @@ export default async function DespesasPage({
     edit?: string;
     // Pré-preenchimento de nova despesa (ex.: vindo de uma linha do extrato).
     novo?: string;
+    pf_forma?: string;
+    pf_cartao?: string;
+    pf_data?: string;
+    pf_obs?: string;
     pf_valor?: string;
     pf_venc?: string;
     pf_comp?: string;
@@ -369,6 +373,11 @@ export default async function DespesasPage({
                         vencimento: sp.pf_venc ?? null,
                         competencia: sp.pf_comp ?? null,
                         numDoc: sp.pf_doc ?? null,
+                        // Prompt U, BU-2 — proposta vinda da conferência do extrato do cartão.
+                        formaPagamento: sp.pf_forma ?? null,
+                        cartaoId: sp.pf_cartao ?? null,
+                        cartaoDataCompra: sp.pf_data ?? null,
+                        obs: sp.pf_obs ?? null,
                       }
                     : null
                 }

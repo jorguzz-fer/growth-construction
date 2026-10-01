@@ -742,6 +742,8 @@ export interface FaturaCartaoView {
   valorParceladas: number;
   /** 3.4 — já tem a despesa de juros cobrados? */
   jurosDespesaId: string | null;
+  /** 6.2 — créditos de estorno nesta fatura ainda não aplicados num pagamento. */
+  creditos: number;
 }
 
 export async function getFaturasCartao(tenantId: string, cartaoId?: string): Promise<FaturaCartaoView[]> {
@@ -755,6 +757,7 @@ export async function getFaturasCartao(tenantId: string, cartaoId?: string): Pro
       qtdCompras: sql<number>`count(distinct case when ${schema.despesas.cancelado} = false then ${schema.despesas.id} end)::int`,
       valorNovas: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false and ${schema.despesaParcelas.numeroParcela} = 1 then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
       valorParceladas: sql<string>`coalesce(sum(case when ${schema.despesas.cancelado} = false and ${schema.despesaParcelas.numeroParcela} > 1 then ${schema.despesaParcelas.valorOriginal} else 0 end), 0)`,
+      creditos: sql<string>`coalesce((select sum(e.valor) from estorno_cartao e where e.fatura_id = ${schema.faturasCartao.id} and e.aplicado_em is null), 0)`,
     })
     .from(schema.faturasCartao)
     .innerJoin(schema.cartoesCredito, eq(schema.faturasCartao.cartaoId, schema.cartoesCredito.id))
@@ -775,7 +778,71 @@ export async function getFaturasCartao(tenantId: string, cartaoId?: string): Pro
     valorNovas: Number(r.valorNovas),
     valorParceladas: Number(r.valorParceladas),
     jurosDespesaId: r.f.jurosDespesaId,
+    creditos: Number(r.creditos),
   }));
+}
+
+/** Prompt U, 5 — todas as compras (parcelas) de um cartão com a fatura de cada uma, para a conferência. */
+export async function getComprasDoCartao(tenantId: string, cartaoId: string): Promise<(CompraDaFatura & { faturaFechamento: string; faturaId: string })[]> {
+  const rows = await db
+    .select({ p: schema.despesaParcelas, d: schema.despesas, fornecedorNome: schema.stakeholders.nome, projectId: schema.projects.id, projectName: schema.projects.name, fechamento: schema.faturasCartao.fechamento, faturaId: schema.faturasCartao.id })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.faturasCartao, eq(schema.despesaParcelas.faturaId, schema.faturasCartao.id))
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(schema.despesaParcelas.tenantId, tenantId), eq(schema.faturasCartao.cartaoId, cartaoId), eq(schema.despesas.cancelado, false)))
+    .orderBy(schema.faturasCartao.fechamento, schema.despesas.numDoc, schema.despesaParcelas.numeroParcela);
+  return rows.map((r) => ({
+    parcelaId: r.p.id,
+    despesaId: r.d.id,
+    numDoc: r.d.numDoc,
+    descricao: r.d.obs,
+    fornecedorNome: r.fornecedorNome,
+    projectId: r.projectId,
+    projectName: r.projectName,
+    competencia: r.d.competencia,
+    numero: r.p.numeroParcela,
+    total: r.d.qtdParcelas ?? 1,
+    valor: Number(r.p.valorOriginal),
+    valorPago: Number(r.p.valorPago ?? 0),
+    faturaFechamento: r.fechamento,
+    faturaId: r.faturaId,
+  }));
+}
+
+/** Prompt U, 5 — itens do extrato subido de um cartão. */
+export async function getExtratoCartao(tenantId: string, cartaoId: string): Promise<{ id: string; data: string | null; descricao: string | null; valor: number }[]> {
+  const rows = await db
+    .select()
+    .from(schema.extratoCartao)
+    .where(and(eq(schema.extratoCartao.tenantId, tenantId), eq(schema.extratoCartao.cartaoId, cartaoId)))
+    .orderBy(schema.extratoCartao.data, schema.extratoCartao.createdAt);
+  return rows.map((r) => ({ id: r.id, data: r.data, descricao: r.descricao, valor: Number(r.valor) }));
+}
+
+/** Prompt U, 6 — estornos de um cartão (com o PED da compra). */
+export interface EstornoView {
+  id: string;
+  despesaId: string | null;
+  numDoc: string | null;
+  faturaId: string | null;
+  valor: number;
+  data: string | null;
+  origem: string;
+  extratoItemId: string | null;
+  aplicadoEm: string | null;
+}
+
+export async function getEstornosDoCartao(tenantId: string, cartaoId: string): Promise<EstornoView[]> {
+  const rows = await db
+    .select({ e: schema.estornosCartao, numDoc: schema.despesas.numDoc })
+    .from(schema.estornosCartao)
+    .leftJoin(schema.despesas, eq(schema.estornosCartao.despesaId, schema.despesas.id))
+    .where(and(eq(schema.estornosCartao.tenantId, tenantId), eq(schema.estornosCartao.cartaoId, cartaoId)))
+    .orderBy(schema.estornosCartao.createdAt);
+  return rows.map((r) => ({ id: r.e.id, despesaId: r.e.despesaId, numDoc: r.numDoc, faturaId: r.e.faturaId, valor: Number(r.e.valor), data: r.e.data, origem: r.e.origem, extratoItemId: r.e.extratoItemId, aplicadoEm: r.e.aplicadoEm }));
 }
 
 /** Prompt U, 1.4 — quantas compras e faturas cada cartão tem (decide excluir × inativar). */
