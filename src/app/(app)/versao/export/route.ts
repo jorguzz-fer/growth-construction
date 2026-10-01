@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     getReembolsos(ctx.tenant.id, version.id),
     getPermutas(ctx.tenant.id, version.id),
     getDespesas(version.id),
-    getInccRows(project.id),
+    getInccRows(ctx.tenant.id, project.id),
   ]);
 
   const data: ExportData = {

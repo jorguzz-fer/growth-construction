@@ -150,7 +150,7 @@ export default async function ProjecaoPage({
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(version.tenantId, version.id),
     getReembolsos(version.tenantId, version.id),
-    getInccRows(obra.id),
+    getInccRows(obra.tenantId, obra.id),
   ]);
 
   // Projeção por unidade a partir dos RECEBÍVEIS do plano de pagamento — mesma

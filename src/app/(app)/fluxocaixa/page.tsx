@@ -188,8 +188,8 @@ export default async function FluxoCaixaPage({
     // (antes: a da obra do cookie). Só acrescenta meses sem movimento — nenhum
     // total muda, porque o saldo corre sobre todos os meses com movimento.
     project
-      ? getInccRows(project.id)
-      : Promise.all(projetosConsolidados.map((p) => getInccRows(p.id))).then((r) => r.flat()),
+      ? getInccRows(ctx.tenant.id, project.id)
+      : Promise.all(projetosConsolidados.map((p) => getInccRows(ctx.tenant.id, p.id))).then((r) => r.flat()),
     getBankAccounts(ctx.tenant.id),
     // RG-01 — o fluxo acima é PREVISTO (montado pelo vencimento). Este é o
     // REALIZADO, montado pela data de liquidação: o dinheiro que de fato passou
