@@ -6,7 +6,10 @@ import {
   getBankAccounts,
   getUnidadesAtuaisPorObra,
   getDocumentsByContasReceber,
+  getRecebimentosDasContas,
+  getEntradasDisponiveis,
 } from "@/lib/queries";
+import type { RecebimentoExibido } from "@/components/app/conta-receber-recebimentos";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import type { ContaReceberDoc } from "@/components/app/conta-receber-docs";
 import { can } from "@/lib/permissions";
@@ -56,6 +59,26 @@ export default async function ContasReceberPage({
       tipo: d.tipo,
       url: r2 ? await readUrl(d.storageKey) : null,
       uploadedAt: d.uploadedAt ? d.uploadedAt.toISOString() : null,
+    });
+  }
+
+  // Seções 3 e 4 — recebimentos de cada conta (estado derivado na tela) e
+  // entradas do extrato com valor livre para conciliar.
+  const [recebimentos, entradas] = await Promise.all([
+    getRecebimentosDasContas(ctx.tenant.id, contas.map((c) => c.id)),
+    getEntradasDisponiveis(ctx.tenant.id, filtroObra),
+  ]);
+  const recebimentosPorConta: Record<string, RecebimentoExibido[]> = {};
+  for (const r of recebimentos) {
+    (recebimentosPorConta[r.contaReceberId] ??= []).push({
+      id: r.id,
+      valor: Number(r.valor),
+      data: r.data,
+      forma: r.forma,
+      cashEntryId: r.cashEntryId,
+      justificativa: r.justificativa,
+      estornado: r.estornado,
+      motivoEstorno: r.motivoEstorno,
     });
   }
 
@@ -114,6 +137,8 @@ export default async function ContasReceberPage({
         unidadesPorObra={unidadesPorObra}
         contas={contas}
         docsPorConta={docsPorConta}
+        recebimentosPorConta={recebimentosPorConta}
+        entradas={entradas}
         r2={r2}
         unitReceb={receivables.map((r) => ({
           // CR-08 — o identificador do recebível (unidade:índice da parcela)

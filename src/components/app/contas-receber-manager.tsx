@@ -7,9 +7,11 @@ import {
   cancelarContaReceber,
   type ResultadoContaReceber,
 } from "@/lib/actions/contas-receber";
-import { STATUS_EDITAVEIS, TIPOS_DE_RECEITA as TIPOS_RECEITA } from "@/lib/conta-receber-regras";
-import type { ContaReceberRow } from "@/lib/queries";
-import { brl0, dateBR } from "@/lib/utils";
+import { TIPOS_DE_RECEITA as TIPOS_RECEITA } from "@/lib/conta-receber-regras";
+import { estadoDaConta, type EstadoCalculado } from "@/lib/conta-receber-estado";
+import type { ContaReceberRow, EntradaDisponivel } from "@/lib/queries";
+import { ContaReceberRecebimentos, tomDoEstado, type RecebimentoExibido } from "@/components/app/conta-receber-recebimentos";
+import { brl, brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -35,15 +37,6 @@ export interface UnitReceb {
   dia: string;
   valor: number;
 }
-
-const statusTone = (s: string) =>
-  s === "Recebido"
-    ? "success"
-    : s === "Parcialmente recebido"
-      ? "warning"
-      : s === "Cancelada"
-        ? "neutral"
-        : "warning";
 
 /** Formulário de criação (client por causa do campo condicional "Outras Receitas"). */
 function NovaConta({
@@ -183,6 +176,8 @@ function ContaRow({
   c,
   projetos,
   docs,
+  recebimentos,
+  entradas,
   r2,
   canEditar,
   canExcluir,
@@ -190,15 +185,19 @@ function ContaRow({
   c: ContaReceberRow;
   projetos: Opt[];
   docs: ContaReceberDoc[];
+  recebimentos: RecebimentoExibido[];
+  entradas: EntradaDisponivel[];
   r2: boolean;
   canEditar: boolean;
   canExcluir: boolean;
 }) {
   const [edit, setEdit] = useState(false);
   const [anexos, setAnexos] = useState(false);
+  const [receber, setReceber] = useState(false);
   const [tipo, setTipo] = useState(c.tipo);
   const [valor, setValor] = useState(String(c.valor));
-  const [recebido, setRecebido] = useState(String(c.valorRecebido));
+  // 3.2 — o estado é derivado dos recebimentos, nunca digitado.
+  const estado: EstadoCalculado = estadoDaConta({ valor: c.valor, cancelado: false, recebimentos });
   const [pending, start] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
   // CR-09 — as actions devolvem { ok, error }; a mensagem aparece na linha.
@@ -257,22 +256,6 @@ function ContaRow({
               <Label>Descrição{tipo === "Outras Receitas" ? " *" : ""}</Label>
               <Input name="descricao" defaultValue={c.descricao ?? ""} required={tipo === "Outras Receitas"} />
             </div>
-            <div>
-              <Label>Status</Label>
-              <Select name="status" defaultValue={c.status}>
-                {STATUS_EDITAVEIS.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Valor recebido</Label>
-              <MoneyInput name="valorRecebido" value={recebido} onChange={setRecebido} />
-            </div>
-            <div>
-              <Label>Data recebimento</Label>
-              <DateField name="dataRecebimento" defaultValue={c.dataRecebimento ?? ""} />
-            </div>
             <input type="hidden" name="unitCode" value={c.unitCode ?? ""} />
             <input type="hidden" name="clienteId" value={c.clienteId ?? ""} />
             <input type="hidden" name="bancoId" value={c.bancoId ?? ""} />
@@ -301,10 +284,21 @@ function ContaRow({
         {c.vencimento ? dateBR(c.vencimento) : "—"}
       </TD>
       <TD>
-        <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+        <Badge tone={tomDoEstado(estado.estado)}>{estado.estado}</Badge>
+        {estado.recebido > 0 && estado.saldo > 0 && (
+          <span className="ml-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink3)]">falta {brl(estado.saldo)}</span>
+        )}
       </TD>
       <TD className="text-right">
         <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            className="text-sm text-[var(--color-success)] hover:underline"
+            aria-expanded={receber}
+            onClick={() => setReceber((a) => !a)}
+          >
+            {estado.quitada ? "Recebimentos" : "Receber"}
+          </button>
           <button
             type="button"
             className="text-sm text-[var(--color-ink2)] hover:underline"
@@ -337,6 +331,13 @@ function ContaRow({
         </div>
       </TD>
     </TR>
+    {receber && (
+      <TR>
+        <TD colSpan={7} className="py-2">
+          <ContaReceberRecebimentos key={`${estado.estado}:${estado.saldo}`} contaId={c.id} estado={estado} recebimentos={recebimentos} entradas={entradas.filter((m) => m.projectId === c.projectId)} canEdit={canEditar} />
+        </TD>
+      </TR>
+    )}
     {anexos && (
       <TR>
         <TD colSpan={7} className="py-2">
@@ -356,6 +357,8 @@ export function ContasReceberManager({
   unidadesPorObra,
   contas,
   docsPorConta,
+  recebimentosPorConta,
+  entradas,
   r2,
   unitReceb,
   canCriar,
@@ -369,6 +372,8 @@ export function ContasReceberManager({
   unidadesPorObra: Record<string, string[]>;
   contas: ContaReceberRow[];
   docsPorConta: Record<string, ContaReceberDoc[]>;
+  recebimentosPorConta: Record<string, RecebimentoExibido[]>;
+  entradas: EntradaDisponivel[];
   r2: boolean;
   unitReceb: UnitReceb[];
   canCriar: boolean;
@@ -376,6 +381,32 @@ export function ContasReceberManager({
   canExcluir: boolean;
 }) {
   const totalManual = contas.reduce((a, c) => a + c.valor, 0);
+  // 3.5 — indicador permanente: recebido sem conciliar, e há quantos dias.
+  const semConciliar = useMemo(() => {
+    let valor = 0;
+    let n = 0;
+    let maisAntigo: number | null = null;
+    const ymd = (d: string | null) => {
+      const m = (d ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? Number(m[3]) * 10000 + Number(m[1]) * 100 + Number(m[2]) : null;
+    };
+    for (const c of contas) {
+      const lista = (recebimentosPorConta[c.id] ?? []).filter((r) => !r.estornado && !r.cashEntryId);
+      if (lista.length === 0) continue;
+      n += 1;
+      valor += lista.reduce((a, r) => a + r.valor, 0);
+      for (const r of lista) {
+        const d = ymd(r.data);
+        if (d != null && (maisAntigo == null || d < maisAntigo)) maisAntigo = d;
+      }
+    }
+    let dias: number | null = null;
+    if (maisAntigo != null) {
+      const a = new Date(Date.UTC(Math.floor(maisAntigo / 10000), Math.floor((maisAntigo % 10000) / 100) - 1, maisAntigo % 100));
+      dias = Math.max(0, Math.round((Date.now() - a.getTime()) / 86400000));
+    }
+    return { valor, contas: n, dias };
+  }, [contas, recebimentosPorConta]);
   const totalVendas = unitReceb.reduce((a, r) => a + r.valor, 0);
 
   // §5 — ordenação estilo planilha nas DUAS listagens desta tela. Sem clique de
@@ -419,6 +450,19 @@ export function ContasReceberManager({
         />
       )}
 
+      <div
+        role="status"
+        className={`mb-3 rounded-[10px] border px-4 py-2.5 text-[13px] ${semConciliar.contas > 0 ? "border-[var(--color-warning)]/40 bg-[#fef3c7]/60 text-[#92400e]" : "border-[var(--color-line)] bg-[var(--color-surface2)] text-[var(--color-ink2)]"}`}
+      >
+        {semConciliar.contas > 0 ? (
+          <>
+            Recebido sem conciliar: <strong className="font-[family-name:var(--font-mono)]">{brl(semConciliar.valor)}</strong> em {semConciliar.contas} conta(s)
+            {semConciliar.dias != null && <> — o mais antigo há {semConciliar.dias} dia(s)</>}. Importe o extrato no Caixa e concilie.
+          </>
+        ) : (
+          <>Nada recebido sem conciliar.</>
+        )}
+      </div>
       <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
         <Badge tone="neutral">{contas.length} lançadas</Badge>
         <span className="text-[var(--color-ink3)]">
@@ -436,7 +480,7 @@ export function ContasReceberManager({
                   <SortTH coluna="descricao" estado={contasOrd.estado} onSort={contasOrd.onSort}>Descrição</SortTH>
                   <SortTH coluna="valor" estado={contasOrd.estado} onSort={contasOrd.onSort} className="text-right">Valor</SortTH>
                   <SortTH coluna="vencimento" estado={contasOrd.estado} onSort={contasOrd.onSort}>Vencimento</SortTH>
-                  <SortTH coluna="status" estado={contasOrd.estado} onSort={contasOrd.onSort}>Status</SortTH>
+                  <SortTH coluna="status" estado={contasOrd.estado} onSort={contasOrd.onSort}>Estado</SortTH>
                   <TH className="text-right">Ações</TH>
                 </tr>
               </THead>
@@ -447,6 +491,8 @@ export function ContasReceberManager({
                     c={c}
                     projetos={projetos}
                     docs={docsPorConta[c.id] ?? []}
+                    recebimentos={recebimentosPorConta[c.id] ?? []}
+                    entradas={entradas}
                     r2={r2}
                     canEditar={canEditar}
                     canExcluir={canExcluir}

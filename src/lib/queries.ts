@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
 import { db, schema } from "./db";
 import { emptyUnit } from "./calc/__fixtures__";
@@ -1120,6 +1120,70 @@ export async function getDocumentsByContasReceber(tenantId: string, contaIds: st
     .from(schema.documents)
     .where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.contaReceberId, contaIds)))
     .orderBy(desc(schema.documents.uploadedAt));
+}
+
+export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
+
+/** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */
+export async function getRecebimentosDasContas(tenantId: string, contaIds: string[]): Promise<RecebimentoRow[]> {
+  if (contaIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.contaReceberRecebimentos)
+    .where(and(eq(schema.contaReceberRecebimentos.tenantId, tenantId), inArray(schema.contaReceberRecebimentos.contaReceberId, contaIds)))
+    .orderBy(asc(chaveDataBR(schema.contaReceberRecebimentos.data)), asc(schema.contaReceberRecebimentos.createdAt));
+}
+
+export interface EntradaDisponivel {
+  id: string;
+  data: string | null;
+  descricao: string | null;
+  valor: number;
+  /** valor − vínculos ativos com contas a receber (4.2). */
+  disponivel: number;
+  projectId: string;
+}
+
+/**
+ * Entradas do extrato (crédito) que ainda têm valor livre para conciliar com
+ * contas a receber, na versão Atual de cada obra (ou de uma obra).
+ */
+export async function getEntradasDisponiveis(tenantId: string, projectId?: string): Promise<EntradaDisponivel[]> {
+  const rows = await db
+    .select({ e: schema.cashEntries, projectId: schema.versions.projectId })
+    .from(schema.cashEntries)
+    .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
+    .where(
+      and(
+        eq(schema.cashEntries.tenantId, tenantId),
+        eq(schema.versions.kind, "atual"),
+        sql`${schema.cashEntries.valor} > 0`,
+        isNull(schema.cashEntries.conciliadoDespesaId),
+        ...(projectId ? [eq(schema.versions.projectId, projectId)] : []),
+      ),
+    )
+    .orderBy(asc(chaveDataBR(schema.cashEntries.data)), asc(schema.cashEntries.id));
+  if (rows.length === 0) return [];
+  const vinculos = await db
+    .select({ cashEntryId: schema.contaReceberRecebimentos.cashEntryId, valor: schema.contaReceberRecebimentos.valor })
+    .from(schema.contaReceberRecebimentos)
+    .where(
+      and(
+        eq(schema.contaReceberRecebimentos.tenantId, tenantId),
+        eq(schema.contaReceberRecebimentos.estornado, false),
+        inArray(schema.contaReceberRecebimentos.cashEntryId, rows.map((r) => r.e.id)),
+      ),
+    );
+  const usado = new Map<string, number>();
+  for (const v of vinculos) if (v.cashEntryId) usado.set(v.cashEntryId, (usado.get(v.cashEntryId) ?? 0) + Number(v.valor));
+  return rows
+    .map((r) => {
+      const valor = Number(r.e.valor);
+      const disponivel = Math.round((valor - (usado.get(r.e.id) ?? 0)) * 100) / 100;
+      return { id: r.e.id, data: r.e.data, descricao: r.e.descricao, valor, disponivel, projectId: r.projectId };
+    })
+    // Movimento sem vínculo novo mas já marcado conciliado pelo caminho antigo (1:1) não entra.
+    .filter((r) => r.disponivel > 0.005 && !(usado.get(r.id) == null && rows.find((x) => x.e.id === r.id)!.e.rec));
 }
 
 export type CashRow = typeof schema.cashEntries.$inferSelect;

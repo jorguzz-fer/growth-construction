@@ -68,21 +68,21 @@ describe.skipIf(!HAS_DB)("Contas a Receber — correções da revisão (Prompt K
     expect(await todas()).toHaveLength(0);
   });
 
-  it("CR-04 · a edição valida como a criação: não dá para editar para zero nem negativo; status só da lista; recebido não passa do valor", async () => {
+  it("CR-04 · a edição valida como a criação: não dá para editar para zero nem negativo; status, recebido e data de recebimento são ignorados (K-2, 3.2: estado derivado)", async () => {
     const r = await createContaReceber(fd({ projectId: obraA, tipo: "Sinal", valor: "324,00", vencimento: "10/15/2026" }));
     expect(r.ok).toBe(true);
     const id = (r as { id: string }).id;
-    const edit = (extra: Record<string, string>) => updateContaReceber(fd({ id, tipo: "Sinal", valor: "324,00", status: "A receber", ...extra }));
+    const edit = (extra: Record<string, string>) => updateContaReceber(fd({ id, tipo: "Sinal", valor: "324,00", vencimento: "10/15/2026", ...extra }));
     expect(await edit({ valor: "0" })).toEqual({ ok: false, error: expect.stringMatching(/maior que zero/) });
     expect(await edit({ valor: "-1" })).toEqual({ ok: false, error: expect.stringMatching(/maior que zero/) });
-    expect(await edit({ status: "Quitado" })).toEqual({ ok: false, error: expect.stringMatching(/Status inválido/) });
-    expect(await edit({ status: "Cancelada" })).toEqual({ ok: false, error: expect.stringMatching(/Status inválido/) });
-    expect(await edit({ status: "Recebido", valorRecebido: "5000" })).toEqual({ ok: false, error: expect.stringMatching(/entre zero e o valor/) });
-    expect(await edit({ status: "Parcialmente recebido", valorRecebido: "100", dataRecebimento: "10/10/2026" })).toEqual({ ok: true, id });
+    // Status e valor recebido não são mais digitados: o formulário pode até
+    // mandar os campos antigos, mas eles não mudam nada (só recebimentos mudam).
+    expect(await edit({ status: "Recebido", valorRecebido: "5000", dataRecebimento: "10/10/2026" })).toEqual({ ok: true, id });
     const [c] = await todas();
     expect(c.valor).toBe("324.00");
-    expect(c.valorRecebido).toBe("100.00");
-    expect(c.status).toBe("Parcialmente recebido");
+    expect(c.valorRecebido).toBe("0.00");
+    expect(c.status).toBe("A receber");
+    expect(c.dataRecebimento).toBeNull();
   });
 
   it("CR-05/CR-09 · cancelar grava 'Cancelada' com rastro; cancelar de novo ou editar cancelada devolve erro legível", async () => {
