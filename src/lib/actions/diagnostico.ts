@@ -1,16 +1,23 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { diffAudit } from "@/lib/audit-diff";
+import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
 import {
-  categoriaValidaParaDespesa,
-  validarCategoriaDespesa,
-} from "@/lib/calc/natureza-dre";
+  CATEGORIAS_CREDORAS,
+  TAMANHO_DA_PAGINA,
+  codificarCursor,
+  lerCompetenciaDoFiltro,
+  lerCursor,
+  motivosDaDespesa,
+  type Motivo,
+  type Pulada,
+} from "@/lib/conferencia-regras";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 import { intervaloMeses } from "@/lib/calc/carencia";
 
@@ -31,79 +38,163 @@ export interface DespesaSuspeita {
   numDoc: string | null;
   projectId: string;
   projectName: string;
+  fornecedorId: string | null;
   fornecedorNome: string | null;
+  contaCef: string | null;
   categoriaDre: string | null;
   competencia: string | null;
   vencimento: string | null;
   valor: number;
   status: string | null;
   obs: string | null;
-  /** Por que este lançamento está na lista. */
-  motivos: string[];
+  createdAt: Date;
+  /** Por que este lançamento está na lista — código governa, texto apresenta (AN 4.4). */
+  motivos: Motivo[];
+}
+
+export interface FiltrosConferencia {
+  projectId?: string | null;
+  /** "MM/AAAA" */
+  competencia?: string | null;
+  fornecedorId?: string | null;
+  cursor?: string | null;
+  limite?: number;
+}
+
+export interface PaginaConferencia {
+  rows: DespesaSuspeita[];
+  /** Do conjunto filtrado inteiro — não da página (AN 4.3). */
+  total: number;
+  soma: number;
+  /** Do conjunto inteiro, sem filtro: é o que o badge "a conferir" conta. */
+  totalGeral: number;
+  somaGeral: number;
+  proximoCursor: string | null;
+  fornecedores: { id: string; nome: string }[];
+}
+
+const VAZIA: PaginaConferencia = { rows: [], total: 0, soma: 0, totalGeral: 0, somaGeral: 0, proximoCursor: null, fornecedores: [] };
+
+/**
+ * As quatro condições, no SQL (AN 4.2): categoria credora, sem categoria,
+ * valor zero e — Parte 1 — competência nula ou em branco (esta, só para
+ * lançamento não cancelado: ver `motivosDaDespesa`). As credoras chegam como
+ * parâmetro, calculadas pela regra de `natureza-dre.ts`.
+ */
+function condicoesSuspeitas() {
+  const d = schema.despesas;
+  const credora = CATEGORIAS_CREDORAS.length
+    ? inArray(d.categoriaDre, CATEGORIAS_CREDORAS as CategoriaDRE[])
+    : sql`false`;
+  return or(
+    credora,
+    isNull(d.categoriaDre),
+    eq(d.valor, "0"),
+    and(eq(d.cancelado, false), or(isNull(d.competencia), sql`btrim(${d.competencia}) = ''`)),
+  )!;
 }
 
 /**
- * Despesas gravadas com categoria de natureza credora (o bug do item 1.3), sem
- * categoria nenhuma, ou com valor zero (item 1.4).
- *
- * Somente leitura. Inclui lançamentos cancelados marcados como tal, para que a
- * conferência veja o quadro inteiro sem que eles poluam a contagem de pendências.
+ * Despesas a conferir, uma página por vez (AN 4.3), mais o total e a soma do
+ * conjunto inteiro. Somente leitura. Cancelada aparece só quando já tem outro
+ * motivo — a exclusão continua em JavaScript, porque é lógica, não filtro.
  */
-export async function getDespesasSuspeitas(): Promise<DespesaSuspeita[]> {
+export async function getDespesasSuspeitas(filtros: FiltrosConferencia = {}): Promise<PaginaConferencia> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "despesas", "ver")) return [];
+  if (!ctx || !can(ctx.perms, "despesas", "ver")) return VAZIA;
+  const d = schema.despesas;
+  const base = and(eq(d.tenantId, ctx.tenant.id), condicoesSuspeitas())!;
+  const competencia = lerCompetenciaDoFiltro(filtros.competencia);
+  const filtro = and(
+    base,
+    filtros.projectId ? eq(schema.projects.id, filtros.projectId) : undefined,
+    competencia ? sql`btrim(${d.competencia}) = ${competencia}` : undefined,
+    filtros.fornecedorId ? eq(d.fornecedorId, filtros.fornecedorId) : undefined,
+  )!;
+  const cursor = lerCursor(filtros.cursor);
+  const limite = Math.min(Math.max(1, filtros.limite ?? TAMANHO_DA_PAGINA), 500);
 
-  const rows = await db
-    .select({
-      d: schema.despesas,
-      projectId: schema.projects.id,
-      projectName: schema.projects.name,
-      fornecedorNome: schema.stakeholders.nome,
-    })
-    .from(schema.despesas)
-    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
-    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
-    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
-    .where(eq(schema.despesas.tenantId, ctx.tenant.id));
+  const deTodas = () =>
+    db
+      .select({ n: sql<number>`count(*)::int`, soma: sql<string>`coalesce(sum(${d.valor}), 0)` })
+      .from(d)
+      .innerJoin(schema.versions, eq(d.versionId, schema.versions.id))
+      .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id));
 
-  const out: DespesaSuspeita[] = [];
-  for (const r of rows) {
-    const motivos: string[] = [];
-    if (r.d.categoriaDre && !categoriaValidaParaDespesa(r.d.categoriaDre)) {
-      motivos.push("categoria de receita em lançamento de despesa");
-    }
-    if (!r.d.categoriaDre) motivos.push("sem categoria DRE");
-    if (Number(r.d.valor) === 0) motivos.push("valor zero");
-    if (r.d.cancelado) {
-      // Cancelada não é pendência — mas some da lista só se não houver outro
-      // motivo, para não esconder um registro que a contabilidade queira ver.
-      if (motivos.length === 0) continue;
-      motivos.push("lançamento cancelado");
-    }
-    if (motivos.length === 0) continue;
-    out.push({
+  const [linhas, [filtrado], [geral], fornecedores] = await Promise.all([
+    db
+      .select({
+        d,
+        projectId: schema.projects.id,
+        projectName: schema.projects.name,
+        fornecedorNome: schema.stakeholders.nome,
+      })
+      .from(d)
+      .innerJoin(schema.versions, eq(d.versionId, schema.versions.id))
+      .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+      .leftJoin(schema.stakeholders, eq(d.fornecedorId, schema.stakeholders.id))
+      .where(
+        and(
+          filtro,
+          cursor
+            ? or(sql`${d.valor} < ${cursor.valor}::numeric`, and(sql`${d.valor} = ${cursor.valor}::numeric`, sql`${d.id} > ${cursor.id}::uuid`))
+            : undefined,
+        ),
+      )
+      .orderBy(desc(d.valor), asc(d.id))
+      .limit(limite + 1),
+    deTodas().where(filtro),
+    deTodas().where(base),
+    db
+      .selectDistinct({ id: schema.stakeholders.id, nome: schema.stakeholders.nome })
+      .from(d)
+      .innerJoin(schema.stakeholders, eq(d.fornecedorId, schema.stakeholders.id))
+      .where(base)
+      .orderBy(asc(schema.stakeholders.nome)),
+  ]);
+
+  const rows: DespesaSuspeita[] = [];
+  for (const r of linhas.slice(0, limite)) {
+    const motivos = motivosDaDespesa(r.d);
+    // Nunca acontece com o `where` acima; fica como guarda da mesma regra.
+    if (!motivos) continue;
+    rows.push({
       id: r.d.id,
       numDoc: r.d.numDoc,
       projectId: r.projectId,
       projectName: r.projectName,
+      fornecedorId: r.d.fornecedorId,
       fornecedorNome: r.fornecedorNome,
+      contaCef: r.d.contaCef,
       categoriaDre: r.d.categoriaDre,
       competencia: r.d.competencia,
       vencimento: r.d.vencimento,
       valor: Number(r.d.valor),
       status: r.d.status,
       obs: r.d.obs,
+      createdAt: r.d.createdAt,
       motivos,
     });
   }
-  // Maiores valores primeiro: é por onde a conferência começa.
-  return out.sort((a, b) => b.valor - a.valor);
+  const ultimo = linhas.length > limite ? linhas[limite - 1] : null;
+  return {
+    rows,
+    total: filtrado?.n ?? 0,
+    soma: Number(filtrado?.soma ?? 0),
+    totalGeral: geral?.n ?? 0,
+    somaGeral: Number(geral?.soma ?? 0),
+    proximoCursor: ultimo ? codificarCursor(Number(ultimo.d.valor), ultimo.d.id) : null,
+    fornecedores: fornecedores.filter((f): f is { id: string; nome: string } => !!f.nome),
+  };
 }
 
 export interface ReclassificarResult {
   ok: boolean;
   error?: string;
+  /** AN 2.3 — os três números. */
+  selecionadas?: number;
   alteradas?: number;
+  puladas?: Pulada[];
 }
 
 /**
@@ -113,6 +204,9 @@ export interface ReclassificarResult {
  * Nunca é chamada automaticamente, nunca infere a categoria "certa" sozinha e
  * nunca toca em valor, competência, vencimento, status ou número PED. Cada
  * alteração vai para a auditoria com valor anterior e novo (RG-09).
+ *
+ * AN, Parte 2: o laço inteiro — updates E logs — roda numa transação só. Se
+ * qualquer item falhar, nada fica reclassificado nem registrado.
  */
 export async function reclassificarDespesas(
   ids: string[],
@@ -140,33 +234,55 @@ export async function reclassificarDespesas(
     return { ok: false, error: "Os lançamentos selecionados não foram encontrados." };
   }
 
+  const puladas: Pulada[] = [];
+  const achados = new Set(existentes.map((d) => d.id));
+  for (const id of alvos) if (!achados.has(id)) puladas.push({ id, numDoc: null, motivo: "nao_encontrada" });
+
   let alteradas = 0;
-  for (const d of existentes) {
-    // Cancelada não é reclassificada: o registro está encerrado.
-    if (d.cancelado) continue;
-    if (d.categoriaDre === categoriaDre) continue;
-    const changes = diffAudit(d as unknown as Record<string, unknown>, {
-      categoriaDre,
+  try {
+    alteradas = await db.transaction(async (tx) => {
+      let n = 0;
+      for (const d of existentes) {
+        // Cancelada não é reclassificada: o registro está encerrado.
+        if (d.cancelado) {
+          puladas.push({ id: d.id, numDoc: d.numDoc, motivo: "cancelada" });
+          continue;
+        }
+        if (d.categoriaDre === categoriaDre) {
+          puladas.push({ id: d.id, numDoc: d.numDoc, motivo: "ja_na_categoria" });
+          continue;
+        }
+        const changes = diffAudit(d as unknown as Record<string, unknown>, {
+          categoriaDre,
+        });
+        await tx
+          .update(schema.despesas)
+          .set({ categoriaDre: categoriaDre as CategoriaDRE })
+          .where(and(eq(schema.despesas.id, d.id), eq(schema.despesas.tenantId, ctx.tenant.id)));
+        await logAudit(
+          {
+            tenantId: ctx.tenant.id,
+            userId: ctx.userId,
+            action: "despesa.reclassificar",
+            entity: "despesa",
+            entityId: d.id,
+            meta: { changes, origem: "diagnostico/categorias-invertidas", numDoc: d.numDoc },
+          },
+          tx,
+        );
+        n++;
+      }
+      return n;
     });
-    await db
-      .update(schema.despesas)
-      .set({ categoriaDre: categoriaDre as CategoriaDRE })
-      .where(eq(schema.despesas.id, d.id));
-    await logAudit({
-      tenantId: ctx.tenant.id,
-      userId: ctx.userId,
-      action: "despesa.reclassificar",
-      entity: "despesa",
-      entityId: d.id,
-      meta: { changes, origem: "diagnostico/categorias-invertidas", numDoc: d.numDoc },
-    });
-    alteradas++;
+  } catch (e) {
+    console.error("[conferencia] reclassificação desfeita:", e);
+    return { ok: false, error: "A reclassificação falhou e foi desfeita por inteiro: nenhum lançamento foi alterado. Tente de novo." };
   }
 
   revalidatePath("/diagnostico/categorias-invertidas");
   revalidatePath("/despesas");
   revalidatePath("/dre");
-  return { ok: true, alteradas };
+  return { ok: true, selecionadas: alvos.length, alteradas, puladas };
 }
 
 export interface PlanoSuspeito {

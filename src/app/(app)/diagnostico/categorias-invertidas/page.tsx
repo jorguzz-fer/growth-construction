@@ -16,23 +16,40 @@ export const dynamic = "force-dynamic";
  * históricos que as violem continuam legíveis, editáveis e íntegros — eles são
  * apenas LISTADOS aqui. Nada é corrigido automaticamente: a reclassificação
  * exige seleção e confirmação humana, e vai para a auditoria.
+ *
+ * Prompt AN: quarta condição (sem competência), triagem no SQL, filtros por
+ * projeto, competência e fornecedor, e paginação por cursor.
  */
-export default async function CategoriasInvertidasPage() {
+export default async function CategoriasInvertidasPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ projeto?: string; competencia?: string; fornecedor?: string; cursor?: string }>;
+}) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
 
-  const rows = await getDespesasSuspeitas();
+  const sp = (await searchParams) ?? {};
+  const projetoValido = ctx.projects.some((p) => p.id === sp.projeto) ? sp.projeto! : "";
+  const filtros = {
+    projectId: projetoValido || null,
+    competencia: sp.competencia ?? null,
+    fornecedorId: /^[0-9a-f-]{36}$/i.test(sp.fornecedor ?? "") ? sp.fornecedor! : null,
+    cursor: sp.cursor ?? null,
+  };
+  const pagina = await getDespesasSuspeitas(filtros);
 
   return (
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Diagnóstico — lançamentos a conferir"
-        subtitle="Despesas gravadas com categoria de receita, sem categoria ou com valor zero. Somente leitura: nada aqui é corrigido sozinho."
+        subtitle="Despesas gravadas com categoria de receita, sem categoria, com valor zero ou sem competência. Somente leitura: nada aqui é corrigido sozinho."
       />
       <DiagnosticoCategorias
-        rows={rows}
+        pagina={pagina}
+        filtros={{ projeto: projetoValido, competencia: sp.competencia ?? "", fornecedor: filtros.fornecedorId ?? "", cursor: filtros.cursor ?? "" }}
+        projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         categorias={categoriasDeDespesa(CATEGORIAS_DRE)}
         canEditar={can(ctx.perms, "despesas", "editar")}
       />
