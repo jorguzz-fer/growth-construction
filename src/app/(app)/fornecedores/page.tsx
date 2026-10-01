@@ -42,6 +42,7 @@ export default async function FornecedoresPage() {
         stakeholders={stakeholders.map((s) => ({
           id: s.id,
           nome: s.nome,
+          nomeFantasia: s.nomeFantasia,
           tipo: s.tipo,
           doc: s.doc,
           papeis: s.papeis,

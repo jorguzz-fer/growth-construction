@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateStakeholder, setStakeholderAtivo, deleteStakeholder } from "@/lib/actions/stakeholders";
-import { papeisForaDaLista } from "@/lib/stakeholder-regras";
+import { filtrarCadastros, papeisForaDaLista, sinaisDoCadastro, type SinaisDoCadastro } from "@/lib/stakeholder-regras";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 export interface StakeholderView {
   id: string;
   nome: string;
+  nomeFantasia: string | null;
   tipo: string;
   doc: string | null;
   papeis: string[];
@@ -40,19 +41,47 @@ export function FornecedoresTable({
   canExcluir: boolean;
 }) {
   const [mostrarInativos, setMostrarInativos] = useState(false);
-  const visiveis = stakeholders.filter((s) => mostrarInativos || s.ativo);
+  // 6.1 — busca por nome e documento, filtro por papel: tudo puro, sobre o que
+  // a página carregou (o cadastro é global do tenant e cabe na memória).
+  const [busca, setBusca] = useState("");
+  const [papel, setPapel] = useState("");
+  const visiveis = useMemo(() => filtrarCadastros(stakeholders, { busca, papel, mostrarInativos }), [stakeholders, busca, papel, mostrarInativos]);
+  // 6.2 / 3.6 / 3-A.4 — sinais discretos (documento inválido, duplicado, tipo
+  // incompatível, sem endereço obrigatório, sem papel). Não é erro.
+  const sinais = useMemo(() => new Map(stakeholders.map((s) => [s.id, sinaisDoCadastro(s, stakeholders)])), [stakeholders]);
+  const papeisEmUso = useMemo(() => [...new Set([...papeis, ...stakeholders.flatMap((s) => s.papeis)])], [papeis, stakeholders]);
 
   return (
     <div className="space-y-3">
-      <label className="flex w-fit cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-ink2)]">
-        <input
-          type="checkbox"
-          checked={mostrarInativos}
-          onChange={(e) => setMostrarInativos(e.target.checked)}
-          className="h-4 w-4 accent-[var(--color-accent2)]"
-        />
-        Mostrar inativos
-      </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[240px] flex-1">
+          <Label>Buscar</Label>
+          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome, nome fantasia ou documento" aria-label="Buscar cadastro" />
+        </div>
+        <div className="min-w-[200px]">
+          <Label>Papel</Label>
+          <Select value={papel} onChange={(e) => setPapel(e.target.value)} aria-label="Filtrar por papel">
+            <option value="">Todos os papéis</option>
+            {papeisEmUso.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <label className="flex h-9 cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-ink2)]">
+          <input
+            type="checkbox"
+            checked={mostrarInativos}
+            onChange={(e) => setMostrarInativos(e.target.checked)}
+            className="h-4 w-4 accent-[var(--color-accent2)]"
+          />
+          Mostrar inativos
+        </label>
+        <span className="h-9 self-end text-[12px] leading-9 text-[var(--color-ink3)]" role="status">
+          {visiveis.length} de {stakeholders.length}
+        </span>
+      </div>
 
       <Table>
         <THead>
@@ -70,6 +99,7 @@ export function FornecedoresTable({
             <StakeholderRow
               key={s.id}
               s={s}
+              sinais={sinais.get(s.id)!}
               papeis={papeis}
               canEditar={canEditar}
               canExcluir={canExcluir}
@@ -78,7 +108,7 @@ export function FornecedoresTable({
           {visiveis.length === 0 && (
             <TR>
               <TD colSpan={6} className="py-6 text-center text-[var(--color-ink3)]">
-                Nenhum cadastro.
+                {stakeholders.length === 0 ? "Nenhum cadastro." : "Nenhum cadastro com esse filtro."}
               </TD>
             </TR>
           )}
@@ -90,11 +120,13 @@ export function FornecedoresTable({
 
 function StakeholderRow({
   s,
+  sinais,
   papeis,
   canEditar,
   canExcluir,
 }: {
   s: StakeholderView;
+  sinais: SinaisDoCadastro;
   papeis: readonly string[];
   canEditar: boolean;
   canExcluir: boolean;
@@ -220,12 +252,49 @@ function StakeholderRow({
 
   return (
     <TR className={s.ativo ? undefined : "opacity-60"}>
-      <TD className="font-medium text-[var(--color-ink)]">{s.nome}</TD>
-      <TD><Badge tone={s.tipo === "PJ" ? "info" : "neutral"}>{s.tipo}</Badge></TD>
-      <TD className="font-[family-name:var(--font-mono)]">{s.doc || "—"}</TD>
+      <TD className="font-medium text-[var(--color-ink)]">
+        {s.nome}
+        {s.nomeFantasia && <span className="ml-1.5 text-[11px] font-normal text-[var(--color-ink3)]">{s.nomeFantasia}</span>}
+        {sinais.semEnderecoObrigatorio && (
+          <span className="ml-1.5 text-[11px] font-normal text-[var(--color-warning)]" title="Pessoa física com papel de serviço ou mão de obra sem endereço residencial (RPA e recibo). Edite para completar.">
+            sem endereço
+          </span>
+        )}
+      </TD>
+      <TD>
+        <Badge tone={s.tipo === "PJ" ? "info" : "neutral"}>{s.tipo}</Badge>
+        {sinais.tipoIncompativel && (
+          <span className="ml-1 text-[11px] text-[var(--color-warning)]" title={s.tipo === "PJ" ? "O documento é um CPF" : "O documento é um CNPJ"}>
+            ≠ doc
+          </span>
+        )}
+      </TD>
+      <TD className="font-[family-name:var(--font-mono)]">
+        {s.doc || "—"}
+        {sinais.documentoInvalido && (
+          <span className="ml-1 font-sans text-[11px] text-[var(--color-warning)]" title="Documento fora do padrão (não passa na verificação de CPF/CNPJ). Continua editável; nada foi alterado.">
+            fora do padrão
+          </span>
+        )}
+        {sinais.documentoDuplicado.length > 0 && (
+          <span className="ml-1 font-sans text-[11px] text-[var(--color-warning)]" title={`Mesmo documento em: ${sinais.documentoDuplicado.map((d) => d.nome).join(", ")}`}>
+            duplicado
+          </span>
+        )}
+      </TD>
       <TD>
         <div className="flex flex-wrap gap-1">
-          {s.papeis.length ? s.papeis.map((p) => <Badge key={p}>{p}</Badge>) : <span className="text-[var(--color-ink4)]">—</span>}
+          {s.papeis.length ? (
+            s.papeis.map((p) => (
+              <Badge key={p} tone={sinais.papeisDesconhecidos.includes(p) ? "warning" : "neutral"} title={sinais.papeisDesconhecidos.includes(p) ? "Papel gravado fora da lista do sistema" : undefined}>
+                {p}
+              </Badge>
+            ))
+          ) : (
+            <span className="text-[11px] text-[var(--color-warning)]" title="Sem papel, o cadastro não aparece em nenhum seletor filtrado por papel.">
+              sem papel
+            </span>
+          )}
         </div>
       </TD>
       <TD><Badge tone={s.ativo ? "success" : "neutral"}>{s.ativo ? "Ativo" : "Inativo"}</Badge></TD>

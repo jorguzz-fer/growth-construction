@@ -8,6 +8,7 @@ import {
   cpfValido,
   duplicatasDoDocumento,
   exigeEndereco,
+  filtrarCadastros,
   formatoDoDocumento,
   motivoDeRecusaDoDocumento,
   opcoesDeSelecao,
@@ -118,5 +119,25 @@ describe("seletores (4.2, 1.5)", () => {
   it("14 — o select de pagador oferece apenas quem tem o papel (e está ativo)", () => {
     expect(pagadoresPorTerceiro(todos)).toEqual([{ id: "p", nome: "Pagador" }]);
     expect(pagadoresPorTerceiro(todos, ["i"])).toEqual([{ id: "i", nome: "Inativo (inativo)" }, { id: "p", nome: "Pagador" }]);
+  });
+});
+
+describe("filtrarCadastros (6.1)", () => {
+  const lista = [
+    { nome: "Brasil Mix Concreto Ltda", nomeFantasia: "BMix", doc: "20.957.509/0001-34", papeis: ["Fornecedor de Material"], ativo: true },
+    { nome: "Inácio de Sousa", nomeFantasia: null, doc: "332.641.358-09", papeis: ["Mão de Obra RPA"], ativo: true },
+    { nome: "Antigo Inativo", nomeFantasia: null, doc: null, papeis: ["Construtora"], ativo: false },
+  ];
+  it("busca por nome sem acento, por fantasia e por documento (com ou sem máscara)", () => {
+    expect(filtrarCadastros(lista, { busca: "inacio" }).map((s) => s.nome)).toEqual(["Inácio de Sousa"]);
+    expect(filtrarCadastros(lista, { busca: "bmix" }).map((s) => s.nome)).toEqual(["Brasil Mix Concreto Ltda"]);
+    expect(filtrarCadastros(lista, { busca: "20957509" }).map((s) => s.nome)).toEqual(["Brasil Mix Concreto Ltda"]);
+    expect(filtrarCadastros(lista, { busca: "332.641" }).map((s) => s.nome)).toEqual(["Inácio de Sousa"]);
+    expect(filtrarCadastros(lista, { busca: "brasil sousa" })).toEqual([]);
+  });
+  it("filtra por papel e respeita 'mostrar inativos'", () => {
+    expect(filtrarCadastros(lista, { papel: "Construtora" })).toEqual([]);
+    expect(filtrarCadastros(lista, { papel: "Construtora", mostrarInativos: true }).map((s) => s.nome)).toEqual(["Antigo Inativo"]);
+    expect(filtrarCadastros(lista, {})).toHaveLength(2);
   });
 });
