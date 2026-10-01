@@ -63,6 +63,7 @@ export const SCREENS: Screen[] = [
   { id: "despesas", label: "Lançamentos de Despesas", modulo: "Despesas" },
   { id: "contaspagar", label: "Contas a Pagar", modulo: "Despesas" },
   { id: "restituicoes", label: "Ressarcimentos (pago por terceiro)", modulo: "Despesas" },
+  { id: "cartoes", label: "Cartões de Crédito", modulo: "Despesas" },
   { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
   { id: "planocontas", label: "Plano de Contas", modulo: "Planejamento" },
   { id: "contas", label: "Contas Correntes", modulo: "Despesas" },

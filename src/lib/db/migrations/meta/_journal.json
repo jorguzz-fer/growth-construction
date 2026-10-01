@@ -372,6 +372,13 @@
       "when": 1787064514285,
       "tag": "0052_stakeholder_dados_bancarios",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790836502215,
+      "tag": "0053_cartao_credito",
+      "breakpoints": true
     }
   ]
 }

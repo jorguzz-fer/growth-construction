@@ -60,6 +60,7 @@ const MENU_ANTIGO: Record<string, string> = {
 /** Telas que entraram no menu depois dele, cada uma com a sua chave. */
 const TELAS_NOVAS: Record<string, string> = {
   "/chaves": "chaves", // V2-BLOQUEIOS B4
+  "/cartoes": "cartoes", // Prompt U, seção 1
 };
 const ESPERADO = { ...MENU_ANTIGO, ...TELAS_NOVAS };
 
