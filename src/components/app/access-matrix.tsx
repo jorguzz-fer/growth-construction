@@ -2,8 +2,10 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 import {
+  CONTADOR_VE,
   SCREENS,
   TELAS_SO_ADMIN,
+  temTetoDeLeitura,
   type PermMatrix,
   type PermAction,
   type Modulo,
@@ -125,6 +127,10 @@ function MemberMatrix({
   // Owner e admin: acesso total, garantido no módulo (AJ 3.3) — não configurável.
   const ownerFull = member.role === "owner" || member.role === "admin";
   const editable = canEdit && !ownerFull && !isSelf;
+  // Prompt AL, Parte 3: o contador só recebe "Ver" — as outras colunas
+  // aparecem como traço, com o motivo, e o servidor recusa o mesmo.
+  const soLeitura = temTetoDeLeitura(member.role);
+  const padraoContador = SCREENS.filter((s) => CONTADOR_VE.has(s.id)).map((s) => s.label);
 
   // Persiste (e registra no log de auditoria) apenas ao clicar em "Salvar" —
   // evita gerar uma entrada de auditoria a cada clique de checkbox. "Salvo."
@@ -163,6 +169,7 @@ function MemberMatrix({
 
   function toggle(screenId: string, action: PermAction) {
     if (!editable || TELAS_SO_ADMIN.has(screenId)) return;
+    if (soLeitura && action !== "ver") return;
     setSaved(false);
     setDirty(true);
     setPerms((prev) => {
@@ -237,6 +244,18 @@ function MemberMatrix({
             )}
           </div>
         )}
+        {soLeitura && (
+          <div className="mb-3 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-surface2)] px-3 py-2 text-xs text-[var(--color-ink2)]">
+            <p>
+              <span className="font-semibold text-[var(--color-ink)]">Contador é somente leitura.</span>{" "}
+              Pode receber “Ver” em qualquer tela; criar, editar e excluir não se concedem a este papel.
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold text-[var(--color-ink)]">Padrão do papel:</span> {padraoContador.join(", ")}.
+              Telas marcadas fora dessa lista ou desmarcadas dentro dela ficam como personalizadas deste membro.
+            </p>
+          </div>
+        )}
         {error && <p className="mb-3 text-sm text-[var(--color-danger)]">{error}</p>}
 
         <div className="tbl-scroll overflow-x-auto">
@@ -272,6 +291,13 @@ function MemberMatrix({
                         )}
                       </td>
                       {ACTIONS.map((a) => {
+                        if (soLeitura && a.key !== "ver") {
+                          return (
+                            <td key={a.key} className="px-2 py-2 text-center text-[var(--color-ink3)]" title="O contador é somente leitura.">
+                              <span aria-label="não se aplica: contador é somente leitura">—</span>
+                            </td>
+                          );
+                        }
                         const checked = ownerFull ? true : perms[s.id]?.[a.key] ?? false;
                         const restrita = !ownerFull && TELAS_SO_ADMIN.has(s.id);
                         return (

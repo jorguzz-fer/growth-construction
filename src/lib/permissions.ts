@@ -105,8 +105,14 @@ const VIEW: ScreenPerm = { ver: true, criar: false, editar: false, excluir: fals
 const FULL: ScreenPerm = { ver: true, criar: true, editar: true, excluir: true };
 const EDIT: ScreenPerm = { ver: true, criar: true, editar: true, excluir: false };
 
-/** Telas que o perfil "contador" (somente leitura) enxerga. */
-const CONTADOR_VE = new Set([
+/**
+ * Telas que o perfil "contador" enxerga POR PADRÃO (somente leitura).
+ *
+ * Prompt AL, Parte 2: deixou de ser lista fixa — é o ponto de partida do
+ * papel, e owner ou admin ajustam por membro na Gestão de Acessos, como para
+ * qualquer outro papel. A lista não mudou (2.3).
+ */
+export const CONTADOR_VE: ReadonlySet<string> = new Set([
   "dre",
   "fluxocaixa",
   "medicao",
@@ -156,6 +162,18 @@ export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
  */
 export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso"]);
 
+/**
+ * Papéis com TETO DE LEITURA (Prompt AL, Parte 3 · decisão BAL-2 = opção 1):
+ * podem receber `ver` em qualquer tela por override, e nunca `criar`,
+ * `editar` ou `excluir`. O contador é externo à empresa; quem de fora precisar
+ * lançar é outro papel, com outro nome.
+ */
+export const PAPEIS_SO_LEITURA: ReadonlySet<Role> = new Set<Role>(["contador"]);
+
+export function temTetoDeLeitura(role: Role | string): boolean {
+  return PAPEIS_SO_LEITURA.has(role as Role);
+}
+
 export interface OpcoesPermissao {
   /**
    * Padrão novo do `membro` ligado para o tenant (chave por tenant, AJ 1.4).
@@ -193,10 +211,13 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
 
 /**
  * Permissões efetivas: overrides do membro (se houver) por tela, senão
- * default — e, POR ÚLTIMO, o clamp de papel (AJ 3.1 e 3.3):
+ * default — e, POR ÚLTIMO, o clamp de papel (AJ 3.1 e 3.3; AL 3.1):
  *  - owner e admin: acesso total, mesmo com override restritivo gravado (o
  *    que a matriz sempre prometeu passa a ser verdade no módulo);
- *  - demais papéis: Usuários e Gestão de Acessos negadas, mesmo com override.
+ *  - demais papéis: Usuários e Gestão de Acessos negadas, mesmo com override;
+ *  - contador (teto de leitura): criar, editar e excluir negados em toda
+ *    tela, mesmo com override. Roda DEPOIS do merge — aplicado antes, o
+ *    override sobrescreveria o teto.
  */
 export function effectivePermissions(
   role: Role,
@@ -211,9 +232,11 @@ export function effectivePermissions(
     }
   }
   const total = role === "owner" || role === "admin";
+  const soLeitura = temTetoDeLeitura(role);
   for (const s of SCREENS) {
     if (total) base[s.id] = { ...FULL };
     else if (TELAS_SO_ADMIN.has(s.id)) base[s.id] = { ...NONE };
+    else if (soLeitura) base[s.id] = { ver: base[s.id].ver, criar: false, editar: false, excluir: false };
   }
   return base;
 }
@@ -276,6 +299,22 @@ export function validarMatriz(payload: unknown): string | null {
     }
     if (TELAS_SO_ADMIN.has(tela) && (p.ver || p.criar || p.editar || p.excluir)) {
       return `"${tela}" é exclusiva de owner e admin e não pode ser concedida por override.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Prompt AL, 3.2 — recusa, na gravação, ação de escrita para papel com teto
+ * de leitura. A matriz nem oferece a caixa; isto é a mesma regra no servidor,
+ * para quem chamar a action direto. Devolve a mensagem, ou null se ok.
+ */
+export function recusaDoTetoDeLeitura(role: Role | string, matriz: PermMatrix): string | null {
+  if (!temTetoDeLeitura(role)) return null;
+  for (const s of SCREENS) {
+    const m = matriz[s.id];
+    if (m && (m.criar || m.editar || m.excluir)) {
+      return `O ${role} é somente leitura: em "${s.label}" só a coluna Ver pode ser marcada.`;
     }
   }
   return null;

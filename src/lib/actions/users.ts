@@ -9,6 +9,7 @@ import {
   can,
   effectivePermissions,
   overridesDivergentes,
+  recusaDoTetoDeLeitura,
   validarMatriz,
   type PermMatrix,
 } from "@/lib/permissions";
@@ -159,6 +160,9 @@ export async function setMemberPermissions(
   if (role === "owner" || role === "admin") {
     return { ok: false, error: "Owner e admin têm acesso total — não há o que configurar." };
   }
+  // Prompt AL, Parte 3: o contador tem teto de leitura.
+  const teto = recusaDoTetoDeLeitura(role, permissions);
+  if (teto) return { ok: false, error: teto };
 
   const opts = await opcoesDoTenant(ctx.tenant.id);
   const divergentes = overridesDivergentes(role, permissions, opts);
