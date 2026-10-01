@@ -400,6 +400,21 @@ export async function getCartoes(tenantId: string): Promise<CartaoView[]> {
   }));
 }
 
+/** Prompt X, 7 — uso real das contas: lançamentos de caixa e data do último (ISO). Só leitura. */
+export async function getUsoDasContas(tenantId: string): Promise<{ id: string; lancamentos: number; ultimoLancamento: string | null }[]> {
+  const rows = await db
+    .select({
+      id: schema.cashEntries.bankAccountId,
+      n: sql<number>`count(*)::int`,
+      // "MM/DD/YYYY" → "YYYY-MM-DD" para comparar; datas malformadas ficam de fora do máximo
+      ultimo: sql<string | null>`max(case when ${schema.cashEntries.data} ~ '^\d{2}/\d{2}/\d{4}$' then substr(${schema.cashEntries.data},7,4)||'-'||substr(${schema.cashEntries.data},1,2)||'-'||substr(${schema.cashEntries.data},4,2) end)`,
+    })
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.tenantId, tenantId), isNotNull(schema.cashEntries.bankAccountId)))
+    .groupBy(schema.cashEntries.bankAccountId);
+  return rows.filter((r) => !!r.id).map((r) => ({ id: r.id as string, lancamentos: Number(r.n), ultimoLancamento: r.ultimo ?? null }));
+}
+
 export async function getBankAccounts(
   tenantId: string,
 ): Promise<BankAccountRow[]> {

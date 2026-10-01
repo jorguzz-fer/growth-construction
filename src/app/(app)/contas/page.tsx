@@ -1,5 +1,8 @@
 import { getTenantContext } from "@/lib/context";
-import { getBankAccounts } from "@/lib/queries";
+import { getBankAccounts, getUsoDasContas } from "@/lib/queries";
+import { analisarContas } from "@/lib/contas-analise";
+import { AssistenteContas } from "@/components/app/assistente-contas";
+import { hojeISO } from "@/lib/despesa-status";
 import { can } from "@/lib/permissions";
 import { isPluggyConfigured } from "@/lib/openfinance/pluggy";
 import { totaisPorTipo } from "@/lib/contas-regras";
@@ -23,7 +26,13 @@ export default async function ContasPage() {
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   if (!can(ctx.perms, "contas", "ver")) return <AccessDenied />;
 
-  const contas = await getBankAccounts(ctx.tenant.id);
+  const [contas, uso] = await Promise.all([getBankAccounts(ctx.tenant.id), getUsoDasContas(ctx.tenant.id)]);
+  // Seção 7 — assistente somente leitura, em código puro, sobre o que a página carregou.
+  const analise = analisarContas(
+    contas.map((c) => ({ id: c.id, banco: c.banco, ag: c.ag, cc: c.cc, tipo: c.tipo, saldo: Number(c.saldo), saldoSource: c.saldoSource, openFinanceId: c.openFinanceId, lastSync: c.lastSync ? c.lastSync.toISOString() : null, ativo: c.ativo })),
+    uso,
+    hojeISO(),
+  );
   const canCriar = can(ctx.perms, "contas", "criar");
   const canEditar = can(ctx.perms, "contas", "editar");
   const canExcluir = can(ctx.perms, "contas", "excluir");
@@ -65,6 +74,9 @@ export default async function ContasPage() {
         </div>
       )}
 
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {canCriar && <ContaForm />}
 
       <Card>
@@ -87,6 +99,9 @@ export default async function ContasPage() {
           />
         </CardContent>
       </Card>
+      </div>
+      <AssistenteContas usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
