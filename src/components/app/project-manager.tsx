@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Building2, ChevronLeft, MoreHorizontal, Plus } from "lucide-react";
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { brl, dateBR } from "@/lib/utils";
 import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
 import { ExcluirProjeto } from "@/components/app/excluir-projeto";
+import { CHAVE_PROPOSTA_PROJETO, EVENTO_PROPOSTA_PROJETO, ROTULO_CAMPO_PROJETO, type CampoProjeto, type PropostaDeProjetoGuardada } from "@/lib/ai/projeto-doc";
 import { codigoMunicipioValido } from "@/lib/calc/emitente-fiscal";
 import { naturezaPorMunicipio } from "@/lib/calc/nfse";
 import {
@@ -504,6 +505,34 @@ function ProjectCard({
   const set = <K extends keyof Form>(k: K) => (v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
   const dirty = JSON.stringify(f) !== JSON.stringify(inicial);
   const off = !canEdit || pending;
+  // Proposta do assistente (Prompt B, 26): entra SÓ no formulário; gravar é o
+  // Salvar do usuário, que leva `origem: "assistente"` ao log. Sem permissão
+  // de editar nada é aplicado (e a action recusa de novo no servidor).
+  const [daProposta, setDaProposta] = useState<CampoProjeto[]>([]);
+  useEffect(() => {
+    if (!detalhado || !canEdit) return;
+    const aplicar = (g: PropostaDeProjetoGuardada | null) => {
+      if (!g || g.projectId !== project.id) return;
+      const campos = Object.keys(g.campos) as CampoProjeto[];
+      if (campos.length === 0) return;
+      setF((s) => ({ ...s, ...g.campos }));
+      setDaProposta(campos);
+      try {
+        window.sessionStorage.removeItem(CHAVE_PROPOSTA_PROJETO);
+      } catch {
+        /* sem sessionStorage */
+      }
+    };
+    try {
+      const bruto = window.sessionStorage.getItem(CHAVE_PROPOSTA_PROJETO);
+      if (bruto) aplicar(JSON.parse(bruto) as PropostaDeProjetoGuardada);
+    } catch {
+      /* ignora proposta ilegível */
+    }
+    const ouvir = (e: Event) => aplicar((e as CustomEvent<PropostaDeProjetoGuardada>).detail ?? null);
+    window.addEventListener(EVENTO_PROPOSTA_PROJETO, ouvir);
+    return () => window.removeEventListener(EVENTO_PROPOSTA_PROJETO, ouvir);
+  }, [detalhado, canEdit, project.id]);
 
   const janela = duracaoDerivada(f.startDate, f.endDate);
   const avisoDuracao = avisoDeDuracao(project.durationMonths, f.startDate, f.endDate);
@@ -548,8 +577,9 @@ function ProjectCard({
             }
           : {}),
       };
-      const r = await updateProject(project.id, patch);
-      setMsg(r.ok ? { ok: true, texto: r.aviso ?? "Salvo." } : { ok: false, texto: r.error });
+      const r = await updateProject(project.id, patch, daProposta.length > 0 ? { origem: "assistente" } : undefined);
+      setMsg(r.ok ? { ok: true, texto: r.aviso ?? (daProposta.length > 0 ? "Salvo, com os campos propostos pelo assistente." : "Salvo.") } : { ok: false, texto: r.error });
+      if (r.ok) setDaProposta([]);
     });
 
   const campoMoney = (k: keyof Form, label: string) => (
@@ -579,6 +609,12 @@ function ProjectCard({
           </span>
           <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} canDelete={canDelete} /></div>
         </header>
+
+        {daProposta.length > 0 && (
+          <p role="status" data-proposta-aplicada className="rounded-[10px] border border-[#e9d5ff] bg-[#faf5ff] px-3 py-2 text-[12px] text-[var(--color-ink)]">
+            <strong className="text-[#6D4BD1]">Proposta do assistente no formulário:</strong> {daProposta.map((c) => ROTULO_CAMPO_PROJETO[c]).join(", ")}. Confira e clique em Salvar — nada foi gravado ainda.
+          </p>
+        )}
 
         {/* DADOS DO PROJETO (seção 9) */}
         <Bloco tom="neutro" titulo="Dados do projeto">

@@ -10,6 +10,10 @@ import type { ProjetoDoc } from "@/components/app/projeto-docs";
 import { OrcadoRealizado } from "@/components/app/orcado-realizado";
 import { getOrcadoRealizado } from "@/lib/dre-inputs";
 import { montarCard } from "@/lib/calc/orcado-realizado";
+import { analisarProjeto, analisarProjetos } from "@/lib/projeto-analise";
+import { AssistenteProjetos } from "@/components/app/assistente-projetos";
+import { isAiConfigured } from "@/lib/ai/client";
+import { legivelPelaIa } from "@/lib/ai/campos";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +64,26 @@ export default async function ProjetoPage({
   // escolhe outro no lugar — mostra "Todos" com aviso.
   const idDesconhecido = selecionado !== "all" && !projetoSel;
 
+  // Assistente (24–29): a análise roda aqui, sobre os projetos do contexto —
+  // nunca sobre ids vindos do cliente. Na visão de uma obra, só ela.
+  const card = obraSel && oxr ? montarCard(oxr.orcado, oxr.realizado) : null;
+  const paraAnalise = (p: (typeof ctx.projects)[number]) => ({ ...p, documentos: (docsByProject[p.id] ?? []).length });
+  const usuario = ctx.userEmail ?? "anon";
+  const assistente = obraSel ? (
+    <AssistenteProjetos
+      modo="projeto"
+      usuario={usuario}
+      aiConfigurada={isAiConfigured()}
+      projectId={obraSel.id}
+      nome={obraSel.name}
+      analise={analisarProjeto(paraAnalise(obraSel), card)}
+      documentos={projDocs.filter((d) => d.projectId === obraSel.id).map((d) => ({ id: d.id, filename: d.filename, tipo: d.tipo, legivel: legivelPelaIa(d.contentType ?? "") }))}
+      canEditar={can(ctx.perms, "projeto", "editar")}
+    />
+  ) : projetoSel ? null : (
+    <AssistenteProjetos modo="todos" usuario={usuario} aiConfigurada={isAiConfigured()} analise={analisarProjetos(ctx.projects.map(paraAnalise))} />
+  );
+
   return (
     <>
       <PageHeader
@@ -89,6 +113,9 @@ export default async function ProjetoPage({
         </p>
       )}
 
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (seção 36). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       <ProjectManager
         projects={ctx.projects}
         selecionadoId={projetoSel ? projetoSel.id : "all"}
@@ -98,13 +125,16 @@ export default async function ProjetoPage({
         r2Configured={r2}
         tenantCodigoMunicipio={ctx.tenant.codigoMunicipio}
         registrosDePonto={registrosDePonto}
-        orcadoRealizado={obraSel && oxr ? <OrcadoRealizado projectId={obraSel.id} card={montarCard(oxr.orcado, oxr.realizado)} /> : undefined}
+        orcadoRealizado={obraSel && card ? <OrcadoRealizado projectId={obraSel.id} card={card} /> : undefined}
         perms={{
           criar: can(ctx.perms, "projeto", "criar"),
           editar: can(ctx.perms, "projeto", "editar"),
           excluir: can(ctx.perms, "projeto", "excluir"),
         }}
       />
+      </div>
+      {assistente}
+      </div>
     </>
   );
 }
