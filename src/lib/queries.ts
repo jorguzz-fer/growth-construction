@@ -85,11 +85,15 @@ export function toInccRows(
 
 // ─────────────────────────────── leituras ───────────────────────────────
 
-export async function getUnits(versionId: string): Promise<UnitRow[]> {
+/**
+ * Unidades de uma versão. O tenant vai na cláusula (Prompt J, 5.3): a versão
+ * já chega validada, mas o filtro explícito é o padrão de todas as leituras.
+ */
+export async function getUnits(tenantId: string, versionId: string): Promise<UnitRow[]> {
   return db
     .select()
     .from(schema.units)
-    .where(eq(schema.units.versionId, versionId))
+    .where(and(eq(schema.units.tenantId, tenantId), eq(schema.units.versionId, versionId)))
     .orderBy(asc(schema.units.code));
 }
 
@@ -983,12 +987,17 @@ export async function getAtualVersion(tenantId: string, projectId: string) {
 
 /** kind da versão (para decidir entre lançamento detalhado × simplificado). */
 export async function getVersionKind(versionId: string): Promise<string | null> {
+  return (await versaoKindETenant(versionId))?.kind ?? null;
+}
+
+/** Tipo e empresa da versão — para as leituras que só recebem o id. */
+async function versaoKindETenant(versionId: string): Promise<{ kind: string; tenantId: string } | null> {
   const [v] = await db
-    .select({ kind: schema.versions.kind })
+    .select({ kind: schema.versions.kind, tenantId: schema.versions.tenantId })
     .from(schema.versions)
     .where(eq(schema.versions.id, versionId))
     .limit(1);
-  return v?.kind ?? null;
+  return v ?? null;
 }
 
 export interface ExpenseRow {
@@ -1256,7 +1265,8 @@ export async function getMonthlyRevenue(
   versionId: string,
   projectId: string,
 ): Promise<MonthlyProjection> {
-  const kind = await getVersionKind(versionId);
+  const versao = await versaoKindETenant(versionId);
+  const kind = versao?.kind ?? null;
   if (kind === "budget" || kind === "forecast") {
     const lines = await db
       .select({ mes: schema.budgetLines.mes, valor: schema.budgetLines.valor })
@@ -1273,7 +1283,7 @@ export async function getMonthlyRevenue(
   }
 
   const [unitRows, reembRows] = await Promise.all([
-    getUnits(versionId),
+    getUnits(versao?.tenantId ?? "", versionId),
     getReembolsos(versionId),
   ]);
   const out: MonthlyProjection = {};
@@ -1542,7 +1552,8 @@ export async function getRevenueBySource(
 ): Promise<RevenueBySource> {
   const sources = emptyBySource();
   const reemb: MonthlyProjection = {};
-  const kind = await getVersionKind(versionId);
+  const versao = await versaoKindETenant(versionId);
+  const kind = versao?.kind ?? null;
 
   if (kind === "budget" || kind === "forecast") {
     const lines = await db
@@ -1576,7 +1587,7 @@ export async function getRevenueBySource(
   }
 
   const [unitRows, reembRows, incc] = await Promise.all([
-    getUnits(versionId),
+    getUnits(versao?.tenantId ?? "", versionId),
     getReembolsos(versionId),
     getInccRows(projectId),
   ]);

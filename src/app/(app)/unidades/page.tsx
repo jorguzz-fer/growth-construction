@@ -6,7 +6,8 @@ import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getUnits, getAtualVersion, toCalcUnit } from "@/lib/queries";
 import { calcUnitTotal } from "@/lib/calc";
 import { can } from "@/lib/permissions";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
+import { contagemDeUnidades, saldoFecha, saldoFormatado, vgvFormatado } from "@/lib/unidade-exibicao";
 import { PageHeader } from "@/components/app/page-header";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
@@ -19,15 +20,6 @@ import { AccessDenied } from "@/components/app/access-denied";
 export const dynamic = "force-dynamic";
 
 const STATUS_FILTERS = ["Disponivel", "Reservado", "Vendido"] as const;
-
-/** VGV compacto em milhões, no formato do protótipo (ex.: R$ 40,19M). */
-function vgvMi(value: number): string {
-  const mi = (value / 1e6).toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `R$ ${mi}M`;
-}
 
 export default async function UnidadesPage({
   searchParams,
@@ -49,14 +41,14 @@ export default async function UnidadesPage({
   const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
   if (selecao.tipo !== "projeto") {
     return (
-      <PedirProjeto titulo="Unidades do Empreendimento" projetos={ctx.projects} oQue="ver as unidades" />
+      <PedirProjeto titulo="Unidades" projetos={ctx.projects} oQue="ver as unidades" />
     );
   }
   const project = selecao.projeto;
   const version = await getAtualVersion(ctx.tenant.id, project.id);
   // Só lista unidades da versão Atual DESTE projeto. Sem versão Atual, lista
   // vazia — nunca cai na versão de outro projeto (evita mostrar unidades alheias).
-  const allRows = version ? await getUnits(version.id) : [];
+  const allRows = version ? await getUnits(ctx.tenant.id, version.id) : [];
   const rows = filter ? allRows.filter((r) => r.status === filter) : allRows;
 
   const vgv = allRows.reduce((a, r) => a + Number(r.valor), 0);
@@ -71,7 +63,8 @@ export default async function UnidadesPage({
       : blocos.length > 1
         ? `Blocos ${blocos.join(" · ")}`
         : null;
-  const subtitle = [blocoLabel, `${allRows.length} unidades`, `VGV ${vgvMi(vgv)}`]
+  // 3.3 / 3.4 — VGV por ordem de grandeza e plural certo.
+  const subtitle = [blocoLabel, contagemDeUnidades(allRows.length), `VGV ${vgvFormatado(vgv)}`]
     .filter(Boolean)
     .join(" · ");
 
@@ -93,7 +86,7 @@ export default async function UnidadesPage({
     <>
       <PageHeader
         eyebrow={`${project.name} · Atual`}
-        title="Unidades do Empreendimento"
+        title="Unidades"
         subtitle={subtitle}
         actions={
           <div className="flex flex-wrap items-end gap-3">
@@ -172,7 +165,7 @@ export default async function UnidadesPage({
             <TH className="text-right">And.</TH>
             <TH className="text-right">Valor R$</TH>
             <TH>Status</TH>
-            <TH>Mês venda</TH>
+            <TH>Data da venda</TH>
             <TH className="text-right">Total fontes</TH>
             <TH className="text-right">Saldo</TH>
             {showActions && <TH className="text-right">Ações</TH>}
@@ -191,7 +184,8 @@ export default async function UnidadesPage({
               const total = calcUnitTotal(u);
               const saldo = total - u.valor;
               const sold = u.status === "Vendido";
-              const ok = !sold || Math.abs(saldo) < 1;
+              // 3.4 — tolerância de R$ 0,01, a mesma do formulário.
+              const ok = !sold || saldoFecha(saldo);
               return (
                 <TR key={row.id}>
                   <TD className="font-medium text-[var(--color-ink)]">
@@ -221,7 +215,8 @@ export default async function UnidadesPage({
                     <Badge tone={unitStatusTone(row.status)}>{row.status}</Badge>
                   </TD>
                   <TD className="font-[family-name:var(--font-mono)]">
-                    {row.mesVenda ?? "—"}
+                    {/* 3.2 — o campo guarda MM/DD/YYYY; exibe DD/MM/AAAA como o resto do sistema. */}
+                    {dateBR(row.mesVenda)}
                   </TD>
                   <TD className="text-right font-[family-name:var(--font-mono)]">
                     {sold ? brl0(total) : "—"}
@@ -235,7 +230,7 @@ export default async function UnidadesPage({
                         : ""
                     }`}
                   >
-                    {sold ? brl0(saldo) : "—"}
+                    {sold ? saldoFormatado(saldo) : "—"}
                   </TD>
                   {showActions && (
                     <TD className="text-right">

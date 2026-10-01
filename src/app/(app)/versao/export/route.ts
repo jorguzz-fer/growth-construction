@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const { version, project } = alvo;
 
   const [unitRows, reembRows, permRows, despRows, incc] = await Promise.all([
-    getUnits(version.id),
+    getUnits(ctx.tenant.id, version.id),
     getReembolsos(version.id),
     getPermutas(version.id),
     getDespesas(version.id),

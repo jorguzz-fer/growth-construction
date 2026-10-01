@@ -311,7 +311,7 @@ export async function importCash(
   // Pools para conciliação automática.
   const [despesas, units] = await Promise.all([
     getDespesas(version.id),
-    getUnits(version.id),
+    getUnits(version.tenantId, version.id),
   ]);
   // Despesas previstas: chave (centavos|mês) → quantidade disponível.
   const despPool = new Map<string, number>();

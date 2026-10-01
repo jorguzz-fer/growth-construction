@@ -427,7 +427,7 @@ export default async function CaixaPage({
           canDesfazer={canDesfazerConc}
         />
       )}
-      {tab === "previstas" && <Previstas versionId={version.id} projectId={project.id} />}
+      {tab === "previstas" && <Previstas tenantId={version.tenantId} versionId={version.id} projectId={project.id} />}
     </>
   );
 }
@@ -505,14 +505,16 @@ function Conciliacao({
 }
 
 async function Previstas({
+  tenantId,
   versionId,
   projectId,
 }: {
+  tenantId: string;
   versionId: string;
   projectId: string;
 }) {
   const [unitRows, reembRows, incc, permutas] = await Promise.all([
-    getUnits(versionId),
+    getUnits(tenantId, versionId),
     getReembolsos(versionId),
     getInccRows(projectId),
     getPermutas(versionId),
