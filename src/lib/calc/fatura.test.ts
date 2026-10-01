@@ -13,6 +13,10 @@ describe("fatura de cartão (Prompt U, 2.5–2.9; R 1.6)", () => {
     expect(estadoDaFatura(f({ valorPago: 100 }), "2026-10-11")).toBe("paga parcialmente");
     expect(estadoDaFatura(f({ valorPago: 300 }), "2026-10-11")).toBe("paga");
     expect(saldoDaFatura(f({ valorPago: 100 }))).toBe(200);
+    // com rotativo que ela traz: o total é compras + rotativo
+    expect(estadoDaFatura(f({ valorCompras: 100, rotativoAnterior: 250, valorPago: 300 }), "2026-10-11")).toBe("paga parcialmente");
+    expect(saldoDaFatura(f({ valorCompras: 100, rotativoAnterior: 250, valorPago: 300 }))).toBe(50);
+    expect(estadoDaFatura(f({ valorCompras: 0, rotativoAnterior: 250, valorPago: 250 }), "2026-10-11")).toBe("paga");
   });
   it("16 / 16c — aberta é Prevista; ao fechar vira A pagar; vencida sem pagar é Vencida; paga é Pago", () => {
     expect(statusDaFatura(f(), "2026-09-30")).toBe("Prevista");
@@ -46,5 +50,51 @@ describe("fatura de cartão (Prompt U, 2.5–2.9; R 1.6)", () => {
     expect(depois.valor).toBe(350);
     expect(depois.saldo).toBe(350);
     expect(Object.keys(depois)).not.toContain("juroEstimado");
+  });
+});
+
+import { comRotativo, distribuirPagamento, projecaoDoCiclo, rotativoParaOCiclo, totalDaFatura } from "./fatura";
+
+describe("pagamento, rotativo e projeção (Prompt U, 3 e 4)", () => {
+  const base = { cartaoId: "C1", cartaoNome: "Itaú", qtdCompras: 1 };
+  const fat = (id: string, fechamento: string, vencimento: string, valorCompras: number, valorPago: number) => ({ ...base, id, fechamento, vencimento, valorCompras, valorPago });
+  it("distribuirPagamento — FIFO, centavos exatos, sobra quando excede", () => {
+    const r = distribuirPagamento(150, [{ id: "a", saldo: 100 }, { id: "b", saldo: 100 }, { id: "c", saldo: 0 }]);
+    expect(r.abatimentos.map((x) => [x.id, x.abatido])).toEqual([["a", 100], ["b", 50]]);
+    expect(r.sobra).toBe(0);
+    expect(distribuirPagamento(250, [{ id: "a", saldo: 100 }]).sobra).toBe(150);
+    expect(distribuirPagamento(0.1, [{ id: "a", saldo: 0.3 }]).abatimentos[0].abatido).toBe(0.1);
+  });
+  it("9 — paga parcialmente deixa rotativo, que a fatura seguinte traz; a parcial fica com saldo zero na lista", () => {
+    const hoje = "2026-10-15";
+    const lista = [fat("F2", "10/10/2026", "10/20/2026", 400, 0), fat("F1", "09/10/2026", "09/20/2026", 300, 100), fat("F3", "11/10/2026", "11/20/2026", 50, 0)];
+    const r = comRotativo(lista, hoje);
+    const porId = Object.fromEntries(r.map((x) => [x.id, x]));
+    expect(porId.F1.rotativoAnterior).toBe(0);
+    expect(porId.F2.rotativoAnterior).toBe(200); // o que faltou na F1
+    expect(porId.F3.rotativoAnterior).toBe(0); // F2 fechada sem pagamento parcial não rola
+    expect(totalDaFatura(porId.F2)).toBe(600);
+    expect(rotativoParaOCiclo(lista, "10/10/2026", hoje)).toBe(200);
+    expect(rotativoParaOCiclo(lista, "11/10/2026", hoje)).toBe(0);
+    // F2 também parcial: o rotativo acumula (F1 → F2 → F3)
+    const r2 = comRotativo([lista[0] && { ...lista[0], valorPago: 100 }, lista[1], lista[2]], hoje);
+    expect(r2.find((x) => x.id === "F3")?.rotativoAnterior).toBe(500); // 600 − 100
+    // na lista de Contas a Pagar: a parcial fica com saldo zero (foi para a seguinte) e a seguinte traz o total
+    const { faturas } = linhasComFaturas([], [], lista, hoje);
+    const l = Object.fromEntries(faturas.map((x) => [x.faturaId, x]));
+    expect(l.F1.status).toBe("Parcialmente paga");
+    expect(l.F1.saldo).toBe(0);
+    expect(l.F1.descricao).toContain("levado à fatura seguinte");
+    expect(l.F2.valor).toBe(600);
+    expect(l.F2.saldo).toBe(600);
+  });
+  it("10 / 16a / 4.3 — projeção: juro só com taxa, sempre fora do total previsto (Contas a Pagar)", () => {
+    const semTaxa = projecaoDoCiclo({ comprasDoCiclo: 100, parcelasAnteriores: 50, rotativoAnterior: 200, taxaRotativo: null });
+    expect(semTaxa).toEqual({ comprasDoCiclo: 100, parcelasAnteriores: 50, rotativoAnterior: 200, totalPrevisto: 350, juroEstimado: null, totalProjetado: 350 });
+    const comTaxa = projecaoDoCiclo({ comprasDoCiclo: 100, parcelasAnteriores: 50, rotativoAnterior: 200, taxaRotativo: 12 });
+    expect(comTaxa.juroEstimado).toBe(24);
+    expect(comTaxa.totalPrevisto).toBe(350); // sem a estimativa
+    expect(comTaxa.totalProjetado).toBe(374);
+    expect(projecaoDoCiclo({ comprasDoCiclo: 100, parcelasAnteriores: 0, rotativoAnterior: 0, taxaRotativo: 12 }).juroEstimado).toBe(0);
   });
 });

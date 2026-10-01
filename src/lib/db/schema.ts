@@ -707,10 +707,37 @@ export const faturasCartao = pgTable(
     fechamento: text("fechamento").notNull(),
     /** "MM/DD/YYYY" — dia em que a fatura vence. */
     vencimento: text("vencimento").notNull(),
+    /** 3.4 — a despesa financeira criada quando o juro do rotativo veio cobrado nesta fatura. */
+    jurosDespesaId: uuid("juros_despesa_id").references(() => despesas.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("fatura_cartao_ciclo_uq").on(t.cartaoId, t.fechamento)],
 );
+
+/**
+ * Pagamento de fatura de cartão (Prompt U, seção 3): UMA saída de caixa por
+ * pagamento, na conta cadastrada no cartão; parcial deixa saldo rotativo.
+ * Não cria despesa (3.2). Idempotente pela chave (3.5).
+ */
+export const faturaPagamentos = pgTable("fatura_pagamento", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  faturaId: uuid("fatura_id")
+    .notNull()
+    .references(() => faturasCartao.id, { onDelete: "cascade" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull(),
+  /** "MM/DD/YYYY" */
+  data: text("data").notNull(),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  cashEntryId: uuid("cash_entry_id").references(() => cashEntries.id, { onDelete: "set null" }),
+  idempotencyKey: text("idempotency_key"),
+  usuarioId: text("usuario_id"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 export const despesaTerceiros = pgTable("despesa_terceiro", {
   id: uuid("id").primaryKey().defaultRandom(),
