@@ -1351,6 +1351,29 @@ export async function getClientes(tenantId: string): Promise<ClienteLista[]> {
     .orderBy(asc(schema.clientes.nomeCompleto));
 }
 
+/**
+ * Compradores para o simulador (Prompt N, BN-3): nome e, SÓ quando a página
+ * confirmou `clientesdados:ver`, a renda do cadastro (líquida; senão bruta).
+ * Sem a permissão a coluna nem é selecionada — a renda não sai do servidor.
+ */
+export async function getClientesParaSimulador(tenantId: string, comRenda: boolean): Promise<{ id: string; nome: string; renda: number | null }[]> {
+  const rows = await db
+    .select({
+      id: schema.clientes.id,
+      nome: schema.clientes.nomeCompleto,
+      ...(comRenda ? { rendaLiquida: schema.clientes.rendaLiquida, rendaBruta: schema.clientes.rendaBruta } : {}),
+    })
+    .from(schema.clientes)
+    .where(eq(schema.clientes.tenantId, tenantId))
+    .orderBy(asc(schema.clientes.nomeCompleto));
+  return rows.map((r) => {
+    const rl = "rendaLiquida" in r ? Number(r.rendaLiquida ?? 0) : 0;
+    const rb = "rendaBruta" in r ? Number(r.rendaBruta ?? 0) : 0;
+    const renda = comRenda ? rl || rb || null : null;
+    return { id: r.id, nome: r.nome, renda };
+  });
+}
+
 /** Texto sem acentos e minúsculo, no SQL — casa com `termosDaBusca`. */
 const semAcentoSql = (col: SQL | AnyColumn) =>
   sql`translate(lower(coalesce(${col}, '')), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn')`;

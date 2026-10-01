@@ -3,7 +3,8 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getInccRows } from "@/lib/queries";
+import { getClientesParaSimulador, getInccTabela } from "@/lib/queries";
+import { mesDaData } from "@/lib/incc-analise";
 import { PageHeader } from "@/components/app/page-header";
 import { SimulatorForm } from "@/components/app/simulator-form";
 import { can } from "@/lib/permissions";
@@ -29,14 +30,23 @@ export default async function SimuladorPage({
     return <PedirProjeto titulo="Simulador de Unidade" projetos={ctx.projects} oQue="simular com o INCC da obra" />;
   }
   const project = selecao.projeto;
-  const incc = await getInccRows(ctx.tenant.id, project.id);
+  const { linhas, variante } = await getInccTabela(ctx.tenant.id, project.id);
+  const incc = linhas.map((l) => ({ m: l.m, mo: l.mo, ac: l.ac, projected: l.projected }));
+  // 2.8 — janela da obra (início/fim) para a evolução; sem ela, premissa rotulada.
+  const inicio = mesDaData(project.startDate);
+  const fim = mesDaData(project.endDate);
+  const janelaObra = inicio && fim ? { inicio, fim } : null;
+  // BN-3 — a renda do cadastro só sai do servidor para quem tem a permissão de
+  // dados sensíveis; para os demais a lista vem sem renda (digitam).
+  const podeVerRenda = can(ctx.perms, "clientesdados", "ver");
+  const clientes = await getClientesParaSimulador(ctx.tenant.id, podeVerRenda);
 
   return (
     <>
       <PageHeader
         eyebrow={project.name}
         title="Simulador de Unidade"
-        subtitle="SAC / PRICE / SBPE · fluxo de 36 meses com correção INCC"
+        subtitle="SAC / PRICE / SBPE · fluxo com tantas linhas quanto parcelas, correção INCC a partir da 5ª · calculadora: nada é gravado"
         actions={
           <ProjectPicker
             projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
@@ -45,7 +55,7 @@ export default async function SimuladorPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
-      <SimulatorForm incc={incc} />
+      <SimulatorForm incc={incc} obra={{ nome: project.name, variante }} janelaObra={janelaObra} clientes={clientes} podeVerRenda={podeVerRenda} />
     </>
   );
 }
