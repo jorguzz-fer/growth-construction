@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  detalheDaConciliacao,
   recusaDeStatusDespesa,
   statusDespesaValido,
   coreDaReplica,
@@ -103,5 +104,28 @@ describe("status da despesa (Prompt S, 3.2)", () => {
     expect(recusaDeStatusDespesa("")).toBeNull();
     expect(recusaDeStatusDespesa(null)).toBeNull();
     expect(recusaDeStatusDespesa("Quitado")).toMatch(/Status inválido: "Quitado"/);
+  });
+});
+
+describe("trava de conciliação — mensagem (Prompt S, 1.2 e 1.3)", () => {
+  const v: VinculosDaDespesa = { parcelasPagas: 0, pagamentos: 0, acertos: 0, restituicoes: 0, caixaConciliado: 1, terceiros: 0, parcelas: 0, documentosFiscais: 0, anexos: 0 };
+  const mov = [{ data: "09/05/2026", valor: -1234.56, descricao: "PIX FORNECEDOR" }];
+  it("1 — diz qual movimento está vinculado e que desfazer vem antes", () => {
+    const m = recusaDeEdicao(v, ["valor"], { movimentos: mov, podeDesfazerConciliacao: true })!;
+    expect(m).toMatch(/09\/05\/2026 · -R\$\s?1\.234,56 · PIX FORNECEDOR/);
+    expect(m).toMatch(/Desfazer a conciliação, no Caixa, vem antes/);
+    expect(m).not.toMatch(/não tem/);
+  });
+  it("2 — descrição, fornecedor, conta e categoria seguem editáveis", () => {
+    expect(recusaDeEdicao(v, ["obs", "fornecedorId", "contaCef", "categoriaDre"], { movimentos: mov })).toBeNull();
+  });
+  it("3 — sem a permissão de desfazer, a mensagem diz com todas as letras", () => {
+    const m = recusaDeEdicao(v, ["competencia"], { movimentos: mov, podeDesfazerConciliacao: false })!;
+    expect(m).toMatch(/exige a permissão de excluir no Caixa, que o seu usuário não tem/);
+  });
+  it("sem caixa conciliado, nada do complemento entra", () => {
+    const semCaixa = { ...v, caixaConciliado: 0, pagamentos: 1 };
+    expect(recusaDeEdicao(semCaixa, ["valor"], { movimentos: mov, podeDesfazerConciliacao: false })).not.toMatch(/extrato/);
+    expect(detalheDaConciliacao(undefined)).toBe("");
   });
 });

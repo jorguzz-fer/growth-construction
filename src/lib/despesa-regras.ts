@@ -95,7 +95,43 @@ export const CAMPOS_TRAVADOS_COM_FATO = ["valor", "status", "competencia", "venc
  * em aberto: o valor não muda (as parcelas deixariam de fechar). Retorna a
  * mensagem de recusa, ou null. `campos` são os campos que o patch altera.
  */
-export function recusaDeEdicao(v: VinculosDaDespesa, campos: readonly string[]): string | null {
+/** Prompt S, 1.2 — o movimento do extrato que a edição descasaria. */
+export interface MovimentoConciliado {
+  data: string | null;
+  valor: number;
+  descricao: string | null;
+}
+
+export interface DetalhesDaRecusa {
+  /** movimentos conciliados (1.2): a mensagem diz qual é. */
+  movimentos?: readonly MovimentoConciliado[];
+  /** 1.3 — o usuário tem a permissão que desfaz a conciliação (`caixa:excluir`)? */
+  podeDesfazerConciliacao?: boolean;
+}
+
+const brlCurto = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+/**
+ * Prompt S, 1.2/1.3 — o complemento da recusa quando há caixa conciliado:
+ * QUAL movimento (data, valor, descrição), que desfazer a conciliação vem
+ * antes, e — com todas as letras — quando o usuário não tem a permissão que
+ * desfaz (não é a mesma de editar despesa).
+ */
+export function detalheDaConciliacao(d: DetalhesDaRecusa | undefined): string {
+  if (!d?.movimentos?.length) return "";
+  const lista = d.movimentos
+    .slice(0, 3)
+    .map((m) => `${m.data ?? "sem data"} · ${brlCurto(m.valor)} · ${m.descricao?.trim() || "sem descrição"}`)
+    .join("; ");
+  const mais = d.movimentos.length > 3 ? ` e mais ${d.movimentos.length - 3}` : "";
+  let txt = ` Movimento do extrato vinculado: ${lista}${mais}. Desfazer a conciliação, no Caixa, vem antes de alterar.`;
+  if (d.podeDesfazerConciliacao === false) {
+    txt += " Desfazer a conciliação exige a permissão de excluir no Caixa, que o seu usuário não tem — peça a quem administra os acessos.";
+  }
+  return txt;
+}
+
+export function recusaDeEdicao(v: VinculosDaDespesa, campos: readonly string[], detalhes?: DetalhesDaRecusa): string | null {
   const motivos: string[] = [];
   if (v.pagamentos) motivos.push(`${v.pagamentos} pagamento(s)`);
   if (v.parcelasPagas) motivos.push(`${v.parcelasPagas} parcela(s) paga(s)`);
@@ -106,7 +142,7 @@ export function recusaDeEdicao(v: VinculosDaDespesa, campos: readonly string[]):
   if (motivos.length) {
     const travados = campos.filter((c) => (CAMPOS_TRAVADOS_COM_FATO as readonly string[]).includes(c));
     if (travados.length) {
-      return `Esta despesa tem ${motivos.join(", ")}: ${travados.join(", ")} não podem ser alterados. Use cancelamento ou estorno.`;
+      return `Esta despesa tem ${motivos.join(", ")}: ${travados.join(", ")} não podem ser alterados. Use cancelamento ou estorno.${v.caixaConciliado ? detalheDaConciliacao(detalhes) : ""}`;
     }
     return null;
   }

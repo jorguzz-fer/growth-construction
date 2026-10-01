@@ -18,7 +18,7 @@ import {
   recusaDeStatusParcela,
   recusaDeValor,
 } from "@/lib/despesa-regras";
-import { inventarioDaDespesa, vinculosDaDespesa, type InventarioDaDespesa } from "@/lib/despesa-vinculos";
+import { inventarioDaDespesa, movimentosConciliados, vinculosDaDespesa, type InventarioDaDespesa } from "@/lib/despesa-vinculos";
 import { principalDoPagamento, recusaDePagamento, statusDaDespesaPorAcumulado } from "@/lib/pagamento-regras";
 import { mensagemColisaoNumDoc, reserveDespesaNumber } from "@/lib/db/numbering";
 import { FORMAS_PAGAMENTO, gerarParcelas } from "@/lib/calc";
@@ -594,7 +594,13 @@ export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Re
   );
   const mudou = Object.keys(changes);
   if (mudou.length > 0) {
-    const erroVinculo = recusaDeEdicao(await vinculosDaDespesa(db, ctx.tenant.id, id), mudou);
+    const vinculos = await vinculosDaDespesa(db, ctx.tenant.id, id);
+    // Prompt S, 1.2/1.3 — com caixa conciliado, a recusa diz QUAL movimento e
+    // se o usuário pode desfazer a conciliação (permissão própria, no Caixa).
+    const detalhes = vinculos.caixaConciliado
+      ? { movimentos: await movimentosConciliados(db, ctx.tenant.id, id), podeDesfazerConciliacao: can(ctx.perms, "caixa", "excluir") }
+      : undefined;
+    const erroVinculo = recusaDeEdicao(vinculos, mudou, detalhes);
     if (erroVinculo) return { ok: false, error: erroVinculo };
   }
   await db.update(schema.despesas).set(set).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));

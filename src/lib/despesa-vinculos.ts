@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import type { VinculosDaDespesa } from "@/lib/despesa-regras";
+import type { MovimentoConciliado, VinculosDaDespesa } from "@/lib/despesa-regras";
 
 type Exec = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -80,4 +80,13 @@ export async function inventarioDaDespesa(exec: Exec, tenantId: string, despesaI
     ? await exec.select({ numDoc: schema.acertos.numDoc }).from(schema.acertos).where(inArray(schema.acertos.id, ids))
     : [];
   return { ...vinculos, totalPago: Number(pago?.total ?? 0), acertosNumDoc: acertos.map((a) => a.numDoc ?? "(sem número)") };
+}
+
+/** Prompt S, 1.2 — os movimentos do extrato conciliados com a despesa. Só leitura. */
+export async function movimentosConciliados(exec: Exec, tenantId: string, despesaId: string): Promise<MovimentoConciliado[]> {
+  const rows = await exec
+    .select({ data: schema.cashEntries.data, valor: schema.cashEntries.valor, descricao: schema.cashEntries.descricao })
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.cashEntries.conciliadoDespesaId, despesaId)));
+  return rows.map((r) => ({ data: r.data, valor: Number(r.valor), descricao: r.descricao }));
 }
