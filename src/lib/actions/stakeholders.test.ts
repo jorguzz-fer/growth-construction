@@ -21,7 +21,7 @@ vi.mock("server-only", () => ({}));
 describe.skipIf(!HAS_DB)("Stakeholders — actions (Prompt W, PR W-1)", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
-  const { addStakeholder, updateStakeholder, setStakeholderAtivo } = await import("./stakeholders");
+  const { addStakeholder, updateStakeholder, setStakeholderAtivo, deleteStakeholder } = await import("./stakeholders");
   const { PAPEIS_STAKEHOLDER } = await import("@/lib/calc/constants");
   let tenantId = "";
   const fd = (campos: Record<string, string | string[]>) => {
@@ -168,6 +168,88 @@ describe.skipIf(!HAS_DB)("Stakeholders — actions (Prompt W, PR W-1)", async ()
     const u = await ultimoLog(id);
     expect(u.action).toBe("stakeholder.update");
     expect(JSON.stringify(u.meta)).not.toContain("123.456.789-09");
+  });
+
+  describe("exclusão (seção 2)", () => {
+    const novo = async (nome: string) => {
+      const r = await addStakeholder(fd({ nome, tipo: "PJ", doc: "20.957.509/0001-34", papeis: ["Construtora"] }));
+      return (r as { id: string }).id;
+    };
+    const excluir = (id: string, confirmacao: string) => deleteStakeholder(fd({ id, confirmacao }));
+    const versao = async () => {
+      const [p] = await db.insert(schema.projects).values({ tenantId, name: "OBRA W2" }).returning();
+      const [v] = await db.insert(schema.versions).values({ tenantId, projectId: p.id, label: "Atual", key: `w2-${Date.now()}-${Math.random()}`, kind: "atual", color: "#000" } as typeof schema.versions.$inferInsert).returning();
+      return v.id;
+    };
+
+    it("1 — obrigação de terceiro impede, e a mensagem diz qual vínculo", async () => {
+      const id = await novo("Pagador");
+      const versionId = await versao();
+      const [d] = await db.insert(schema.despesas).values({ tenantId, versionId, valor: "10" } as typeof schema.despesas.$inferInsert).returning();
+      await db.insert(schema.despesaTerceiros).values({ tenantId, despesaId: d.id, pagadorTerceiroId: id } as typeof schema.despesaTerceiros.$inferInsert);
+      const r = await excluir(id, "Pagador");
+      expect(r.ok).toBe(false);
+      expect((r as { error: string }).error).toMatch(/1 obrigação\(ões\) como pagador por terceiro/);
+      expect(await linha(id)).toBeTruthy();
+    });
+
+    it("2 — recebimento de terceiro, acerto, compensação e documento impedem, cada um nomeado", async () => {
+      const casos: [string, (id: string) => Promise<unknown>, RegExp][] = [
+        ["Recebedor", (id) => db.insert(schema.recebimentosTerceiros).values({ tenantId, recebedorTerceiroId: id } as typeof schema.recebimentosTerceiros.$inferInsert), /1 recebimento\(s\) por terceiro/],
+        ["Favorecido", (id) => db.insert(schema.acertos).values({ tenantId, favorecidoId: id } as typeof schema.acertos.$inferInsert), /1 acerto\(s\) como favorecido/],
+        ["Compensado", (id) => db.insert(schema.compensacoes).values({ tenantId, terceiroId: id } as typeof schema.compensacoes.$inferInsert), /1 compensação\(ões\)/],
+        ["Com Arquivo", (id) => db.insert(schema.documents).values({ tenantId, stakeholderId: id, storageKey: "k", filename: "f.pdf" }), /1 documento\(s\) anexado\(s\)/],
+      ];
+      for (const [nome, seed, esperado] of casos) {
+        const id = await novo(nome);
+        await seed(id);
+        const r = await excluir(id, nome);
+        expect(r.ok).toBe(false);
+        expect((r as { error: string }).error).toMatch(esperado);
+        expect(await linha(id)).toBeTruthy();
+      }
+      // despesa como fornecedor (a única que já era checada) continua impedindo
+      const id = await novo("Fornecedor");
+      const versionId = await versao();
+      await db.insert(schema.despesas).values({ tenantId, versionId, valor: "10", fornecedorId: id } as typeof schema.despesas.$inferInsert);
+      expect((await excluir(id, "Fornecedor") as { error: string }).error).toMatch(/1 despesa\(s\) como fornecedor/);
+    });
+
+    it("3 — sem nenhum vínculo continua excluível", async () => {
+      const id = await novo("Livre");
+      expect(await excluir(id, "Livre")).toEqual({ ok: true, id, avisos: [] });
+      expect(await linha(id)).toBeUndefined();
+    });
+
+    it("4 — exige o nome digitado (sem diferenciar caixa e acento), e nada apaga sem ele", async () => {
+      const id = await novo("João Ltda");
+      expect((await excluir(id, "")).ok).toBe(false);
+      expect((await excluir(id, "Joao")).ok).toBe(false);
+      expect(await linha(id)).toBeTruthy();
+      expect((await excluir(id, "joao ltda")).ok).toBe(true);
+    });
+
+    it("5 — a auditoria da exclusão tem nome, documento mascarado, papéis e as contagens", async () => {
+      const id = await novo("Auditado");
+      await excluir(id, "Auditado");
+      const l = await ultimoLog(id);
+      expect(l.action).toBe("stakeholder.delete");
+      const meta = l.meta as { nome: string; doc: string; papeis: string[]; vinculos: Record<string, number> };
+      expect(meta.nome).toBe("Auditado");
+      expect(meta.doc).toBe("••.957.509/••••-••");
+      expect(meta.papeis).toEqual(["Construtora"]);
+      expect(meta.vinculos).toEqual({ despesas: 0, obrigacoesTerceiro: 0, recebimentosTerceiro: 0, acertos: 0, compensacoes: 0, documentos: 0 });
+      expect(JSON.stringify(meta)).not.toContain("20.957.509/0001-34");
+    });
+
+    it("sem permissão de excluir devolve { ok: false }", async () => {
+      const id = await novo("Protegido");
+      const salvo = ctxRef.current;
+      ctxRef.current = { ...(salvo as object), role: "membro", perms: defaultPermissions("membro" as "owner") };
+      expect((await excluir(id, "Protegido")).ok).toBe(false);
+      ctxRef.current = salvo;
+      expect(await linha(id)).toBeTruthy();
+    });
   });
 
   it("setStakeholderAtivo devolve ok e audita deactivate/reactivate", async () => {
