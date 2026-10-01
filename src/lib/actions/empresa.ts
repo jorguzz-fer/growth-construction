@@ -18,41 +18,39 @@ import {
   normalizarCodigoMunicipio,
 } from "@/lib/calc/emitente-fiscal";
 import { ehAmbienteFiscal } from "@/lib/fiscal/tipos";
+import { recusaDoCadastroFiscal, recusaDoNome, TELA_EMPRESA } from "@/lib/empresa-regras";
+
+/**
+ * Prompt AH, 2.4: as três actions devolvem `{ ok, error }` com o campo e o
+ * porquê — exceção de Server Action chega sem mensagem em produção.
+ */
+export type ResultadoEmpresa = { ok: true } | { ok: false; error: string };
+
+const SEM_SESSAO = "Sessão expirada. Entre de novo.";
 
 /** Faz upload do logo da empresa para o R2 e salva a chave no tenant. */
-export async function uploadLogo(formData: FormData) {
+export async function uploadLogo(formData: FormData): Promise<ResultadoEmpresa> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "empresa", "editar")) {
-    throw new Error("Sem permissão.");
-  }
-  if (!isR2Configured()) {
-    throw new Error(
-      "Storage (Cloudflare R2) não configurado — defina as variáveis R2_*.",
-    );
-  }
-  const file = formData.get("logo") as File | null;
-  if (!file || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > 2 * 1024 * 1024) throw new Error("Logo deve ter até 2 MB.");
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, TELA_EMPRESA, "editar")) return { ok: false, error: "Sem permissão para alterar o logo." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (Cloudflare R2) não configurado — defina as variáveis R2_*." };
+  const file = formData.get("logo");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Selecione um arquivo de imagem." };
+  if (file.size > 2 * 1024 * 1024) return { ok: false, error: "Logo deve ter até 2 MB." };
 
   const ext = (file.name.split(".").pop() || "png").toLowerCase();
   const key = `tenants/${ctx.tenant.id}/logo.${ext}`;
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  await putObject(key, bytes, file.type || "image/png");
+  try {
+    await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "image/png");
+  } catch (e) {
+    console.error("[empresa] falha ao enviar o logo:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao enviar o logo." };
+  }
 
-  await db
-    .update(schema.tenants)
-    .set({ logoKey: key })
-    .where(eq(schema.tenants.id, ctx.tenant.id));
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "tenant.logo",
-    entity: "tenant",
-    entityId: ctx.tenant.id,
-    meta: { key },
-  });
+  await db.update(schema.tenants).set({ logoKey: key }).where(eq(schema.tenants.id, ctx.tenant.id));
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.logo", entity: "tenant", entityId: ctx.tenant.id, meta: { key } });
   revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 /**
@@ -63,15 +61,17 @@ export async function uploadLogo(formData: FormData) {
  * completo faria o usuário perder o que já digitou. Quem diz se dá para emitir
  * é `checarProntidaoFiscal`, na tela.
  *
- * O único campo recusado é o CNPJ com dígito verificador errado: gravar CNPJ
- * inválido só adia a rejeição para o momento da emissão, quando o erro custa
- * mais caro.
+ * O que é recusado é só o objetivamente inválido quando PREENCHIDO: CNPJ com
+ * dígito errado, alíquota fora de 0–5 e — Prompt AH, Parte 2 — CEP sem 8
+ * dígitos, código IBGE sem 7 dígitos e UF fora das 27 siglas (os mesmos
+ * validadores do checklist; a tela chama esses campos de bloqueio e o
+ * servidor passa a concordar). Vazio continua passando. Nenhum valor já
+ * gravado é normalizado ou corrigido por aqui (2.5).
  */
-export async function salvarDadosFiscais(formData: FormData) {
+export async function salvarDadosFiscais(formData: FormData): Promise<ResultadoEmpresa> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "empresa", "editar")) {
-    throw new Error("Sem permissão para editar os dados fiscais.");
-  }
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, TELA_EMPRESA, "editar")) return { ok: false, error: "Sem permissão para editar os dados fiscais." };
 
   const t = (campo: string) => {
     const v = formData.get(campo);
@@ -79,15 +79,17 @@ export async function salvarDadosFiscais(formData: FormData) {
   };
 
   const cnpj = normalizarCnpj(t("cnpj"));
-  if (cnpj && !cnpjValido(cnpj)) {
-    throw new Error("CNPJ inválido — confira os dígitos verificadores.");
-  }
+  if (cnpj && !cnpjValido(cnpj)) return { ok: false, error: "CNPJ: os dígitos verificadores não conferem — revise o número." };
 
   const aliquotaTexto = t("aliquotaIss")?.replace(",", ".");
-  const aliquota = aliquotaTexto === null ? null : Number(aliquotaTexto);
-  if (aliquota !== null && !aliquotaIssValida(aliquota)) {
-    throw new Error("A alíquota de ISS deve estar entre 0 e 5%.");
-  }
+  const aliquota = aliquotaTexto === null || aliquotaTexto === undefined ? null : Number(aliquotaTexto);
+  if (aliquota !== null && !aliquotaIssValida(aliquota)) return { ok: false, error: "Alíquota de ISS: deve estar entre 0 e 5% (teto constitucional)." };
+
+  const cep = normalizarCep(t("cep"));
+  const codigoMunicipio = normalizarCodigoMunicipio(t("codigoMunicipio"));
+  const uf = t("uf")?.toUpperCase() ?? null;
+  const recusa = recusaDoCadastroFiscal({ cep, codigoMunicipio, uf });
+  if (recusa) return { ok: false, error: recusa };
 
   const ambiente = t("fiscalAmbiente");
   const valores = {
@@ -95,9 +97,7 @@ export async function salvarDadosFiscais(formData: FormData) {
     cnpj,
     inscricaoMunicipal: t("inscricaoMunicipal"),
     inscricaoEstadual: t("inscricaoEstadual"),
-    regimeTributario: ehRegimeTributario(t("regimeTributario"))
-      ? t("regimeTributario")
-      : null,
+    regimeTributario: ehRegimeTributario(t("regimeTributario")) ? t("regimeTributario") : null,
     regimeEspecial: ehRegimeEspecial(t("regimeEspecial")) ? t("regimeEspecial") : null,
     itemListaServico: t("itemListaServico"),
     codigoTributarioMunicipio: t("codigoTributarioMunicipio"),
@@ -107,53 +107,48 @@ export async function salvarDadosFiscais(formData: FormData) {
     numeroEndereco: t("numeroEndereco"),
     complemento: t("complemento"),
     bairro: t("bairro"),
-    codigoMunicipio: normalizarCodigoMunicipio(t("codigoMunicipio")),
+    codigoMunicipio,
     municipio: t("municipio"),
-    uf: t("uf")?.toUpperCase() ?? null,
-    cep: normalizarCep(t("cep")),
+    uf,
+    cep,
     telefone: t("telefone"),
     emailFiscal: t("emailFiscal"),
     fiscalAmbiente: ehAmbienteFiscal(ambiente) ? ambiente : "homologacao",
   };
 
-  const [antes] = await db
-    .select()
-    .from(schema.tenants)
-    .where(eq(schema.tenants.id, ctx.tenant.id))
-    .limit(1);
-
+  const [antes] = await db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenant.id)).limit(1);
   const changes = diffAudit(antes as unknown as Record<string, unknown>, valores);
 
-  await db
-    .update(schema.tenants)
-    .set(valores)
-    .where(eq(schema.tenants.id, ctx.tenant.id));
+  await db.update(schema.tenants).set(valores).where(eq(schema.tenants.id, ctx.tenant.id));
 
   // Diff vazio não gera linha de log (AK, Parte 2). O cadastro fiscal é longo e
   // costuma ser revisitado só para conferir; registrar cada visita produziria
   // uma trilha de "tenant.fiscal" vazios em volta da alteração que importa. O
   // `update` continua rodando — ver a justificativa em `updateDespesa`.
   if (houveMudanca(changes)) {
-    await logAudit({
-      tenantId: ctx.tenant.id,
-      userId: ctx.userId,
-      action: "tenant.fiscal",
-      entity: "tenant",
-      entityId: ctx.tenant.id,
-      meta: { changes },
-    });
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.fiscal", entity: "tenant", entityId: ctx.tenant.id, meta: { changes } });
   }
   revalidatePath("/empresa");
+  return { ok: true };
 }
 
-export async function renameTenant(formData: FormData) {
+/**
+ * Prompt AH, Parte 3: a razão social vai no corpo da nota — trocá-la deixa
+ * rastro (`de`/`para`, como o cadastro fiscal) e a recusa é dita, não muda.
+ */
+export async function renameTenant(formData: FormData): Promise<ResultadoEmpresa> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "empresa", "editar")) return;
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, TELA_EMPRESA, "editar")) return { ok: false, error: "Sem permissão para alterar o nome da empresa." };
   const name = ((formData.get("name") as string) || "").trim();
-  if (!name) return;
-  await db
-    .update(schema.tenants)
-    .set({ name })
-    .where(eq(schema.tenants.id, ctx.tenant.id));
+  const recusa = recusaDoNome(name);
+  if (recusa) return { ok: false, error: recusa };
+  const [antes] = await db.select({ name: schema.tenants.name }).from(schema.tenants).where(eq(schema.tenants.id, ctx.tenant.id)).limit(1);
+  if (!antes) return { ok: false, error: "Empresa não encontrada." };
+  const changes = diffAudit({ name: antes.name }, { name });
+  if (!houveMudanca(changes)) return { ok: true };
+  await db.update(schema.tenants).set({ name }).where(eq(schema.tenants.id, ctx.tenant.id));
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.rename", entity: "tenant", entityId: ctx.tenant.id, meta: { changes } });
   revalidatePath("/", "layout");
+  return { ok: true };
 }

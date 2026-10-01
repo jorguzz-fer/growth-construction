@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getTenantContext } from "@/lib/context";
 import { isR2Configured, putObject, readUrl } from "@/lib/storage/r2";
+import { logAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -46,15 +47,21 @@ export async function GET() {
     );
   }
 
-  // key temporária no bucket; ignora Math.random (indisponível) usando ctx.
-  const key = `_healthcheck/${ctx.tenant.id}-${key6(ctx.tenant.id)}.txt`;
+  // key temporária no bucket: hash estável do tenant + sufixo por tentativa
+  // (Prompt AH, 5.4 — dois testes simultâneos do mesmo tenant não colidem).
+  const key = `_healthcheck/${ctx.tenant.id}-${key6(ctx.tenant.id)}-${Date.now().toString(36)}${key6(String(process.hrtime.bigint()))}.txt`;
   const body = Buffer.from("growth-tools r2 healthcheck", "utf8");
+  // Prompt AH, 5.2 — o resultado do teste REAL fica registrado (data + etapa)
+  // para a tela mostrar ao lado do selo; o selo só fica verde depois disto.
+  const registrar = (ok: boolean, stage?: string) =>
+    logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.r2.health", entity: "tenant", entityId: ctx.tenant.id, meta: { ok, stage: stage ?? null } }).catch(() => {});
 
   try {
     await putObject(key, body, "text/plain");
     steps.put = "ok";
   } catch (e) {
     steps.put = "falhou";
+    await registrar(false, "put");
     return NextResponse.json(
       { ok: false, configured: true, stage: "put", error: msg(e), steps, env },
       { status: 502 },
@@ -71,6 +78,7 @@ export async function GET() {
   } catch (e) {
     steps.get = "falhou";
     await tryDelete(key);
+    await registrar(false, "get");
     return NextResponse.json(
       { ok: false, configured: true, stage: "get", error: msg(e), steps, env },
       { status: 502 },
@@ -78,6 +86,7 @@ export async function GET() {
   }
 
   await tryDelete(key, steps);
+  await registrar(true);
 
   return NextResponse.json({ ok: true, configured: true, steps, env });
 }

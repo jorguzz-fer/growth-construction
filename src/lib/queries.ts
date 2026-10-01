@@ -3000,6 +3000,19 @@ export async function getAllTenantsOverview(): Promise<TenantOverview[]> {
 
 export type AuditRow = typeof schema.auditLog.$inferSelect;
 
+/** Prompt AH, 5.2 — último teste REAL do R2 (gravado por /api/health/r2), para o selo da tela Empresa. */
+export async function getUltimoTesteR2(tenantId: string): Promise<{ ok: boolean; quando: Date; etapa: string | null } | null> {
+  const [row] = await db
+    .select({ meta: schema.auditLog.meta, createdAt: schema.auditLog.createdAt })
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "tenant.r2.health")))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(1);
+  if (!row) return null;
+  const meta = (row.meta ?? {}) as { ok?: boolean; stage?: string | null };
+  return { ok: meta.ok === true, quando: row.createdAt, etapa: meta.stage ?? null };
+}
+
 export async function getAuditLog(
   tenantId: string,
   limit = 20,
