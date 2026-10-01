@@ -4,6 +4,8 @@ import type { Version } from "@/lib/context";
 export interface Summary {
   version: Version;
   vgv: number;
+  /** Prompt AA, 4.5 (chave): a obra não tem Atual, então não há VGV — não é zero. */
+  vgvAusente?: boolean;
   realizado: number;
   receitaProj: number;
   aReceber: number;
@@ -34,6 +36,7 @@ export function somarResumos(kind: string, resumos: Summary[]): Summary | null {
     // já mostrava; o id marca que a coluna é a soma.
     version: { ...resumos[0].version, id: `consolidado-${kind}`, kind: kind as Version["kind"] },
     vgv: soma((s) => s.vgv),
+    ...(resumos.every((s) => s.vgvAusente) ? { vgvAusente: true } : {}),
     realizado: soma((s) => s.realizado),
     receitaProj: soma((s) => s.receitaProj),
     aReceber: soma((s) => s.aReceber),

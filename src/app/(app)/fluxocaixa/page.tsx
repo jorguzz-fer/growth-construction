@@ -20,7 +20,7 @@ import {
   getInccRows,
   sortMonthKey,
 } from "@/lib/queries";
-import { brl0, brlk, monthInRange, pct1 } from "@/lib/utils";
+import { brl0, brlk, dateBR, monthInRange, pct1 } from "@/lib/utils";
 import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -324,7 +324,8 @@ export default async function FluxoCaixaPage({
       if (sem) avisoDoRealizado = `${sem} obra(s) sem versão Atual ficam fora do realizado que o assistente lê.`;
     }
   }
-  const dataBR = (d: string) => (d ? d.split("-").reverse().join("/") : "");
+  // `de`/`ate` vêm do filtro no formato interno MM/DD/YYYY.
+  const dataBR = (d: string) => (d ? dateBR(d) : "");
   const analise = analisarFluxo({
     periodo: hasRange ? `${de ? `de ${dataBR(de)}` : "do início"} ${ate ? `a ${dataBR(ate)}` : "em diante"}` : String(selectedYear),
     origemDoPeriodo: hasRange ? "intervalo de datas" : "ano escolhido",

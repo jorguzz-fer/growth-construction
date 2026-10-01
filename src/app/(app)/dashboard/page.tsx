@@ -7,6 +7,7 @@ import { chaveLigada } from "@/lib/chaves-tenant";
 import { somarResumos, type Summary } from "@/lib/dashboard-resumo";
 import {
   DEFINICAO_DO_KPI,
+  DEFINICAO_NOVA_DO_KPI,
   MAX_VERSOES_DASHBOARD,
   ROTULO_DA_NATUREZA,
   rotuloDaVersao,
@@ -50,10 +51,18 @@ async function versionSummary(
   version: Version,
   de: string,
   ate: string,
+  /**
+   * Prompt AA — chave "dashboard_definicao_nova". Ligada: o VGV vem da versão
+   * ATUAL da obra em toda coluna (4.5: unidade é fato da obra, não cenário) e
+   * "A receber" do planejamento deixa de esconder o negativo (4.2).
+   */
+  opts: { definicaoNova?: boolean; atualId?: string | null } = {},
 ): Promise<Summary> {
   const hasRange = !!(de || ate);
+  const nova = !!opts.definicaoNova;
+  const idDoVgv = nova ? opts.atualId ?? null : version.id;
   const [unitRows, revenueAll, cashRows] = await Promise.all([
-    getUnits(version.tenantId, version.id),
+    idDoVgv ? getUnits(version.tenantId, idDoVgv) : Promise.resolve([]),
     getMonthlyRevenue(version.id, projectId),
     db
       .select({ valor: schema.cashEntries.valor, data: schema.cashEntries.data })
@@ -83,9 +92,10 @@ async function versionSummary(
   return {
     version,
     vgv: unitRows.reduce((a, u) => a + Number(u.valor), 0),
+    vgvAusente: nova && !idDoVgv,
     realizado,
     receitaProj,
-    aReceber: Math.max(0, receitaProj - realizado),
+    aReceber: nova ? receitaProj - realizado : Math.max(0, receitaProj - realizado),
     aPagar: 0,
     monthly: revenue,
     realizadoMonthly,
@@ -107,6 +117,8 @@ export default async function DashboardPage({
   if (!can(ctx.perms, "dashboard", "ver")) return <AccessDenied />;
   // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
   const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
+  // Prompt AA, 10.2 — a definição nova do Dashboard (nasce desligada).
+  const dashNovo = await chaveLigada(ctx.tenant.id, "dashboard_definicao_nova");
 
   const sp = await searchParams;
   const de = sp.de ?? "";
@@ -142,7 +154,8 @@ export default async function DashboardPage({
   // Consolidado: em quantas obras cada coluna é feita (1.6 / cobertura).
   const obrasPorTipo: Record<string, number> = {};
   if (project) {
-    summaries = await Promise.all(selected.map((v) => versionSummary(project.id, v, de, ate)));
+    const atualId = versoes.find((v) => v.kind === "atual")?.id ?? null;
+    summaries = await Promise.all(selected.map((v) => versionSummary(project.id, v, de, ate, { definicaoNova: dashNovo, atualId })));
   } else {
     const versoesPorObra = await Promise.all(
       projetosDaTela.map(async (p) => ({ p, vs: await getVersionsDoProjeto(ctx.tenant.id, p.id) })),
@@ -154,7 +167,8 @@ export default async function DashboardPage({
           versoesPorObra.flatMap(({ p, vs }) => {
             // A mais antiga do tipo, como nas demais telas.
             const v = vs.find((x) => x.kind === kind);
-            return v ? [versionSummary(p.id, v, de, ate)] : [];
+            const atualId = vs.find((x) => x.kind === "atual")?.id ?? null;
+            return v ? [versionSummary(p.id, v, de, ate, { definicaoNova: dashNovo, atualId })] : [];
           }),
         );
         return somarResumos(kind, resumos);
@@ -167,11 +181,13 @@ export default async function DashboardPage({
     ? await getIndicadoresObraConsolidado(
         ctx.tenant.id,
         projetosDaTela.map((p) => p.id),
+        { definicaoNova: dashNovo },
       )
-    : await getIndicadoresObra(ctx.tenant.id, project!.id);
+    : await getIndicadoresObra(ctx.tenant.id, project!.id, { definicaoNova: dashNovo });
   const statusProjeto = await getStatusProjeto(
     ctx.tenant.id,
     projetosDaTela.map((p) => p.id),
+    dashNovo ? { definicaoNova: true, de, ate } : {},
   );
 
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
@@ -221,9 +237,14 @@ export default async function DashboardPage({
   }
 
   const kpis = [
-    { icon: "🏢", label: "VGV total", def: DEFINICAO_DO_KPI.vgv, get: (s: Summary) => brlk(s.vgv) },
+    { icon: "🏢", label: "VGV total", def: dashNovo ? DEFINICAO_NOVA_DO_KPI.vgv : DEFINICAO_DO_KPI.vgv, get: (s: Summary) => (s.vgvAusente ? "—" : brlk(s.vgv)) },
     { icon: "↗", label: "Realizado acum.", def: DEFINICAO_DO_KPI.realizado, get: (s: Summary) => brlk(s.realizado) },
-    { icon: "⏱", label: "A receber", def: DEFINICAO_DO_KPI.aReceber, get: (s: Summary) => brlk(s.aReceber) },
+    {
+      icon: "⏱",
+      label: "A receber",
+      def: dashNovo ? DEFINICAO_NOVA_DO_KPI.aReceber : DEFINICAO_DO_KPI.aReceber,
+      get: (s: Summary) => (s.aReceber < 0 ? `−${brlk(-s.aReceber)}` : brlk(s.aReceber)),
+    },
     {
       icon: "⬇",
       label: "A pagar",
@@ -369,7 +390,7 @@ export default async function DashboardPage({
 
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />
-      <IndicadoresObraPanel ind={indicadores} />
+      <IndicadoresObraPanel ind={indicadores} definicaoNova={dashNovo} />
       </>
       )}
     </>

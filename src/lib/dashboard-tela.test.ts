@@ -58,7 +58,7 @@ describe("1.4 — a quarta é informada, não trocada", () => {
 
 describe("1.6 — o cabeçalho declara o recorte", () => {
   it("projeto, versões e período", () => {
-    expect(textoDoRecorte({ projetos: 1, nomeDoProjeto: "OBRA", versoes: ["Atual (“A”)"], de: "2026-01-01", ate: "2026-06-30" })).toBe(
+    expect(textoDoRecorte({ projetos: 1, nomeDoProjeto: "OBRA", versoes: ["Atual (“A”)"], de: "01/01/2026", ate: "06/30/2026" })).toBe(
       "Projeto OBRA · versões: Atual (“A”) · período de 01/01/2026 a 30/06/2026",
     );
     expect(textoDoRecorte({ projetos: 3, versoes: [], de: "", ate: "" })).toBe("3 projeto(s) somado(s) · nenhuma versão · todo o período");
