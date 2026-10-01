@@ -102,6 +102,10 @@ export interface PlanningAccountRow {
   ativo: boolean;
   /** existe como grupo no Plano de Contas atual (false = linha legada). */
   fromChart: boolean;
+  /** linha fixa "Receitas do Projeto" (Prompt D, 3): total do cadastro, não removível. */
+  fixa?: boolean;
+  /** só na fixa: o cadastro do projeto não tem valor de receita (3.5). */
+  semTotalNoCadastro?: boolean;
 }
 
 export interface PlanningVersion {
@@ -122,7 +126,11 @@ export interface BudgetPlanningData {
     mesFinal: string | null;
     /** indicador "Recursos próprios" (valor do cadastro; 0 se não informado). */
     recursosProprios: number;
+    /** BD-1: entrada financeira da construtora (total de "Receitas do Projeto"); null = falta preencher. */
+    receitaDoCadastro: number | null;
   };
+  /** BD-6: há seleção de linhas gravada para cada bloco? (false = padrão) */
+  selecao: { receita: boolean; despesa: boolean };
   /** true quando o período está definido no cadastro do projeto. */
   hasPeriod: boolean;
   months: string[];

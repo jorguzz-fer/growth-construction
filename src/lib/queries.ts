@@ -14,6 +14,7 @@ import {
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
 import { naturezaDoGrupo } from "./natureza-grupo";
+import { linhasDoBloco, totalReceitasDoProjeto, type GrupoDoPlano } from "./orcamento-regras";
 import {
   calcBdi,
   calcEvolucao,
@@ -1448,7 +1449,6 @@ export async function getBudgetPlanning(
   wantedVersionId?: string | null,
 ): Promise<import("./planning").BudgetPlanningData> {
   const { projectPeriodMonths, monthKeyOfInternalDate } = await import("./planning");
-  const { defaultDreCategory } = await import("./budget/config");
 
   const [project] = await db
     .select()
@@ -1496,7 +1496,9 @@ export async function getBudgetPlanning(
       mesInicial: startMk,
       mesFinal: endMk,
       recursosProprios: Number(project?.recursosProprios ?? 0) || 0,
+      receitaDoCadastro: project ? totalReceitasDoProjeto(project) : null,
     },
+    selecao: { receita: false, despesa: false },
     hasPeriod: months.length > 0,
     months,
     versions,
@@ -1508,14 +1510,7 @@ export async function getBudgetPlanning(
 
   // Grupos do Plano de Contas (natureza derivada dos subitens; ativo = algum ativo).
   const accounts = await getChartAccounts(tenantId);
-  interface Grp {
-    groupCode: string;
-    groupName: string;
-    kind: "cef" | "complementar";
-    natureza: "receita" | "despesa";
-    ativo: boolean;
-  }
-  const grpMap = new Map<string, Grp>();
+  const grpMap = new Map<string, GrupoDoPlano>();
   for (const a of accounts) {
     const g = grpMap.get(a.groupCode);
     const nat = a.natureza === "receita" ? "receita" : "despesa";
@@ -1544,8 +1539,9 @@ export async function getBudgetPlanning(
   }
   const grupos = [...grpMap.values()];
 
-  // Totais por conta (budget_account) e pct por mês (budget_line) da versão.
-  const [accRows, lineRows] = await Promise.all([
+  // Totais por conta (budget_account), pct por mês (budget_line) e a seleção
+  // de linhas (budget_selecao, Prompt D BD-6) da versão.
+  const [accRows, lineRows, selRows] = await Promise.all([
     db
       .select()
       .from(schema.budgetAccounts)
@@ -1554,13 +1550,12 @@ export async function getBudgetPlanning(
       .select()
       .from(schema.budgetLines)
       .where(eq(schema.budgetLines.versionId, selected.id)),
+    db
+      .select()
+      .from(schema.budgetSelecoes)
+      .where(and(eq(schema.budgetSelecoes.tenantId, tenantId), eq(schema.budgetSelecoes.versionId, selected.id)))
+      .orderBy(asc(schema.budgetSelecoes.ordem), asc(schema.budgetSelecoes.createdAt)),
   ]);
-  const totalOf = new Map<string, number>(); // `${kind}|${rowKey}` -> total
-  const dreOf = new Map<string, string | null>();
-  for (const a of accRows) {
-    totalOf.set(`${a.kind}|${a.rowKey}`, Number(a.total));
-    dreOf.set(`${a.kind}|${a.rowKey}`, a.dreCategory);
-  }
   const pctOf = new Map<string, Record<string, number>>(); // key -> {mes: pct}
   for (const l of lineRows) {
     const key = `${l.kind}|${l.rowKey}`;
@@ -1569,57 +1564,28 @@ export async function getBudgetPlanning(
     pctOf.set(key, bag);
   }
 
-  const build = (nat: "receita" | "despesa"): import("./planning").PlanningAccountRow[] => {
-    const rows: import("./planning").PlanningAccountRow[] = [];
-    const seen = new Set<string>();
-    const ativos = grupos.filter((x) => x.ativo);
-    let daNatureza = ativos.filter((x) => x.natureza === nat);
-    // O Plano de Contas é ÚNICO e vale para todos os projetos. A coluna
-    // `natureza` tem default "despesa", então em geral nenhuma conta está
-    // marcada como receita — e o bloco de receitas do Budget/Forecast ficava
-    // sem nenhuma linha para lançar.
-    //
-    // Quando não há nenhum grupo marcado como receita, usam-se os grupos que já
-    // existem no Plano de Contas, em vez de exigir a criação de contas novas.
-    // Se o usuário marcar contas como receita no Plano de Contas, essa marcação
-    // passa a valer e só elas aparecem aqui.
-    if (nat === "receita" && daNatureza.length === 0) {
-      daNatureza = ativos;
-    }
-    // Grupos ativos da natureza (fonte oficial das linhas).
-    for (const g of daNatureza) {
-      const key = `${nat}|${g.groupCode}`;
-      seen.add(g.groupCode);
-      rows.push({
-        rowKey: g.groupCode,
-        label: g.groupName,
-        dreCategory:
-          nat === "receita" ? "Receita" : dreOf.get(key) ?? defaultDreCategory(g.kind),
-        total: totalOf.get(key) ?? 0,
-        pct: pctOf.get(key) ?? {},
-        ativo: true,
-        fromChart: true,
-      });
-    }
-    // Linhas legadas: chaves com dados que não correspondem a um grupo ativo.
-    for (const a of accRows.filter((x) => x.kind === nat)) {
-      if (seen.has(a.rowKey)) continue;
-      seen.add(a.rowKey);
-      rows.push({
-        rowKey: a.rowKey,
-        label: a.rowKey,
-        dreCategory: a.dreCategory ?? (nat === "receita" ? "Receita" : null),
-        total: Number(a.total),
-        pct: pctOf.get(`${nat}|${a.rowKey}`) ?? {},
-        ativo: false,
-        fromChart: false,
-      });
-    }
-    return rows;
+  // Linhas do bloco (Prompt D): fixa "Receitas do Projeto" + grupos ativos da
+  // natureza (todos, ou só os selecionados) + tudo o que tem dado gravado. O
+  // fallback antigo ("sem grupo de receita, todos viram receita") saiu: a
+  // linha fixa garante que o bloco de receitas nunca fica vazio (BD-5).
+  const selecaoDe = (nat: "receita" | "despesa"): string[] | null => {
+    const chaves = selRows.filter((r) => r.kind === nat).map((r) => r.rowKey);
+    return chaves.length > 0 ? chaves : null;
   };
+  const contas = accRows.map((a) => ({ kind: a.kind, rowKey: a.rowKey, dreCategory: a.dreCategory, total: Number(a.total) }));
+  const build = (nat: "receita" | "despesa") =>
+    linhasDoBloco({
+      nat,
+      grupos,
+      selecao: selecaoDe(nat),
+      contas,
+      pctDe: (kind, rowKey) => pctOf.get(`${kind}|${rowKey}`) ?? {},
+      totalDoCadastro: totalReceitasDoProjeto(project),
+    });
 
   return {
     ...emptyData,
+    selecao: { receita: selecaoDe("receita") != null, despesa: selecaoDe("despesa") != null },
     receitas: build("receita"),
     despesas: build("despesa"),
   };

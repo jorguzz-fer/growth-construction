@@ -1706,6 +1706,33 @@ export const budgetAccounts = pgTable(
 );
 
 /**
+ * Seleção de linhas da grade de Orçamentos/Previsão (Prompt D, BD-6): quais
+ * grupos do Plano de Contas fazem parte daquele bloco daquela versão. Sem
+ * registro para (versão, bloco) = padrão (todos os grupos ativos da natureza),
+ * exatamente como antes da tabela existir. A Previsão herda a seleção do
+ * Orçamento de origem na criação (BD-7). Migração 0063.
+ */
+export const budgetSelecoes = pgTable(
+  "budget_selecao",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    /** "receita" | "despesa". */
+    kind: text("kind").notNull(),
+    /** código do grupo do Plano de Contas. */
+    rowKey: text("row_key").notNull(),
+    ordem: integer("ordem").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [unique("budget_selecao_uq").on(t.versionId, t.kind, t.rowKey)],
+);
+
+/**
  * Fechamento operacional diário (Balanço do Dia). Persiste o resultado do
  * fechamento de caixa de um dia (por obra ou consolidado).
  */
