@@ -6,6 +6,8 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import {
+  getContasPagar,
+  getContasReceber,
   getMonthlyRevenue,
   getPermutas,
   getReembolsos,
@@ -16,9 +18,15 @@ import {
   toCalcUnit,
 } from "@/lib/queries";
 import { calcTotals, permutaCashByMonth } from "@/lib/calc";
+import Link from "next/link";
+import { and, count, eq, isNull, or } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { BLOCOS_PENDENTES, STATUS_DE_UNIDADE, blocoAtencao, blocoExposicao, blocoVendas, temPlanoDePagamento } from "@/lib/resumo-blocos";
+import { ehVersaoAtual, pendenteDaConta } from "@/lib/contas-pagar-regras";
+import { estaVencida } from "@/lib/despesa-status";
 import { TEXTO_DA_BASE, indicadoresDoResumo, type IndicadorDoResumo } from "@/lib/resumo-tela";
 import { rotuloDaVersao } from "@/lib/dashboard-tela";
-import { brl0, dateBR, monthInRange } from "@/lib/utils";
+import { brl0, dateBR, monthInRange, ymd } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +47,7 @@ export const dynamic = "force-dynamic";
 /** Indicadores gerais (valores contratados) de uma versão. */
 async function versionIndicadores(
   version: Version,
+  definicaoNova = false,
 ): Promise<IndicadorDoResumo[]> {
   const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(version.tenantId, version.id),
@@ -48,9 +57,15 @@ async function versionIndicadores(
   const totals = calcTotals(
     unitRows.map(toCalcUnit),
     permToCalc(permRows),
-    reembToCalc(reembRows),
+    liberacoesComStatus(reembRows),
+    { definicaoNova },
   );
-  return indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length });
+  return indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length, definicaoNova });
+}
+
+/** As liberações com o status, que `calcTotals` só lê com a chave (2.7). */
+function liberacoesComStatus(rows: Parameters<typeof reembToCalc>[0]) {
+  return reembToCalc(rows).map((r, i) => ({ ...r, status: rows[i].status ?? null }));
 }
 
 export default async function ResumoPage({
@@ -66,6 +81,8 @@ export default async function ResumoPage({
   if (!can(ctx.perms, "resumo", "ver")) return <AccessDenied />;
   // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
   const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
+  // Prompt AE, seção 6 — a definição nova do Resumo (nasce desligada).
+  const resumoNovo = await chaveLigada(ctx.tenant.id, "resumo_definicao_nova");
 
   // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
   // escolhida ou a tela pede a escolha — nunca a obra do cookie. Relatório de
@@ -125,7 +142,7 @@ export default async function ResumoPage({
 
   // ─────────────────────── Modo comparação (2–3 versões) ───────────────────
   if (multi) {
-    const perVersion = await Promise.all(compareVersions.map(versionIndicadores));
+    const perVersion = await Promise.all(compareVersions.map((v) => versionIndicadores(v, resumoNovo)));
     const labels = perVersion[0].map((i) => i.label);
     const rows: CompareRow[] = labels.map((label, ri) => ({
       label,
@@ -181,11 +198,28 @@ export default async function ResumoPage({
   const totals = calcTotals(
     unitRows.map(toCalcUnit),
     permToCalc(permRows),
-    reembToCalc(reembRows),
+    liberacoesComStatus(reembRows),
+    { definicaoNova: resumoNovo },
   );
+  // Desligada: a soma de três filtros, como antes (2.3 entra pelo bloco Vendas, com a chave).
   const totalUnidades = totals.vend + totals.res + totals.disp;
 
-  const indicadores = indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length });
+  const indicadores = indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length, definicaoNova: resumoNovo });
+
+  // ── Prompt AE, Parte 1 (chave): os blocos por pergunta ────────────────────
+  const blocos = resumoNovo
+    ? await montarBlocos({
+        ctx,
+        obra,
+        version,
+        temAtual,
+        unitRows,
+        permRows,
+        totals,
+        de,
+        ate,
+      })
+    : null;
 
   return (
     <>
@@ -223,6 +257,10 @@ export default async function ResumoPage({
         </Card>
       )}
 
+      {/* 4.1 (chave): os blocos por pergunta substituem a tabela por fonte de recurso. */}
+      {blocos ? (
+        <BlocosDoResumo b={blocos} />
+      ) : (
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Indicadores gerais */}
         <Card>
@@ -320,6 +358,7 @@ export default async function ResumoPage({
           </Card>
         </div>
       </div>
+      )}
     </>
   );
 }
@@ -348,6 +387,183 @@ function StatRow({
       >
         {value}
       </dd>
+    </div>
+  );
+}
+
+type Blocos = Awaited<ReturnType<typeof montarBlocos>>;
+
+/** Lê o que os blocos precisam — com tenant explícito e a permissão de cada tela de origem (5.4). */
+async function montarBlocos(o: {
+  ctx: NonNullable<Awaited<ReturnType<typeof getTenantContext>>>;
+  obra: { id: string; name: string };
+  version: Version;
+  temAtual: boolean;
+  unitRows: Awaited<ReturnType<typeof getUnits>>;
+  permRows: Awaited<ReturnType<typeof getPermutas>>;
+  totals: ReturnType<typeof calcTotals>;
+  de: string;
+  ate: string;
+}) {
+  const { ctx, obra } = o;
+  const d = new Date();
+  const hoje = ymd(`${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`);
+  const vencida = (v: string | null) => ymd(v) != null && hoje != null && (ymd(v) as number) < hoje;
+  const unidades = o.unitRows.map((u) => ({
+    status: u.status,
+    valor: Number(u.valor),
+    mesVenda: u.mesVenda,
+    temPlano: temPlanoDePagamento(u.paymentPlan),
+  }));
+  const [receber, pagar, semClassificacao] = await Promise.all([
+    can(ctx.perms, "contasreceber", "ver")
+      ? getContasReceber(ctx.tenant.id, obra.id).then((cs) =>
+          cs
+            .filter((c) => !/cancel/i.test(c.status))
+            .map((c) => ({ saldo: Math.max(0, c.valor - c.valorRecebido), vencida: vencida(c.vencimento) })),
+        )
+      : Promise.resolve(null),
+    can(ctx.perms, "contaspagar", "ver")
+      ? getContasPagar(ctx.tenant.id).then((cs) =>
+          cs
+            .filter((c) => c.projectId === obra.id && ehVersaoAtual(c.versionKind))
+            .map((c) => ({ saldo: pendenteDaConta(c), vencida: estaVencida(c) })),
+        )
+      : Promise.resolve(null),
+    can(ctx.perms, "despesas", "ver") && o.version.kind === "atual"
+      ? db
+          .select({ n: count() })
+          .from(schema.despesas)
+          .where(
+            and(
+              eq(schema.despesas.tenantId, ctx.tenant.id),
+              eq(schema.despesas.versionId, o.version.id),
+              eq(schema.despesas.cancelado, false),
+              or(isNull(schema.despesas.categoriaDre), isNull(schema.despesas.competencia), eq(schema.despesas.competencia, "")),
+            ),
+          )
+          .then((r) => Number(r[0]?.n ?? 0))
+      : Promise.resolve(null),
+  ]);
+  return {
+    vendas: blocoVendas(unidades, o.de, o.ate),
+    exposicao: blocoExposicao({
+      receber,
+      pagar,
+      totals: o.totals,
+      permutas: o.permRows.map((p) => ({ status: p.status, estimado: Number(p.estimado ?? 0) })),
+    }),
+    atencao: blocoAtencao({ obra: obra.name, projectId: obra.id, temAtual: o.temAtual, unidades, despesasSemClassificacao: semClassificacao }),
+    obraId: obra.id,
+  };
+}
+
+function Bloco({ titulo, regime, href, children }: { titulo: string; regime: string; href?: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-3 flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">{titulo}</h2>
+          {href && (
+            <Link href={href} className="text-[11px] text-[var(--color-accent2)] hover:underline">
+              detalhar →
+            </Link>
+          )}
+        </div>
+        <p className="-mt-2 mb-3 text-[11px] text-[var(--color-ink3)]">{regime}</p>
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Linha({ rotulo, valor, dica }: { rotulo: string; valor: string; dica?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-0.5" title={dica}>
+      <dt className="text-[13px] text-[var(--color-ink2)]">{rotulo}</dt>
+      <dd className="font-[family-name:var(--font-mono)] text-[13px] font-medium text-[var(--color-ink)]">{valor}</dd>
+    </div>
+  );
+}
+
+/** Prompt AE, Parte 1 — os blocos prontos e os pendentes, com o motivo escrito. */
+function BlocosDoResumo({ b }: { b: Blocos }) {
+  const v = b.vendas;
+  const e = b.exposicao;
+  const q = `?proj=${b.obraId}`;
+  const vsoTexto =
+    v.vso.estado === "ok"
+      ? `${v.vso.pct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% (${v.vso.vendidasNoPeriodo} de ${v.vso.ofertaNoInicio})`
+      : "—";
+  const vsoDica =
+    v.vso.estado === "sem_periodo"
+      ? "informe o período para calcular"
+      : v.vso.estado === "sem_data"
+        ? `${v.vso.vendidasSemData} vendida(s) sem data de venda: não calculável`
+        : v.vso.estado === "sem_oferta"
+          ? "nenhuma unidade em oferta no início do período"
+          : "vendidas no período ÷ oferta no início do período";
+  return (
+    <div className="mb-6 space-y-4" data-blocos-resumo>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Bloco titulo="Vendas" regime="Valores contratados · cadastro das unidades da versão" href={`/unidades${q}`}>
+          <dl>
+            <Linha rotulo="VGV total" valor={brl0(v.vgvTotal)} dica="todas as unidades, em qualquer status" />
+            <Linha rotulo="VGV vendido" valor={brl0(v.vgvVendido)} dica="só as unidades Vendidas" />
+            <Linha rotulo="VSO do período" valor={vsoTexto} dica={vsoDica} />
+            {STATUS_DE_UNIDADE.map((s) => (
+              <Linha key={s} rotulo={s === "Disponivel" ? "Disponíveis" : s === "Reservado" ? "Reservadas" : s === "Vendido" ? "Vendidas" : "Permutadas"} valor={String(v.porStatus[s])} />
+            ))}
+            <Linha rotulo="Total de unidades" valor={String(v.total)} />
+          </dl>
+          {v.vso.estado !== "ok" && <p className="mt-1 text-[11px] text-[var(--color-ink3)]">VSO: {vsoDica}.</p>}
+        </Bloco>
+        <Bloco titulo="Exposição" regime="Saldos em aberto, não o valor cheio. A receber e a pagar são as contas da obra (versão Atual), qualquer que seja a versão escolhida; financiamento e permuta, da versão.">
+          <dl>
+            {e.aReceber ? (
+              <Linha rotulo="A receber em aberto" valor={`${brl0(e.aReceber.porVencer + e.aReceber.vencido)}`} dica={`${brl0(e.aReceber.vencido)} já vencido · ${e.aReceber.contas} conta(s)`} />
+            ) : (
+              <Linha rotulo="A receber em aberto" valor="—" dica="sua permissão não alcança Contas a Receber" />
+            )}
+            {e.aPagar ? (
+              <Linha rotulo="A pagar em aberto (saldo das parcelas)" valor={`${brl0(e.aPagar.porVencer + e.aPagar.vencido)}`} dica={`${brl0(e.aPagar.vencido)} já vencido · ${e.aPagar.contas} conta(s)`} />
+            ) : (
+              <Linha rotulo="A pagar em aberto" valor="—" dica="sua permissão não alcança Contas a Pagar" />
+            )}
+            <Linha rotulo="Financiamento aprovado" valor={brl0(e.financiamento.aprovado)} dica="soma do financiamento das unidades vendidas" />
+            <Linha rotulo="Financiamento liberado" valor={brl0(e.financiamento.liberado)} dica="Liberações de Obra da versão" />
+            <Linha rotulo="Permuta em estoque" valor={brl0(e.permutaEmEstoque)} dica="recebida e ainda não vendida, pelo valor de entrada" />
+          </dl>
+          <p className="mt-1 text-[11px] text-[var(--color-ink3)]">
+            {e.aReceber ? `Vencido a receber: ${brl0(e.aReceber.vencido)}. ` : ""}
+            {e.aPagar ? `Vencido a pagar: ${brl0(e.aPagar.vencido)}.` : ""}
+          </p>
+        </Bloco>
+        <Bloco titulo="Atenção" regime="Só exceções que não dependem de limite (BAE-1 sem resposta)">
+          {b.atencao.length === 0 ? (
+            <p className="text-[12.5px] text-[var(--color-ink2)]">Nenhuma exceção categórica nesta obra.</p>
+          ) : (
+            <ul className="space-y-1.5 text-[12.5px] text-[var(--color-ink2)]">
+              {b.atencao.map((a) => (
+                <li key={a.texto}>
+                  {a.texto}{" "}
+                  <Link href={a.href} className="text-[var(--color-accent2)] hover:underline">
+                    resolver →
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Bloco>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3" data-blocos-pendentes>
+        {(["resultado", "caixa", "comparativo"] as const).map((k) => (
+          <div key={k} className="rounded-[12px] border border-dashed border-[var(--color-line)] bg-[var(--color-surface2)] px-4 py-3 text-[12px] text-[var(--color-ink2)]">
+            {BLOCOS_PENDENTES[k]}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-[var(--color-ink3)]">{BLOCOS_PENDENTES.execucao}</p>
     </div>
   );
 }

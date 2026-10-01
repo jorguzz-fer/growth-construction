@@ -27,16 +27,29 @@ export const TEXTO_DA_BASE: Record<BaseDoIndicador, string> = {
 export function indicadoresDoResumo(o: {
   totals: VersionTotals;
   unidades: readonly { status: string }[];
-  permutas: readonly { tipoPermuta: string | null; estimado: string | number | null }[];
+  permutas: readonly { tipoPermuta: string | null; estimado: string | number | null; status?: string | null }[];
   liberacoes: number;
+  /**
+   * Chave "resumo_definicao_nova" (2.6): o tipo é comparado com os valores
+   * do cadastro ("Materiais", "Serviços"), e o que sobra vira "outros tipos"
+   * — a soma sempre fecha com "Permuta Recebido". Permuta cancelada fica fora
+   * (2.7), como em `calcTotals`.
+   */
+  definicaoNova?: boolean;
 }): IndicadorDoResumo[] {
   const { totals: t } = o;
   const semUnidade = o.unidades.length === 0;
   const semVendida = !o.unidades.some((u) => u.status === "Vendido");
   const semPermuta = o.permutas.length === 0;
-  // A mesma busca de sempre (2.6 fica para a chave do AE-2).
-  const porTipo = (match: string) =>
-    o.permutas.filter((p) => (p.tipoPermuta ?? "").toLowerCase().includes(match)).reduce((a, p) => a + Number(p.estimado ?? 0), 0);
+  const nova = !!o.definicaoNova;
+  const permutas = nova ? o.permutas.filter((p) => !/cancel/i.test(p.status ?? "")) : o.permutas;
+  // Desligada: a busca por trecho de sempre. Ligada: o valor exato do cadastro.
+  const porTipo = (match: string, exato: string) =>
+    permutas
+      .filter((p) => (nova ? (p.tipoPermuta ?? "").trim() === exato : (p.tipoPermuta ?? "").toLowerCase().includes(match)))
+      .reduce((a, p) => a + Number(p.estimado ?? 0), 0);
+  const materiais = porTipo("material", "Materiais");
+  const servicos = porTipo("servi", "Serviços");
   const vend = (label: string, value: number): IndicadorDoResumo => ({ label, value, base: "vendidas", vazio: semVendida });
   const perm = (label: string, value: number): IndicadorDoResumo => ({ label, value, base: "permutas", vazio: semPermuta });
   return [
@@ -51,8 +64,9 @@ export function indicadoresDoResumo(o: {
     vend("Subsídio estimado", t.sub),
     perm("Permuta Recebido (estimado)", t.permRec),
     perm("Permuta Vendidos (rec. projetada)", t.permVend),
-    perm("Permuta por Materiais", porTipo("material")),
-    perm("Permuta por Serviços de Terceiros", porTipo("servi")),
+    perm("Permuta por Materiais", materiais),
+    perm("Permuta por Serviços de Terceiros", servicos),
+    ...(nova ? [perm("Permuta de outros tipos", t.permRec - materiais - servicos)] : []),
     { label: "Liberações de Obra", value: t.reemb, base: "liberacoes", vazio: o.liberacoes === 0 },
   ];
 }

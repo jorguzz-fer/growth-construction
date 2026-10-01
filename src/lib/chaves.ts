@@ -77,6 +77,14 @@ export const CHAVES = [
     origem: "Prompt AA, 4-B.1, 4-B.2, 4-B.3, 4.5, 4.2, 3.1 e 2.3.2 (10.2)",
     previa: { href: "/chaves#previa-dashboard", rotulo: "Prévia — cada cartão hoje × definição nova, por obra" },
   },
+  {
+    id: "resumo_definicao_nova",
+    titulo: "Resumo Executivo pela definição nova",
+    efeito:
+      "No Resumo Executivo: os sinais S1, S2 e S3 multiplicam pela quantidade (como o Ato e como a Projeção); permuta e liberação canceladas saem dos totais; a permuta por tipo compara com o cadastro e mostra \"outros tipos\" (a soma fecha); unidades Permutadas aparecem e o Total é a contagem de unidades; e a tela ganha os blocos Vendas, Exposição e Atenção. Nada é gravado.",
+    origem: "Prompt AE, Partes 1, 2.3, 2.4, 2.6 e 2.7 (seção 6)",
+    previa: { href: "/chaves#previa-resumo", rotulo: "Prévia — os indicadores de hoje × definição nova, por obra" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

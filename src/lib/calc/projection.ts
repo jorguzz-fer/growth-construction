@@ -376,7 +376,16 @@ export function calcTotals(
   units: readonly CalcUnit[],
   permutas: readonly CalcPermuta[],
   reembolsos: readonly CalcReembolso[],
+  /**
+   * Prompt AE — chave "resumo_definicao_nova" (nasce desligada). Ligada:
+   * S1, S2 e S3 multiplicam pela quantidade, como o AS e como a Projeção
+   * (2.4); permuta e liberação canceladas ficam fora (2.7). Desligada
+   * (padrão): exatamente o de antes. `calcTotals` só é usada pelo Resumo.
+   */
+  opts: { definicaoNova?: boolean } = {},
 ): VersionTotals {
+  const nova = !!opts.definicaoNova;
+  const cancelada = (st: string | null | undefined) => nova && /cancel/i.test(st ?? "");
   let sinais = 0,
     mens = 0,
     sem = 0,
@@ -391,9 +400,9 @@ export function calcTotals(
     if (u.status !== "Vendido") return;
     sinais +=
       (u.AS.val || 0) * (u.AS.n || 1) +
-      (u.S1.val || 0) +
-      (u.S2.val || 0) +
-      (u.S3.val || 0);
+      (u.S1.val || 0) * (nova ? u.S1.n || 1 : 1) +
+      (u.S2.val || 0) * (nova ? u.S2.n || 1 : 1) +
+      (u.S3.val || 0) * (nova ? u.S3.n || 1 : 1);
     mens += (u.Mensais.val || 0) * (u.Mensais.n || 0);
     sem += (u.Semestrais.val || 0) * (u.Semestrais.n || 0);
     anu += (u.Anuais.val || 0) * (u.Anuais.n || 0);
@@ -403,11 +412,12 @@ export function calcTotals(
   });
 
   permutas.forEach((p) => {
+    if (cancelada(p.status)) return;
     permRec += p.estimado || 0;
     if (p.status === "Vendido") permVend += p.valorVenda || 0;
   });
 
-  const reemb = reembolsos.reduce((a, r) => a + (r.valor || 0), 0);
+  const reemb = reembolsos.filter((r) => !cancelada(r.status)).reduce((a, r) => a + (r.valor || 0), 0);
   const vgv = units.reduce((a, u) => a + u.valor, 0);
 
   return {
