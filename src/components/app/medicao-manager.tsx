@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { MonthField } from "@/components/ui/date-field";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { MedicaoDocs } from "@/components/app/medicao-docs";
+import type { DocDaMedicao } from "@/lib/medicao-docs-regras";
 
 export interface MedicaoRowData {
   id: string;
@@ -24,6 +26,8 @@ export interface MedicaoRowData {
   podeTocar: boolean;
   /** 0.4.4 — repete grupo + competência com outra medição da lista. */
   duplicada: boolean;
+  /** Prompt V, seção 5 — documentos vinculados a esta medição. */
+  docs: DocDaMedicao[];
 }
 
 /**
@@ -32,7 +36,7 @@ export interface MedicaoRowData {
  * (4.3) e a duplicidade aparece marcada com o motivo (0.4.4). Sem coluna de
  * orçado (0.5.6): quem não tem a aba do relatório não vê orçado aqui.
  */
-export function MedicaoTable({ rows, canEditar, canExcluir, vazio }: { rows: MedicaoRowData[]; canEditar: boolean; canExcluir: boolean; vazio: string }) {
+export function MedicaoTable({ rows, canEditar, canExcluir, vazio, r2 = false }: { rows: MedicaoRowData[]; canEditar: boolean; canExcluir: boolean; vazio: string; r2?: boolean }) {
   const showActions = canEditar || canExcluir;
   const cols = showActions ? 6 : 5;
   return (
@@ -55,7 +59,7 @@ export function MedicaoTable({ rows, canEditar, canExcluir, vazio }: { rows: Med
             </TD>
           </TR>
         ) : (
-          rows.map((r) => <Row key={r.id} row={r} canEditar={canEditar && r.podeTocar} canExcluir={canExcluir && r.podeTocar} />)
+          rows.map((r) => <Row key={r.id} row={r} canEditar={canEditar && r.podeTocar} canExcluir={canExcluir && r.podeTocar} r2={r2} cols={cols} />)
         )}
       </tbody>
     </Table>
@@ -80,7 +84,16 @@ function Duplicada({ row }: { row: MedicaoRowData }) {
   );
 }
 
-function Row({ row, canEditar, canExcluir }: { row: MedicaoRowData; canEditar: boolean; canExcluir: boolean }) {
+function Documentos({ row, aberto, onToggle }: { row: MedicaoRowData; aberto: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={aberto} data-docs-toggle className="mt-1 block text-[11.5px] text-[var(--color-accent2)] hover:underline">
+      Documentos ({row.docs.length})
+    </button>
+  );
+}
+
+function Row({ row, canEditar, canExcluir, r2, cols }: { row: MedicaoRowData; canEditar: boolean; canExcluir: boolean; r2: boolean; cols: number }) {
+  const [docsAbertos, setDocsAbertos] = useState(false);
   const [competencia, setCompetencia] = useState(row.competencia);
   const [valor, setValor] = useState(String(row.valor));
   const [obs, setObs] = useState(row.obs);
@@ -103,29 +116,43 @@ function Row({ row, canEditar, canExcluir }: { row: MedicaoRowData; canEditar: b
     });
   };
 
+  const subRow = docsAbertos && (
+    <TR>
+      <TD colSpan={cols} className="bg-[var(--color-surface2)]/40">
+        <MedicaoDocs medicaoId={row.id} docs={row.docs} canEdit={canEditar} r2={r2} />
+      </TD>
+    </TR>
+  );
+
   if (!canEditar && !canExcluir) {
     return (
-      <TR>
-        <TD className="font-[family-name:var(--font-mono)]">{row.competencia}</TD>
-        <TD>
-          <span className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">{row.grupoCode}</span> {row.grupoName} <Duplicada row={row} />
-        </TD>
-        <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(row.valor)}</TD>
-        <TD>{row.obs || "—"}</TD>
-        <TD>
-          <Autor row={row} />
-        </TD>
-      </TR>
+      <>
+        <TR>
+          <TD className="font-[family-name:var(--font-mono)]">{row.competencia}</TD>
+          <TD>
+            <span className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">{row.grupoCode}</span> {row.grupoName} <Duplicada row={row} />
+            <Documentos row={row} aberto={docsAbertos} onToggle={() => setDocsAbertos((v) => !v)} />
+          </TD>
+          <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(row.valor)}</TD>
+          <TD>{row.obs || "—"}</TD>
+          <TD>
+            <Autor row={row} />
+          </TD>
+        </TR>
+        {subRow}
+      </>
     );
   }
 
   return (
+    <>
     <TR>
       <TD>
         <MonthField value={competencia} onChange={setCompetencia} disabled={!canEditar || pending} className="h-8 w-32 text-xs" />
       </TD>
       <TD>
         <span className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">{row.grupoCode}</span> {row.grupoName} <Duplicada row={row} />
+        <Documentos row={row} aberto={docsAbertos} onToggle={() => setDocsAbertos((v) => !v)} />
       </TD>
       <TD className="text-right">
         <Input
@@ -172,5 +199,7 @@ function Row({ row, canEditar, canExcluir }: { row: MedicaoRowData; canEditar: b
         </div>
       </TD>
     </TR>
+    {subRow}
+    </>
   );
 }

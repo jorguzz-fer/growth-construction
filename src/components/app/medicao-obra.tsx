@@ -1,8 +1,17 @@
 import Link from "next/link";
-import type { TenantContext } from "@/lib/context";
+import type { TenantContext, Version } from "@/lib/context";
 import { getProjectVersions } from "@/lib/context";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
-import { getChartAccounts, getMedicoes } from "@/lib/queries";
+import { getBudgetLines, getBudgetPlanning, getChartAccounts, getDocumentosDasMedicoes, getMedicoes, getReembolsos } from "@/lib/queries";
+import { isR2Configured, readUrl } from "@/lib/storage/r2";
+import { isAiConfigured } from "@/lib/ai/client";
+import { legivelPelaIa } from "@/lib/ai/campos";
+import { hojeISO } from "@/lib/despesa-status";
+import { projectPeriodMonthsFromDates } from "@/lib/planning";
+import { escolherOrcamento, montarRelatorioCef } from "@/lib/medicao-cef";
+import { analisarMedicoes } from "@/lib/medicao-analise";
+import { TIPO_LAUDO, type DocDaMedicao } from "@/lib/medicao-docs-regras";
+import { AssistenteMedicao, type LaudoDisponivel } from "@/components/app/assistente-medicao";
 import { brl0 } from "@/lib/utils";
 import { can } from "@/lib/permissions";
 import { idsDuplicados, podeTocarMedicao, rotuloDoAutor, textoDoVazio, veSoAsProprias, TELA_LANCAMENTO } from "@/lib/medicao-regras";
@@ -76,9 +85,49 @@ export async function MedicaoDeObra({ ctx, sp, aba }: { ctx: TenantContext; sp: 
 
       {aba === "nova" && can(ctx.perms, TELA_LANCAMENTO, "criar") && <AbaNova ctx={ctx} projectId={project.id} locked={atual.locked} />}
       {aba === "lancadas" && can(ctx.perms, TELA_LANCAMENTO, "ver") && <AbaLancadas ctx={ctx} versionId={atual.id} projectId={project.id} locked={atual.locked} sp={sp} />}
-      {aba === "relatorio" && can(ctx.perms, "medicao", "ver") && <RelatorioCef tenantId={ctx.tenant.id} versions={versions} atual={atual} sp={sp} />}
+      {aba === "relatorio" && can(ctx.perms, "medicao", "ver") && (
+        <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+          <div className="min-w-0 flex-1">
+            <RelatorioCef tenantId={ctx.tenant.id} versions={versions} atual={atual} sp={sp} />
+          </div>
+          <AssistenteDoRelatorio ctx={ctx} projectId={project.id} startDate={project.startDate} endDate={project.endDate} versions={versions} atual={atual} />
+        </div>
+      )}
     </>
   );
+}
+
+/**
+ * Seção 6 — análises do assistente, calculadas no servidor sobre a obra em
+ * tela (somente leitura). Só na aba do Relatório: as leituras usam o orçado,
+ * que o engenheiro não vê (0.5.6).
+ */
+async function AssistenteDoRelatorio({ ctx, projectId, startDate, endDate, versions, atual }: { ctx: TenantContext; projectId: string; startDate: string | null; endDate: string | null; versions: Version[]; atual: Version }) {
+  const budgetV = escolherOrcamento(versions, null).escolhido;
+  const [medicoes, liberacoes, budgetLines, planning, docs] = await Promise.all([
+    getMedicoes(ctx.tenant.id, atual.id),
+    getReembolsos(ctx.tenant.id, atual.id),
+    budgetV ? getBudgetLines(budgetV.id, { respeitarSituacao: true }) : Promise.resolve([]),
+    budgetV ? getBudgetPlanning(ctx.tenant.id, projectId, "budget", budgetV.id) : Promise.resolve(null),
+    getDocumentosDasMedicoes(ctx.tenant.id, atual.id),
+  ]);
+  const rel = montarRelatorioCef({ orcamento: budgetLines, medicoes });
+  const [y, m] = hojeISO().split("-");
+  const analise = analisarMedicoes({
+    months: projectPeriodMonthsFromDates(startDate, endDate),
+    hojeMes: `${m}/${y}`,
+    medicoes: medicoes.map((x) => ({ competencia: x.competencia, grupoCode: x.grupoCode, valor: Number(x.valor) })),
+    contas: planning ? planning.despesas.map((r) => ({ rowKey: r.rowKey, label: r.label, total: r.total, pct: r.pct })) : null,
+    liberacoes: liberacoes.map((l) => ({ id: l.id, data: l.data, origem: l.origem, valor: Number(l.valor ?? 0), pct: l.pct, cancelado: l.cancelado })),
+    totalPct: rel.totalPct,
+  });
+  const laudos: LaudoDisponivel[] = [];
+  for (const mdc of medicoes) {
+    for (const d of docs.get(mdc.id) ?? []) {
+      if (d.tipo === TIPO_LAUDO && legivelPelaIa(d.contentType ?? "")) laudos.push({ medicaoId: mdc.id, documentId: d.id, rotulo: `${mdc.competencia} · grupo ${mdc.grupoCode} · ${d.filename} v${d.versao}` });
+    }
+  }
+  return <AssistenteMedicao usuario={ctx.userEmail ?? "anon"} analise={analise} laudos={laudos} iaDisponivel={isAiConfigured()} />;
 }
 
 async function AbaNova({ ctx, projectId, locked }: { ctx: TenantContext; projectId: string; locked: boolean }) {
@@ -110,7 +159,24 @@ async function AbaLancadas({ ctx, versionId, projectId, locked, sp }: { ctx: Ten
   // 0.5.2 — o engenheiro recebe só as próprias (e as sem autor), filtrado NA
   // CONSULTA: medição de outro autor não chega ao navegador.
   const soAsProprias = veSoAsProprias(ctx.role);
-  const todas = await getMedicoes(ctx.tenant.id, versionId, { autor: soAsProprias ? ctx.userId : null });
+  const [todas, docsPorMedicao] = await Promise.all([
+    getMedicoes(ctx.tenant.id, versionId, { autor: soAsProprias ? ctx.userId : null }),
+    getDocumentosDasMedicoes(ctx.tenant.id, versionId),
+  ]);
+  const r2 = isR2Configured();
+  // Seção 5 — anexos por medição, com link assinado para abrir.
+  const docsDe = async (id: string): Promise<DocDaMedicao[]> =>
+    Promise.all(
+      (docsPorMedicao.get(id) ?? []).map(async (d) => ({
+        id: d.id,
+        filename: d.filename,
+        tipo: d.tipo,
+        versao: d.versao,
+        url: r2 ? await readUrl(d.storageKey).catch(() => null) : null,
+        uploadedAt: d.uploadedAt ? d.uploadedAt.toLocaleDateString("pt-BR") : null,
+        legivel: legivelPelaIa(d.contentType ?? ""),
+      })),
+    );
   const filtros = { competencia: sp.comp || null, grupo: sp.grupo || null, autor: soAsProprias ? null : sp.autor || null };
   const rows = ordenarPorCompetenciaDesc(filtrarMedicoes(todas, filtros));
   const duplicadas = idsDuplicados(todas.map((r) => ({ id: r.id, competencia: r.competencia, grupoCode: r.grupoCode, valor: Number(r.valor) })));
@@ -178,7 +244,8 @@ async function AbaLancadas({ ctx, versionId, projectId, locked, sp }: { ctx: Ten
       </form>
       {locked && <p className="mb-4 rounded-[8px] bg-[#fef3c7] px-3 py-2 text-[13px] text-[#92400e]">Versão congelada — edição e exclusão bloqueadas.</p>}
       <MedicaoTable
-        rows={rows.map((r) => ({
+        r2={r2}
+        rows={await Promise.all(rows.map(async (r) => ({
           id: r.id,
           competencia: r.competencia,
           grupoCode: r.grupoCode,
@@ -190,7 +257,8 @@ async function AbaLancadas({ ctx, versionId, projectId, locked, sp }: { ctx: Ten
           quando: r.createdAt.toLocaleDateString("pt-BR"),
           podeTocar: podeTocarMedicao(r, { userId: ctx.userId, role: ctx.role }),
           duplicada: duplicadas.has(r.id),
-        }))}
+          docs: await docsDe(r.id),
+        })))}
         canEditar={canEditar && !locked}
         canExcluir={canExcluir && !locked}
         vazio={textoDoVazio({ soAsProprias, filtrado: filtroAtivo(filtros) })}
