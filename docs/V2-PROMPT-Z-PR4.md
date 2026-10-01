@@ -35,8 +35,10 @@ Sem migração. Nenhum dado existente alterado.
 - `pessoas-analise.test.ts` (3): as seis análises de 6.1 sem CPF no resultado
   (16); proposta do dia, sem lançamento, obra sem equipe, sem função,
   sobreposição e casamento de nomes (6.2); o "nunca" dos dois painéis (17).
-- Ajuste de teste intermitente alheio: `permuta-docs.test` lia `logs[0]`
-  sem ORDER BY; ganhou ordem explícita.
+- Ajustes de testes intermitentes alheios: `permuta-docs.test` lia `logs[0]`
+  sem ORDER BY (ganhou ordem explícita); `cartao-compra.test` contava
+  `cash_entry`/`pagamento` do banco inteiro (passa a contar só o tenant do
+  teste). Três rodadas completas consecutivas verdes depois.
 - Suíte: 151 arquivos, 1443 testes; `tsc`, `eslint`, `next build`.
 
 ## Teste de navegador (local, admin)

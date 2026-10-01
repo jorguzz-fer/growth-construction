@@ -112,6 +112,8 @@ aplicar após as 0046–0060.
   Configurações.
 - Permissões de membro restrito para as telas novas nascem negadas (padrão
   das telas novas); conceder na matriz.
-- Testes intermitentes alheios observados e tratados: `permuta-docs` (ordem
-  do log, corrigido nesta PR); `cartao-compra` (Prompt U, registrado no
-  relatório do Prompt Y).
+- Testes intermitentes alheios observados e **corrigidos nesta PR**:
+  `permuta-docs` (lia `logs[0]` sem ORDER BY) e `cartao-compra` (Prompt U:
+  comparava a contagem global de `cash_entry`/`pagamento`, que outros testes
+  em paralelo alteravam; passou a contar só o próprio tenant). Três rodadas
+  completas consecutivas verdes depois do ajuste.
