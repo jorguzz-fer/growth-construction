@@ -131,6 +131,10 @@ export interface BudgetPlanningData {
   };
   /** BD-6: há seleção de linhas gravada para cada bloco? (false = padrão) */
   selecao: { receita: boolean; despesa: boolean };
+  /** 4-A.2: grupos do Plano de Contas que a ação "Incluir linha" pode oferecer (ativos, da natureza, ausentes). */
+  disponiveis: { receita: { code: string; name: string }[]; despesa: { code: string; name: string }[] };
+  /** 2.6: quando a replicação do Atual rodou pela última vez nesta versão (ISO), ou null. */
+  ultimaReplicacao: string | null;
   /** true quando o período está definido no cadastro do projeto. */
   hasPeriod: boolean;
   months: string[];

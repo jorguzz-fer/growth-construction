@@ -100,7 +100,7 @@ describe.skipIf(!HAS_DB)("Prompt D · grade de Orçamentos", async () => {
     expect((await incluirLinhaDoOrcamento(budgetId, "despesa", "1"))).toMatchObject({ ok: false, error: expect.stringMatching(/já está/) });
     expect((await incluirLinhaDoOrcamento(budgetId, "despesa", "OR"))).toMatchObject({ ok: false, error: expect.stringMatching(/é de receita/) });
     expect((await incluirLinhaDoOrcamento(budgetId, "despesa", "ZZ"))).toMatchObject({ ok: false, error: expect.stringMatching(/Cadastre-o/) });
-    expect(await incluirLinhaDoOrcamento(budgetId, "despesa", "F")).toEqual({ ok: true });
+    expect(await incluirLinhaDoOrcamento(budgetId, "despesa", "F")).toMatchObject({ ok: true, linha: { rowKey: "F", label: "Financeiro / Contábil", dreCategory: "Despesa Fixa" } });
     const d = await getBudgetPlanning(tenantId, projectId, "budget");
     expect(d.despesas.map((x) => `${x.rowKey}:${x.total}`)).toEqual(["1:500", "F:0"]);
     expect(await contasGravadas("despesa")).toEqual(["1=500"]); // zerada não grava budget_account
