@@ -195,3 +195,148 @@ export function rotuloDaColuna(v: Pick<VersaoLeve, "kind" | "label" | "sourceVer
 export function pctDaReceita(valor: number, receita: number): number | null {
   return receita > 0 ? (valor / receita) * 100 : null;
 }
+
+// ── O que fica fora da cascata (Prompt AC, Partes 4 e 5) ───────────────────
+
+/** Categorias que a cascata LÊ (por chave, nunca pelo rótulo — 5.2). */
+export const CATEGORIAS_LIDAS = new Set([
+  "Receita",
+  "Custo Variável",
+  "Custo Fixo",
+  "Despesa Variável",
+  "Despesa Fixa",
+  "Retiradas",
+  "Investimento",
+  "Empréstimos",
+  "Despesas Financeiras",
+]);
+
+export interface ForaDaCascata {
+  semCategoria: { qtd: number; valor: number };
+  /** Têm categoria lida, mas não têm competência: entram SÓ no Acumulado (4.2). */
+  semCompetencia: { qtd: number; valor: number };
+  /** Grafia não lida por nenhuma linha (5.1). */
+  foraDaLista: { categoria: string; qtd: number; valor: number }[];
+}
+
+export const FORA_VAZIO: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
+
+/** Resume as linhas de despesa da versão (as mesmas que a DRE lê) — só conta, não muda nada. */
+export function resumirForaDaCascata(rows: readonly { categoriaDre: string | null; competencia: string | null; valor: number }[]): ForaDaCascata {
+  const out: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
+  const fora = new Map<string, { qtd: number; valor: number }>();
+  for (const r of rows) {
+    const v = Number(r.valor) || 0;
+    if (!r.categoriaDre) {
+      out.semCategoria.qtd++;
+      out.semCategoria.valor += v;
+      continue;
+    }
+    if (!CATEGORIAS_LIDAS.has(r.categoriaDre)) {
+      const f = fora.get(r.categoriaDre) ?? { qtd: 0, valor: 0 };
+      f.qtd++;
+      f.valor += v;
+      fora.set(r.categoriaDre, f);
+      continue;
+    }
+    if (!r.competencia || !r.competencia.trim()) {
+      out.semCompetencia.qtd++;
+      out.semCompetencia.valor += v;
+    }
+  }
+  out.foraDaLista = [...fora].map(([categoria, f]) => ({ categoria, ...f })).sort((a, b) => b.valor - a.valor);
+  return out;
+}
+
+export function somarForaDaCascata(lista: readonly ForaDaCascata[]): ForaDaCascata {
+  const out: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
+  const fora = new Map<string, { qtd: number; valor: number }>();
+  for (const f of lista) {
+    out.semCategoria.qtd += f.semCategoria.qtd;
+    out.semCategoria.valor += f.semCategoria.valor;
+    out.semCompetencia.qtd += f.semCompetencia.qtd;
+    out.semCompetencia.valor += f.semCompetencia.valor;
+    for (const x of f.foraDaLista) {
+      const y = fora.get(x.categoria) ?? { qtd: 0, valor: 0 };
+      y.qtd += x.qtd;
+      y.valor += x.valor;
+      fora.set(x.categoria, y);
+    }
+  }
+  out.foraDaLista = [...fora].map(([categoria, f]) => ({ categoria, ...f })).sort((a, b) => b.valor - a.valor);
+  return out;
+}
+
+/**
+ * As frases do rodapé (4.1, 4.2, 5.1). `acumulado` diz em qual modo o
+ * lançamento sem competência está sendo somado (4.2). Valores em reais
+ * já formatados por quem chama (`fmt`).
+ */
+export function frasesDoRodape(f: ForaDaCascata, acumulado: boolean, fmt: (n: number) => string): string[] {
+  const out: string[] = [];
+  if (f.semCategoria.qtd > 0) {
+    out.push(`${fmt(f.semCategoria.valor)} em ${f.semCategoria.qtd} lançamento(s) sem categoria não entram nesta demonstração.`);
+  }
+  if (f.semCompetencia.qtd > 0) {
+    out.push(
+      acumulado
+        ? `${fmt(f.semCompetencia.valor)} em ${f.semCompetencia.qtd} lançamento(s) sem competência estão somados neste Acumulado, mas não aparecem em nenhum mês nem ano.`
+        : `${fmt(f.semCompetencia.valor)} em ${f.semCompetencia.qtd} lançamento(s) sem competência não estão nesta visão: só entram no Acumulado.`,
+    );
+  }
+  for (const x of f.foraDaLista) {
+    out.push(`Categoria “${x.categoria}”, fora da lista da DRE: ${fmt(x.valor)} em ${x.qtd} lançamento(s) que nenhuma linha lê.`);
+  }
+  return out;
+}
+
+// ── Eixo de meses (Prompt AC, Parte 7; Prompt I, seção 55) ────────────────
+
+/** "MM/DD/YYYY" → "MM/YYYY". */
+function competenciaDaData(d: string | null | undefined): string | null {
+  const p = (d ?? "").split("/");
+  return p.length === 3 && monthIndex(`${p[0]}/${p[2]}`) != null ? `${p[0].padStart(2, "0")}/${p[2]}` : null;
+}
+
+/** Janela do projeto: as competências entre `start_date` e `end_date`; null sem as duas. */
+export function janelaDoProjeto(p: { startDate: string | null; endDate: string | null }): string[] | null {
+  const a = competenciaDaData(p.startDate);
+  const b = competenciaDaData(p.endDate);
+  return a && b ? enumMonths(a, b) : null;
+}
+
+/**
+ * O eixo mensal (Parte 7): a janela dos projetos UNIDA às competências que de
+ * fato têm lançamento. A tabela INCC deixa de governar o eixo.
+ */
+export function eixoDeMeses(janelas: readonly (string[] | null)[], comLancamento: Iterable<string>): string[] {
+  const s = new Set<string>();
+  for (const j of janelas) for (const m of j ?? []) s.add(m);
+  for (const m of comLancamento) if (monthIndex(m) != null) s.add(m);
+  return ordenarMeses(s);
+}
+
+// ── Ausência × zero (Prompt AC, Parte 9) ──────────────────────────────────
+
+/** Chave de cada linha de item da cascata (a linha lê a CONSTANTE, não o rótulo — 5.2). */
+export const CHAVE_DA_LINHA: Record<string, string> = {
+  Receita: "Receita",
+  "(−) Custo Variável": "Custo Variável",
+  "(−) Despesa Variável": "Despesa Variável",
+  "(−) Custo Fixo": "Custo Fixo",
+  "(−) Despesa Fixa": "Despesa Fixa",
+  "(−) Retiradas": "Retiradas",
+  "(−) Investimentos": "Investimento",
+  "(−) Empréstimos": "Empréstimos",
+  "(−) Despesas Financeiras (juros/multas)": "Despesas Financeiras",
+};
+
+/**
+ * A linha teve algum lançamento? (9.1) Para itens, a chave aparece nos inputs;
+ * Receita também conta quando há receita somada. Subtotais são sempre conta.
+ */
+export function linhaTemLancamento(rotulo: string, inputs: readonly { receita: number; byCat: Record<string, number> }[]): boolean {
+  const chave = CHAVE_DA_LINHA[rotulo];
+  if (!chave) return true;
+  return inputs.some((i) => chave in i.byCat || (chave === "Receita" && i.receita !== 0));
+}
