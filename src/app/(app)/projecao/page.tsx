@@ -1,4 +1,6 @@
 import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { avisoNoSeletor } from "@/lib/situacao-versao";
+import { chaveLigada } from "@/lib/chaves-tenant";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
@@ -59,6 +61,8 @@ export default async function ProjecaoPage({
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "projecao", "ver")) return <AccessDenied />;
+  // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
+  const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
 
   // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
   // escolhida ou a tela pede a escolha — nunca a obra do cookie. Relatório de
@@ -92,7 +96,7 @@ export default async function ProjecaoPage({
   const multi = compareVersions.length > 1;
   const versionSelect = (
     <VersionMultiSelect
-      versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+      versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
       selected={compareVersions.map((v) => v.id)}
     />
   );

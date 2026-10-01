@@ -1,4 +1,5 @@
 import { getTenantContext } from "@/lib/context";
+import { chaveLigada } from "@/lib/chaves-tenant";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
@@ -23,6 +24,8 @@ export default async function ForecastPage({
   const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "forecast", "ver")) return <AccessDenied />;
+  // Prompt H (5.2): aviso na tela quando a regra está ligada na empresa.
+  const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
   const sp = await searchParams;
 
   // Inclui obras e matriz/filiais (office). Offices usam ano atual + 5 anos.
@@ -61,6 +64,7 @@ export default async function ForecastPage({
             kind="forecast"
             projects={projects}
             canEdit={can(ctx.perms, "forecast", "editar")}
+            rascunhoForaLigado={rascunhoFora}
             budgetVersions={budgetVersions.map((v) => ({ id: v.id, label: v.label }))}
             canCreateForecast={can(ctx.perms, "forecast", "criar")}
             comparacao={comparando ? cmp : null}

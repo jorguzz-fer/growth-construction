@@ -25,6 +25,7 @@ import {
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
+import { entraNosRelatorios } from "./situacao-versao";
 import { saldosReaisDasDespesas } from "./acerto-saldo";
 import type {
   CalcPermuta,
@@ -1457,8 +1458,15 @@ export async function getProjectVersionsByKind(
   return rows;
 }
 
-/** Lançamentos simplificados (Budget/Forecast) de uma versão. */
-export async function getBudgetLines(versionId: string): Promise<BudgetLineRow[]> {
+/**
+ * Lançamentos simplificados (Budget/Forecast) de uma versão.
+ *
+ * `respeitarSituacao` (Prompt H, 4.3): relatório passa `true` e recebe vazio
+ * quando a versão está fora dos relatórios (ver `planejamentoForaDosRelatorios`);
+ * a edição/exportação da própria versão passa `false` (padrão) e lê tudo.
+ */
+export async function getBudgetLines(versionId: string, opts: { respeitarSituacao?: boolean } = {}): Promise<BudgetLineRow[]> {
+  if (opts.respeitarSituacao && (await planejamentoForaDosRelatorios(await versaoKindETenant(versionId)))) return [];
   return db
     .select()
     .from(schema.budgetLines)
@@ -1688,14 +1696,30 @@ export async function getVersionKind(versionId: string): Promise<string | null> 
   return (await versaoKindETenant(versionId))?.kind ?? null;
 }
 
-/** Tipo e empresa da versão — para as leituras que só recebem o id. */
-async function versaoKindETenant(versionId: string): Promise<{ kind: string; tenantId: string } | null> {
+/** Tipo, situação e empresa da versão — para as leituras que só recebem o id. */
+async function versaoKindETenant(versionId: string): Promise<{ kind: string; tenantId: string; status: string } | null> {
   const [v] = await db
-    .select({ kind: schema.versions.kind, tenantId: schema.versions.tenantId })
+    .select({ kind: schema.versions.kind, tenantId: schema.versions.tenantId, status: schema.versions.status })
     .from(schema.versions)
     .where(eq(schema.versions.id, versionId))
     .limit(1);
   return v ?? null;
+}
+
+/**
+ * FILTRO POR SITUAÇÃO — Prompt H, seção 1.
+ *
+ * `true` = esta versão de PLANEJAMENTO (budget/forecast) não está Aprovada e a
+ * chave "rascunho_fora_dos_relatorios" está ligada na empresa: o que ela tem
+ * em `budget_line` NÃO entra em relatório. A versão `atual` devolve sempre
+ * `false` (BH-2: nunca filtrada), e com a chave desligada tudo devolve `false`
+ * (seção 7: mesmos números de antes). Nada aqui toca consulta de movimento.
+ */
+export async function planejamentoForaDosRelatorios(versao: { kind: string; status: string; tenantId: string } | null): Promise<boolean> {
+  if (!versao) return false;
+  if (versao.kind !== "budget" && versao.kind !== "forecast") return false;
+  const ligada = await chaveLigada(versao.tenantId, "rascunho_fora_dos_relatorios");
+  return !entraNosRelatorios(versao, ligada);
 }
 
 export interface ExpenseRow {
@@ -1711,8 +1735,11 @@ export interface ExpenseRow {
  * despesas reais.
  */
 export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
-  const kind = await getVersionKind(versionId);
+  const versao = await versaoKindETenant(versionId);
+  const kind = versao?.kind ?? null;
   if (kind === "budget" || kind === "forecast") {
+    // FILTRO POR SITUAÇÃO (Prompt H): planejamento fora dos relatórios = vazio.
+    if (await planejamentoForaDosRelatorios(versao)) return [];
     const lines = await db
       .select()
       .from(schema.budgetLines)
@@ -1822,6 +1849,35 @@ export async function getInventarioDoProjeto(tenantId: string, projectId: string
     n(db.select({ n: count() }).from(schema.timeEntries).where(and(eq(schema.timeEntries.tenantId, tenantId), eq(schema.timeEntries.projectId, projectId)))),
   ]);
   return { unidades, despesas, lancamentosCaixa, medicoes, contasReceber, documentos, linhasOrcamento, registrosDePonto, versoes: versoesN };
+}
+
+/**
+ * Prompt H, 5.3 — lista de conferência: versões de PLANEJAMENTO que não estão
+ * Aprovadas, com projeto, nome, tipo, situação e os totais de receitas e
+ * despesas (o que sairia dos relatórios com a chave ligada). Só leitura.
+ */
+export async function getPlanejamentoNaoAprovado(tenantId: string): Promise<{ versionId: string; projectId: string; projeto: string; nome: string; kind: string; status: string; receitas: number; despesas: number }[]> {
+  const rows = await db
+    .select({
+      versionId: schema.versions.id,
+      projectId: schema.versions.projectId,
+      projeto: schema.projects.name,
+      nome: schema.versions.label,
+      kind: schema.versions.kind,
+      status: schema.versions.status,
+    })
+    .from(schema.versions)
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.versions.projectId))
+    .where(and(eq(schema.versions.tenantId, tenantId), inArray(schema.versions.kind, ["budget", "forecast"]), ne(schema.versions.status, "Aprovado")))
+    .orderBy(asc(schema.projects.name), asc(schema.versions.kind), asc(schema.versions.createdAt));
+  if (rows.length === 0) return [];
+  const totais = await db
+    .select({ versionId: schema.budgetAccounts.versionId, kind: schema.budgetAccounts.kind, total: sql<string>`sum(${schema.budgetAccounts.total})` })
+    .from(schema.budgetAccounts)
+    .where(and(eq(schema.budgetAccounts.tenantId, tenantId), inArray(schema.budgetAccounts.versionId, rows.map((r) => r.versionId))))
+    .groupBy(schema.budgetAccounts.versionId, schema.budgetAccounts.kind);
+  const soma = new Map(totais.map((t) => [`${t.versionId}|${t.kind}`, Number(t.total)]));
+  return rows.map((r) => ({ ...r, receitas: soma.get(`${r.versionId}|receita`) ?? 0, despesas: soma.get(`${r.versionId}|despesa`) ?? 0 }));
 }
 
 /** Prompt B, 17 — registros de ponto da obra (aviso ao mudar coordenada). */
@@ -2461,6 +2517,8 @@ export async function getMonthlyRevenue(
   const versao = await versaoKindETenant(versionId);
   const kind = versao?.kind ?? null;
   if (kind === "budget" || kind === "forecast") {
+    // FILTRO POR SITUAÇÃO (Prompt H): planejamento fora dos relatórios = vazio.
+    if (await planejamentoForaDosRelatorios(versao)) return {};
     const lines = await db
       .select({ mes: schema.budgetLines.mes, valor: schema.budgetLines.valor })
       .from(schema.budgetLines)
@@ -2749,6 +2807,8 @@ export async function getRevenueBySource(
   const kind = versao?.kind ?? null;
 
   if (kind === "budget" || kind === "forecast") {
+    // FILTRO POR SITUAÇÃO (Prompt H): planejamento fora dos relatórios = vazio.
+    if (await planejamentoForaDosRelatorios(versao)) return { sources, reemb };
     const lines = await db
       .select({
         rowKey: schema.budgetLines.rowKey,

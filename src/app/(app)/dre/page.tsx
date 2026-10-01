@@ -1,4 +1,6 @@
 import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { avisoNoSeletor } from "@/lib/situacao-versao";
+import { chaveLigada } from "@/lib/chaves-tenant";
 import {
   TODOS_OS_PROJETOS,
   lerEscopoDeRelatorio,
@@ -66,6 +68,8 @@ export default async function DREPage({
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "dre", "ver")) return <AccessDenied />;
+  // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
+  const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
   const sp = await searchParams;
   const monthly = sp.view === "mensal";
 
@@ -264,7 +268,7 @@ export default async function DREPage({
             />
             {canCompareVersions && (
               <VersionMultiSelect
-                versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+                versions={versoesDaObra.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
                 selected={compareVersions.map((v) => v.id)}
               />
             )}
