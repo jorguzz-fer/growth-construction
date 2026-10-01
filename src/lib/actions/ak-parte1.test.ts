@@ -99,7 +99,8 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
 
   it("addPermuta → permuta.create", async () => {
     const { addPermuta } = await import("./receitas");
-    await addPermuta(fd({ projectId: ids.project, unitCode: "101", tipo: "Terreno", estimado: "300000" }));
+    const r = await addPermuta(fd({ projectId: ids.project, unitCode: "101", cliente: "Cliente AK", dataRecebimento: "09/15/2026", tipo: "Terreno", estimado: "300000" }));
+    expect(r.ok).toBe(true);
     const [l] = await logs("permuta.create");
     expect(l.meta).toMatchObject({ unidade: "101", tipo: "Terreno" });
   });

@@ -517,7 +517,7 @@ async function Previstas({
     getUnits(tenantId, versionId),
     getReembolsos(versionId),
     getInccRows(projectId),
-    getPermutas(versionId),
+    getPermutas(tenantId, versionId),
   ]);
   const monthly: MonthlyProjection = {};
   for (const r of unitRows) {

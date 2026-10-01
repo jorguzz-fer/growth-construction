@@ -310,25 +310,41 @@ export function permutaCashByMonth(
 }
 
 /**
- * Receita CONTÁBIL da revenda de permuta para a DRE, por mês. Igual ao caixa
- * para à vista/parcelada; para ESCAMBO, contabiliza o valor na data do escambo
- * (data da venda), sem gerar caixa.
+ * Escambo da revenda, por mês: a troca do bem por outro, na data do escambo.
+ * Não gera caixa — por isso fica FORA de `permutaCashByMonth` e entra só na
+ * receita contábil. Separado de propósito (Prompt P, 4.3): antes a receita
+ * copiava o caixa e somava o escambo por cima, e qualquer mudança no filtro
+ * do caixa reintroduziria a soma dupla sem erro visível.
+ */
+export function permutaEscamboByMonth(
+  rows: readonly CalcPermutaResale[],
+): MonthlyProjection {
+  const out: MonthlyProjection = {};
+  for (const r of rows) {
+    if ((r.formaVenda || "").toLowerCase() !== "escambo") continue;
+    if (!r.valorVenda || r.valorVenda <= 0) continue;
+    const d = parseDate(r.dataVenda) ?? parseDate(r.dataPrimParcela);
+    if (d) out[monthKey(d.mo, d.yr)] = (out[monthKey(d.mo, d.yr)] || 0) + r.valorVenda;
+  }
+  return out;
+}
+
+/**
+ * Receita CONTÁBIL da revenda de permuta para a DRE, por mês, PELO VALOR CHEIO
+ * — o comportamento de hoje. É a soma explícita de duas partes disjuntas:
+ * o caixa (à vista e parcelada, que `permutaCashByMonth` já separa) e o
+ * escambo (`permutaEscamboByMonth`). Cada ativo entra em exatamente uma.
+ *
+ * Pela §57.4.3 do Prompt I e pela decisão BP-3, o que deve entrar no resultado
+ * é o ganho ou a perda da revenda, não o valor cheio; isso entra atrás da
+ * chave única das seções 54/56/57 (I-9). Até lá, esta função é a leitura da DRE.
  */
 export function permutaRevenueByMonth(
   rows: readonly CalcPermutaResale[],
 ): MonthlyProjection {
   const out: MonthlyProjection = {};
-  const add = (mm: string, v: number) => {
-    if (v > 0) out[mm] = (out[mm] || 0) + v;
-  };
-  const cash = permutaCashByMonth(rows);
-  for (const [mm, v] of Object.entries(cash)) add(mm, v);
-  // Escambo: só DRE, na data do escambo.
-  for (const r of rows) {
-    if ((r.formaVenda || "").toLowerCase() !== "escambo") continue;
-    if (!r.valorVenda || r.valorVenda <= 0) continue;
-    const d = parseDate(r.dataVenda) ?? parseDate(r.dataPrimParcela);
-    if (d) add(monthKey(d.mo, d.yr), r.valorVenda);
+  for (const parte of [permutaCashByMonth(rows), permutaEscamboByMonth(rows)]) {
+    for (const [mm, v] of Object.entries(parte)) if (v > 0) out[mm] = (out[mm] || 0) + v;
   }
   return out;
 }

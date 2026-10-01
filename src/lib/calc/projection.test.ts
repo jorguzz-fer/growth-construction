@@ -4,6 +4,9 @@ import {
   calcUnitTotal,
   calcTotals,
   reembursementsByMonth,
+  permutaCashByMonth,
+  permutaEscamboByMonth,
+  permutaRevenueByMonth,
   addMonths,
   monthKey,
   parseDate,
@@ -85,5 +88,34 @@ describe("reembursementsByMonth", () => {
       { data: "", valor: 999 },
     ]);
     expect(m["01/2026"]).toBe(60000);
+  });
+});
+
+describe("revenda de permuta — caixa × escambo separados (Prompt P, 4.3)", () => {
+  const rows = [
+    { valorVenda: 82000, dataVenda: "10/05/2026", formaVenda: "avista", parcelas: 0, periodicidade: "mensal", dataPrimParcela: "" },
+    { valorVenda: 12000, dataVenda: "10/05/2026", formaVenda: "parcelada", parcelas: 3, periodicidade: "mensal", dataPrimParcela: "11/01/2026" },
+    { valorVenda: 30000, dataVenda: "10/20/2026", formaVenda: "escambo", parcelas: 0, periodicidade: "mensal", dataPrimParcela: "" },
+    { valorVenda: 0, dataVenda: "10/20/2026", formaVenda: "escambo", parcelas: 0, periodicidade: "mensal", dataPrimParcela: "" },
+    { valorVenda: 5000, dataVenda: "", formaVenda: "avista", parcelas: 0, periodicidade: "mensal", dataPrimParcela: "" },
+  ];
+
+  it("o caixa não tem escambo; o escambo não tem caixa; cada ativo entra em exatamente uma parte", () => {
+    expect(permutaCashByMonth(rows)).toEqual({ "10/2026": 82000, "11/2026": 4000, "12/2026": 4000, "01/2027": 4000 });
+    expect(permutaEscamboByMonth(rows)).toEqual({ "10/2026": 30000 });
+  });
+
+  it("a receita contábil (valor cheio, como hoje) é a soma das duas partes — idêntica à fórmula antiga", () => {
+    const antiga = (() => {
+      const out: Record<string, number> = { ...permutaCashByMonth(rows) };
+      for (const r of rows) {
+        if ((r.formaVenda || "").toLowerCase() !== "escambo" || !r.valorVenda || r.valorVenda <= 0) continue;
+        const d = parseDate(r.dataVenda)!;
+        out[monthKey(d.mo, d.yr)] = (out[monthKey(d.mo, d.yr)] || 0) + r.valorVenda;
+      }
+      return out;
+    })();
+    expect(permutaRevenueByMonth(rows)).toEqual(antiga);
+    expect(permutaRevenueByMonth(rows)).toEqual({ "10/2026": 112000, "11/2026": 4000, "12/2026": 4000, "01/2027": 4000 });
   });
 });

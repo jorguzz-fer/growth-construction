@@ -7,6 +7,7 @@ import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { excelSerial } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
+import { lerValorDoAtivo, motivoDeRecusaDoAtivo } from "@/lib/permuta-regras";
 
 /**
  * Obra informada pelo formulário e a versão de trabalho dela (Prompt A): a
@@ -58,28 +59,66 @@ export async function addReembolso(formData: FormData) {
   redirect(`/reembolso?proj=${project.id}`);
 }
 
-export async function addPermuta(formData: FormData) {
+export type ResultadoPermuta = { ok: true; id: string } | { ok: false; error: string };
+
+const texto = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.trim() : "") || null;
+
+/**
+ * Cadastra um ativo recebido em permuta (Prompt P, 3.1/3.2). Devolve
+ * `{ ok, error }` com mensagem legível — sem permissão, sem obra, versão
+ * congelada e cadastro incompleto são erros que a tela mostra, nunca um
+ * `return` mudo nem um digest de produção. Nenhum campo vira "0" por omissão.
+ */
+export async function addPermuta(formData: FormData): Promise<ResultadoPermuta> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "permuta", "criar")) return;
-  const { project, version } = await obraDoFormulario(ctx.tenant.id, formData);
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "permuta", "criar")) return { ok: false, error: "Sem permissão para cadastrar ativos de permuta." };
+  let obra: Awaited<ReturnType<typeof obraDoFormulario>>;
+  try {
+    obra = await obraDoFormulario(ctx.tenant.id, formData);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Escolha o projeto." };
+  }
+  const { project, version } = obra;
+  const campos = {
+    unitCode: texto(formData.get("unitCode")),
+    cliente: texto(formData.get("cliente")),
+    dataRecebimento: texto(formData.get("dataRecebimento")),
+    tipo: texto(formData.get("tipo")),
+    descricao: texto(formData.get("descricao")),
+    estimado: texto(formData.get("estimado")),
+    status: texto(formData.get("status")) ?? "Disponivel",
+    dataVenda: texto(formData.get("dataVenda")),
+    valorVenda: texto(formData.get("valorVenda")),
+    tipoPermuta: texto(formData.get("tipoPermuta")),
+    formaVenda: texto(formData.get("formaVenda")),
+    parcelas: texto(formData.get("parcelas")),
+    periodicidade: texto(formData.get("periodicidade")),
+    dataPrimParcela: texto(formData.get("dataPrimParcela")),
+    obs: texto(formData.get("obs")),
+  };
+  const motivo = motivoDeRecusaDoAtivo(campos);
+  if (motivo) return { ok: false, error: motivo };
+  const estimado = lerValorDoAtivo(campos.estimado);
+  const valorVenda = campos.valorVenda ? lerValorDoAtivo(campos.valorVenda) : 0;
   const [perm] = await db.insert(schema.permutas).values({
     versionId: version.id,
     tenantId: ctx.tenant.id,
-    unitCode: (formData.get("unitCode") as string) || null,
-    cliente: (formData.get("cliente") as string) || null,
-    dataRecebimento: (formData.get("dataRecebimento") as string) || null,
-    tipo: (formData.get("tipo") as string) || null,
-    descricao: (formData.get("descricao") as string) || null,
-    estimado: (formData.get("estimado") as string) || "0",
-    status: (formData.get("status") as string) || "Disponivel",
-    dataVenda: (formData.get("dataVenda") as string) || null,
-    valorVenda: (formData.get("valorVenda") as string) || "0",
-    tipoPermuta: (formData.get("tipoPermuta") as string) || null,
-    formaVenda: (formData.get("formaVenda") as string) || null,
-    parcelas: formData.get("parcelas") ? Number(formData.get("parcelas")) : null,
-    periodicidade: (formData.get("periodicidade") as string) || null,
-    dataPrimParcela: (formData.get("dataPrimParcela") as string) || null,
-    obs: (formData.get("obs") as string) || null,
+    unitCode: campos.unitCode,
+    cliente: campos.cliente,
+    dataRecebimento: campos.dataRecebimento,
+    tipo: campos.tipo,
+    descricao: campos.descricao,
+    estimado: estimado.toFixed(2),
+    status: campos.status,
+    dataVenda: campos.dataVenda,
+    valorVenda: valorVenda.toFixed(2),
+    tipoPermuta: campos.tipoPermuta,
+    formaVenda: campos.formaVenda,
+    parcelas: campos.parcelas ? Number(campos.parcelas) : null,
+    periodicidade: campos.periodicidade,
+    dataPrimParcela: campos.dataPrimParcela,
+    obs: campos.obs,
   }).returning();
   // AK Parte 1 — sem transação aqui (1.3).
   await logAudit({
@@ -100,5 +139,5 @@ export async function addPermuta(formData: FormData) {
   revalidatePath("/fluxocaixa");
   revalidatePath("/dre");
   revalidatePath("/caixa");
-  redirect(`/permuta?proj=${project.id}`);
+  return { ok: true, id: perm.id };
 }

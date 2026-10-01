@@ -31,7 +31,7 @@ function tipoTone(tipo: string | null): BadgeProps["tone"] {
 export default async function PermutaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; salvo?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -49,7 +49,7 @@ export default async function PermutaPage({
     return <PedirProjeto titulo="Inventário de Permuta" projetos={ctx.projects} oQue="ver o inventário de permuta" />;
   }
   const { project, trabalho: version } = escolhido;
-  const rows = await getPermutas(version.id);
+  const rows = await getPermutas(ctx.tenant.id, version.id);
   const estimado = rows.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
   const projetada = rows
     .filter((p) => p.status === "Vendido")
@@ -80,6 +80,11 @@ export default async function PermutaPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
+      {sp.salvo && (
+        <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
+          Ativo gravado.
+        </p>
+      )}
 
       <p className="mb-6 text-sm text-[var(--color-ink3)]">
         Estimado: <strong className="text-[var(--color-ink)]">{brl0(estimado)}</strong>{" "}
@@ -157,15 +162,9 @@ export default async function PermutaPage({
         </tbody>
       </Table>
 
-      <div className="mt-6 flex items-start gap-2 rounded-[10px] bg-[#d1fae5] px-4 py-3 text-[13px] leading-relaxed text-[#065f46]">
-        <span aria-hidden className="mt-px">
-          ⓘ
-        </span>
-        <p>
-          <strong>VENDIDO</strong> gera receita na Projeção e atualiza
-          automaticamente o campo Permuta em Dados_de_Venda.
-        </p>
-      </div>
+      {/* Prompt P, 1.3/1.4 — o aviso "VENDIDO … atualiza o campo Permuta em
+          Dados_de_Venda" saiu: nada no sistema escreve a linha Permuta do
+          plano a partir desta tabela, e induzia a contar o bem duas vezes. */}
     </>
   );
 }

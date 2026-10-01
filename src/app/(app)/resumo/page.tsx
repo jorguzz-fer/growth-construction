@@ -38,7 +38,7 @@ async function versionIndicadores(
 ): Promise<{ label: string; value: number }[]> {
   const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(version.tenantId, version.id),
-    getPermutas(version.id),
+    getPermutas(version.tenantId, version.id),
     getReembolsos(version.id),
   ]);
   const totals = calcTotals(
@@ -149,7 +149,7 @@ export default async function ResumoPage({
   const version = compareVersions[0];
   const [unitRows, permRows, reembRows, revenue] = await Promise.all([
     getUnits(version.tenantId, version.id),
-    getPermutas(version.id),
+    getPermutas(version.tenantId, version.id),
     getReembolsos(version.id),
     getMonthlyRevenue(version.id, obra.id),
   ]);
