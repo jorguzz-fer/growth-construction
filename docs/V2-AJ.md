@@ -117,3 +117,18 @@ foi para `nav-menu.ts`, sem a afirmação errada).
   clamp desta tarefa.
 - A tela `contabilidade` saiu de `SCREENS`: a matriz passa de **38 para 37
   telas**. Override gravado com essa chave fica no banco, inerte.
+
+## Atualização — Prompt AP (01/10/2026)
+
+- A tela `versao` saiu de `SCREENS`.
+- Entrou `versaotrava`, permissão de ação que nasce só com owner e admin.
+- Com a `conferencia` do Prompt AN, a contagem fica em **37 telas**:
+
+| Mudança | Contagem |
+|---|---|
+| Base do Prompt AJ | 38 |
+| Prompt AL: sai `contabilidade` | 37 |
+| Prompt AN: entra `conferencia` | 38 |
+| Prompt AP: sai `versao`, entra `versaotrava` | 37 |
+
+Overrides gravados com a chave `versao` ficam no banco, inertes.

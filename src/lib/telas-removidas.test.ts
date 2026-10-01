@@ -13,6 +13,8 @@ describe("Prompt AL · Parte 1 — a tela Acesso Contabilidade sai", () => {
     expect(redirecionamentosDeTelasRemovidas().map((r) => r.source)).toEqual([
       "/contabilidade",
       "/contabilidade/:path*",
+      "/versao",
+      "/versao/:path*",
       "/diagnostico/planos-recebiveis",
       "/diagnostico/planos-recebiveis/:path*",
     ]);
@@ -107,5 +109,49 @@ describe("Prompt AN · Partes 5 e 6 — Conferência com id próprio; a de plano
     const m = defaultPermissions("membro");
     m.conferencia = { ver: false, criar: false, editar: false, excluir: false };
     expect(overridesDivergentes("membro", m)).not.toHaveProperty("conferencia");
+  });
+});
+
+describe("Prompt AP — a tela Configuração da Versão sai", () => {
+  it("1/11 — /versao não existe mais como página nem rota; redireciona para Projetos com aviso, e os downloads para os novos endereços", () => {
+    for (const f of ["src/app/(app)/versao/page.tsx", "src/app/(app)/versao/export/route.ts", "src/app/(app)/versao/template/route.ts"]) expect(existsSync(f), f).toBe(false);
+    expect(SCREEN_IDS).not.toContain("versao");
+    expect(screenIdOfPath("/versao")).toBeNull();
+    const cfg = readFileSync("next.config.ts", "utf8");
+    const i = (x: string) => cfg.indexOf(x);
+    expect(i('{ source: "/versao/export", destination: "/projeto/planilha/exportar", permanent: false }')).toBeGreaterThan(-1);
+    expect(i('{ source: "/versao/template", destination: "/projeto/planilha/modelo", permanent: false }')).toBeGreaterThan(-1);
+    // os específicos vêm antes do genérico
+    expect(i('source: "/versao/export"')).toBeLessThan(i('source: "/versao/:path*"'));
+    expect(avisoDeTelaRemovida("versao")).toMatch(/Configuração da Versão saiu.*Versões do projeto/);
+    expect(existsSync("src/app/(app)/projeto/planilha/exportar/route.ts")).toBe(true);
+    expect(existsSync("src/app/(app)/projeto/planilha/modelo/route.ts")).toBe(true);
+  });
+
+  it("1.2/1.4 — as actions de criar, excluir, renomear e marcar padrão saíram; a trava ficou em travarVersao", () => {
+    expect(existsSync("src/lib/actions/versions.ts")).toBe(false);
+    expect(existsSync("src/components/app/version-identity.tsx")).toBe(false);
+    expect(existsSync("src/lib/actions/versao-trava.ts")).toBe(true);
+    expect(SCREEN_IDS).toContain("versaotrava");
+  });
+
+  it("2 — nenhuma menção restante à rota em href, redirect ou revalidatePath", () => {
+    const arquivos = [
+      "src/components/app/budget-planning-screen.tsx",
+      "src/components/app/versoes-do-projeto.tsx",
+      "src/app/(app)/projeto/page.tsx",
+      "src/lib/actions/version-io.ts",
+      "src/lib/actions/versao-trava.ts",
+      "src/lib/nav-menu.ts",
+    ];
+    for (const f of arquivos) expect(readFileSync(f, "utf8"), f).not.toMatch(/["'`]\/versao(["'`/?])/);
+  });
+
+  it("a permissão da trava nasce só com owner e admin", () => {
+    for (const role of ["owner", "admin"] as const) expect(defaultPermissions(role).versaotrava.editar).toBe(true);
+    for (const role of ["membro", "contador", "engenheiro"] as const) {
+      expect(defaultPermissions(role).versaotrava.ver, role).toBe(false);
+      expect(defaultPermissions(role, { membroRestrito: true }).versaotrava.ver, role).toBe(false);
+    }
   });
 });

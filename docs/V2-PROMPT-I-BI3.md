@@ -37,3 +37,12 @@ passam as duas.
     unidade continuam lá;
   - arquivo que não é planilha não grava nada.
 - `versoes-projeto-explicito.test.ts`: `duplicateVersion` não é mais exportada.
+
+## Atualização — Prompt AP (01/10/2026)
+
+- Com `/versao` fora, **não há mais caminho de exclusão de versão pela
+  interface.** `deleteVersion` saiu junto. Remover uma versão passa a ser
+  operação de banco, com backup antes.
+- A importação desta regra (`importVersionData`, que não apaga nada) não
+  mudou. Ela agora mora no cartão "Planilha da versão Atual", na tela
+  Projetos, e exige `projeto:editar`.

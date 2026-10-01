@@ -136,14 +136,6 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
     expect(l.meta).toMatchObject({ mes: "02/2026", mensal: { de: 0.3, para: 0.4 }, eraProjetado: false, mesesReescritos: 0, reprojetados: [] });
   });
 
-  it("setDefaultVersion → version.setDefault com de/para", async () => {
-    const { setDefaultVersion } = await import("./versions");
-    // setDefaultVersion exige versao:editar — owner tem.
-    await setDefaultVersion(ids.v2);
-    const vs = await db.select().from(schema.versions).where(eq(schema.versions.tenantId, tenantId));
-    expect(vs.find((v) => v.id === ids.v2)?.isDefault).toBe(true);
-    expect(vs.find((v) => v.id === ids.v1)?.isDefault).toBe(false);
-    const [l] = await logs("version.setDefault");
-    expect(l.meta).toMatchObject({ de: { label: "Atual" }, para: { label: "Cenário 1" } });
-  });
+  // setDefaultVersion saiu com a tela /versao (Prompt AP, BAP-4): não há mais
+  // escrita de is_default pela interface. Os registros antigos ficam no log.
 });

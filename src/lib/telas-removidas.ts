@@ -14,6 +14,14 @@ export const TELAS_REMOVIDAS = {
     aviso:
       "A tela Acesso Contabilidade saiu. Convide o contador aqui, com o papel “contador”; o que ele vê se ajusta em Gestão de Acessos.",
   },
+  // Prompt AP: a Configuração da Versão saiu. Cada versão é construída na
+  // própria tela; a trava e a planilha da Atual moram na tela Projetos.
+  versao: {
+    rotaAntiga: "/versao",
+    destino: "/projeto",
+    aviso:
+      "A tela Configuração da Versão saiu. Escolha o projeto aqui: a trava das versões e a planilha da versão Atual (modelo, exportação e importação) ficam no cartão “Versões do projeto”.",
+  },
   // Prompt AN, Parte 6: a carência saiu (detectava a operação normal); a data
   // impossível virou aviso no cadastro do plano de pagamento da unidade.
   "planos-recebiveis": {

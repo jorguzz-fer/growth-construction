@@ -12,7 +12,7 @@ export type ResultadoTrava = { ok: true } | { ok: false; error: string };
 
 /**
  * Trava ou destrava uma versão (Prompt AP, BAP-2). Substitui
- * `toggleVersionLock` da tela `/versao`, que sai. Escrita e log na mesma
+ * `toggleVersionLock` da tela de Configuração da Versão, que sai. Escrita e log na mesma
  * transação, com `de`/`para`. Não toca em nenhuma outra coluna da versão.
  */
 export async function travarVersao(versionId: string, travar: boolean): Promise<ResultadoTrava> {
