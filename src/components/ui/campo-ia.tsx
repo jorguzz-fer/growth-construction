@@ -106,6 +106,7 @@ export function CampoIA({
  */
 export function ResumoLeituraIA({
   titulo,
+  origem = "Leitura do documento",
   resumo,
   preenchidos,
   alertas,
@@ -115,6 +116,8 @@ export function ResumoLeituraIA({
 }: {
   /** Ex.: "Comprovante de pagamento · 2 arquivos". */
   titulo: string;
+  /** De onde veio a proposta: documento lido (padrão) ou descrição em texto/voz. */
+  origem?: string;
   /** Frase da IA sobre o que é o documento. */
   resumo?: string;
   preenchidos: string[];
@@ -131,7 +134,7 @@ export function ResumoLeituraIA({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-            Leitura do documento · {titulo}
+            {origem} · {titulo}
           </p>
           {resumo && (
             <p className="mt-1 text-[13px] text-[var(--color-ink)]">{resumo}</p>

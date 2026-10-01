@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function NovaUnidadePage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; assistente?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -32,6 +32,9 @@ export default async function NovaUnidadePage({
     <>
       <PageHeader eyebrow="Nova venda · versão Atual" title="Nova Unidade" />
       <UnitForm
+        // 6.3 — veio do assistente: o formulário lê a proposta guardada no
+        // navegador e mostra cada campo; gravar continua sendo o botão.
+        propostaDoAssistente={sp.assistente === "1"}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         initial={{
           projetoId,
