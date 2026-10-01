@@ -421,6 +421,13 @@
       "when": 1790900000000,
       "tag": "0059_daily_closing_no_caixa",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790950000000,
+      "tag": "0060_estoque_estorno_docs",
+      "breakpoints": true
     }
   ]
 }

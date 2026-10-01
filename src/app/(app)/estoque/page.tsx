@@ -1,89 +1,62 @@
 import { getTenantContext } from "@/lib/context";
-import {
-  getStockItems,
-  getStockMovements,
-  getDespesaOptions,
-  getPermutaOptions,
-} from "@/lib/queries";
+import { getStockItems, getStockSaldos, getStockMovementsPage, getDespesasParaEstoque, getPermutaOptions } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
-import { EstoqueManager } from "@/components/app/estoque-manager";
+import { EstoqueManager, type FiltrosDaTela } from "@/components/app/estoque-manager";
 
 export const dynamic = "force-dynamic";
 
-export default async function EstoquePage() {
+/**
+ * Controle de Estoques (Prompt Y). Controle FÍSICO: a entrada aponta a
+ * despesa ou a permuta de origem; a saída diz para qual obra o material foi.
+ * Nada aqui gera custo — a despesa já é da obra dela (BY-1).
+ */
+export default async function EstoquePage({ searchParams }: { searchParams: Promise<{ tab?: string; pagina?: string; f_item?: string; f_obra?: string; f_tipo?: string; de?: string; ate?: string }> }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
+  // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
   if (!can(ctx.perms, "estoque", "ver")) return <AccessDenied />;
+  const sp = await searchParams;
+  const filtros: FiltrosDaTela = {
+    tab: sp.tab === "mov" ? "mov" : "itens",
+    pagina: Math.max(1, Number(sp.pagina) || 1),
+    itemId: sp.f_item || null,
+    projectId: sp.f_obra || null,
+    tipo: sp.f_tipo === "entrada" || sp.f_tipo === "saida" ? sp.f_tipo : null,
+    de: sp.de || null,
+    ate: sp.ate || null,
+  };
 
-  const [items, movements, despesas, permutas] = await Promise.all([
+  const [items, saldos, movimentos, despesas, permutas] = await Promise.all([
     getStockItems(ctx.tenant.id),
-    getStockMovements(ctx.tenant.id),
-    getDespesaOptions(ctx.tenant.id),
+    getStockSaldos(ctx.tenant.id),
+    getStockMovementsPage(ctx.tenant.id, { pagina: filtros.pagina, itemId: filtros.itemId, projectId: filtros.projectId, tipo: filtros.tipo, de: filtros.de, ate: filtros.ate }),
+    getDespesasParaEstoque(ctx.tenant.id),
     getPermutaOptions(ctx.tenant.id),
   ]);
 
-  // Saldo por item = entradas - saídas.
-  const saldo = new Map<string, number>();
-  for (const m of movements) {
-    const q = Number(m.quantidade);
-    saldo.set(m.itemId, (saldo.get(m.itemId) ?? 0) + (m.tipo === "saida" ? -q : q));
-  }
-
   const itemViews = items.map((i) => {
-    const s = saldo.get(i.id) ?? 0;
-    return {
-      id: i.id,
-      sku: i.sku,
-      nome: i.nome,
-      unidade: i.unidade,
-      categoria: i.categoria,
-      custoUnit: Number(i.custoUnit),
-      minimo: Number(i.minimo),
-      saldo: s,
-      valorEstoque: s * Number(i.custoUnit),
-    };
+    const s = saldos.get(i.id) ?? 0;
+    return { id: i.id, sku: i.sku, nome: i.nome, unidade: i.unidade, categoria: i.categoria, custoUnit: Number(i.custoUnit), minimo: Number(i.minimo), obs: i.obs, ativo: i.ativo, saldo: s, valorEstoque: Math.round(s * Number(i.custoUnit) * 100) / 100 };
   });
-
-  const movViews = movements.map((m) => ({
-    id: m.id,
-    itemNome: m.itemNome,
-    unidade: m.unidade,
-    tipo: m.tipo as "entrada" | "saida",
-    origem: m.origem,
-    quantidade: Number(m.quantidade),
-    custoUnit: Number(m.custoUnit),
-    data: m.data,
-    doc: m.doc,
-    obs: m.obs,
-    projectName: m.projectName,
-    clienteNome: m.clienteNome,
-    responsavel: m.responsavel,
-    despesaNumDoc: m.despesaNumDoc,
-    permutaDescricao: m.permutaDescricao,
-  }));
 
   return (
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Controle de Estoques"
-        subtitle="Almoxarifado da obra: dê entrada e baixa em poucos cliques, com saldo, mínimo e vínculo à despesa ou permuta de origem."
+        subtitle="Almoxarifado da empresa: a entrada aponta a compra (despesa) ou a permuta; a saída diz para qual obra o material foi. Sem efeito contábil — o custo já é da despesa."
       />
       <EstoqueManager
         items={itemViews}
-        movements={movViews}
+        movimentos={{ rows: movimentos.rows.map((m) => ({ id: m.id, itemId: m.itemId, itemNome: m.itemNome, unidade: m.unidade, tipo: m.tipo as "entrada" | "saida", origem: m.origem, quantidade: Number(m.quantidade), custoUnit: Number(m.custoUnit), valor: m.valor, data: m.data, doc: m.doc, obs: m.obs, projectName: m.projectName, responsavel: m.responsavel, despesaId: m.despesaId, despesaNumDoc: m.despesaNumDoc, permutaId: m.permutaId, permutaDescricao: m.permutaDescricao, estornoDeId: m.estornoDeId, estornado: m.estornado })), total: movimentos.total, pagina: movimentos.pagina, porPagina: movimentos.porPagina }}
+        filtros={filtros}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
-        despesas={despesas.map((d) => ({
-          id: d.id,
-          label: `${d.numDoc}${d.fornecedorNome ? ` · ${d.fornecedorNome}` : ""}`,
-        }))}
-        permutas={permutas.map((p) => ({
-          id: p.id,
-          label: `${p.descricao ?? "Permuta"}${p.cliente ? ` · ${p.cliente}` : ""}`,
-        }))}
-        canEdit={can(ctx.perms, "estoque", "criar")}
+        despesas={despesas}
+        permutas={permutas.map((p) => ({ id: p.id, label: `${p.descricao ?? "Permuta"}${p.cliente ? ` · ${p.cliente}` : ""}` }))}
+        canCriar={can(ctx.perms, "estoque", "criar")}
+        canEditar={can(ctx.perms, "estoque", "editar")}
         canExcluir={can(ctx.perms, "estoque", "excluir")}
       />
     </>
