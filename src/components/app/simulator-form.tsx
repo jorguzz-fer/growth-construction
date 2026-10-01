@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
+import { AssistenteSimulador } from "@/components/app/assistente-simulador";
 
 export interface ClienteParaSimular {
   id: string;
@@ -29,7 +30,7 @@ type ReforcoTexto = { valor: string; mes: string };
 const vazio = (mes: number): ReforcoTexto => ({ valor: "", mes: String(mes) });
 const reforco = (r: ReforcoTexto): Reforco => ({ valor: num(r.valor), mes: intOuNaN(r.mes) });
 
-export function SimulatorForm({ incc, obra, janelaObra, clientes, podeVerRenda }: { incc: InccRow[]; obra: { nome: string; variante: string | null }; janelaObra: { inicio: string; fim: string } | null; clientes: ClienteParaSimular[]; podeVerRenda: boolean }) {
+export function SimulatorForm({ incc, obra, janelaObra, clientes, podeVerRenda, usuario }: { incc: InccRow[]; obra: { nome: string; variante: string | null }; janelaObra: { inicio: string; fim: string } | null; clientes: ClienteParaSimular[]; podeVerRenda: boolean; usuario: string }) {
   const [tipo, setTipo] = useState<FinancingType>("SAC");
   const [valorImovel, setValorImovel] = useState("");
   const [entrada, setEntrada] = useState("");
@@ -92,7 +93,7 @@ export function SimulatorForm({ incc, obra, janelaObra, clientes, podeVerRenda }
   );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[340px_1fr] min-[1180px]:grid-cols-[320px_minmax(0,1fr)_300px]">
       {/* Entradas */}
       <Card>
         <CardContent className="space-y-3 p-5">
@@ -246,6 +247,9 @@ export function SimulatorForm({ incc, obra, janelaObra, clientes, podeVerRenda }
           </>
         )}
       </div>
+
+      {/* Seção 5 — assistente somente leitura, puro, sobre o que a tela calculou. */}
+      <AssistenteSimulador usuario={usuario} input={input} result={result} incc={incc} />
     </div>
   );
 }
