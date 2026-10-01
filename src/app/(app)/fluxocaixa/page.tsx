@@ -11,7 +11,7 @@ import {
 import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { flowMaps, flowMapsRealizado } from "@/lib/fluxo-caixa";
-import { TEXTO_ESTADO, eixoDoFluxo, linhasDoFluxo, totalDoDesvio } from "@/lib/fluxo-tela";
+import { TEXTO_ESTADO, eixoDoFluxo, linhasDoFluxo, mesCorrente, partidaDaObra, totalDoDesvio } from "@/lib/fluxo-tela";
 import {
   getBankAccounts,
   getVersionsDoProjeto,
@@ -53,6 +53,8 @@ export default async function FluxoCaixaPage({
   if (!can(ctx.perms, "fluxocaixa", "ver")) return <AccessDenied />;
   // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
   const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
+  // Prompt AD, 8.1 — a definição nova do Fluxo (nasce desligada).
+  const fluxoNovo = await chaveLigada(ctx.tenant.id, "fluxo_definicao_nova");
 
   const sp = await searchParams;
   const de = sp.de ?? "";
@@ -81,7 +83,12 @@ export default async function FluxoCaixaPage({
 
   // Por padrão, o Fluxo abre na versão ATUAL (dados reais); o usuário pode
   // selecionar/comparar outras versões pelo seletor.
-  const atualVersion = versoes.find((v) => v.kind === "atual") ?? versoes[0] ?? null;
+  // Prompt AD, 1.3: com a chave, a Atual nunca é substituída — sem ela não há
+  // realizado nem acumulado. A versão de referência das colunas de previsto
+  // continua podendo ser outra.
+  const atualReal = versoes.find((v) => v.kind === "atual") ?? null;
+  const atualVersion = atualReal ?? versoes[0] ?? null;
+  const semAtual = fluxoNovo && !!project && !atualReal;
   const compareVersions = atualVersion ? resolveCompareVersions(sp.vs, versoes, atualVersion) : [];
   const projectSelect = (
     <ProjectPicker
@@ -145,9 +152,9 @@ export default async function FluxoCaixaPage({
     const porProjeto = await Promise.all(
       projetosConsolidados.map(async (p) => {
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
-        const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
+        const atual = vs.find((v) => v.kind === "atual") ?? (fluxoNovo ? undefined : vs[0]);
         if (!atual) return { entradas: {}, saidas: {} };
-        return flowMaps(atual, p.id);
+        return flowMaps(atual, p.id, { definicaoNova: fluxoNovo });
       }),
     );
     const entradas: Record<string, number> = {};
@@ -167,7 +174,7 @@ export default async function FluxoCaixaPage({
     const porProjeto = await Promise.all(
       projetosConsolidados.map(async (p) => {
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
-        const atual = vs.find((v) => v.kind === "atual") ?? vs[0];
+        const atual = vs.find((v) => v.kind === "atual") ?? (fluxoNovo ? undefined : vs[0]);
         if (!atual) return { entradas: {}, saidas: {}, semData: { qtd: 0, valor: 0 } };
         return flowMapsRealizado(atual.id);
       }),
@@ -191,7 +198,7 @@ export default async function FluxoCaixaPage({
   const [fluxos, incc, contas, realizado] = await Promise.all([
     isAll
       ? flowMapsConsolidado().then((m) => [m])
-      : Promise.all(compareVersions.map((v) => flowMaps(v, project!.id))),
+      : Promise.all(compareVersions.map((v) => flowMaps(v, project!.id, { definicaoNova: fluxoNovo }))),
     // Eixo de meses: INCC da obra; no consolidado, a união das obras do escopo
     // (antes: a da obra do cookie). Só acrescenta meses sem movimento — nenhum
     // total muda, porque o saldo corre sobre todos os meses com movimento.
@@ -203,21 +210,32 @@ export default async function FluxoCaixaPage({
     // REALIZADO, montado pela data de liquidação: o dinheiro que de fato passou
     // pela conta. São visões distintas da mesma realidade e aparecem lado a
     // lado; nenhum número do previsto muda por causa disto.
-    isAll ? flowMapsRealizadoConsolidado() : flowMapsRealizado(compareVersions[0].id),
+    // 1.1 (chave ligada): o realizado é SEMPRE da Atual, qualquer que seja a
+    // ordem da seleção; sem Atual, nenhum realizado.
+    isAll
+      ? flowMapsRealizadoConsolidado()
+      : fluxoNovo
+        ? atualReal
+          ? flowMapsRealizado(atualReal.id)
+          : Promise.resolve({ entradas: {} as Record<string, number>, saidas: {} as Record<string, number>, semData: { qtd: 0, valor: 0 } })
+        : flowMapsRealizado(compareVersions[0].id),
   ]);
   // A primeira versão selecionada é a de referência (entradas/saídas/saldo
   // acumulado dos cartões do topo).
   const { entradas, saidas } = fluxos[0];
 
-  // Saldo inicial = soma dos saldos das contas correntes.
   // Saldo inicial = só contas da empresa (contas "Terceiros" são obrigações).
-  const saldoInicial = saldoDisponivel(contas);
+  // BAD-1 (chave ligada): com UMA obra, o partida é o caixa da Atual antes do
+  // primeiro mês — o fluxo da obra; Empresa toda segue pelas contas.
+  const saldoDasContas = saldoDisponivel(contas);
 
   // Eixo = INCC + meses com movimentação (âncora nos dados reais). Prompt AD,
   // 3.1: entram também os meses do REALIZADO — pagamento em mês sem previsão
   // tinha linha nenhuma onde aparecer. Nenhum total muda: nesses meses o
   // previsto é zero e o acumulado não se mexe.
   const axis = eixoDoFluxo(incc.map((r) => r.m), fluxos, realizado).sort(sortMonthKey);
+  const partidaPelaObra = fluxoNovo && !!project;
+  const saldoInicial = partidaPelaObra ? partidaDaObra(axis, realizado) : saldoDasContas;
   // Recortes por ano-calendário (2025, 2026, … até o ano atual + 5).
   const years = calendarYearWindows(axis, new Date().getFullYear()).map((y) => ({
     value: Number(y.value),
@@ -252,11 +270,16 @@ export default async function FluxoCaixaPage({
   // Saldo acumulado corre desde o saldo inicial ao longo de todo o horizonte,
   // pelo previsto (como antes). Linhas e desvio vêm do módulo puro, que o
   // assistente também lê (Prompt AD, 4.2).
-  const linhas = linhasDoFluxo(axis, yearMonths, { entradas, saidas }, realizado, saldoInicial);
+  // 2.1 (chave ligada): mês fechado entra no acumulado pelo realizado.
+  const linhas = linhasDoFluxo(axis, yearMonths, { entradas, saidas }, realizado, saldoInicial, fluxoNovo ? { mesAtual: mesCorrente() } : {});
   const desvioTotal = totalDoDesvio(linhas);
   const totRealE = linhas.reduce((a, l) => a + l.realE, 0);
   const totRealS = linhas.reduce((a, l) => a + l.realS, 0);
-  const versaoDoRealizado = isAll ? "da Atual de cada obra" : `da versão “${compareVersions[0].label}”`;
+  const versaoDoRealizado = isAll
+    ? "da Atual de cada obra"
+    : fluxoNovo
+      ? `da versão Atual${atualReal ? ` (“${atualReal.label}”)` : ""}, qualquer que seja a seleção`
+      : `da versão “${compareVersions[0].label}”`;
   // Totais de TODO o horizonte (não só do ano selecionado) — assim o usuário vê
   // de imediato que o restante do dinheiro está em outros anos, e em quais.
   const horizonteE = Object.values(entradas).reduce((a, v) => a + v, 0);
@@ -378,9 +401,19 @@ export default async function FluxoCaixaPage({
 
       {/* Prompt AD, 2.2 e BAD-1 — cada número declara a sua base. */}
       <div className="mb-3 space-y-0.5 text-[12px] text-[var(--color-ink3)]" data-bases>
+        {semAtual && (
+          <p className="rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[var(--color-ink2)]" role="status">
+            {project?.name} não tem versão Atual: sem realizado, sem desvio e sem saldo acumulado. Nenhuma outra versão é usada no lugar.
+          </p>
+        )}
         <p>
-          <strong className="text-[var(--color-ink2)]">Saldo acumulado</strong> parte do saldo inicial de {brl0(saldoInicial)} — a soma
-          das contas correntes da empresa (todas as obras), não o caixa da obra — e corre pelo previsto.
+          <strong className="text-[var(--color-ink2)]">Saldo acumulado</strong>{" "}
+          {partidaPelaObra ? (
+            <>parte de {brl0(saldoInicial)} — o caixa realizado da Atual antes do primeiro mês, ou seja, o fluxo da obra, não o saldo das contas da empresa</>
+          ) : (
+            <>parte do saldo inicial de {brl0(saldoInicial)} — a soma das contas correntes da empresa (todas as obras), não o caixa da obra</>
+          )}{" "}
+          — e corre {fluxoNovo ? <>pelo <strong>realizado</strong> nos meses fechados e pelo <strong>previsto</strong> do mês corrente em diante</> : "pelo previsto"}.
         </p>
         <p>
           <strong className="text-[var(--color-ink2)]">Realizado</strong>: lançamentos de caixa {versaoDoRealizado}, pela data de
@@ -420,17 +453,30 @@ export default async function FluxoCaixaPage({
                 ))}
                 {/* RG-01 — realizado por data de liquidação, ao lado do
                     previsto por vencimento. */}
-                <TH className="text-right">Realizado ↑</TH>
-                <TH className="text-right">Realizado ↓</TH>
-                {/* Prompt AD, Parte 5 — o desvio entra na tela. */}
-                <TH className="text-right">Desvio</TH>
-                <TH className="text-right">Desvio %</TH>
-                <TH className="text-right">Saldo acumulado</TH>
+                {!semAtual && (
+                  <>
+                    <TH className="text-right">Realizado ↑</TH>
+                    <TH className="text-right">Realizado ↓</TH>
+                    {/* Prompt AD, Parte 5 — o desvio entra na tela. */}
+                    <TH className="text-right">Desvio</TH>
+                    <TH className="text-right">Desvio %</TH>
+                    <TH className="text-right">Saldo acumulado</TH>
+                  </>
+                )}
               </tr>
             </THead>
             <tbody>
-              {linhas.map((l) => (
-                <TR key={l.mm}>
+              {linhas.map((l, li) => (
+                <Fragment key={l.mm}>
+                {/* 2.1/3.2 (chave ligada) — a fronteira entre o que já aconteceu e a projeção. */}
+                {li > 0 && linhas[li - 1].fechado && !l.fechado && (
+                  <tr data-fronteira>
+                    <td colSpan={6 + versoesTabela.length * 3} className="border-y-2 border-[var(--color-accent2)]/40 bg-[var(--color-accent4)] px-3 py-1 text-center text-[11px] text-[var(--color-ink2)]">
+                      acima: meses fechados (o acumulado segue o realizado) · abaixo: projeção (o acumulado segue o previsto)
+                    </td>
+                  </tr>
+                )}
+                <TR>
                   <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
                     {l.mm}
                   </TD>
@@ -439,10 +485,10 @@ export default async function FluxoCaixaPage({
                     const sa = f.saidas[l.mm] || 0;
                     return (
                       <Fragment key={versoesTabela[i]?.id ?? i}>
-                        <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
+                        <TD className={`text-right font-[family-name:var(--font-mono)] text-[var(--color-success)] ${l.fechado ? "opacity-50" : ""}`} title={l.fechado ? "Previsto de mês já fechado: referência — o número principal é o realizado" : undefined}>
                           {e > 0 ? brl0(e) : "—"}
                         </TD>
-                        <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]">
+                        <TD className={`text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)] ${l.fechado ? "opacity-50" : ""}`}>
                           {sa > 0 ? brl0(sa) : "—"}
                         </TD>
                         <TD className="text-right font-[family-name:var(--font-mono)] font-medium text-[var(--color-success)]">
@@ -452,14 +498,16 @@ export default async function FluxoCaixaPage({
                       </Fragment>
                     );
                   })}
+                  {!semAtual && (
+                    <>
                   <TD
-                    className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]"
+                    className={`text-right font-[family-name:var(--font-mono)] text-[var(--color-success)] ${l.fechado ? "font-semibold" : ""}`}
                     title="Entradas efetivamente liquidadas neste mês (extrato/caixa)"
                   >
                     {(realizado.entradas[l.mm] || 0) > 0 ? brl0(realizado.entradas[l.mm]) : "—"}
                   </TD>
                   <TD
-                    className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]"
+                    className={`text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)] ${l.fechado ? "font-semibold" : ""}`}
                     title="Saídas efetivamente liquidadas neste mês (extrato/caixa)"
                   >
                     {(realizado.saidas[l.mm] || 0) > 0 ? brl0(realizado.saidas[l.mm]) : "—"}
@@ -478,7 +526,10 @@ export default async function FluxoCaixaPage({
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
                     {brl0(l.saldo)}
                   </TD>
+                    </>
+                  )}
                 </TR>
+                </Fragment>
               ))}
               {linhas.length === 0 ? (
                 <TR>
@@ -509,6 +560,8 @@ export default async function FluxoCaixaPage({
                       </Fragment>
                     );
                   })}
+                  {!semAtual && (
+                    <>
                   {/* Antes, o total não tinha as colunas de realizado e desalinhava. */}
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
                     {brl0(totRealE)}
@@ -529,6 +582,8 @@ export default async function FluxoCaixaPage({
                   <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-accent)]">
                     {brl0(saldoAcumFinal)}
                   </TD>
+                    </>
+                  )}
                 </TR>
               )}
             </tbody>
