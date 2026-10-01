@@ -33,7 +33,16 @@ export interface MovimentoDeCaixa {
 export interface FechamentoGravado {
   /** "MM/DD/YYYY" */
   dia: string;
+  /** saldo conciliado ao fim do dia, gravado. */
   saldoFinal: number;
+  // Parte 9 — o que o cartão fechado mostra (9.3).
+  id?: string;
+  saldoInicial?: number;
+  saldoEmConta?: number | null;
+  divergencia?: number;
+  responsavel?: string | null;
+  /** ISO datetime */
+  fechadoEm?: string | null;
 }
 
 export type Natureza = "extratoSemLancamento" | "lancamentoSemExtrato" | "valorDivergente" | "dataTrocada";
@@ -64,6 +73,12 @@ export interface DiaDaCadeia {
   /** quantos movimentos do dia ainda explicam diferença. */
   pendentes: number;
   fechado: boolean;
+  /** 9.3 — o fechamento gravado deste dia (null = aberto). */
+  fechamento: FechamentoGravado | null;
+  /** 9.6 — lançamento posterior mudou o conciliado recalculado em relação ao gravado. */
+  divergeDoGravado: boolean;
+  /** 9.3 — dia realizado aberto antes de um dia fechado: a cadeia tem buraco. */
+  buraco: boolean;
 }
 
 export interface CadeiaDeSaldo {
@@ -143,9 +158,10 @@ export function cadeiaDeSaldo(p: ParametrosDaCadeia): CadeiaDeSaldo {
   }
   // Saldo em conta ao fim de um dia: saldo atual − importados posteriores (nunca soma o que já está no saldo).
   const emContaFinal = (dia: string) => r2(p.saldoEmContaAtual - p.movimentos.filter((m) => m.importado && (isoDe(m.data) ?? "") > dia).reduce((a, m) => a + m.valor, 0));
-  const fechados = new Map((p.fechamentos ?? []).map((f) => [isoDe(f.dia) ?? f.dia, f.saldoFinal]));
+  const fechados = new Map((p.fechamentos ?? []).map((f) => [isoDe(f.dia) ?? f.dia, f]));
+  const ultimoFechado = [...fechados.keys()].sort().at(-1) ?? "";
   const emContaInicio = emContaFinal(anterior);
-  const fechamentoAnterior = fechados.get(anterior);
+  const fechamentoAnterior = fechados.get(anterior)?.saldoFinal;
   const inicio: CadeiaDeSaldo["inicio"] = { dia: anterior, emConta: emContaInicio, conciliado: fechamentoAnterior ?? emContaInicio, fonte: fechamentoAnterior != null ? "fechamento" : "calculado" };
   const pares = pareamentoPorData(p.movimentos);
   const divergencias = new Map<string, ItemDaNatureza[]>();
@@ -186,11 +202,71 @@ export function cadeiaDeSaldo(p: ParametrosDaCadeia): CadeiaDeSaldo {
     }
     const pendentes = futuro ? 0 : naturezas.extratoSemLancamento.itens.length + naturezas.lancamentoSemExtrato.itens.length + naturezas.valorDivergente.itens.length + naturezas.dataTrocada.itens.length;
     const rotulo: Rotulo = futuro ? "Projeção" : dia === p.hojeISO ? "Hoje" : pendentes > 0 ? "Realizado · pendente" : "Realizado · conciliado";
-    dias.push({ dia, rotulo, entradas, saidas, entradasConciliadas, saidasConciliadas, ajustes, emConta, conciliado, diferenca: emConta ? r2(emConta.final - conciliado.final) : null, naturezas, pendentes, fechado: fechados.has(dia) });
+    const fechamento = fechados.get(dia) ?? null;
+    dias.push({
+      dia,
+      rotulo,
+      entradas,
+      saidas,
+      entradasConciliadas,
+      saidasConciliadas,
+      ajustes,
+      emConta,
+      conciliado,
+      diferenca: emConta ? r2(emConta.final - conciliado.final) : null,
+      naturezas,
+      pendentes,
+      fechado: !!fechamento,
+      fechamento,
+      divergeDoGravado: !!fechamento && Math.abs(conciliado.final - fechamento.saldoFinal) > 0.005,
+      buraco: !fechamento && !futuro && dia < ultimoFechado,
+    });
     conciliadoAnterior = conciliado.final;
     if (emConta) emContaAnterior = emConta.final;
   }
   return { dias, inicio };
+}
+
+// ── Parte 9 — fechar o dia no cartão ───────────────────────────────────────
+
+/** O que o fechamento grava: tudo calculado da cadeia, nada vindo do cliente (9.2 / 9.4). */
+export interface ResumoDoFechamento {
+  /** "YYYY-MM-DD" */
+  dia: string;
+  saldoInicial: number;
+  entradas: number;
+  saidas: number;
+  ajustes: number;
+  saldoFinal: number;
+  saldoEmConta: number | null;
+  /** em conta − conciliado ao fim do dia (0 quando não há em conta). */
+  divergencia: number;
+  naturezas: Record<Natureza, number>;
+}
+
+export function resumoParaFechar(d: DiaDaCadeia): ResumoDoFechamento {
+  return {
+    dia: d.dia,
+    saldoInicial: d.conciliado.inicial,
+    entradas: d.rotulo === "Projeção" ? d.entradas : d.entradasConciliadas,
+    saidas: d.rotulo === "Projeção" ? d.saidas : d.saidasConciliadas,
+    ajustes: d.ajustes,
+    saldoFinal: d.conciliado.final,
+    saldoEmConta: d.emConta ? d.emConta.final : null,
+    divergencia: d.diferenca ?? 0,
+    naturezas: { extratoSemLancamento: d.naturezas.extratoSemLancamento.valor, lancamentoSemExtrato: d.naturezas.lancamentoSemExtrato.valor, valorDivergente: d.naturezas.valorDivergente.valor, dataTrocada: d.naturezas.dataTrocada.valor },
+  };
+}
+
+/** 9.5 / 9.3 — por que um dia não pode ser fechado agora; null = pode. */
+export function recusaDoFechamento(d: DiaDaCadeia | undefined, hojeISO: string): string | null {
+  if (!d) return "Dia fora da cadeia calculada.";
+  if (d.dia > hojeISO) return "Não se fecha dia futuro: o banco ainda não registrou nada nele.";
+  if (d.fechamento) {
+    const quem = d.fechamento.responsavel ? ` por ${d.fechamento.responsavel}` : "";
+    return `Este dia já está fechado${quem}. Para fechar de novo, reabra primeiro (operação própria, com motivo).`;
+  }
+  return null;
 }
 
 /** 1.4-A.6 — a identidade da cadeia: o inicial de cada dia é exatamente o final do anterior. Devolve os dias que quebram. */

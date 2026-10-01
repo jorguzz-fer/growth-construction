@@ -37,7 +37,8 @@ export const SCREENS: Screen[] = [
   { id: "projecao", label: "Projeção de Receitas", modulo: "Reports" },
   { id: "consolidado", label: "Consolidado", modulo: "Reports" },
   { id: "caixa", label: "Controle de Caixa", modulo: "Conciliação de Caixa" },
-  { id: "fechamento", label: "Fechamento de Caixa", modulo: "Conciliação de Caixa" },
+  // Prompt L, Parte 9: a rota /fechamento saiu; "criar" aqui é fechar o dia no cartão do Caixa.
+  { id: "fechamento", label: "Fechar o dia (no Caixa)", modulo: "Conciliação de Caixa" },
   { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },

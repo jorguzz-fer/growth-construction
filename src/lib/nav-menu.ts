@@ -109,7 +109,6 @@ export const NAV_MENU: NavModule[] = [
     items: [
       { href: "/caixa", label: "Caixa" },
       { href: "/contas", label: "Contas Correntes" },
-      { href: "/fechamento", label: "Fechamento de Caixa" },
       { href: "/balancodia", label: "Balanço do Dia" },
     ],
   },

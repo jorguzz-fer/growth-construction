@@ -26,7 +26,7 @@ export type ResultadoConta = { ok: true; id: string; aviso?: string | null } | {
 
 const s = (fd: FormData, k: string) => ((fd.get(k) as string | null) ?? "").trim();
 const tipoDe = (v: string): TipoDeConta => ((TIPOS_DE_CONTA as readonly string[]).includes(v) ? (v as TipoDeConta) : "Construtora");
-const PAGINAS = ["/contas", "/caixa", "/fechamento", "/fluxocaixa"];
+const PAGINAS = ["/contas", "/caixa", "/fluxocaixa"];
 
 export async function addConta(formData: FormData): Promise<ResultadoConta> {
   const ctx = await getTenantContext();

@@ -13,7 +13,6 @@ import {
   getBaixadoSemConciliar,
   getCash,
   getConciliacaoData,
-  getDailyClosings,
   getAutoresDosAjustes,
 } from "@/lib/queries";
 import { ConciliacaoReview } from "@/components/app/conciliacao-review";
@@ -30,6 +29,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConciliarToggle } from "@/components/app/conciliar-toggle";
 import { ImportExtratoButton } from "@/components/app/import-extrato";
 import { AjustesCaixa, type AjusteLinha } from "@/components/app/ajustes-caixa";
+import { cadeiaDaEmpresa } from "@/lib/cadeia-da-empresa";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import {
   VersionCompareTable,
@@ -194,10 +194,11 @@ export default async function CaixaPage({
   // conciliado), encadeados, partindo do fechamento gravado do dia anterior
   // à janela ou do saldo em conta calculado. A faixa (2 realizados, hoje, 7
   // à frente) é independente do filtro de período da tabela (1.5) — e diz.
+  // Parte 9 (9.9): a cadeia é DA EMPRESA — todas as obras, porque o saldo em
+  // conta é das contas (do tenant). A tabela abaixo continua por obra.
   const hoje = hojeISO();
-  const fechamentos = (await getDailyClosings(ctx.tenant.id)).filter((f) => !f.projectId).map((f) => ({ dia: f.dia, saldoFinal: Number(f.saldoFinal) }));
-  const movimentos = cashAll.map((c) => ({ id: c.id, data: c.data, valor: Number(c.valor), rec: c.rec, cat: c.cat, importado: !!c.importHash, bankAccountId: c.bankAccountId }));
-  const cadeia = cadeiaDeSaldo({ movimentos, saldoEmContaAtual: saldoTotal, fechamentos, hojeISO: hoje });
+  const empresa = await cadeiaDaEmpresa(ctx.tenant.id, { hojeISO: hoje });
+  const { cadeia, fechamentos, movimentos } = empresa;
   const hojeNaCadeia = cadeia.dias.find((d) => d.dia === hoje);
   const contasDaEmpresa = contas.filter((c) => isContaDaEmpresa(c));
   const saldosPorConta = contasDaEmpresa.map((c) => {
@@ -221,7 +222,7 @@ export default async function CaixaPage({
 
   // Prompt L, 4.2.4 — ajustes (o único lançamento desta tela), com o total
   // sempre à vista; 6.4 — o baixado sem conciliar, com idade.
-  const todosAjustes = cashAll.filter((c) => c.cat === "ajuste");
+  const todosAjustes = empresa.cash.filter((c) => c.cat === "ajuste");
   const totalAjustes = { valor: Math.round(todosAjustes.reduce((a, c) => a + Number(c.valor), 0) * 100) / 100, n: todosAjustes.length };
   const baixado = await getBaixadoSemConciliar(ctx.tenant.id);
   const contaFiltro = sp.conta ?? "";
@@ -241,6 +242,7 @@ export default async function CaixaPage({
     return {
       id: c.id,
       data: c.data,
+      obra: ctx.projects.find((p) => p.id === c.projectId)?.name ?? null,
       conta: conta ? `${conta.banco}${conta.cc ? " · " + conta.cc : ""}` : null,
       valor: Number(c.valor),
       motivo: c.descricao,
@@ -321,7 +323,7 @@ export default async function CaixaPage({
       />
 
       {/* Prompt L, 1.4-A — cadeia de saldo com inicial e final, em conta e conciliado. */}
-      <CadeiaDias cadeia={cadeia} />
+      <CadeiaDias cadeia={cadeia} canFechar={can(ctx.perms, "fechamento", "criar")} canReabrir={can(ctx.perms, "conciliacao", "excluir")} />
 
       {/* Abas */}
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">

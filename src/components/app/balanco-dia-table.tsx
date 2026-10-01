@@ -19,6 +19,11 @@ export interface BalancoRow {
   projectName: string | null;
   clienteNome: string | null;
   fechadoEm: string;
+  // Prompt L, Parte 9
+  saldoEmConta?: number | null;
+  reabertoEm?: string | null;
+  reabertoPor?: string | null;
+  motivoReabertura?: string | null;
 }
 
 function toISO(d: string | null): string {
@@ -127,6 +132,7 @@ export function BalancoDiaTable({ rows }: { rows: BalancoRow[] }) {
                   <TH className="text-right">Diverg.</TH>
                   <TH>Responsável</TH>
                   <TH>Fechado em</TH>
+                  <TH>Situação</TH>
                 </tr>
               </THead>
               <tbody>
@@ -142,10 +148,17 @@ export function BalancoDiaTable({ rows }: { rows: BalancoRow[] }) {
                     <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(r.divergencias)}</TD>
                     <TD className="text-[var(--color-ink2)]">{r.responsavelNome ?? "—"}</TD>
                     <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{r.fechadoEm}</TD>
+                    <TD className="text-[11px]">
+                      {r.reabertoEm ? (
+                        <span className="text-[#92400e]" title={r.motivoReabertura ?? ""}>reaberto em {r.reabertoEm}{r.reabertoPor ? ` por ${r.reabertoPor}` : ""}{r.motivoReabertura ? ` · ${r.motivoReabertura}` : ""}</span>
+                      ) : (
+                        <span className="text-[var(--color-success)]">fechado</span>
+                      )}
+                    </TD>
                   </TR>
                 ))}
                 {filtered.length === 0 && (
-                  <TR><TD colSpan={10} className="py-8 text-center text-[var(--color-ink4)]">Nenhum fechamento registrado.</TD></TR>
+                  <TR><TD colSpan={11} className="py-8 text-center text-[var(--color-ink4)]">Nenhum fechamento registrado.</TD></TR>
                 )}
               </tbody>
             </Table>
