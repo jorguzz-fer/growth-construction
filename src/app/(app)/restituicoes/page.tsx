@@ -4,7 +4,7 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
-import { getBankAccounts, getChartAccounts, getStakeholders, getUsoDosStakeholders } from "@/lib/queries";
+import { getBankAccounts, getStakeholders, getUsoDosStakeholders } from "@/lib/queries";
 import { opcoesDeSelecao, pagadoresPorTerceiro, PAPEL_PAGADOR_TERCEIRO } from "@/lib/stakeholder-regras";
 import { mascararDocumento } from "@/lib/clientes-sensivel";
 import { situacaoDosDias } from "@/lib/calc/restituicao";
@@ -18,7 +18,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ContaCorrenteTerceiros } from "@/components/app/conta-corrente-terceiros";
 import { RestituicaoLote } from "@/components/app/restituicao-lote";
 import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-terceiro";
-import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { RestituicoesManager } from "@/components/app/restituicoes-manager";
@@ -54,9 +53,8 @@ export default async function RestituicoesPage({
   }
   const { project, trabalho: version } = escolhido;
 
-  const [stakeholders, contas, bancos, lista, contasCorrentes] = await Promise.all([
+  const [stakeholders, bancos, lista, contasCorrentes] = await Promise.all([
     getStakeholders(ctx.tenant.id),
-    getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
     // Prompt T, 6 — lista da EMPRESA (mesmo escopo da conta corrente); o filtro
     // por obra é da tela.
@@ -127,15 +125,9 @@ export default async function RestituicoesPage({
         // Prompt W, 1.5 — "Quem desembolsou" só oferece quem tem o papel de
         // Pagador por Terceiro (ativo); o beneficiário original, só ativos.
         pagadores={pagadoresPorTerceiro(stakeholders)}
-        stakeholders={opcoesDeSelecao(stakeholders)}
-        contas={[...contas]
-          .filter((c) => c.kind === "cef")
-          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
-          .map((c) => ({ code: c.code, name: c.name }))}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         obraDaTela={project.id}
         bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
-        categorias={CATEGORIAS_DRE}
         canCriar={can(ctx.perms, "restituicoes", "criar")}
         projectId={project.id}
         canEditar={can(ctx.perms, "restituicoes", "editar")}

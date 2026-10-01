@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   buscarDespesasPorPed,
@@ -12,22 +12,17 @@ import {
   type DespesaTerceiroView,
 } from "@/lib/actions/restituicoes";
 import { rotuloStatusObrigacao, textoDosDias, type SituacaoDosDias } from "@/lib/calc/restituicao";
-import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { MonthField, DateField } from "@/components/ui/date-field";
+import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 
 interface Opt {
   id: string;
   nome: string;
-}
-interface ContaOpt {
-  code: string;
-  name: string;
 }
 
 const statusTone = (s: string) =>
@@ -53,12 +48,9 @@ function novaChave(): string {
 export function RestituicoesManager({
   rows,
   obraDaTela,
-  stakeholders,
   pagadores,
-  contas,
   projetos,
   bancos,
-  categorias,
   canCriar,
   canEditar,
   projectId,
@@ -68,14 +60,10 @@ export function RestituicoesManager({
   rows: (DespesaTerceiroView & { dias: SituacaoDosDias })[];
   /** obra da tela: filtro inicial da lista (que é da empresa — Prompt T, 6). */
   obraDaTela: string;
-  /** beneficiário original: cadastros ativos (Prompt W, 4.2). */
-  stakeholders: Opt[];
   /** quem desembolsou: só quem tem o papel "Pagador por Terceiro" (Prompt W, 1.5). */
   pagadores: Opt[];
-  contas: ContaOpt[];
   projetos: Opt[];
   bancos: { id: string; banco: string; tipo: string }[];
-  categorias: readonly string[];
   canCriar: boolean;
   canEditar: boolean;
 }) {
@@ -85,12 +73,11 @@ export function RestituicoesManager({
   const [aviso, setAviso] = useState<string | null>(null);
   const [sel, setSel] = useState<DespesaTerceiroView | null>(null);
   const [filtro, setFiltro] = useState("");
-  /** Lançamento já existente escolhido pelo PED (§9). null = despesa nova. */
+  /** Lançamento existente escolhido pelo PED (§9) — obrigatório (Prompt T, 2.2). */
   const [ped, setPed] = useState<DespesaPorPed | null>(null);
   // Uma chave por tentativa. Só é renovada depois de um registro bem-sucedido —
   // assim o reenvio do MESMO preenchimento nunca vira dois registros.
   const chave = useRef(novaChave());
-  const categoriasDespesa = useMemo(() => categoriasDeDespesa(categorias), [categorias]);
 
   const submit = (fd: FormData) => {
     if (saving) return; // trava de duplo clique antes mesmo de chamar o servidor
@@ -126,20 +113,20 @@ export function RestituicoesManager({
         <Card>
           <CardContent className="p-5">
             <h2 className="mb-1 text-sm font-semibold text-[var(--color-ink)]">
-              Nova despesa paga por terceiro
+              Vincular lançamento existente a um pagador
             </h2>
             <p className="mb-3 text-[11.5px] text-[var(--color-ink3)]">
-              Se a despesa já foi lançada, localize-a pelo número PED — a
-              obrigação é amarrada ao lançamento existente e nada dele é
-              sobrescrito. Sem PED, a despesa é criada junto com a obrigação.
+              Despesa nova é lançada em <Link href="/despesas" className="underline">Despesas</Link>, com a origem &ldquo;paga por terceiro&rdquo; — a obrigação nasce lá.
+              Este bloco serve para regularizar um lançamento antigo que foi pago por terceiro e não foi marcado como tal: localize-o pelo PED e informe quem desembolsou. Nada do lançamento é sobrescrito.
             </p>
 
             <BuscaPed selecionado={ped} onSelecionar={setPed} />
 
             <form action={submit} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <input type="hidden" name="despesaId" value={ped?.id ?? ""} />
               <div>
                 <Label>Quem desembolsou (terceiro)</Label>
-                <Select name="pagadorTerceiroId" defaultValue="">
+                <Select name="pagadorTerceiroId" defaultValue="" required>
                   <option value="">—</option>
                   {pagadores.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
@@ -147,31 +134,9 @@ export function RestituicoesManager({
                 </Select>
                 {pagadores.length === 0 && (
                   <p className="mt-1 text-[11px] text-[var(--color-warning)]">
-                    Nenhum cadastro ativo tem o papel &ldquo;Pagador por Terceiro&rdquo;. Conceda o papel em{" "}
-                    <Link href="/fornecedores" className="underline">Fornecedores</Link> — item a item, nunca em lote.
+                    Nenhum cadastro ativo tem o papel &ldquo;Pagador por Terceiro&rdquo;. Conceda no bloco Pagadores terceiros, acima.
                   </p>
                 )}
-              </div>
-              <div>
-                <Label>Beneficiário original</Label>
-                <Select
-                  name="fornecedorId"
-                  // Vindo de um PED, o beneficiário é o do lançamento original e
-                  // não pode ser trocado por aqui: quem desembolsou (o terceiro)
-                  // é um relacionamento diferente, no campo ao lado.
-                  key={ped?.id ?? "novo"}
-                  defaultValue={ped?.fornecedorId ?? ""}
-                  disabled={!!ped}
-                >
-                  <option value="">—</option>
-                  {/* o PED pode apontar para cadastro inativo: mantém visível (4.2) */}
-                  {ped?.fornecedorId && !stakeholders.some((s) => s.id === ped.fornecedorId) && (
-                    <option value={ped.fornecedorId}>{ped.fornecedorNome ?? "(cadastro inativo)"} (inativo)</option>
-                  )}
-                  {stakeholders.map((s) => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </Select>
               </div>
               <div>
                 <Label>Empresa responsável</Label>
@@ -181,63 +146,6 @@ export function RestituicoesManager({
                     <option key={p.id} value={p.id}>{p.nome}</option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label>Categoria DRE</Label>
-                {/* Item 4.6 — mesmo bug do formulário de despesa: a lista
-                    completa oferecia "Receita" para um lançamento de despesa.
-                    Só naturezas devedoras, e sem default silencioso. */}
-                <Select
-                  name="categoriaDre"
-                  key={`cat-${ped?.id ?? "novo"}`}
-                  defaultValue={ped?.categoriaDre ?? ""}
-                  disabled={!!ped}
-                >
-                  <option value="">Selecione...</option>
-                  {categoriasDespesa.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Conta CEF (opcional)</Label>
-                <Select
-                  name="contaCef"
-                  key={`cef-${ped?.id ?? "novo"}`}
-                  defaultValue={ped?.contaCef ?? ""}
-                  disabled={!!ped}
-                >
-                  <option value="">—</option>
-                  {contas.map((c) => (
-                    <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Valor</Label>
-                {/* Vindo de um PED, o valor é o do lançamento original e não é
-                    editável aqui — alterá-lo mudaria a despesa já registrada. */}
-                <Input
-                  name="valor"
-                  type="number"
-                  step="0.01"
-                  placeholder="0"
-                  key={`val-${ped?.id ?? "novo"}`}
-                  defaultValue={ped ? String(ped.valor) : ""}
-                  readOnly={!!ped}
-                  required={!ped}
-                />
-              </div>
-              <div>
-                <Label>Competência</Label>
-                {/* A competência é a do lançamento original e NÃO muda com a
-                    data da restituição — são fatos distintos (§8). */}
-                <MonthField
-                  name="competencia"
-                  key={`comp-${ped?.id ?? "novo"}`}
-                  defaultValue={ped?.competencia ?? ""}
-                  disabled={!!ped}
-                />
               </div>
               <div>
                 <Label>Data do pagamento (terceiro)</Label>
@@ -252,19 +160,13 @@ export function RestituicoesManager({
                 <Input name="obs" />
               </div>
               <div className="col-span-2 flex items-end sm:col-span-4">
-                <Button type="submit" disabled={saving}>
-                  {saving
-                    ? "Registrando…"
-                    : ped
-                      ? "Registrar obrigação para este PED"
-                      : "Registrar despesa por terceiro"}
+                <Button type="submit" disabled={saving || !ped}>
+                  {saving ? "Registrando…" : ped ? `Registrar obrigação para ${ped.numDoc ?? "este PED"}` : "Escolha um PED acima"}
                 </Button>
               </div>
             </form>
             <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
-              A despesa entra na DRE 1× (competência/categoria); NÃO há saída de
-              caixa agora. A saída ocorre só quando você registrar a restituição
-              — e a data dela não altera a competência da despesa.
+              A despesa continua na DRE 1× (competência/categoria originais); NÃO há saída de caixa agora. A saída ocorre só quando você registrar o ressarcimento — e a data dele não altera a competência da despesa.
             </p>
             {error && <p className="mt-2 text-sm text-[var(--color-danger)]">{error}</p>}
             {aviso && <p className="mt-2 text-sm text-[var(--color-warning)]">{aviso}</p>}

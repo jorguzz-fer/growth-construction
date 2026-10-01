@@ -9,11 +9,8 @@ import { db, schema } from "@/lib/db";
 import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { statusRestituicao } from "@/lib/calc";
 import { restituicaoCabe, sufixoNumericoDoPed } from "@/lib/calc/restituicao";
-import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
-import type { CategoriaDRE } from "@/lib/calc/constants";
 
 /**
  * Busca uma despesa já lançada pelo número PED (§9).
@@ -121,13 +118,11 @@ export interface CriarObrigacaoResult {
  *   3. nasce uma obrigação da empresa com esse terceiro;
  *   4. a restituição — quando ocorrer — é a saída de caixa, em data própria.
  *
- * Dois modos:
- *   - `despesaId` informado → vincula-se a uma despesa JÁ LANÇADA (localizada
- *     pelo PED). O lançamento original NÃO é sobrescrito: valor, competência,
- *     vencimento, categoria, fornecedor e número PED permanecem como estão. A
- *     única marcação é `pagoPorTerceiro = true`, que impede a despesa de contar
- *     como saída de caixa na competência (ela já foi paga por outra pessoa).
- *   - sem `despesaId` → cria a despesa e a obrigação juntas, como antes.
+ * Um modo só (Prompt T, 2.2): `despesaId` obrigatório → vincula-se a uma
+ * despesa JÁ LANÇADA (localizada pelo PED). O lançamento original NÃO é
+ * sobrescrito: valor, competência, vencimento, categoria, fornecedor e número
+ * PED permanecem como estão. A única marcação é `pagoPorTerceiro = true`. A
+ * despesa nova com obrigação nasce em `addDespesa` ("paga por terceiro").
  *
  * Tudo dentro de UMA transação (§16): ou existem despesa + obrigação, ou não
  * existe nenhuma das duas. `idempotencyKey` bloqueia o mesmo fato reenviado.
@@ -150,6 +145,7 @@ export async function criarDespesaTerceiro(
     return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
   };
   const despesaId = s("despesaId");
+  if (!despesaId) return { ok: false, error: "Localize o lançamento pelo PED. Despesa nova é lançada em Despesas, com a origem \"paga por terceiro\"." };
   const idem = s("idempotencyKey");
   const pagadorTerceiroId = s("pagadorTerceiroId");
   // Empresa responsável escolhida no formulário: só obra desta empresa
@@ -242,35 +238,10 @@ export async function criarDespesaTerceiro(
         despesaAlvo = d;
         valorObrigacao = String(d.valor);
       } else {
-        // ── Modo despesa nova ─────────────────────────────────────────────
-        // Item 4.6 / RG-01 — a despesa criada aqui é despesa como qualquer
-        // outra: não pode nascer classificada em conta de natureza credora.
-        const erroCat = validarCategoriaDespesa(formData.get("categoriaDre") as string);
-        if (erroCat) throw new Error(erroCat);
-        const valor = (formData.get("valor") as string) || "0";
-        if (!Number.isFinite(Number(valor)) || Number(valor) <= 0) {
-          throw new Error("Informe um valor maior que zero para a despesa paga por terceiro.");
-        }
-        const numDoc = await reserveDespesaNumber(ctx.tenant.id);
-        const [nova] = await tx
-          .insert(schema.despesas)
-          .values({
-            versionId: version.id,
-            tenantId: ctx.tenant.id,
-            numDoc,
-            fornecedorId: s("fornecedorId"),
-            contaCef: s("contaCef"),
-            categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
-            competencia: s("competencia"),
-            vencimento: dataPagamentoOriginal,
-            valor,
-            status: "Pago",
-            obs,
-            pagoPorTerceiro: true,
-          })
-          .returning();
-        despesaAlvo = nova;
-        valorObrigacao = valor;
+        // Prompt T, 2.1 — o modo "despesa nova" saiu desta tela: toda despesa
+        // é lançada em Despesas, onde "paga por terceiro" cria a obrigação na
+        // mesma transação (addDespesa). Aqui só se vincula lançamento existente.
+        throw new Error("Localize o lançamento pelo PED. Despesa nova é lançada em Despesas, com a origem \"paga por terceiro\".");
       }
 
       const [dt] = await tx
