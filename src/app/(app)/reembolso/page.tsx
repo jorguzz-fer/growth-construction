@@ -4,7 +4,9 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getReembolsos } from "@/lib/queries";
+import { getMedicoes, getReembolsos, getUnits } from "@/lib/queries";
+import { analisarLiberacoes } from "@/lib/liberacao-analise";
+import { AssistenteLiberacoes } from "@/components/app/assistente-liberacoes";
 import { LiberacaoActions } from "@/components/app/liberacao-actions";
 import { Badge } from "@/components/ui/badge";
 import { can } from "@/lib/permissions";
@@ -44,6 +46,15 @@ export default async function ReembolsoPage({
   const canCriar = can(ctx.perms, "reembolso", "criar");
   const canEditar = can(ctx.perms, "reembolso", "editar");
   const canExcluir = can(ctx.perms, "reembolso", "excluir");
+  // Seção 6 — análises do assistente (somente leitura), em código puro,
+  // sobre o que a página carregou: liberações, medições e o financiamento
+  // previsto das unidades vendidas desta versão.
+  const [medicoes, unidades] = await Promise.all([getMedicoes(version.id), getUnits(ctx.tenant.id, version.id)]);
+  const analise = analisarLiberacoes(
+    rows.map((r) => ({ id: r.id, data: r.data, origem: r.origem, valor: Number(r.valor ?? 0), pct: r.pct, cancelado: r.cancelado })),
+    medicoes.map((m) => ({ competencia: m.competencia, valor: Number(m.valor) })),
+    unidades.map((u) => ({ status: u.status, valorFinanciado: Number(u.paymentPlan?.Banco?.valFinanc ?? 0) })),
+  );
 
   return (
     <>
@@ -69,6 +80,9 @@ export default async function ReembolsoPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {(sp.salva || sp.cancelada) && (
         <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
           {sp.cancelada ? "Liberação cancelada. Ela continua na lista, fora dos totais." : "Liberação lançada."}
@@ -129,6 +143,9 @@ export default async function ReembolsoPage({
           )}
         </tbody>
       </Table>
+      </div>
+      <AssistenteLiberacoes usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }

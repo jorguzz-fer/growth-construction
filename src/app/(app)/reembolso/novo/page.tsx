@@ -4,6 +4,7 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { LiberacaoForm } from "@/components/app/liberacao-form";
+import { getMedicoes, getReembolsos } from "@/lib/queries";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,9 @@ export default async function NovoReembolsoPage({
     return <PedirProjeto titulo="Nova liberação de obra" projetos={ctx.projects} oQue="lançar a liberação de obra" />;
   }
   const { project, trabalho: version } = escolhido;
+  // 6.2 — avisos do assistente no cadastro (competência com medição e sem
+  // liberação; lançamento igual a um existente). Só leitura.
+  const [existentes, medicoes] = await Promise.all([getReembolsos(ctx.tenant.id, version.id), getMedicoes(version.id)]);
 
   return (
     <>
@@ -45,7 +49,11 @@ export default async function NovoReembolsoPage({
         title="Nova liberação de obra"
         subtitle="Parcela do financiamento liberada após a medição. Entrada de caixa, não receita."
       />
-      <LiberacaoForm projectId={project.id} />
+      <LiberacaoForm
+        projectId={project.id}
+        existentes={existentes.map((r) => ({ id: r.id, data: r.data, origem: r.origem, valor: Number(r.valor ?? 0), pct: r.pct, cancelado: r.cancelado }))}
+        medicoes={medicoes.map((m) => ({ competencia: m.competencia, valor: Number(m.valor) }))}
+      />
     </>
   );
 }
