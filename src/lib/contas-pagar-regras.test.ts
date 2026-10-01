@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ehVersaoAtual, linhasPorObrigacao, pendenteDaConta, totalPendente } from "./contas-pagar-regras";
+import { ehVersaoAtual, filtrarContasPagar, linhasPorObrigacao, pendenteDaConta, totalPendente } from "./contas-pagar-regras";
 
 describe("pendente de Contas a Pagar (Prompt I, §15)", () => {
   it("despesa de 100 com 80 pagos deve 20", () => {
@@ -78,5 +78,28 @@ describe("linhasPorObrigacao (Prompt R, 1.2/1.3/1.5)", () => {
     expect(pendenteDaConta(linhas[0])).toBe(0);
     expect(linhas[1].status).toBe("Parcialmente paga");
     expect(pendenteDaConta(linhas[1])).toBe(70);
+  });
+});
+
+describe("filtrarContasPagar (Prompt R, seção 5)", () => {
+  type Linha = { id: string; fornecedorNome: string | null; clienteNome: string | null; projectId: string; categoriaDre: string | null; vencimento: string | null; st: string };
+  const rows: Linha[] = [
+    { id: "1", fornecedorNome: "A", clienteNome: null, projectId: "X", categoriaDre: "Custo Fixo", vencimento: "01/10/2026", st: "Vencida" },
+    { id: "2", fornecedorNome: "B", clienteNome: "Cli", projectId: "X", categoriaDre: "Custo Fixo", vencimento: "03/10/2026", st: "Em aberto" },
+    { id: "3", fornecedorNome: "A", clienteNome: null, projectId: "Y", categoriaDre: "Despesa Fixa", vencimento: "05/10/2026", st: "Pago" },
+  ];
+  const iso = (v: string | null) => (v ? `${v.slice(6)}-${v.slice(0, 2)}-${v.slice(3, 5)}` : "");
+  const f = (x: Partial<Parameters<typeof filtrarContasPagar>[1]>) => ({ fornecedores: [], clientes: [], projetos: [], categorias: [], status: [], ...x });
+  it("12 — dois fornecedores marcados listam os dois", () => {
+    expect(filtrarContasPagar(rows, f({ fornecedores: ["A", "B"] }), (r: Linha) => r.st, iso).map((r) => r.id)).toEqual(["1", "2", "3"]);
+  });
+  it("13 — fornecedor A ou B E projeto X: interseção, não união", () => {
+    expect(filtrarContasPagar(rows, f({ fornecedores: ["A", "B"], projetos: ["X"] }), (r: Linha) => r.st, iso).map((r) => r.id)).toEqual(["1", "2"]);
+  });
+  it("14 — nenhum marcado equivale a todos; status usa o exibido; cliente nulo é 'Empreendimento próprio'; datas são intervalo", () => {
+    expect(filtrarContasPagar(rows, f({}), (r: Linha) => r.st, iso)).toHaveLength(3);
+    expect(filtrarContasPagar(rows, f({ status: ["Vencida"] }), (r: Linha) => r.st, iso).map((r) => r.id)).toEqual(["1"]);
+    expect(filtrarContasPagar(rows, f({ clientes: ["Empreendimento próprio"] }), (r: Linha) => r.st, iso).map((r) => r.id)).toEqual(["1", "3"]);
+    expect(filtrarContasPagar(rows, f({ de: "2026-02-01", ate: "2026-04-01" }), (r: Linha) => r.st, iso).map((r) => r.id)).toEqual(["2"]);
   });
 });
