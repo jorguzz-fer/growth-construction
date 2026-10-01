@@ -32,7 +32,10 @@ import {
   getReceivables,
 } from "@/lib/queries";
 import { parseDate } from "@/lib/calc";
-import { brlk, monthInRange, dateInRange } from "@/lib/utils";
+import { brl0, brlk, monthInRange, dateInRange } from "@/lib/utils";
+import { estaVencida } from "@/lib/despesa-status";
+import { analisarDashboard } from "@/lib/dashboard-analise";
+import { AssistenteDashboard } from "@/components/app/assistente-dashboard";
 import { PageHeader } from "@/components/app/page-header";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { Card, CardContent } from "@/components/ui/card";
@@ -205,7 +208,8 @@ export default async function DashboardPage({
   const totalReceb = realReceb.reduce((a, r) => a + r.valor, 0);
 
   // Contas a pagar (despesas não pagas) do projeto, com vencimento no período.
-  const contasPagarProj = (await getContasPagar(ctx.tenant.id)).filter(
+  const todasContasPagar = await getContasPagar(ctx.tenant.id);
+  const contasPagarProj = todasContasPagar.filter(
     (c) =>
       idsDaTela.has(c.projectId) &&
       c.status !== "Pago" &&
@@ -272,6 +276,38 @@ export default async function DashboardPage({
     ate,
   });
 
+  // ── Prompt AA, Parte 6 — o assistente (somente leitura) ──────────────────
+  // Lê os números que a tela já calculou; o escopo vem do servidor (o que
+  // está selecionado), nunca de texto. 6.3.7: conta vencida só para quem vê
+  // Contas a Pagar.
+  const atencao: { obra: string; motivo: string }[] = [];
+  const atencaoLimites: string[] = [
+    "Medição recente: a medição por serviço não está em uso, então não há data de medição por obra para comparar.",
+    "Caixa projetado negativo: o Dashboard não calcula saldo projetado por obra — o número está no Fluxo de Caixa.",
+  ];
+  if (can(ctx.perms, "contaspagar", "ver")) {
+    for (const p of projetosDaTela) {
+      const vencidas = todasContasPagar.filter((c) => c.projectId === p.id && estaVencida(c));
+      if (vencidas.length)
+        atencao.push({ obra: p.name, motivo: `${vencidas.length} conta(s) a pagar vencida(s), ${brl0(totalPendente(vencidas))} em aberto` });
+    }
+  } else {
+    atencaoLimites.unshift("Contas vencidas: sua permissão não alcança Contas a Pagar.");
+  }
+  const analise = analisarDashboard({
+    status: statusProjeto,
+    indicadores,
+    colunas: summaries.map((s) => {
+      const c = cabecalho(s);
+      return { titulo: c.titulo, complemento: c.complemento, kind: s.version.kind, vgv: s.vgv, vgvAusente: !!s.vgvAusente, realizado: s.realizado, aReceber: s.aReceber, aPagar: s.aPagar };
+    }),
+    definicaoNova: dashNovo,
+    atencao,
+    atencaoLimites,
+    recorte: [projetosDaTela.map((p) => p.id).sort().join(","), selected.map((v) => v.id).join(","), de, ate].join("|"),
+    fmt: brl0,
+  });
+
   return (
     <>
       <PageHeader
@@ -329,8 +365,8 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
       ) : (
-      <>
-
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {descartadas > 0 && (
         <p className="mb-3 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]" role="status">
           {descartadas} versão(ões) pedida(s) ficaram fora: o cartão mostra no máximo {MAX_VERSOES_DASHBOARD}.
@@ -391,7 +427,9 @@ export default async function DashboardPage({
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />
       <IndicadoresObraPanel ind={indicadores} definicaoNova={dashNovo} />
-      </>
+      </div>
+      <AssistenteDashboard usuario={ctx.userId ?? "anon"} analise={analise} />
+      </div>
       )}
     </>
   );
