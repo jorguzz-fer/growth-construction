@@ -2,10 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  addStakeholder,
-  extractFornecedorFromDoc,
-} from "@/lib/actions/despesas";
+import { addStakeholder, extractFornecedorFromDoc } from "@/lib/actions/stakeholders";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -188,7 +185,13 @@ export function FornecedorForm({
     if (file) fd.set("file", file);
     startSaving(async () => {
       try {
-        await addStakeholder(fd);
+        // 5.2 — a action devolve { ok, error, avisos }; o aviso (tipo × documento,
+        // documento repetido) não bloqueia: o cadastro foi gravado e a tela avisa.
+        const r = await addStakeholder(fd);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
         setNome("");
         setNomeFantasia("");
         setTipo("PJ");
@@ -208,7 +211,7 @@ export function FornecedorForm({
         setSelected(new Set());
         limparLeitura();
         setFile(null);
-        setNotice(null);
+        setNotice(r.avisos.length ? `Cadastrado com aviso: ${r.avisos.join(" ")}` : "Cadastrado.");
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Falha ao cadastrar o fornecedor.");
@@ -338,7 +341,7 @@ export function FornecedorForm({
           <CampoIA label="Site" alerta={alertas.site} className="sm:col-span-2">
             <Input value={site} onChange={editando("site", setSite)} />
           </CampoIA>
-          <CampoIA label="Endereço" alerta={alertas.endereco} className="sm:col-span-3">
+          <CampoIA label={tipo === "PF" ? "Endereço residencial" : "Endereço"} alerta={alertas.endereco} className="sm:col-span-3">
             <Input value={endereco} onChange={editando("endereco", setEndereco)} />
           </CampoIA>
           <CampoIA label="Número" alerta={alertas.numero}>
@@ -379,11 +382,16 @@ export function FornecedorForm({
           </div>
         </CampoIA>
 
+        {tipo === "PF" && (
+          <p className="text-[12px] text-[var(--color-ink3)]">
+            Autônomo que emite nota entra como PJ, com CNPJ. Como pessoa física com papel de prestação de serviço ou mão de obra, o endereço residencial é obrigatório (RPA e recibo).
+          </p>
+        )}
         <div className="flex items-center gap-3">
           <Button type="button" disabled={busy} onClick={salvar}>
             {saving ? "Cadastrando…" : "Cadastrar fornecedor"}
           </Button>
-          {notice && <span className="text-xs text-[var(--color-accent)]">{notice}</span>}
+          {notice && <span role="status" className="text-xs text-[var(--color-accent)]">{notice}</span>}
         </div>
         {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
       </CardContent>

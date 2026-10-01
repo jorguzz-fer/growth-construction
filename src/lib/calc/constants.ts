@@ -279,7 +279,12 @@ export const TIPOS_PERMUTA = [
   "Outros",
 ] as const;
 
-/** Os 19 papéis possíveis de um stakeholder. §3 */
+/**
+ * Os 20 papéis possíveis de um stakeholder. §3
+ * "Pagador por Terceiro" (Prompt W, 1.1): quem desembolsa pela empresa —
+ * nem sempre é sócio. É o papel que filtra "Quem desembolsou" em Despesas e
+ * Restituições; concedido só nesta tela, item a item.
+ */
 export const PAPEIS_STAKEHOLDER = [
   "Fornecedor de Material",
   "Prestador de Serviço",
@@ -300,6 +305,7 @@ export const PAPEIS_STAKEHOLDER = [
   "Órgão Público",
   "Consultor/Assessor",
   "Seguradora",
+  "Pagador por Terceiro",
 ] as const;
 export type PapelStakeholder = (typeof PAPEIS_STAKEHOLDER)[number];
 

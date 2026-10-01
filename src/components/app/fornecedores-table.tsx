@@ -2,11 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  updateStakeholder,
-  setStakeholderAtivo,
-  deleteStakeholder,
-} from "@/lib/actions/despesas";
+import { updateStakeholder, setStakeholderAtivo, deleteStakeholder } from "@/lib/actions/stakeholders";
+import { papeisForaDaLista } from "@/lib/stakeholder-regras";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -22,6 +19,13 @@ export interface StakeholderView {
   tel: string | null;
   obs: string | null;
   ativo: boolean;
+  endereco: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
 }
 
 export function FornecedoresTable({
@@ -99,26 +103,33 @@ function StakeholderRow({
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [tipo, setTipo] = useState(s.tipo);
+  // BW-2 — papel gravado fora da lista aparece marcado e é reenviado; antes a
+  // edição o perdia em silêncio (o formulário só reenvia os marcados).
+  const desconhecidos = papeisForaDaLista(s.papeis);
 
   const toggleAtivo = () =>
     start(async () => {
-      try {
-        await setStakeholderAtivo(s.id, !s.ativo);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha.");
+      setError(null);
+      const r = await setStakeholderAtivo(s.id, !s.ativo);
+      if (!r.ok) {
+        setError(r.error);
+        return;
       }
+      router.refresh();
     });
 
   const excluir = () => {
     if (!window.confirm(`Excluir definitivamente "${s.nome}"? (Se houver histórico, prefira inativar.)`)) return;
     start(async () => {
-      try {
-        await deleteStakeholder(s.id);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao excluir.");
+      setError(null);
+      const r = await deleteStakeholder(s.id);
+      if (!r.ok) {
+        setError(r.error);
+        return;
       }
+      router.refresh();
     });
   };
 
@@ -127,10 +138,26 @@ function StakeholderRow({
       <TR>
         <TD colSpan={6}>
           <form
-            action={async (fd) => {
-              await updateStakeholder(fd);
-              setEditing(false);
-              router.refresh();
+            // onSubmit (não `action`): o React 19 reinicia os campos do formulário
+            // ao fim de uma `action`, e um erro de validação apagaria o que o
+            // usuário tinha digitado — tipo, papéis e endereço voltariam ao gravado.
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              start(async () => {
+                setError(null);
+                setAviso(null);
+                // 5.2 — { ok, error, avisos }: erro mantém o formulário aberto; aviso
+                // (tipo × documento, documento repetido) grava e informa.
+                const r = await updateStakeholder(fd);
+                if (!r.ok) {
+                  setError(r.error);
+                  return;
+                }
+                setAviso(r.avisos.length ? r.avisos.join(" ") : null);
+                setEditing(false);
+                router.refresh();
+              });
             }}
             className="rounded-[8px] border border-[var(--color-accent2)]/15 bg-[var(--color-surface2)] p-3"
           >
@@ -139,7 +166,7 @@ function StakeholderRow({
               <div className="sm:col-span-2"><Label>Nome</Label><Input name="nome" defaultValue={s.nome} required /></div>
               <div>
                 <Label>Tipo</Label>
-                <Select name="tipo" defaultValue={s.tipo}>
+                <Select name="tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
                   <option value="PJ">PJ</option>
                   <option value="PF">PF</option>
                 </Select>
@@ -148,11 +175,19 @@ function StakeholderRow({
               <div><Label>E-mail</Label><Input name="email" defaultValue={s.email ?? ""} /></div>
               <div><Label>Telefone</Label><Input name="tel" defaultValue={s.tel ?? ""} /></div>
               <div className="sm:col-span-2"><Label>Observação</Label><Input name="obs" defaultValue={s.obs ?? ""} /></div>
+              {/* 3-A — endereço editável aqui: é o que permite completar o cadastro sinalizado. */}
+              <div className="sm:col-span-2"><Label>{tipo === "PF" ? "Endereço residencial" : "Endereço"}</Label><Input name="endereco" defaultValue={s.endereco ?? ""} /></div>
+              <div><Label>Número</Label><Input name="numero" defaultValue={s.numero ?? ""} /></div>
+              <div><Label>Complemento</Label><Input name="complemento" defaultValue={s.complemento ?? ""} /></div>
+              <div><Label>Bairro</Label><Input name="bairro" defaultValue={s.bairro ?? ""} /></div>
+              <div><Label>Cidade</Label><Input name="cidade" defaultValue={s.cidade ?? ""} /></div>
+              <div><Label>Estado</Label><Input name="estado" defaultValue={s.estado ?? ""} maxLength={2} /></div>
+              <div><Label>CEP</Label><Input name="cep" defaultValue={s.cep ?? ""} /></div>
             </div>
             <div className="mt-2">
               <Label>Papéis (uma pessoa pode ter vários)</Label>
               <div className="flex flex-wrap gap-2">
-                {papeis.map((p) => (
+                {[...papeis, ...desconhecidos].map((p) => (
                   <label key={p} className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink2)]">
                     <input
                       type="checkbox"
@@ -162,13 +197,15 @@ function StakeholderRow({
                       className="h-4 w-4 accent-[var(--color-accent2)]"
                     />
                     {p}
+                    {desconhecidos.includes(p) && <span className="text-[10px] text-[var(--color-ink4)]" title="Papel gravado fora da lista do sistema (importação). Fica como está.">fora da lista</span>}
                   </label>
                 ))}
               </div>
             </div>
+            {error && <p role="alert" className="mt-2 text-[12px] text-[var(--color-danger)]">{error}</p>}
             <div className="mt-2 flex justify-end gap-2">
               <Button size="sm" type="submit" disabled={pending}>Salvar</Button>
-              <Button size="sm" type="button" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+              <Button size="sm" type="button" variant="ghost" onClick={() => { setEditing(false); setError(null); setTipo(s.tipo); }}>Cancelar</Button>
             </div>
           </form>
         </TD>
@@ -191,7 +228,7 @@ function StakeholderRow({
         <TD className="text-right">
           <div className="flex flex-wrap justify-end gap-2">
             {canEditar && (
-              <button onClick={() => setEditing(true)} disabled={pending} className="text-sm text-[var(--color-accent2)] hover:underline disabled:opacity-50">Editar</button>
+              <button onClick={() => { setEditing(true); setAviso(null); }} disabled={pending} className="text-sm text-[var(--color-accent2)] hover:underline disabled:opacity-50">Editar</button>
             )}
             {canEditar && (
               <button onClick={toggleAtivo} disabled={pending} className="text-sm text-[var(--color-warning)] hover:underline disabled:opacity-50">
@@ -202,7 +239,8 @@ function StakeholderRow({
               <button onClick={excluir} disabled={pending} className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50">Excluir</button>
             )}
           </div>
-          {error && <p className="mt-1 text-[11px] text-[var(--color-danger)]">{error}</p>}
+          {error && <p role="alert" className="mt-1 text-[11px] text-[var(--color-danger)]">{error}</p>}
+          {aviso && <p role="status" className="mt-1 text-[11px] text-[var(--color-warning)]">Salvo com aviso: {aviso}</p>}
         </TD>
       )}
     </TR>
