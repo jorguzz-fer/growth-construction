@@ -115,13 +115,17 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
     expect(l.meta).toMatchObject({ para: true });
   });
 
-  it("deleteStockItem → estoque.item.delete com o que existia", async () => {
+  it("deleteStockItem → estoque.item.delete com o que existia (Prompt Y: com movimento, recusa; sem, exclui e audita)", async () => {
     const { deleteStockItem } = await import("./estoque");
-    await deleteStockItem(ids.item);
+    // Prompt Y, 5.2 — item com movimento NÃO é apagado (o histórico ficaria perdido): recusa e oferece inativar
+    expect(await deleteStockItem(ids.item)).toMatchObject({ ok: false, podeInativar: true });
+    expect(await db.select().from(schema.stockItems).where(eq(schema.stockItems.id, ids.item))).toHaveLength(1);
+    await db.delete(schema.stockMovements).where(eq(schema.stockMovements.itemId, ids.item));
+    expect(await deleteStockItem(ids.item)).toMatchObject({ ok: true });
     const restantes = await db.select().from(schema.stockItems).where(eq(schema.stockItems.id, ids.item));
     expect(restantes).toHaveLength(0);
     const [l] = await logs("estoque.item.delete");
-    expect(l.meta).toMatchObject({ nome: "Cimento", saldo: 7, movimentacoesExcluidas: 2 });
+    expect(l.meta).toMatchObject({ nome: "Cimento", saldo: 0, movimentacoesExcluidas: 0 });
   });
 
   it("updateInccMonth → incc.update com de/para do mês e dos meses reprojetados (Prompt Q, 3.2)", async () => {

@@ -1,4 +1,5 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, max, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
 import type { CalcPermutaRevenda } from "@/lib/calc/permuta-ganho";
@@ -1141,6 +1142,105 @@ export async function getPermutaOptions(tenantId: string): Promise<PermutaOption
     cliente: r.cliente,
     estimado: r.estimado === null ? null : Number(r.estimado),
   }));
+}
+
+/** Prompt Y, 5.6 — saldo por item calculado na consulta (entrada soma, saída subtrai; negativo aparece). */
+export async function getStockSaldos(tenantId: string): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ itemId: schema.stockMovements.itemId, saldo: sql<string>`coalesce(sum(case when ${schema.stockMovements.tipo} = 'saida' then -${schema.stockMovements.quantidade} else ${schema.stockMovements.quantidade} end), 0)` })
+    .from(schema.stockMovements)
+    .where(eq(schema.stockMovements.tenantId, tenantId))
+    .groupBy(schema.stockMovements.itemId);
+  return new Map(rows.map((r) => [r.itemId, Number(r.saldo)]));
+}
+
+export interface FiltroMovimentos {
+  pagina?: number;
+  porPagina?: number;
+  itemId?: string | null;
+  projectId?: string | null;
+  tipo?: "entrada" | "saida" | null;
+  /** ISO YYYY-MM-DD */
+  de?: string | null;
+  ate?: string | null;
+}
+export type StockMovementPageRow = StockMovementRow & { estornado: boolean; valor: number };
+
+/** Prompt Y, 5.6 — movimentos paginados (50 por página) com filtros no SQL. */
+export async function getStockMovementsPage(tenantId: string, f: FiltroMovimentos = {}): Promise<{ rows: StockMovementPageRow[]; total: number; pagina: number; porPagina: number }> {
+  const porPagina = Math.min(200, Math.max(1, f.porPagina ?? 50));
+  const pagina = Math.max(1, f.pagina ?? 1);
+  const conds = [eq(schema.stockMovements.tenantId, tenantId)];
+  if (f.itemId) conds.push(eq(schema.stockMovements.itemId, f.itemId));
+  if (f.projectId) conds.push(eq(schema.stockMovements.projectId, f.projectId));
+  if (f.tipo) conds.push(eq(schema.stockMovements.tipo, f.tipo));
+  if (f.de) conds.push(gte(chaveDataBR(schema.stockMovements.data), f.de.replace(/-/g, "")));
+  if (f.ate) conds.push(lte(chaveDataBR(schema.stockMovements.data), f.ate.replace(/-/g, "")));
+  const where = and(...conds);
+  const estornos = alias(schema.stockMovements, "estornos");
+  const [[cnt], rows] = await Promise.all([
+    db.select({ n: sql<number>`count(*)::int` }).from(schema.stockMovements).where(where),
+    db
+      .select({
+        m: schema.stockMovements,
+        itemNome: schema.stockItems.nome,
+        unidade: schema.stockItems.unidade,
+        projectName: schema.projects.name,
+        clienteNome: schema.clientes.nomeCompleto,
+        despesaNumDoc: schema.despesas.numDoc,
+        permutaDescricao: schema.permutas.descricao,
+        estornadoPor: estornos.id,
+      })
+      .from(schema.stockMovements)
+      .innerJoin(schema.stockItems, eq(schema.stockMovements.itemId, schema.stockItems.id))
+      .leftJoin(schema.projects, eq(schema.stockMovements.projectId, schema.projects.id))
+      .leftJoin(schema.clientes, eq(schema.projects.clienteId, schema.clientes.id))
+      .leftJoin(schema.despesas, eq(schema.stockMovements.despesaId, schema.despesas.id))
+      .leftJoin(schema.permutas, eq(schema.stockMovements.permutaId, schema.permutas.id))
+      .leftJoin(estornos, eq(estornos.estornoDeId, schema.stockMovements.id))
+      .where(where)
+      .orderBy(desc(chaveDataBR(schema.stockMovements.data)), desc(schema.stockMovements.createdAt))
+      .limit(porPagina)
+      .offset((pagina - 1) * porPagina),
+  ]);
+  return {
+    rows: rows.map((r) => ({ ...r.m, itemNome: r.itemNome, unidade: r.unidade, projectName: r.projectName, clienteNome: r.clienteNome, despesaNumDoc: r.despesaNumDoc, permutaDescricao: r.permutaDescricao, estornado: !!r.estornadoPor, valor: Math.round(Number(r.m.quantidade) * Number(r.m.custoUnit) * 100) / 100 })),
+    total: cnt?.n ?? 0,
+    pagina,
+    porPagina,
+  };
+}
+
+export interface DespesaParaEstoque {
+  id: string;
+  numDoc: string | null;
+  fornecedor: string | null;
+  competencia: string | null;
+  valor: number;
+  projectName: string | null;
+  /** soma (entradas − estornos) já lançada contra esta despesa, a custo. */
+  entradasSoma: number;
+}
+/** Prompt Y, 3.3 — despesas com o que a tela mostra para conferir a compra (fornecedor, competência, valor, obra). */
+export async function getDespesasParaEstoque(tenantId: string): Promise<DespesaParaEstoque[]> {
+  const rows = await db
+    .select({
+      id: schema.despesas.id,
+      numDoc: schema.despesas.numDoc,
+      fornecedor: schema.stakeholders.nome,
+      competencia: schema.despesas.competencia,
+      valor: schema.despesas.valor,
+      projectName: schema.projects.name,
+      entradasSoma: sql<string>`coalesce((select sum(case when sm.tipo = 'saida' then -1 else 1 end * sm.quantidade * sm.custo_unit) from stock_movement sm where sm.despesa_id = ${schema.despesas.id}), 0)`,
+    })
+    .from(schema.despesas)
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .leftJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.cancelado, false)))
+    .orderBy(desc(schema.despesas.createdAt))
+    .limit(500);
+  return rows.map((r) => ({ id: r.id, numDoc: r.numDoc, fornecedor: r.fornecedor, competencia: r.competencia, valor: Number(r.valor), projectName: r.projectName, entradasSoma: Number(r.entradasSoma) }));
 }
 
 export async function getStockItems(tenantId: string): Promise<StockItemRow[]> {

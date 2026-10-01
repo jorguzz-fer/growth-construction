@@ -1272,6 +1272,10 @@ export const documents = pgTable("document", {
   permutaId: uuid("permuta_id").references((): AnyPgColumn => permutas.id, {
     onDelete: "set null",
   }),
+  /** Prompt Y, 4-A.2 (0060): nota, romaneio, foto ou requisição de um movimento de estoque. */
+  stockMovementId: uuid("stock_movement_id").references((): AnyPgColumn => stockMovements.id, {
+    onDelete: "set null",
+  }),
   /** chave do objeto no bucket R2. */
   storageKey: text("storage_key").notNull(),
   filename: text("filename").notNull(),
@@ -1774,6 +1778,8 @@ export const stockItems = pgTable("stock_item", {
   minimo: numeric("minimo", { precision: 15, scale: 3 }).notNull().default("0"),
   obs: text("obs"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  /** Prompt Y, 5.2 (0060): item com movimento não é apagado — é inativado. */
+  ativo: boolean("ativo").notNull().default(true),
 });
 
 /** Movimentação de estoque: entrada ou saída, associada a uma obra. */
@@ -1814,4 +1820,8 @@ export const stockMovements = pgTable("stock_movement", {
   responsavel: text("responsavel"),
   obs: text("obs"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  /** Prompt Y, 2.6 (0060): estorno é lançamento inverso que aponta o original; o original fica. */
+  estornoDeId: uuid("estorno_de_id").references((): AnyPgColumn => stockMovements.id, {
+    onDelete: "set null",
+  }),
 });
