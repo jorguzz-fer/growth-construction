@@ -6,6 +6,8 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import {
   ehStatusEditavel,
   lerValor,
@@ -144,4 +146,93 @@ export async function cancelarContaReceber(formData: FormData): Promise<Resultad
   });
   revalidatePath("/contasreceber");
   return { ok: true, id };
+}
+
+// ── Documentos anexados (Prompt K, seção 6) ──────────────────────────────
+
+export type ResultadoAnexo = { ok: true; added: number } | { ok: false; error: string };
+
+/**
+ * Anexa boleto, comprovante ou contrato a uma conta a receber — o mesmo
+ * fluxo e o mesmo armazenamento (R2) dos anexos da despesa (6.2). Vários
+ * arquivos por vez; nunca substitui nem remove os já existentes. A conta
+ * precisa existir NESTA empresa; anexar é permitido em qualquer estado.
+ */
+export async function addContaReceberDocs(formData: FormData): Promise<ResultadoAnexo> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "contasreceber", "editar")) return { ok: false, error: "Sem permissão para anexar documentos." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (R2) não configurado — defina as variáveis R2_*." };
+  const contaId = clean(formData.get("contaReceberId")) ?? "";
+  if (!contaId) return { ok: false, error: "Conta não informada." };
+  const [conta] = await db
+    .select({ id: schema.contasReceber.id, projectId: schema.contasReceber.projectId })
+    .from(schema.contasReceber)
+    .where(and(eq(schema.contasReceber.id, contaId), eq(schema.contasReceber.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!conta) return { ok: false, error: "Conta a receber não encontrada." };
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) return { ok: false, error: "Selecione ao menos um arquivo." };
+  for (const f of files) {
+    if (f.size > LIMITE_UPLOAD_BYTES) return { ok: false, error: `"${f.name}" excede ${LIMITE_UPLOAD_MB} MB.` };
+  }
+  const tipo = clean(formData.get("tipo"));
+  try {
+    for (const file of files) {
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/docs/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
+      await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        contaReceberId: conta.id,
+        projectId: conta.projectId,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo,
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+    }
+  } catch (e) {
+    console.error("[contasreceber] falha ao anexar documentos:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao enviar os arquivos." };
+  }
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "document.upload",
+    entity: "conta_receber",
+    entityId: conta.id,
+    meta: { arquivos: files.map((f) => f.name), qtd: files.length, tipo },
+  });
+  revalidatePath("/contasreceber");
+  return { ok: true, added: files.length };
+}
+
+/**
+ * Desvincula UM anexo da conta a receber. Só a linha de `document` sai; o
+ * objeto NÃO é apagado do R2 (6.3 — limpeza de órfãos é tarefa própria), e a
+ * auditoria guarda nome do arquivo e chave para o arquivo continuar
+ * recuperável.
+ */
+export async function deleteContaReceberDoc(documentId: string): Promise<ResultadoContaReceber> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "contasreceber", "editar")) return falha("Sem permissão para remover anexos.");
+  const [doc] = await db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.id, documentId), eq(schema.documents.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!doc || !doc.contaReceberId) return falha("Anexo não encontrado.");
+  await db.delete(schema.documents).where(and(eq(schema.documents.id, doc.id), eq(schema.documents.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "document.unlink",
+    entity: "conta_receber",
+    entityId: doc.contaReceberId,
+    meta: { documentId: doc.id, filename: doc.filename, storageKey: doc.storageKey, tipo: doc.tipo },
+  });
+  revalidatePath("/contasreceber");
+  return { ok: true, id: doc.id };
 }

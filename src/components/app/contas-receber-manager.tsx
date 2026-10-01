@@ -18,6 +18,7 @@ import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
+import { ContaReceberDocs, type ContaReceberDoc } from "@/components/app/conta-receber-docs";
 import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
 
 interface Opt {
@@ -181,15 +182,20 @@ function NovaConta({
 function ContaRow({
   c,
   projetos,
+  docs,
+  r2,
   canEditar,
   canExcluir,
 }: {
   c: ContaReceberRow;
   projetos: Opt[];
+  docs: ContaReceberDoc[];
+  r2: boolean;
   canEditar: boolean;
   canExcluir: boolean;
 }) {
   const [edit, setEdit] = useState(false);
+  const [anexos, setAnexos] = useState(false);
   const [tipo, setTipo] = useState(c.tipo);
   const [valor, setValor] = useState(String(c.valor));
   const [recebido, setRecebido] = useState(String(c.valorRecebido));
@@ -285,6 +291,7 @@ function ContaRow({
     );
   }
   return (
+    <>
     <TR>
       <TD className="whitespace-nowrap">{c.projectName}</TD>
       <TD>{c.tipo}</TD>
@@ -298,6 +305,14 @@ function ContaRow({
       </TD>
       <TD className="text-right">
         <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            className="text-sm text-[var(--color-ink2)] hover:underline"
+            aria-expanded={anexos}
+            onClick={() => setAnexos((a) => !a)}
+          >
+            Anexos{docs.length > 0 ? ` (${docs.length})` : ""}
+          </button>
           {canEditar && (
             <button className="text-sm text-[var(--color-accent2)] hover:underline" onClick={() => setEdit(true)}>
               Editar
@@ -322,6 +337,14 @@ function ContaRow({
         </div>
       </TD>
     </TR>
+    {anexos && (
+      <TR>
+        <TD colSpan={7} className="py-2">
+          <ContaReceberDocs contaId={c.id} docs={docs} canEdit={canEditar} r2={r2} />
+        </TD>
+      </TR>
+    )}
+    </>
   );
 }
 
@@ -332,6 +355,8 @@ export function ContasReceberManager({
   bancos,
   unidadesPorObra,
   contas,
+  docsPorConta,
+  r2,
   unitReceb,
   canCriar,
   canEditar,
@@ -343,6 +368,8 @@ export function ContasReceberManager({
   bancos: Opt[];
   unidadesPorObra: Record<string, string[]>;
   contas: ContaReceberRow[];
+  docsPorConta: Record<string, ContaReceberDoc[]>;
+  r2: boolean;
   unitReceb: UnitReceb[];
   canCriar: boolean;
   canEditar: boolean;
@@ -415,7 +442,15 @@ export function ContasReceberManager({
               </THead>
               <tbody>
                 {contasOrd.rows.map((c) => (
-                  <ContaRow key={c.id} c={c} projetos={projetos} canEditar={canEditar} canExcluir={canExcluir} />
+                  <ContaRow
+                    key={c.id}
+                    c={c}
+                    projetos={projetos}
+                    docs={docsPorConta[c.id] ?? []}
+                    r2={r2}
+                    canEditar={canEditar}
+                    canExcluir={canExcluir}
+                  />
                 ))}
                 {contasOrd.rows.length === 0 && (
                   <TR>

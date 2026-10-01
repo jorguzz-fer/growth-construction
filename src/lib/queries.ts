@@ -1112,6 +1112,16 @@ export async function getDocumentsByDespesa(
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Anexos das contas a receber listadas (Prompt K, 6.2), mais novos primeiro. */
+export async function getDocumentsByContasReceber(tenantId: string, contaIds: string[]): Promise<DocumentRow[]> {
+  if (contaIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.contaReceberId, contaIds)))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type CashRow = typeof schema.cashEntries.$inferSelect;
 
 export async function getCash(versionId: string): Promise<CashRow[]> {

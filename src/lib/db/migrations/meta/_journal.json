@@ -330,6 +330,13 @@
       "when": 1787064449285,
       "tag": "0046_unit_codigo_unico",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787064450285,
+      "tag": "0047_document_conta_receber",
+      "breakpoints": true
     }
   ]
 }

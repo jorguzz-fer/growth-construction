@@ -5,7 +5,10 @@ import {
   getClientes,
   getBankAccounts,
   getUnidadesAtuaisPorObra,
+  getDocumentsByContasReceber,
 } from "@/lib/queries";
+import { isR2Configured, readUrl } from "@/lib/storage/r2";
+import type { ContaReceberDoc } from "@/components/app/conta-receber-docs";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
@@ -40,6 +43,21 @@ export default async function ContasReceberPage({
     // CR-07 — o seletor de unidade só oferece as unidades da obra escolhida.
     getUnidadesAtuaisPorObra(ctx.tenant.id),
   ]);
+
+  // 6.2 — anexos das contas listadas, com link assinado para abrir.
+  const r2 = isR2Configured();
+  const docs = await getDocumentsByContasReceber(ctx.tenant.id, contas.map((c) => c.id));
+  const docsPorConta: Record<string, ContaReceberDoc[]> = {};
+  for (const d of docs) {
+    if (!d.contaReceberId) continue;
+    (docsPorConta[d.contaReceberId] ??= []).push({
+      id: d.id,
+      filename: d.filename,
+      tipo: d.tipo,
+      url: r2 ? await readUrl(d.storageKey) : null,
+      uploadedAt: d.uploadedAt ? d.uploadedAt.toISOString() : null,
+    });
+  }
 
   // Lista unificada para a busca (contas lançadas + recebíveis das vendas),
   // já só da obra escolhida.
@@ -95,6 +113,8 @@ export default async function ContasReceberPage({
         bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
         unidadesPorObra={unidadesPorObra}
         contas={contas}
+        docsPorConta={docsPorConta}
+        r2={r2}
         unitReceb={receivables.map((r) => ({
           // CR-08 — o identificador do recebível (unidade:índice da parcela)
           // chega à tabela; é a chave de qualquer vínculo futuro.

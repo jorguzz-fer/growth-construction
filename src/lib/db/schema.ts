@@ -1075,6 +1075,10 @@ export const documents = pgTable("document", {
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "set null",
   }),
+  /** Boleto, comprovante ou contrato de uma conta a receber (Prompt K, 6.1 — migração 0047). */
+  contaReceberId: uuid("conta_receber_id").references((): AnyPgColumn => contasReceber.id, {
+    onDelete: "set null",
+  }),
   /** chave do objeto no bucket R2. */
   storageKey: text("storage_key").notNull(),
   filename: text("filename").notNull(),
