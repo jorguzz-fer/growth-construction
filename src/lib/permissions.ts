@@ -48,6 +48,10 @@ export const SCREENS: Screen[] = [
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
   { id: "budget", label: "Lançamento Budget", modulo: "Planejamento" },
   { id: "forecast", label: "Lançamento Forecast", modulo: "Planejamento" },
+  // Prompt AP, BAP-2: a trava de versão saiu de /versao e mora nas telas de
+  // Orçamentos, Previsão e Projetos. Permissão PRÓPRIA (ação, não rota): nasce
+  // só com owner e admin — como `versao` hoje — e pode ser dada por override.
+  { id: "versaotrava", label: "Travar e destravar versão", modulo: "Planejamento" },
   { id: "clientes", label: "Clientes (Compradores)", modulo: "Receitas" },
   // Permissão de CAMPO, não de rota (Prompt M, 5.4 · BM-3): renda, FGTS, score,
   // restrições, estado civil e inteligência de mercado do comprador. Nasce só
@@ -173,7 +177,7 @@ export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
  * admin").
  */
-export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso"]);
+export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava"]);
 
 /**
  * Papéis com TETO DE LEITURA (Prompt AL, Parte 3 · decisão BAL-2 = opção 1):

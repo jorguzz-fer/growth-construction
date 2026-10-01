@@ -1,4 +1,5 @@
-import { getTenantContext } from "@/lib/context";
+import { getProjectVersions, getTenantContext } from "@/lib/context";
+import { VersoesDoProjeto } from "@/components/app/versoes-do-projeto";
 import { contarPontoDoProjeto, getClientes, getDocumentsByProjects } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
@@ -39,13 +40,15 @@ export default async function ProjetoPage({
 
   const r2 = isR2Configured();
   const obraSel = projetoSel && projetoSel.kind !== "office" ? projetoSel : null;
-  const [clientes, projDocs, registrosDePonto, oxr] = await Promise.all([
+  const [clientes, projDocs, registrosDePonto, oxr, versoesSel] = await Promise.all([
     getClientes(ctx.tenant.id),
     // Só os documentos de projeto (Prompt B, 13) — e não todos os da empresa.
     getDocumentsByProjects(ctx.tenant.id),
     obraSel ? contarPontoDoProjeto(ctx.tenant.id, obraSel.id) : Promise.resolve(0),
     // Orçado x Realizado (19–20): só na visão de uma obra; fontes da Fase 1.
     obraSel ? getOrcadoRealizado(ctx.tenant.id, obraSel.id) : Promise.resolve(null),
+    // Prompt AP: as versões do projeto escolhido (trava e planilha da Atual).
+    projetoSel ? getProjectVersions(ctx.tenant.id, projetoSel.id) : Promise.resolve(null),
   ]);
   // URLs assinadas em paralelo, não uma a uma.
   const urls = await Promise.all(projDocs.map((d) => (r2 ? readUrl(d.storageKey) : Promise.resolve(null))));
@@ -132,6 +135,13 @@ export default async function ProjetoPage({
           excluir: can(ctx.perms, "projeto", "excluir"),
         }}
       />
+      {versoesSel && (
+        <VersoesDoProjeto
+          versions={versoesSel.versions}
+          podeTravar={can(ctx.perms, "versaotrava", "editar")}
+          podePlanilha={can(ctx.perms, "projeto", "editar")}
+        />
+      )}
       </div>
       {assistente}
       </div>
