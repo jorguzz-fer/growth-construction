@@ -66,7 +66,8 @@ export const SCREENS: Screen[] = [
   { id: "cartoes", label: "Cartões de Crédito", modulo: "Despesas" },
   { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
   { id: "planocontas", label: "Plano de Contas", modulo: "Planejamento" },
-  { id: "contas", label: "Contas Correntes", modulo: "Despesas" },
+  // Prompt X, 6 — conta corrente é instrumento de caixa, não de despesa.
+  { id: "contas", label: "Contas Correntes", modulo: "Conciliação de Caixa" },
   { id: "estoque", label: "Controle de Estoques", modulo: "Despesas" },
   { id: "ponto", label: "Controle de Ponto", modulo: "Despesas" },
   { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },

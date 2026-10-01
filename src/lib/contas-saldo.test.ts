@@ -54,3 +54,10 @@ describe("isContaDaEmpresa", () => {
     expect(isContaDaEmpresa({ tipo: "Terceiros" })).toBe(false);
   });
 });
+
+describe("Prompt X, 2.2 — conta inativa não compõe o saldo", async () => {
+  const { saldoDisponivel } = await import("./contas-saldo");
+  it("ausente = ativa; false sai", () => {
+    expect(saldoDisponivel([{ tipo: "Construtora", saldo: 100 }, { tipo: "Construtora", saldo: 50, ativo: false }, { tipo: "Construtora", saldo: 7, ativo: true }])).toBe(107);
+  });
+});

@@ -11,11 +11,13 @@ export const TIPO_CONTA_TERCEIROS = "Terceiros";
 export interface ContaComSaldo {
   tipo: string;
   saldo: string | number;
+  /** Prompt X, 2.2 — conta inativa não compõe o saldo. Ausente = ativa. */
+  ativo?: boolean;
 }
 
-/** Uma conta representa dinheiro disponível da empresa? */
-export function isContaDaEmpresa(conta: { tipo: string }): boolean {
-  return conta.tipo !== TIPO_CONTA_TERCEIROS;
+/** Uma conta representa dinheiro disponível da empresa? (ativa e não de terceiros) */
+export function isContaDaEmpresa(conta: { tipo: string; ativo?: boolean }): boolean {
+  return conta.tipo !== TIPO_CONTA_TERCEIROS && conta.ativo !== false;
 }
 
 /** Saldo disponível da empresa (exclui contas de terceiros). */
@@ -28,6 +30,6 @@ export function saldoDisponivel(contas: ContaComSaldo[]): number {
 /** Total devido a terceiros (soma das contas do tipo "Terceiros"). */
 export function saldoDevidoTerceiros(contas: ContaComSaldo[]): number {
   return contas
-    .filter((c) => !isContaDaEmpresa(c))
+    .filter((c) => c.tipo === TIPO_CONTA_TERCEIROS && c.ativo !== false)
     .reduce((a, c) => a + (Number(c.saldo) || 0), 0);
 }
