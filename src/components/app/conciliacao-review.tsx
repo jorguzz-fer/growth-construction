@@ -9,6 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
+import { linkParaLancar } from "@/lib/caixa-encaminhamento";
 
 /**
  * Revisão da conciliação (Prompt L, Parte 2): para cada saída do extrato, as
@@ -22,7 +24,7 @@ import { Input } from "@/components/ui/input";
 const grauTone = (g: "alta" | "media" | "baixa") => (g === "alta" ? "success" : g === "media" ? "warning" : "neutral");
 const grauLabel = (g: "alta" | "media" | "baixa") => (g === "alta" ? "alta compatibilidade" : g === "media" ? "média" : "baixa");
 
-export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, canDesfazer }: { pendentes: MovimentoPendente[]; pendentesEntrada: MovimentoPendenteEntrada[]; conciliados: MovimentoConciliado[]; canDesfazer: boolean }) {
+export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, canDesfazer, projectId }: { pendentes: MovimentoPendente[]; pendentesEntrada: MovimentoPendenteEntrada[]; conciliados: MovimentoConciliado[]; canDesfazer: boolean; projectId: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, ca
                   <span className="font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--color-danger)]">−{brl0(Math.abs(m.valor))}</span>
                 </div>
                 {m.sugestoes.length === 0 ? (
-                  <p className="text-[12px] text-[var(--color-ink4)]">Sem contas a pagar compatíveis. Lance a despesa em Despesas (com data, valor e histórico do extrato) ou mantenha pendente.</p>
+                  <p className="text-[12px] text-[var(--color-ink4)]">Sem contas a pagar compatíveis. Lance a despesa em Despesas — já com data, valor e histórico do extrato — ou mantenha pendente.</p>
                 ) : (
                   <div className="divide-y divide-[var(--color-accent2)]/8 rounded-[8px] border border-[var(--color-accent2)]/12">
                     {m.sugestoes.map((s) => {
@@ -124,9 +126,15 @@ export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, ca
                     )}
                   </div>
                 )}
-                <Button variant="ghost" size="sm" className="mt-2" onClick={() => criarConta(m.cashEntryId, false)} disabled={pending}>
-                  Converter em conta a pagar (já paga)
-                </Button>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  {/* Prompt L, 3-A.2 / 7.2 — encaminhar: o lançamento acontece em Despesas, com os dados do extrato; o movimento fica reservado e é conciliado ao gravar. */}
+                  <Link href={linkParaLancar({ id: m.cashEntryId, data: m.data, descricao: m.descricao, valor: m.valor }, projectId).href} className="text-[12px] text-[var(--color-accent2)] hover:underline">
+                    Lançar em Despesas com estes dados →
+                  </Link>
+                  <Button variant="ghost" size="sm" onClick={() => criarConta(m.cashEntryId, false)} disabled={pending}>
+                    Converter em conta a pagar (já paga)
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -167,9 +175,14 @@ export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, ca
                   ))}
                 </div>
               )}
-              <Button variant="ghost" size="sm" className="mt-2" onClick={() => criarConta(m.cashEntryId, true)} disabled={pending}>
-                Converter em conta a receber (já recebida)
-              </Button>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <Link href={linkParaLancar({ id: m.cashEntryId, data: m.data, descricao: m.descricao, valor: m.valor }, projectId).href} className="text-[12px] text-[var(--color-accent2)] hover:underline">
+                  Lançar em Contas a Receber com estes dados →
+                </Link>
+                <Button variant="ghost" size="sm" onClick={() => criarConta(m.cashEntryId, true)} disabled={pending}>
+                  Converter em conta a receber (já recebida)
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}

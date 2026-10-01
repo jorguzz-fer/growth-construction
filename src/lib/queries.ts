@@ -401,6 +401,58 @@ export async function getCartoes(tenantId: string): Promise<CartaoView[]> {
   }));
 }
 
+/**
+ * Prompt L, 6.4 — quanto está BAIXADO (pagamento registrado) sem vínculo com
+ * o extrato, e há quantos dias o mais antigo espera. É o número que denuncia
+ * extrato não importado. Só leitura.
+ */
+export async function getBaixadoSemConciliar(tenantId: string): Promise<{ total: number; despesas: number; maisAntigoISO: string | null }> {
+  const pagos = await db
+    .select({ despesaId: schema.pagamentos.despesaId, pago: sql<string>`coalesce(sum(${schema.pagamentos.valorTotalPago} + ${schema.pagamentos.desconto} - ${schema.pagamentos.multa} - ${schema.pagamentos.juros} - ${schema.pagamentos.outrosAcrescimos}), 0)`, primeira: sql<string | null>`min(case when ${schema.pagamentos.dataPagamento} ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' then substr(${schema.pagamentos.dataPagamento},7,4)||'-'||substr(${schema.pagamentos.dataPagamento},1,2)||'-'||substr(${schema.pagamentos.dataPagamento},4,2) end)` })
+    .from(schema.pagamentos)
+    .innerJoin(schema.despesas, eq(schema.pagamentos.despesaId, schema.despesas.id))
+    .where(and(eq(schema.pagamentos.tenantId, tenantId), eq(schema.despesas.cancelado, false)))
+    .groupBy(schema.pagamentos.despesaId);
+  const ids = pagos.map((p) => p.despesaId).filter((x): x is string => !!x);
+  const conciliado = ids.length
+    ? await db
+        .select({ id: schema.conciliacoesDespesa.despesaId, soma: sql<string>`coalesce(sum(${schema.conciliacoesDespesa.valor}), 0)` })
+        .from(schema.conciliacoesDespesa)
+        .where(and(eq(schema.conciliacoesDespesa.tenantId, tenantId), eq(schema.conciliacoesDespesa.desfeito, false), inArray(schema.conciliacoesDespesa.despesaId, ids)))
+        .groupBy(schema.conciliacoesDespesa.despesaId)
+    : [];
+  const concPor = new Map(conciliado.map((c) => [c.id, Number(c.soma)]));
+  let total = 0;
+  let despesas = 0;
+  let maisAntigo: string | null = null;
+  for (const p of pagos) {
+    if (!p.despesaId) continue;
+    const semConc = Math.round((Number(p.pago) - (concPor.get(p.despesaId) ?? 0)) * 100) / 100;
+    if (semConc <= 0.01) continue;
+    total += semConc;
+    despesas++;
+    if (p.primeira && (!maisAntigo || p.primeira < maisAntigo)) maisAntigo = p.primeira;
+  }
+  return { total: Math.round(total * 100) / 100, despesas, maisAntigoISO: maisAntigo };
+}
+
+/** Prompt L, 4.2.4 — autor e momento de cada ajuste, pelo audit_log (`cash.adjust`). Só leitura. */
+export async function getAutoresDosAjustes(tenantId: string, cashEntryIds: readonly string[]): Promise<Map<string, { autor: string | null; quando: string | null }>> {
+  const out = new Map<string, { autor: string | null; quando: string | null }>();
+  if (cashEntryIds.length === 0) return out;
+  const rows = await db
+    .select({ entityId: schema.auditLog.entityId, meta: schema.auditLog.meta, userId: schema.auditLog.userId, createdAt: schema.auditLog.createdAt, email: schema.users.email })
+    .from(schema.auditLog)
+    .leftJoin(schema.users, eq(schema.auditLog.userId, schema.users.id))
+    .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "cash.adjust"), inArray(schema.auditLog.entityId, [...cashEntryIds])));
+  for (const r of rows) {
+    if (!r.entityId) continue;
+    const meta = (r.meta ?? {}) as { autor?: string | null };
+    out.set(r.entityId, { autor: meta.autor ?? r.email ?? r.userId ?? null, quando: r.createdAt ? new Date(r.createdAt).toISOString() : null });
+  }
+  return out;
+}
+
 /** Prompt X, 7 — uso real das contas: lançamentos de caixa e data do último (ISO). Só leitura. */
 export async function getUsoDasContas(tenantId: string): Promise<{ id: string; lancamentos: number; ultimoLancamento: string | null }[]> {
   const rows = await db
@@ -408,7 +460,7 @@ export async function getUsoDasContas(tenantId: string): Promise<{ id: string; l
       id: schema.cashEntries.bankAccountId,
       n: sql<number>`count(*)::int`,
       // "MM/DD/YYYY" → "YYYY-MM-DD" para comparar; datas malformadas ficam de fora do máximo
-      ultimo: sql<string | null>`max(case when ${schema.cashEntries.data} ~ '^\d{2}/\d{2}/\d{4}$' then substr(${schema.cashEntries.data},7,4)||'-'||substr(${schema.cashEntries.data},1,2)||'-'||substr(${schema.cashEntries.data},4,2) end)`,
+      ultimo: sql<string | null>`max(case when ${schema.cashEntries.data} ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' then substr(${schema.cashEntries.data},7,4)||'-'||substr(${schema.cashEntries.data},1,2)||'-'||substr(${schema.cashEntries.data},4,2) end)`,
     })
     .from(schema.cashEntries)
     .where(and(eq(schema.cashEntries.tenantId, tenantId), isNotNull(schema.cashEntries.bankAccountId)))

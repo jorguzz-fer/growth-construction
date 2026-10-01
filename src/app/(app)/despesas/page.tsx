@@ -56,6 +56,7 @@ export default async function DespesasPage({
     pf_cartao?: string;
     pf_data?: string;
     pf_obs?: string;
+    pf_cash?: string;
     pf_valor?: string;
     pf_venc?: string;
     pf_comp?: string;
@@ -378,6 +379,8 @@ export default async function DespesasPage({
                         cartaoId: sp.pf_cartao ?? null,
                         cartaoDataCompra: sp.pf_data ?? null,
                         obs: sp.pf_obs ?? null,
+                        // Prompt L, 3-A.2 — movimento do extrato reservado para conciliação.
+                        cashEntryId: sp.pf_cash ?? null,
                       }
                     : null
                 }

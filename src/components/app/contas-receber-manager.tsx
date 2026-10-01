@@ -39,21 +39,30 @@ export interface UnitReceb {
 }
 
 /** Formulário de criação (client por causa do campo condicional "Outras Receitas"). */
+export interface PrefillContaReceber {
+  valor?: string | null;
+  vencimento?: string | null;
+  descricao?: string | null;
+}
+
 function NovaConta({
   projetos,
   projetoSelecionado,
   clientes,
   bancos,
   unidadesPorObra,
+  prefill,
 }: {
   projetos: Opt[];
   projetoSelecionado: string | null;
   clientes: Opt[];
   bancos: Opt[];
   unidadesPorObra: Record<string, string[]>;
+  prefill?: PrefillContaReceber | null;
 }) {
-  const [tipo, setTipo] = useState<string>("Sinal");
-  const [valor, setValor] = useState("");
+  // Prompt L, 3-A.2 — entrada do extrato encaminhada abre com os dados preenchidos.
+  const [tipo, setTipo] = useState<string>(prefill?.descricao ? "Outras Receitas" : "Sinal");
+  const [valor, setValor] = useState(prefill?.valor ?? "");
   const [projectId, setProjectId] = useState(projetoSelecionado ?? projetos[0]?.id ?? "");
   const [pending, start] = useTransition();
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -108,12 +117,12 @@ function NovaConta({
           </div>
           <div>
             <Label>Vencimento</Label>
-            <DateField name="vencimento" />
+            <DateField name="vencimento" defaultValue={prefill?.vencimento ?? ""} />
           </div>
           {tipo === "Outras Receitas" && (
             <div className="sm:col-span-4">
               <Label>Descrição (obrigatória para Outras Receitas) *</Label>
-              <Input name="descricao" required placeholder="Origem/natureza da receita" />
+              <Input name="descricao" required placeholder="Origem/natureza da receita" defaultValue={prefill?.descricao ?? ""} />
             </div>
           )}
           {tipo !== "Outras Receitas" && (
@@ -350,6 +359,7 @@ function ContaRow({
 }
 
 export function ContasReceberManager({
+  prefill = null,
   projetos,
   projetoSelecionado,
   clientes,
@@ -365,6 +375,7 @@ export function ContasReceberManager({
   canEditar,
   canExcluir,
 }: {
+  prefill?: PrefillContaReceber | null;
   projetos: Opt[];
   projetoSelecionado: string | null;
   clientes: Opt[];
@@ -442,6 +453,7 @@ export function ContasReceberManager({
     <div>
       {canCriar && (
         <NovaConta
+          prefill={prefill}
           projetos={projetos}
           projetoSelecionado={projetoSelecionado}
           clientes={clientes}

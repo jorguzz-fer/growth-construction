@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 export default async function ContasReceberPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string }>;
+  searchParams: Promise<{ proj?: string; pf_valor?: string; pf_venc?: string; pf_desc?: string; pf_cash?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -160,6 +160,8 @@ export default async function ContasReceberPage({
       </div>
 
       <ContasReceberManager
+        // Prompt L, 3-A.2 — entrada do extrato encaminhada: valor, vencimento e histórico preenchidos.
+        prefill={sp.pf_valor || sp.pf_venc || sp.pf_desc ? { valor: sp.pf_valor ?? null, vencimento: sp.pf_venc ?? null, descricao: sp.pf_desc ?? null } : null}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         projetoSelecionado={projSel?.id ?? null}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}

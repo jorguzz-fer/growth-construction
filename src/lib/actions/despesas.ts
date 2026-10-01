@@ -31,6 +31,7 @@ import {
 import { CATEGORIAS_DRE, type CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
 import { faturasDasParcelas, valoresDasParcelas, type FaturaDoCiclo } from "@/lib/calc/cartao-ciclo";
+import { gravarVinculos } from "@/lib/conciliacao-db";
 import {
   AI_ACCEPTED_MIME,
   AI_MAX_DOCS,
@@ -563,13 +564,27 @@ async function lancarDespesa(
     }
   }
 
+  // Prompt L, 3-A.2 — veio do extrato: o movimento reservado é conciliado com
+  // este lançamento (vínculo com valor), sem saída de caixa nova. Falha aqui
+  // não desfaz a despesa: vira aviso, e a conciliação fica para a tela do Caixa.
+  const cashEntryId = (formData.get("cashEntryId") as string | null) || null;
+  let avisoConciliacao: string | null = null;
+  if (cashEntryId) {
+    const [mov] = await db.select({ valor: schema.cashEntries.valor }).from(schema.cashEntries).where(and(eq(schema.cashEntries.id, cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)));
+    const valorVinculo = mov ? Math.min(Math.abs(Number(mov.valor)), Number(row.valor)) : 0;
+    const r = mov ? await gravarVinculos({ tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail }, { cashEntryId, itens: [{ despesaId: row.id, valor: valorVinculo }], origem: "manual" }) : { ok: false as const, error: "Movimento do extrato não encontrado." };
+    avisoConciliacao = r.ok ? null : `Despesa lançada, mas o movimento do extrato não foi conciliado: ${r.error} Concilie na tela do Caixa.`;
+    revalidatePath("/caixa");
+  }
   revalidatePath("/despesas");
+  const avisos = [
+    falhas.length ? `Despesa ${row.numDoc ?? ""} gravada, mas ${falhas.length} anexo(s) não subiram (${falhas.join(", ")}). Anexe de novo pela ficha.` : null,
+    avisoConciliacao,
+  ].filter((x): x is string => !!x);
   return {
     ok: true,
     id: row.id,
-    aviso: falhas.length
-      ? `Despesa ${row.numDoc ?? ""} gravada, mas ${falhas.length} anexo(s) não subiram (${falhas.join(", ")}). Anexe de novo pela ficha.`
-      : undefined,
+    aviso: avisos.length ? avisos.join(" ") : undefined,
   };
 }
 

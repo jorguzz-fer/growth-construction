@@ -225,6 +225,45 @@ export async function addCash(formData: FormData) {
   revalidatePath("/caixa");
 }
 
+/**
+ * Prompt L, Parte 4 — o ajuste de caixa com o que faltava: motivo
+ * obrigatório (4.2.1), permissão PRÓPRIA `conciliacao:criar` (4.2.2),
+ * retorno legível. Grava pelo mesmo caminho de `addCash` (tipo "ajuste":
+ * nasce conciliado, `cat = "ajuste"`, fora da DRE) — nenhum `cash_entry`
+ * existente muda. A versão é a de trabalho da obra informada (4.2.5).
+ */
+export async function addAjuste(formData: FormData): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "conciliacao", "criar")) {
+    return { ok: false, error: "Lançar ajuste de caixa exige a permissão \"Conciliação — ajustar e desfazer: criar\", que o seu usuário não tem. Peça a um administrador." };
+  }
+  const motivo = ((formData.get("motivo") as string | null) ?? "").trim();
+  if (!motivo) return { ok: false, error: "Informe o motivo do ajuste — ele fica na auditoria e na aba Ajustes." };
+  const magnitude = Math.abs(Number(formData.get("valor")) || 0);
+  if (!(magnitude > 0)) return { ok: false, error: "Informe um valor maior que zero." };
+  const data = ((formData.get("data") as string | null) ?? "").trim();
+  if (!data) return { ok: false, error: "Informe a data do ajuste." };
+  const version = await versaoDoCaixa(ctx.tenant.id, formData.get("projectId"));
+  if (!version) return { ok: false, error: SEM_OBRA };
+  if (version.locked) return { ok: false, error: "Versão congelada." };
+  const sinal = (formData.get("sinal") as string) === "menos" ? -1 : 1;
+  const bankAccountId = ((formData.get("bankAccountId") as string | null) || "").trim() || null;
+  const [row] = await db
+    .insert(schema.cashEntries)
+    .values({ versionId: version.id, tenantId: ctx.tenant.id, data, descricao: motivo, valor: String(sinal * magnitude), cat: "ajuste", bankAccountId, rec: true })
+    .returning();
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "cash.adjust",
+    entity: "cash_entry",
+    entityId: row.id,
+    meta: { tipo: "ajuste", cat: "ajuste", valor: row.valor, motivo, bankAccountId, data, autor: ctx.userEmail ?? ctx.userId ?? null },
+  });
+  revalidatePath("/caixa");
+  return { ok: true, id: row.id };
+}
+
 export interface ImportCashRow {
   data?: string;
   descricao?: string;
