@@ -50,9 +50,9 @@ export function SaldosCaixa({ contas, total, importar, openFinance, totalAjustes
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wide text-[var(--color-ink4)]">
                 <th className="py-1 font-normal">Conta</th>
-                <th className="py-1 text-right font-normal">Em conta (extrato)</th>
-                <th className="py-1 text-right font-normal">Conciliado</th>
-                <th className="py-1 text-right font-normal">Diferença</th>
+                <th className="py-1 pl-3 text-right font-normal">Em conta (extrato)</th>
+                <th className="py-1 pl-3 text-right font-normal">Conciliado</th>
+                <th className="py-1 pl-3 text-right font-normal">Diferença</th>
                 <th className="py-1 pl-4 font-normal">Última atualização do saldo em conta</th>
               </tr>
             </thead>

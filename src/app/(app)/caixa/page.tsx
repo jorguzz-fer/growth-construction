@@ -13,6 +13,7 @@ import {
   getBaixadoSemConciliar,
   getCash,
   getConciliacaoData,
+  getContasPagar,
   getAutoresDosAjustes,
 } from "@/lib/queries";
 import { ConciliacaoReview } from "@/components/app/conciliacao-review";
@@ -30,6 +31,8 @@ import { ConciliarToggle } from "@/components/app/conciliar-toggle";
 import { ImportExtratoButton } from "@/components/app/import-extrato";
 import { AjustesCaixa, type AjusteLinha } from "@/components/app/ajustes-caixa";
 import { cadeiaDaEmpresa } from "@/lib/cadeia-da-empresa";
+import { analisarCaixa } from "@/lib/caixa-analise";
+import { AssistenteCaixa } from "@/components/app/assistente-caixa";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import {
   VersionCompareTable,
@@ -225,6 +228,23 @@ export default async function CaixaPage({
   const todosAjustes = empresa.cash.filter((c) => c.cat === "ajuste");
   const totalAjustes = { valor: Math.round(todosAjustes.reduce((a, c) => a + Number(c.valor), 0) * 100) / 100, n: todosAjustes.length };
   const baixado = await getBaixadoSemConciliar(ctx.tenant.id);
+  const baixadoComDias = { ...baixado, dias: baixado.maisAntigoISO ? Math.max(0, Math.round((Date.parse(hoje) - Date.parse(baixado.maisAntigoISO)) / 86_400_000)) : null };
+  // Parte 8-A — o assistente: puro, sobre o que a página carregou. Propõe; a
+  // pessoa confirma (pela mesma conciliarMovimento do revisor). Sem ajuste.
+  const abertas = (await getContasPagar(ctx.tenant.id))
+    .filter((c) => c.versionKind === "atual" && (c.origem ?? "despesa") === "despesa" && !c.parcela && c.saldo > 0.005 && c.status !== "Pago" && c.status !== "Cancelada")
+    .map((c) => ({ despesaId: c.despesaId ?? c.id, numDoc: c.numDoc, fornecedor: c.fornecedorNome, saldo: c.saldo, vencimento: c.vencimento }));
+  const analise = analisarCaixa({
+    pendentes: conciliacaoData.pendentes,
+    abertas,
+    cadeia,
+    conciliadosSemVinculo: conciliacaoData.conciliados.filter((c) => c.semVinculo).map((c) => ({ data: c.data, valor: c.valor })),
+    baixado: baixadoComDias,
+    contas: saldosPorConta.map((c) => ({ id: c.id, nome: c.nome, diasDesde: c.diasDesde })),
+    movimentos,
+    descricoes: new Map(empresa.cash.map((c) => [c.id, c.descricao])),
+    hojeISO: hoje,
+  });
   const contaFiltro = sp.conta ?? "";
   const ajustesFiltrados = todosAjustes.filter((c) => (!de && !ate ? true : dateInRange(c.data, de, ate))).filter((c) => !contaFiltro || c.bankAccountId === contaFiltro);
   const autores = tab === "ajustes" ? await getAutoresDosAjustes(ctx.tenant.id, ajustesFiltrados.map((c) => c.id)) : new Map<string, { autor: string | null; quando: string | null }>();
@@ -266,6 +286,9 @@ export default async function CaixaPage({
         {versionSelect}
       </div>
       <LembrarProjeto projectId={project.id} />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
 
       {/* Resumo do dia (hoje) */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -319,7 +342,7 @@ export default async function CaixaPage({
         }
         openFinance={{ configurado: pluggyCfg(), podeConfigurar: can(ctx.perms, "contas", "editar") }}
         totalAjustes={totalAjustes}
-        baixadoSemConciliar={{ ...baixado, dias: baixado.maisAntigoISO ? Math.max(0, Math.round((Date.parse(hoje) - Date.parse(baixado.maisAntigoISO)) / 86_400_000)) : null }}
+        baixadoSemConciliar={baixadoComDias}
       />
 
       {/* Prompt L, 1.4-A — cadeia de saldo com inicial e final, em conta e conciliado. */}
@@ -355,6 +378,9 @@ export default async function CaixaPage({
       {tab === "ajustes" && (
         <AjustesCaixa ajustes={ajustesLinhas} contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))} contaFiltro={contaFiltro} projectId={project.id} canAjustar={can(ctx.perms, "conciliacao", "criar")} de={de} ate={ate} />
       )}
+      </div>
+      <AssistenteCaixa usuario={ctx.userEmail ?? "anon"} projectId={project.id} analise={analise} canConciliar={can(ctx.perms, "caixa", "editar")} />
+      </div>
     </>
   );
 }
