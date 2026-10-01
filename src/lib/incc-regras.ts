@@ -10,6 +10,13 @@ import type { InccRow } from "@/lib/calc/types";
 /** Faixa plausível da variação mensal (%). Fora dela avisa; só o impossível (não finito) é recusado (4.3). */
 export const FAIXA_PLAUSIVEL = { min: -5, max: 5 } as const;
 
+/** BQ-1 · as três variantes que a FGV publica. Nulo na tabela = "a confirmar". */
+export const VARIANTES_DO_INCC = ["INCC-DI", "INCC-M", "INCC-10"] as const;
+export type VarianteDoIncc = (typeof VARIANTES_DO_INCC)[number];
+export function ehVarianteDoIncc(v: unknown): v is VarianteDoIncc {
+  return typeof v === "string" && (VARIANTES_DO_INCC as readonly string[]).includes(v);
+}
+
 /** Tamanho da janela da média móvel (meses). */
 export const JANELA_DA_MEDIA = 12;
 

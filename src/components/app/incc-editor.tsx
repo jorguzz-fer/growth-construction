@@ -3,8 +3,11 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { InccRow } from "@/lib/calc";
-import { marcarComoProjecao, projectFutureIncc, updateInccMonth } from "@/lib/actions/incc";
-import { avisoDeFaixa, JANELA_DA_MEDIA, mesesFuturosOficiais, mesesNaMedia, ordDeHoje } from "@/lib/incc-regras";
+import { definirVarianteIncc, marcarComoProjecao, projectFutureIncc, updateInccMonth } from "@/lib/actions/incc";
+import { avisoDeFaixa, JANELA_DA_MEDIA, mesesFuturosOficiais, mesesNaMedia, ordDeHoje, VARIANTES_DO_INCC } from "@/lib/incc-regras";
+import type { InccLinhaDaTela } from "@/lib/queries";
+import { Input, Label, Select } from "@/components/ui/input";
+import { dateBR } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -22,10 +25,12 @@ const CONFIRM_MSG = "Confirma a alteração deste índice? Ela recalcula os mese
  * 4.6 — mês projetado mostra quantos meses entraram na média quando < 12.
  * 4.4 — toda action devolve { ok, error }; a mensagem aparece aqui.
  */
-export function InccEditor({ projectId, initial, canEdit }: { projectId: string; initial: InccRow[]; canEdit: boolean }) {
+export function InccEditor({ projectId, initial, variante, canEdit }: { projectId: string; initial: InccLinhaDaTela[]; variante: string | null; canEdit: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  // 5.3 — fonte do índice informado (opcional), gravada com o próximo mês editado.
+  const [fonte, setFonte] = useState("");
   const hoje = ordDeHoje();
   const futurosOficiais = useMemo(() => mesesFuturosOficiais(initial, hoje), [initial, hoje]);
   const projetados = initial.filter((r) => r.projected).length;
@@ -61,7 +66,7 @@ export function InccEditor({ projectId, initial, canEdit }: { projectId: string;
       return;
     }
     rodar(
-      () => updateInccMonth(projectId, row.m, value),
+      () => updateInccMonth(projectId, row.m, value, fonte || null),
       (n) => `Índice de ${row.m} gravado como oficial.${n > 1 ? ` ${n - 1} mês(es) projetado(s) recalculado(s).` : ""}`,
     );
   };
@@ -81,8 +86,33 @@ export function InccEditor({ projectId, initial, canEdit }: { projectId: string;
     rodar(() => marcarComoProjecao(projectId, [mes]), () => `${mes} convertido em projeção.`);
   };
 
+  const mudarVariante = (v: string) => {
+    if (!v) return;
+    if (!window.confirm(`Declarar que esta tabela guarda o ${v}? Nenhum índice muda; é só o rótulo do que a tabela é.`)) return;
+    rodar(() => definirVarianteIncc(projectId, v), () => `Variante declarada: ${v}.`);
+  };
+
   return (
     <>
+      {canEdit && (
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <Label>Variante do índice (BQ-1)</Label>
+            <Select value={variante ?? ""} onChange={(e) => mudarVariante(e.target.value)} disabled={pending}>
+              <option value="">— a confirmar —</option>
+              {VARIANTES_DO_INCC.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Fonte do índice informado (opcional)</Label>
+            <Input value={fonte} onChange={(e) => setFonte(e.target.value)} placeholder="Ex.: FGV · divulgação de 05/10/2026" disabled={pending} />
+          </div>
+        </div>
+      )}
       {canEdit && futurosOficiais.length > 0 && (
         <div role="status" className="mb-4 rounded-[10px] border border-[var(--color-warning)]/40 bg-[#fef3c7]/60 px-4 py-2.5 text-[13px] text-[#92400e]">
           Há <strong>{futurosOficiais.length}</strong> mês(es) futuro(s) marcado(s) como oficial(is) e sem projeção ({futurosOficiais.slice(0, 6).join(", ")}
@@ -126,6 +156,7 @@ export function InccEditor({ projectId, initial, canEdit }: { projectId: string;
             <TH>Tipo</TH>
             <TH className="text-right">Variação mensal %</TH>
             <TH className="text-right">Acumulado %</TH>
+            <TH>Informado por</TH>
             {canEdit && <TH className="text-right">Ações</TH>}
           </tr>
         </THead>
@@ -162,6 +193,20 @@ export function InccEditor({ projectId, initial, canEdit }: { projectId: string;
                   />
                 </TD>
                 <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{r.ac.toFixed(3)}</TD>
+                <TD className="text-[12px] text-[var(--color-ink3)]">
+                  {r.projected ? (
+                    <span className="text-[var(--color-ink4)]">projeção</span>
+                  ) : r.informadoPor ? (
+                    <span title={r.fonte ?? undefined}>
+                      {r.informadoPor} · {dateBR(r.informadoEm)}
+                      {r.fonte ? ` · ${r.fonte}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--color-ink4)]" title="Informado antes de o sistema registrar a origem; a auditoria é a fonte">
+                      —
+                    </span>
+                  )}
+                </TD>
                 {canEdit && (
                   <TD className="text-right">
                     {futuroOficial ? (

@@ -1374,6 +1374,13 @@ export const inccRates = pgTable(
     ordem: integer("ordem").notNull(),
     /** true = valor projetado (média móvel 12m); false = índice oficial. */
     projected: boolean("projected").notNull().default(false),
+    /** Prompt Q, 5.1 (0051): INCC-DI, INCC-M ou INCC-10; nulo = a confirmar (BQ-1). Igual em todas as linhas da obra. */
+    variante: text("variante"),
+    /** Prompt Q, 5.3 (0051): de onde veio o índice oficial (ex.: "FGV, informado à mão"). */
+    fonte: text("fonte"),
+    /** Prompt Q, 5.3: quem informou o índice oficial (e-mail) e quando ("MM/DD/YYYY"). Histórico fica em branco. */
+    informadoPor: text("informado_por"),
+    informadoEm: text("informado_em"),
   },
   (r) => [unique("incc_project_mes_uq").on(r.projectId, r.mes)],
 );
