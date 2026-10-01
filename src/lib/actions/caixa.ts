@@ -4,6 +4,8 @@ import { and, eq } from "drizzle-orm";
 import { pendenteDaConta } from "@/lib/contas-pagar-regras";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
+import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
+import type { CategoriaDRE } from "@/lib/calc/constants";
 import {
   getProjectContext,
   getProjectVersions,
@@ -1139,6 +1141,13 @@ export async function criarLancamentoDoExtrato(input: {
   if (!Number.isFinite(valor) || valor === 0) {
     return { ok: false, error: "Movimento sem valor válido." };
   }
+  // Prompt S, 3-C — SAÍDA vira despesa, e despesa precisa de categoria de
+  // natureza devedora (vazia a DRE descartaria em silêncio): mesma função e
+  // mensagem dos outros caminhos. Entrada (conta a receber) não passa por aqui.
+  if (valor < 0) {
+    const erroCategoria = validarCategoriaDespesa(input.categoriaDre);
+    if (erroCategoria) return { ok: false, error: erroCategoria };
+  }
   const contas = await db
     .select({ id: schema.bankAccounts.id })
     .from(schema.bankAccounts)
@@ -1204,7 +1213,7 @@ export async function criarLancamentoDoExtrato(input: {
           numDoc,
           fornecedorId: input.fornecedorId || null,
           contaCef: input.contaCef || null,
-          categoriaDre: (input.categoriaDre as never) || null,
+          categoriaDre: input.categoriaDre as CategoriaDRE,
           competencia: input.competencia || monthKeyFrom(input.mov.data),
           vencimento: input.mov.data || null,
           valor: String(Math.abs(valor)),

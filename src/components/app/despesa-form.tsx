@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { statusDespesaValido } from "@/lib/despesa-regras";
 import {
   addDespesa,
   updateDespesa,
@@ -14,6 +15,7 @@ import {
 import {
   categoriasDeDespesa,
   validarCategoriaDespesa,
+  ERRO_CATEGORIA_CREDORA,
 } from "@/lib/calc/natureza-dre";
 import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
 import { UploadDocumentos } from "@/components/ui/upload-documentos";
@@ -178,6 +180,12 @@ export function DespesaForm({
   // e o dropdown só oferece categorias de natureza devedora.
   const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? "");
   const categoriasDespesa = useMemo(() => categoriasDeDespesa(categorias), [categorias]);
+  // Prompt S, 3-C.4.3 — a recusa de categoria aparece NO CAMPO, com o caminho.
+  const [erroCategoria, setErroCategoria] = useState<string | null>(null);
+  // 3-C.4.4 — legado do BS-4: categoria credora gravada antes da trava. O select
+  // mostra o valor atual marcado como inválido e não deixa salvar sem trocar.
+  const categoriaLegadaInvalida = !!edit?.categoriaDre && !categoriasDespesa.includes(edit.categoriaDre);
+  const mensagemDeCategoria = (erro: string) => `${erro} Se este lançamento é uma entrada, ele não é despesa: o caminho é Contas a Receber.`;
   const [bancoId, setBancoId] = useState(edit?.bancoId ?? "");
   const [numDoc, setNumDoc] = useState(edit?.numDoc ?? prefill?.numDoc ?? "");
   const [competencia, setCompetencia] = useState(edit?.competencia ?? prefill?.competencia ?? "");
@@ -456,7 +464,8 @@ export function DespesaForm({
     if (v.competencia) setCompetencia(v.competencia);
     if (v.vencimento) setVencimento(v.vencimento);
     if (v.valor) setValor(v.valor);
-    if (v.status) setStatus(v.status);
+    // Prompt S, 3.2 — a IA só sugere status da lista; o servidor recusa o resto.
+    if (v.status && statusDespesaValido(v.status)) setStatus(v.status);
     if (v.obs) setObs(v.obs);
     if (v.formaPagamento) setFormaPagamento(v.formaPagamento);
     if (v.docFiscal) setDocFiscal(v.docFiscal);
@@ -561,11 +570,12 @@ export function DespesaForm({
     // Item 1.3 — trava também no cliente, para o usuário ver o erro no campo em
     // vez de só depois do round-trip. A trava que vale é a do servidor, em
     // `addDespesa`/`updateDespesa`: a Server Action é chamável diretamente.
-    const erroCategoria = validarCategoriaDespesa(categoriaDre);
-    if (erroCategoria) {
-      setError(erroCategoria);
+    const recusaCategoria = validarCategoriaDespesa(categoriaDre);
+    if (recusaCategoria) {
+      setErroCategoria(mensagemDeCategoria(recusaCategoria));
       return;
     }
+    setErroCategoria(null);
     // Prompt A — a obra é sempre escolhida; nunca cai numa obra implícita.
     if (!projeto) {
       setError("Escolha o projeto da despesa.");
@@ -688,11 +698,14 @@ export function DespesaForm({
       try {
         const r = await addDespesa(fd);
         if (!r.ok) {
-          setError(r.error);
+          // 3-C.4.3 — recusa de categoria vai para o campo, não para o topo.
+          if (r.error === ERRO_CATEGORIA_CREDORA || r.error.startsWith("Selecione a categoria")) setErroCategoria(mensagemDeCategoria(r.error));
+          else setError(r.error);
           return;
         }
-        // Anexo que falhou depois de a despesa existir: avisa, não desfaz.
-        if (r.aviso) setError(r.aviso);
+        // Anexo que falhou depois de a despesa existir: avisa, não desfaz —
+        // e avisa como aviso, não como erro (a despesa foi criada).
+        if (r.aviso) setNotice(r.aviso);
         // limpa o formulário
         setFornecedorId("");
         setContaCef("");
@@ -1116,15 +1129,22 @@ export function DespesaForm({
           </CampoIA>
           {/* Só categorias de natureza devedora: uma despesa não pode ser
               classificada em conta de receita (item 1.3 / RG-01). */}
-          <CampoIA label="Categoria DRE" alerta={alertas.categoriaDre}>
+          <CampoIA label="Categoria DRE" alerta={alertas.categoriaDre ?? (erroCategoria ? { nivel: "faltando", motivo: erroCategoria } : undefined)}>
             <Select
               value={categoriaDre}
+              aria-invalid={!!erroCategoria || (categoriaLegadaInvalida && categoriaDre === edit?.categoriaDre) || undefined}
               onChange={(e) => {
                 setCategoriaDre(e.target.value);
+                setErroCategoria(null);
                 limparAlerta("categoriaDre");
               }}
             >
               <option value="">Selecione...</option>
+              {categoriaLegadaInvalida && (
+                <option value={edit!.categoriaDre!} disabled>
+                  {edit!.categoriaDre} (inválida — troque para salvar)
+                </option>
+              )}
               {categoriasDespesa.map((c) => (
                 <option key={c} value={c}>
                   {c}

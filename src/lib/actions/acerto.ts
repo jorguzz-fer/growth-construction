@@ -18,6 +18,7 @@ import {
 } from "@/lib/calc/acerto";
 import { CONTAS_CONTROLADORIA } from "@/lib/calc/constants";
 import type { CategoriaDRE } from "@/lib/calc/constants";
+import { categoriaValidaParaDespesa, ERRO_CATEGORIA_CREDORA } from "@/lib/calc/natureza-dre";
 import { getAtualVersion } from "@/lib/queries";
 import { recusaDeAcerto, recusaDeObrasDoRateio, type DespesaParaAcerto } from "@/lib/acerto-regras";
 import { saldosReaisDasDespesas } from "@/lib/acerto-saldo";
@@ -144,6 +145,12 @@ export async function concluirAcerto(input: AcertoInput): Promise<AcertoResult> 
   // Item 6 dos RNF: acerto é operação de nível financeiro.
   if (!ctx || !can(ctx.perms, "despesas", "editar") || !can(ctx.perms, "caixa", "criar")) {
     return { ok: false, error: "Sem permissão para concluir acertos contábeis." };
+  }
+  // Prompt S, 3-C — a despesa da diferença é despesa: categoria credora é
+  // recusada aqui, pela mesma função e mensagem de todos os caminhos. Vazia
+  // continua caindo no default financeiro (RG-07).
+  if (input.categoriaDiferenca && !categoriaValidaParaDespesa(input.categoriaDiferenca)) {
+    return { ok: false, error: ERRO_CATEGORIA_CREDORA };
   }
   const idem = input.idempotencyKey?.trim() || null;
   if (idem) {
@@ -535,6 +542,10 @@ export async function ratearEntreObras(
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "criar") || !can(ctx.perms, "caixa", "criar")) {
     return { ok: false, error: "Sem permissão para ratear pagamentos entre obras." };
+  }
+  // Prompt S, 3-C — um PED por obra é despesa: categoria credora recusada.
+  if (input.categoriaDre && !categoriaValidaParaDespesa(input.categoriaDre)) {
+    return { ok: false, error: ERRO_CATEGORIA_CREDORA };
   }
   const valorTotal = Math.abs(input.valorTotal);
   const rateio = calcularRateio(valorTotal, input.linhas);

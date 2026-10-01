@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  recusaDeStatusDespesa,
+  statusDespesaValido,
   coreDaReplica,
   recusaDeEdicao,
   recusaDeParcelas,
@@ -90,5 +92,16 @@ describe("despesa — regras de integridade (Prompt I, §11)", () => {
     const v = { ...semVinculo, parcelas: 3 };
     expect(recusaDeEdicao(v, ["valor"])).toMatch(/3 parcela/);
     expect(recusaDeEdicao(v, ["status", "competencia", "obs"])).toBeNull();
+  });
+});
+
+describe("status da despesa (Prompt S, 3.2)", () => {
+  it("só 'A pagar' e 'Pago' passam; vazio cai no default; o resto é recusado com a mensagem", () => {
+    expect(statusDespesaValido("A pagar")).toBe(true);
+    expect(statusDespesaValido("Pago")).toBe(true);
+    expect(statusDespesaValido("Parcialmente paga")).toBe(false);
+    expect(recusaDeStatusDespesa("")).toBeNull();
+    expect(recusaDeStatusDespesa(null)).toBeNull();
+    expect(recusaDeStatusDespesa("Quitado")).toMatch(/Status inválido: "Quitado"/);
   });
 });

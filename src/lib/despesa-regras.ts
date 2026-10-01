@@ -25,6 +25,21 @@ export function recusaDeParcelas(valorTotal: number, parcelas: readonly { valor:
   return null;
 }
 
+/**
+ * Prompt S, 3.2 — status de despesa que a tela pode gravar: só "A pagar" e
+ * "Pago" (o "Parcialmente paga" nasce do fluxo de pagamento, nunca da edição).
+ * "Pago" continua aceito por decisão pendente (a operação usa o status como
+ * atalho — ver V2-PROMPT-S-FASE1.md, conflito 2); o domínio fecha aqui.
+ */
+export const STATUS_DESPESA_EDITAVEL = ["A pagar", "Pago"] as const;
+export function statusDespesaValido(s: string | null | undefined): boolean {
+  return (STATUS_DESPESA_EDITAVEL as readonly string[]).includes(s ?? "");
+}
+export function recusaDeStatusDespesa(s: string | null | undefined): string | null {
+  if (s == null || s === "") return null; // vazio → default da action
+  return statusDespesaValido(s) ? null : `Status inválido: "${s}". Use ${STATUS_DESPESA_EDITAVEL.join(" ou ")}; pagamento se registra pelo fluxo de pagamento.`;
+}
+
 /** 11.4 — status de parcela só da lista; o navegador não decide. */
 export function statusParcelaValido(s: string | null | undefined): boolean {
   return (STATUS_PARCELA as readonly string[]).includes(s ?? "");
