@@ -10,6 +10,8 @@ import {
   exigeEndereco,
   formatoDoDocumento,
   motivoDeRecusaDoDocumento,
+  opcoesDeSelecao,
+  pagadoresPorTerceiro,
   papeisForaDaLista,
   sinaisDoCadastro,
 } from "./stakeholder-regras";
@@ -96,5 +98,25 @@ describe("bloqueiosDeExclusaoDoStakeholder (2.4)", () => {
     const b = bloqueiosDeExclusaoDoStakeholder({ ...SEM_VINCULOS, obrigacoesTerceiro: 2, documentos: 1 });
     expect(b).toEqual(["2 obrigação(ões) como pagador por terceiro", "1 documento(s) anexado(s)"]);
     expect(totalDeVinculos({ ...SEM_VINCULOS, acertos: 3, compensacoes: 1 })).toBe(4);
+  });
+});
+
+describe("seletores (4.2, 1.5)", () => {
+  const todos = [
+    { id: "a", nome: "Ativo", ativo: true, papeis: ["Fornecedor de Material"] },
+    { id: "i", nome: "Inativo", ativo: false, papeis: ["Pagador por Terceiro"] },
+    { id: "p", nome: "Pagador", ativo: true, papeis: ["Pagador por Terceiro", "Sócio/Quotista"] },
+  ];
+  it("15 — seletor não oferece inativos, mas mantém o já vinculado, marcado", () => {
+    expect(opcoesDeSelecao(todos)).toEqual([
+      { id: "a", nome: "Ativo" },
+      { id: "p", nome: "Pagador" },
+    ]);
+    expect(opcoesDeSelecao(todos, ["i"])).toContainEqual({ id: "i", nome: "Inativo (inativo)" });
+    expect(opcoesDeSelecao(todos, [null, undefined])).toHaveLength(2);
+  });
+  it("14 — o select de pagador oferece apenas quem tem o papel (e está ativo)", () => {
+    expect(pagadoresPorTerceiro(todos)).toEqual([{ id: "p", nome: "Pagador" }]);
+    expect(pagadoresPorTerceiro(todos, ["i"])).toEqual([{ id: "i", nome: "Inativo (inativo)" }, { id: "p", nome: "Pagador" }]);
   });
 });

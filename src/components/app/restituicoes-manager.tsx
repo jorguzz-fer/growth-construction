@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -51,6 +53,7 @@ function novaChave(): string {
 export function RestituicoesManager({
   rows,
   stakeholders,
+  pagadores,
   contas,
   projetos,
   bancos,
@@ -62,7 +65,10 @@ export function RestituicoesManager({
   /** obra da tela (Prompt A): despesa nova e saída de caixa vão para a versão de trabalho dela. */
   projectId: string;
   rows: (DespesaTerceiroView & { diasEmAberto: number })[];
+  /** beneficiário original: cadastros ativos (Prompt W, 4.2). */
   stakeholders: Opt[];
+  /** quem desembolsou: só quem tem o papel "Pagador por Terceiro" (Prompt W, 1.5). */
+  pagadores: Opt[];
   contas: ContaOpt[];
   projetos: Opt[];
   bancos: { id: string; banco: string; tipo: string }[];
@@ -130,10 +136,16 @@ export function RestituicoesManager({
                 <Label>Quem desembolsou (terceiro)</Label>
                 <Select name="pagadorTerceiroId" defaultValue="">
                   <option value="">—</option>
-                  {stakeholders.map((s) => (
+                  {pagadores.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
                   ))}
                 </Select>
+                {pagadores.length === 0 && (
+                  <p className="mt-1 text-[11px] text-[var(--color-warning)]">
+                    Nenhum cadastro ativo tem o papel &ldquo;Pagador por Terceiro&rdquo;. Conceda o papel em{" "}
+                    <Link href="/fornecedores" className="underline">Fornecedores</Link> — item a item, nunca em lote.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Beneficiário original</Label>
@@ -147,6 +159,10 @@ export function RestituicoesManager({
                   disabled={!!ped}
                 >
                   <option value="">—</option>
+                  {/* o PED pode apontar para cadastro inativo: mantém visível (4.2) */}
+                  {ped?.fornecedorId && !stakeholders.some((s) => s.id === ped.fornecedorId) && (
+                    <option value={ped.fornecedorId}>{ped.fornecedorNome ?? "(cadastro inativo)"} (inativo)</option>
+                  )}
                   {stakeholders.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
                   ))}

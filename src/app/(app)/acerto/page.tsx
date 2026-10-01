@@ -2,6 +2,7 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getAcertos, getDespesasAbativeis } from "@/lib/actions/acerto";
 import { getBankAccounts, getStakeholders, getChartAccounts } from "@/lib/queries";
+import { opcoesDeSelecao } from "@/lib/stakeholder-regras";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
 import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { PageHeader } from "@/components/app/page-header";
@@ -44,7 +45,9 @@ export default async function AcertoPage() {
         despesas={despesas}
         acertos={acertos}
         bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
-        favorecidos={stakeholders.map((s) => ({ id: s.id, nome: s.nome }))}
+        // Prompt W, 4.2 — acerto novo só com cadastro ativo; a lista de acertos
+        // mostra o favorecido pelo join, inativo ou não.
+        favorecidos={opcoesDeSelecao(stakeholders)}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
         categorias={categoriasDeDespesa(CATEGORIAS_DRE)}
         contas={[...contas]
