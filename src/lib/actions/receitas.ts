@@ -9,6 +9,7 @@ import { excelSerial } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
 import { lerValorDoAtivo, motivoDeRecusaDoAtivo } from "@/lib/permuta-regras";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
+import { prepararImportacaoDePermutas, type LinhaIgnoradaPermuta, type LinhaImportacaoPermuta } from "@/lib/permuta-inventario";
 import { getPermutaDoTenant } from "@/lib/queries";
 import { and, eq } from "drizzle-orm";
 
@@ -253,4 +254,83 @@ export async function cancelarPermuta(id: string, motivo: string): Promise<Resul
   });
   for (const t of TELAS_DA_PERMUTA) revalidatePath(t);
   return { ok: true, id };
+}
+
+
+export interface RelatorioImportacaoPermutas {
+  inseridas: number;
+  atualizadas: number;
+  ignoradas: LinhaIgnoradaPermuta[];
+}
+export type ResultadoImportacaoPermutas = ({ ok: true } & RelatorioImportacaoPermutas) | { ok: false; error: string };
+
+/**
+ * Importa ativos de permuta em lote (Prompt P, 5.5), depois da prévia na tela.
+ * Linha com Id que existe ATUALIZA; sem Id, insere. Ativo vendido ou cancelado
+ * não é tocado. A trava da versão vale aqui como no formulário. Tudo numa
+ * transação com os ativos da versão travados. O cliente vem por nome na
+ * planilha: quando casa exatamente com o cadastro, grava também o id (3.6).
+ */
+export async function importPermutas(rows: LinhaImportacaoPermuta[], projectId: string): Promise<ResultadoImportacaoPermutas> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "permuta", "criar")) return { ok: false, error: "Sem permissão para importar ativos de permuta." };
+  const fd = new FormData();
+  fd.set("projectId", projectId ?? "");
+  let obra: Awaited<ReturnType<typeof obraDoFormulario>>;
+  try {
+    obra = await obraDoFormulario(ctx.tenant.id, fd);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Escolha o projeto." };
+  }
+  const { project, version } = obra;
+  const clientes = await db
+    .select({ id: schema.clientes.id, nome: schema.clientes.nomeCompleto })
+    .from(schema.clientes)
+    .where(eq(schema.clientes.tenantId, ctx.tenant.id));
+  const clientePorNome = new Map(clientes.map((c) => [c.nome.trim().toLowerCase(), c]));
+  const inseridas: string[] = [];
+  const atualizadas: { id: string; changes: Record<string, unknown> }[] = [];
+  let ignoradas: LinhaIgnoradaPermuta[] = [];
+  await db.transaction(async (tx) => {
+    const existentes = await tx
+      .select()
+      .from(schema.permutas)
+      .where(and(eq(schema.permutas.tenantId, ctx.tenant.id), eq(schema.permutas.versionId, version.id)))
+      .for("update");
+    const prep = prepararImportacaoDePermutas(rows, existentes);
+    ignoradas = prep.ignoradas;
+    const porId = new Map(existentes.map((e) => [e.id, e]));
+    for (const r of prep.validas) {
+      const cadastro = r.cliente ? clientePorNome.get(r.cliente.trim().toLowerCase()) : undefined;
+      const cli = cadastro ? { clienteId: cadastro.id, cliente: cadastro.nome } : { clienteId: null, cliente: r.cliente };
+      const novo = valoresDoAtivo({ ...r, status: r.status ?? "Disponivel", clienteId: cli.clienteId, parcelas: null, periodicidade: null, dataPrimParcela: null }, cli);
+      if (r.acao === "atualizar" && r.id) {
+        const atual = porId.get(r.id)!;
+        const changes = diffAudit(atual as unknown as Record<string, unknown>, novo);
+        if (houveMudanca(changes)) {
+          await tx.update(schema.permutas).set(novo).where(and(eq(schema.permutas.id, r.id), eq(schema.permutas.tenantId, ctx.tenant.id)));
+        }
+        atualizadas.push({ id: r.id, changes });
+      } else {
+        const [perm] = await tx
+          .insert(schema.permutas)
+          .values({ versionId: version.id, tenantId: ctx.tenant.id, ...novo })
+          .returning({ id: schema.permutas.id });
+        inseridas.push(perm.id);
+      }
+    }
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "permuta.import",
+        entity: "permuta",
+        meta: { projeto: project.name, versao: version.label, inseridas, atualizadas, ignoradas },
+      },
+      tx,
+    );
+  });
+  for (const t of TELAS_DA_PERMUTA) revalidatePath(t);
+  return { ok: true, inseridas: inseridas.length, atualizadas: atualizadas.length, ignoradas };
 }
