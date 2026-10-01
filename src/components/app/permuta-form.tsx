@@ -42,6 +42,7 @@ export function PermutaForm({
   clientes,
   tipos,
   initial,
+  docsSlot,
 }: {
   projectId: string;
   unidades: string[];
@@ -49,6 +50,8 @@ export function PermutaForm({
   tipos: readonly string[];
   /** Presente = edição (2.2): os campos vêm preenchidos e a action é `updatePermuta`. */
   initial?: PermutaInicial;
+  /** 6.2 — bloco de documentos do ativo, entre a revenda e as observações (só na edição). */
+  docsSlot?: React.ReactNode;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -172,6 +175,11 @@ export function PermutaForm({
                 <DateField name="dataPrimParcela" defaultValue={initial?.dataPrimParcela ?? ""} />
               </div>
             </>
+          )}
+          {docsSlot ?? (
+            <p className="rounded-[10px] border border-dashed border-[var(--color-line)] px-3 py-2 text-[12px] text-[var(--color-ink3)] sm:col-span-2 lg:col-span-3">
+              Documentos do ativo (matrícula, laudo, contrato, recibo): salve o ativo para anexar.
+            </p>
           )}
           <div>
             <Label>Tipo permuta</Label>

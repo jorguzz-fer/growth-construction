@@ -7,7 +7,10 @@ import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { excelSerial } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
-import { lerValorDoAtivo, motivoDeRecusaDoAtivo } from "@/lib/permuta-regras";
+import { lerValorDoAtivo, motivoDeRecusaDoAtivo, TIPOS_DOC_PERMUTA } from "@/lib/permuta-regras";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
+import { desc } from "drizzle-orm";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { prepararImportacaoDePermutas, type LinhaIgnoradaPermuta, type LinhaImportacaoPermuta } from "@/lib/permuta-inventario";
 import { getPermutaDoTenant } from "@/lib/queries";
@@ -333,4 +336,101 @@ export async function importPermutas(rows: LinhaImportacaoPermuta[], projectId: 
   });
   for (const t of TELAS_DA_PERMUTA) revalidatePath(t);
   return { ok: true, inseridas: inseridas.length, atualizadas: atualizadas.length, ignoradas };
+}
+
+
+export type ResultadoAnexoPermuta = { ok: true; added: number } | { ok: false; error: string };
+
+/**
+ * Anexa documentos ao ativo (Prompt P, 6.2–6.4, 6.6, 6.7): tipo obrigatório
+ * da lista, tamanho máximo, permissão de editar conferida no servidor, ativo
+ * da empresa. Versão por (ativo, tipo): anexar o mesmo tipo cria a versão
+ * seguinte e PRESERVA a anterior; tipo diferente não herda versão — o defeito
+ * da tela de Clientes que o Prompt M corrigiu não se repete aqui.
+ */
+export async function addPermutaDocs(formData: FormData): Promise<ResultadoAnexoPermuta> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "permuta", "editar")) return { ok: false, error: "Sem permissão para anexar documentos ao ativo." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (R2) não configurado — defina as variáveis R2_*." };
+  const permutaId = texto(formData.get("permutaId"));
+  if (!permutaId) return { ok: false, error: "Ativo não informado." };
+  const alvo = await getPermutaDoTenant(ctx.tenant.id, permutaId);
+  if (!alvo) return { ok: false, error: "Ativo não encontrado." };
+  const tipo = texto(formData.get("tipo")) ?? "";
+  if (!(TIPOS_DOC_PERMUTA as readonly string[]).includes(tipo)) return { ok: false, error: "Escolha o tipo do documento." };
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) return { ok: false, error: "Selecione ao menos um arquivo." };
+  for (const f of files) if (f.size > LIMITE_UPLOAD_BYTES) return { ok: false, error: `"${f.name}" excede ${LIMITE_UPLOAD_MB} MB.` };
+  const [ultima] = await db
+    .select({ versao: schema.documents.versao })
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, ctx.tenant.id), eq(schema.documents.permutaId, permutaId), eq(schema.documents.tipo, tipo)))
+    .orderBy(desc(schema.documents.versao))
+    .limit(1);
+  let versao = ultima?.versao ?? 0;
+  const gravados: { filename: string; versao: number; storageKey: string }[] = [];
+  try {
+    for (const file of files) {
+      versao += 1;
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/permuta/${permutaId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
+      await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        permutaId,
+        projectId: alvo.projectId,
+        unitCode: alvo.permuta.unitCode,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo,
+        versao,
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+      gravados.push({ filename: file.name, versao, storageKey: key });
+    }
+  } catch (e) {
+    console.error("[permuta] falha ao anexar documentos:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao enviar os arquivos." };
+  }
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "permuta.doc.upload",
+    entity: "permuta",
+    entityId: permutaId,
+    meta: { tipo, arquivos: gravados },
+  });
+  revalidatePath(`/permuta/${permutaId}`);
+  return { ok: true, added: files.length };
+}
+
+/**
+ * Desvincula UM documento do ativo (6.5): só a linha de `document` sai; o
+ * objeto NÃO é apagado do storage (limpeza de órfãos é tarefa própria). A
+ * auditoria guarda nome do arquivo, chave, tipo e versão.
+ */
+export async function deletePermutaDoc(documentId: string): Promise<ResultadoPermuta> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "permuta", "editar")) return { ok: false, error: "Sem permissão para remover documentos do ativo." };
+  const [doc] = await db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.id, documentId), eq(schema.documents.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!doc || !doc.permutaId) return { ok: false, error: "Documento não encontrado." };
+  await db.delete(schema.documents).where(and(eq(schema.documents.id, doc.id), eq(schema.documents.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "permuta.doc.unlink",
+    entity: "permuta",
+    entityId: doc.permutaId,
+    meta: { documentId: doc.id, filename: doc.filename, storageKey: doc.storageKey, tipo: doc.tipo, versao: doc.versao },
+  });
+  revalidatePath(`/permuta/${doc.permutaId}`);
+  return { ok: true, id: doc.id };
 }
