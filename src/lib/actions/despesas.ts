@@ -13,6 +13,7 @@ import {
   coreDaReplica,
   recusaDeEdicao,
   recusaDeParcelas,
+  recusaDeStatusDespesa,
   recusaDeStatusParcela,
   recusaDeValor,
 } from "@/lib/despesa-regras";
@@ -200,6 +201,9 @@ async function lancarDespesa(
   // status da lista. Não confiar no navegador.
   const erroParcelas = recusaDeParcelas(valorNum, parcelasManuais) ?? recusaDeStatusParcela(parcelasManuais);
   if (erroParcelas) throw new Recusa(erroParcelas);
+  // Prompt S, 3.2 — o status da despesa também vem de uma lista fechada.
+  const erroStatus = recusaDeStatusDespesa(formData.get("status") as string);
+  if (erroStatus) throw new Recusa(erroStatus);
 
   const s = (k: string) => (formData.get(k) as string) || null;
   // Documento fiscal (item 1.2 / RG-06): validado ANTES de gravar qualquer coisa.
@@ -569,7 +573,12 @@ export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Re
     if (erro) return { ok: false, error: erro };
     set.valor = String(n);
   }
-  if (patch.status !== undefined) set.status = patch.status || null;
+  if (patch.status !== undefined) {
+    // Prompt S, 3.2 — domínio fechado no servidor; a edição não inventa status.
+    const erroStatus = recusaDeStatusDespesa(patch.status);
+    if (erroStatus) return { ok: false, error: erroStatus };
+    set.status = patch.status || null;
+  }
   if (patch.obs !== undefined) set.obs = patch.obs || null;
   if (patch.formaPagamento !== undefined) set.formaPagamento = patch.formaPagamento || null;
   if (Object.keys(set).length === 0) return { ok: true };

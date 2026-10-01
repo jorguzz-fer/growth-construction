@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/caixa";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { dateBR } from "@/lib/utils";
@@ -217,6 +218,9 @@ export function ImportExtratoButton({
   const [adicionando, setAdicionando] = useState<PreviewRow | null>(null);
   const [addProjeto, setAddProjeto] = useState("");
   const [addObs, setAddObs] = useState("");
+  // Prompt S, 3-C — a despesa criada do extrato precisa de categoria DRE (sem
+  // ela a DRE a descarta em silêncio); só as de natureza devedora.
+  const [addCategoria, setAddCategoria] = useState("");
   const [addErro, setAddErro] = useState<string | null>(null);
   const [addBusy, startAdd] = useTransition();
 
@@ -349,6 +353,7 @@ export function ImportExtratoButton({
         projectId: addProjeto,
         caixaProjectId: projectId,
         obs: addObs || null,
+        categoriaDre: r.tipo === "saida" ? addCategoria || null : null,
       });
       if (res.ok) {
         setAdicionando(null);
@@ -777,6 +782,19 @@ export function ImportExtratoButton({
                   ))}
                 </Select>
               </div>
+              {adicionando.tipo === "saida" && (
+                <div>
+                  <Label>Categoria DRE</Label>
+                  <Select value={addCategoria} onChange={(e) => setAddCategoria(e.target.value)} aria-label="Categoria DRE da despesa">
+                    <option value="">Selecione…</option>
+                    {categoriasDeDespesa().map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label>Descrição</Label>
                 <Input value={addObs} onChange={(e) => setAddObs(e.target.value)} />
