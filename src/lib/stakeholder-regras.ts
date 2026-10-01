@@ -205,3 +205,33 @@ export function pagadoresPorTerceiro(
     .filter((s) => (s.ativo && s.papeis.includes(PAPEL_PAGADOR_TERCEIRO)) || ids.has(s.id))
     .map((s) => ({ id: s.id, nome: s.ativo ? s.nome : `${s.nome} (inativo)` }));
 }
+
+// ───────────────────────── Listagem (seção 6) ─────────────────────────
+
+const semAcento = (v: string | null | undefined) =>
+  (v ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+/**
+ * 6.1 — busca por nome (e nome fantasia) e documento, e filtro por papel.
+ * Cada termo precisa aparecer no nome ou no documento (dígitos ou texto),
+ * sem diferenciar acento e caixa. Puro: a tela filtra o que já carregou.
+ */
+export function filtrarCadastros<T extends { nome: string; nomeFantasia?: string | null; doc: string | null; papeis: readonly string[]; ativo: boolean }>(
+  lista: readonly T[],
+  f: { busca?: string; papel?: string; mostrarInativos?: boolean },
+): T[] {
+  const termos = semAcento(f.busca).split(/\s+/).filter(Boolean).slice(0, 8);
+  return lista.filter((s) => {
+    if (!f.mostrarInativos && !s.ativo) return false;
+    if (f.papel && !s.papeis.includes(f.papel)) return false;
+    if (termos.length === 0) return true;
+    const nome = semAcento(`${s.nome} ${s.nomeFantasia ?? ""}`);
+    const doc = semAcento(s.doc);
+    const digitos = doc.replace(/\D/g, "");
+    return termos.every((t) => nome.includes(t) || doc.includes(t) || (digitos && digitos.includes(t.replace(/\D/g, "")) && t.replace(/\D/g, "").length > 0));
+  });
+}
