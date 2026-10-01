@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
-import { getStakeholders } from "@/lib/queries";
+import { getStakeholders, getUsoDosStakeholders } from "@/lib/queries";
+import { analisarStakeholders } from "@/lib/stakeholder-analise";
+import { AssistenteStakeholders } from "@/components/app/assistente-stakeholders";
 import { can } from "@/lib/permissions";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { PAPEIS_STAKEHOLDER } from "@/lib/calc/constants";
@@ -18,7 +20,10 @@ export default async function FornecedoresPage() {
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "fornecedores", "ver")) return <AccessDenied />;
-  const stakeholders = await getStakeholders(ctx.tenant.id);
+  const [stakeholders, uso] = await Promise.all([getStakeholders(ctx.tenant.id), getUsoDosStakeholders(ctx.tenant.id)]);
+  // Seção 7 — análises do assistente (somente leitura), em código puro, sobre
+  // o que a página carregou. Nenhum documento vai a modelo.
+  const analise = analisarStakeholders(stakeholders, uso);
 
   return (
     <>
@@ -35,6 +40,9 @@ export default async function FornecedoresPage() {
         }
       />
 
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {/* Novo stakeholder */}
       <FornecedorForm papeis={PAPEIS_STAKEHOLDER} aiConfigured={isAiConfigured()} />
 
@@ -62,6 +70,9 @@ export default async function FornecedoresPage() {
         canEditar={can(ctx.perms, "fornecedores", "editar")}
         canExcluir={can(ctx.perms, "fornecedores", "excluir")}
       />
+      </div>
+      <AssistenteStakeholders usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }

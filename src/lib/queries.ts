@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, max, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
 import type { CalcPermutaRevenda } from "@/lib/calc/permuta-ganho";
 import { db, schema } from "./db";
@@ -310,6 +310,38 @@ export async function getStakeholders(
     .from(schema.stakeholders)
     .where(eq(schema.stakeholders.tenantId, tenantId))
     .orderBy(asc(schema.stakeholders.nome));
+}
+
+/**
+ * Uso real de cada cadastro (Prompt W, 7.2): quantas despesas tem como
+ * fornecedor e quando foi a última; quantas obrigações tem como pagador por
+ * terceiro. Só contagens e datas — nada de valor nem de documento.
+ */
+export async function getUsoDosStakeholders(tenantId: string): Promise<{ id: string; despesas: number; ultimaDespesa: string | null; obrigacoes: number }[]> {
+  const [desp, obr] = await Promise.all([
+    db
+      .select({ id: schema.despesas.fornecedorId, n: count(), ultima: max(schema.despesas.createdAt) })
+      .from(schema.despesas)
+      .where(and(eq(schema.despesas.tenantId, tenantId), isNotNull(schema.despesas.fornecedorId)))
+      .groupBy(schema.despesas.fornecedorId),
+    db
+      .select({ id: schema.despesaTerceiros.pagadorTerceiroId, n: count() })
+      .from(schema.despesaTerceiros)
+      .where(and(eq(schema.despesaTerceiros.tenantId, tenantId), isNotNull(schema.despesaTerceiros.pagadorTerceiroId)))
+      .groupBy(schema.despesaTerceiros.pagadorTerceiroId),
+  ]);
+  const uso = new Map<string, { id: string; despesas: number; ultimaDespesa: string | null; obrigacoes: number }>();
+  for (const d of desp) {
+    if (!d.id) continue;
+    uso.set(d.id, { id: d.id, despesas: Number(d.n), ultimaDespesa: d.ultima ? new Date(d.ultima).toISOString().slice(0, 10) : null, obrigacoes: 0 });
+  }
+  for (const o of obr) {
+    if (!o.id) continue;
+    const u = uso.get(o.id) ?? { id: o.id, despesas: 0, ultimaDespesa: null, obrigacoes: 0 };
+    u.obrigacoes = Number(o.n);
+    uso.set(o.id, u);
+  }
+  return [...uso.values()];
 }
 
 /**
