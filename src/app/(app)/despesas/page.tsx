@@ -13,6 +13,7 @@ import {
   getDocumentsByDespesa,
   getAtualVersion,
 } from "@/lib/queries";
+import { opcoesDeSelecao } from "@/lib/stakeholder-regras";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
 import { ProjectPicker } from "@/components/app/project-picker";
@@ -210,19 +211,6 @@ export default async function DespesasPage({
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
   };
   // Props comuns ao formulário completo (cadastro e edição).
-  const despesaFormProps = {
-    projetos: ctx.projects.map((p) => ({ id: p.id, nome: p.name })),
-    // Em "Todos", nenhuma obra vem marcada: quem lança escolhe no formulário.
-    projetoId: project?.id ?? "",
-    fornecedores: fornecedores.map((f) => ({ id: f.id, nome: f.nome, doc: f.doc })),
-    contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
-    bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
-    categorias: CATEGORIAS_DRE,
-    socios,
-    aiConfigured,
-    r2Configured,
-    canExcluir,
-  };
   // Deep link ?edit= — carrega a despesa para abrir a tela completa de edição,
   // já com os documentos/anexos vinculados (com URL para baixar/visualizar).
   //
@@ -288,6 +276,23 @@ export default async function DespesasPage({
           documentoFiscal: (await getDocumentosFiscais(editRow.id))[0] ?? null,
         }
       : null;
+
+  const despesaFormProps = {
+    projetos: ctx.projects.map((p) => ({ id: p.id, nome: p.name })),
+    // Em "Todos", nenhuma obra vem marcada: quem lança escolhe no formulário.
+    projetoId: project?.id ?? "",
+    // Prompt W, 4.2 — o seletor oferece só ativos, mantendo o fornecedor da
+    // despesa em edição (mesmo inativo). A lista e o mapa de nomes continuam
+    // com todos: lançamento antigo precisa mostrar quem era.
+    fornecedores: opcoesDeSelecao(fornecedores, [editRow?.fornecedorId]).map((o) => ({ ...o, doc: fornecedores.find((f) => f.id === o.id)?.doc ?? null })),
+    contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
+    bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
+    categorias: CATEGORIAS_DRE,
+    socios,
+    aiConfigured,
+    r2Configured,
+    canExcluir,
+  };
 
   return (
     <>

@@ -898,10 +898,13 @@ export async function extractDespesaFromDoc(
   }
 
   try {
-    const [fornecedores, contas] = await Promise.all([
+    const [todosOsCadastros, contas] = await Promise.all([
       getStakeholders(ctx.tenant.id),
       getChartAccounts(ctx.tenant.id),
     ]);
+    // Prompt W, 4.2 — a proposta de lançamento novo só casa com cadastro
+    // ATIVO: o seletor do formulário não oferece inativo.
+    const fornecedores = todosOsCadastros.filter((f) => f.ativo);
     const categorias = categoriasDeDespesa(CATEGORIAS_DRE);
     const projetos = ctx.projects.map((p) => ({ id: p.id, nome: p.name }));
 

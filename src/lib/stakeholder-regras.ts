@@ -171,3 +171,37 @@ export function bloqueiosDeExclusaoDoStakeholder(v: VinculosDoStakeholder): stri
 export function totalDeVinculos(v: VinculosDoStakeholder): number {
   return v.despesas + v.obrigacoesTerceiro + v.recebimentosTerceiro + v.acertos + v.compensacoes + v.documentos;
 }
+
+// ───────────────────── Seletores (seção 4 e 1.5) ─────────────────────
+
+export interface OpcaoDeCadastro {
+  id: string;
+  nome: string;
+}
+
+/**
+ * 4.2 — o que um seletor de escolha oferece: só os ATIVOS, mantendo visível o
+ * que já está vinculado (senão editar um lançamento antigo perderia o
+ * fornecedor). O vinculado inativo aparece marcado como tal. Segue o
+ * comportamento de `getSocios`, que já filtrava `ativo`.
+ */
+export function opcoesDeSelecao(
+  todos: readonly { id: string; nome: string; ativo: boolean }[],
+  manter: readonly (string | null | undefined)[] = [],
+): OpcaoDeCadastro[] {
+  const ids = new Set(manter.filter((x): x is string => !!x));
+  return todos
+    .filter((s) => s.ativo || ids.has(s.id))
+    .map((s) => ({ id: s.id, nome: s.ativo ? s.nome : `${s.nome} (inativo)` }));
+}
+
+/** 1.5 — "Quem desembolsou": só quem tem o papel de Pagador por Terceiro, ativo. */
+export function pagadoresPorTerceiro(
+  todos: readonly { id: string; nome: string; ativo: boolean; papeis: readonly string[] }[],
+  manter: readonly (string | null | undefined)[] = [],
+): OpcaoDeCadastro[] {
+  const ids = new Set(manter.filter((x): x is string => !!x));
+  return todos
+    .filter((s) => (s.ativo && s.papeis.includes(PAPEL_PAGADOR_TERCEIRO)) || ids.has(s.id))
+    .map((s) => ({ id: s.id, nome: s.ativo ? s.nome : `${s.nome} (inativo)` }));
+}

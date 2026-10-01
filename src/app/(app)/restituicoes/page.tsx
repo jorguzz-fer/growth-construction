@@ -5,6 +5,7 @@ import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
 import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
+import { opcoesDeSelecao, pagadoresPorTerceiro } from "@/lib/stakeholder-regras";
 import Link from "next/link";
 import { getContaCorrenteTerceiros, getDespesaTerceiros, getPreviaSaidaPorObra, type PreviaSaidaPorObra } from "@/lib/actions/restituicoes";
 import { chaveLigada } from "@/lib/chaves-tenant";
@@ -105,7 +106,8 @@ export default async function RestituicoesPage({
       {/* Item 4.1 — o cliente não restitui item a item: fecha o combo e paga um
           valor único, distribuído entre os PEDs em aberto por FIFO. */}
       <RestituicaoLote
-        terceiros={stakeholders.map((s) => ({ id: s.id, nome: s.nome }))}
+        // Prompt W, 4.2 — só ativos, mantendo quem tem saldo nos dois lados.
+        terceiros={opcoesDeSelecao(stakeholders, saldosConsolidados.map((s) => s.terceiroId))}
         bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
         saldos={saldosConsolidados}
         canEditar={can(ctx.perms, "restituicoes", "editar")}
@@ -114,7 +116,10 @@ export default async function RestituicoesPage({
 
       <RestituicoesManager
         rows={rows}
-        stakeholders={stakeholders.map((s) => ({ id: s.id, nome: s.nome }))}
+        // Prompt W, 1.5 — "Quem desembolsou" só oferece quem tem o papel de
+        // Pagador por Terceiro (ativo); o beneficiário original, só ativos.
+        pagadores={pagadoresPorTerceiro(stakeholders)}
+        stakeholders={opcoesDeSelecao(stakeholders)}
         contas={[...contas]
           .filter((c) => c.kind === "cef")
           .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
