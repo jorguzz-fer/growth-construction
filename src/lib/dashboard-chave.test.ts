@@ -93,6 +93,7 @@ describe.skipIf(!HAS_DB)("Prompt AA — chave dashboard_definicao_nova (banco)",
     const linha = (o: number, c: string) => pv[o].linhas.find((l) => l.cartao === c)!;
     expect(linha(0, "Entradas de caixa")).toMatchObject({ hoje: 850, nova: 550 });
     expect(linha(0, "Executado — denominador (Orçamento)")).toMatchObject({ hoje: 4500, nova: 3500 });
-    expect(linha(1, "Liberação acumulada")).toMatchObject({ hoje: 150000, nova: null });
+    // 01/10: Liberação acumulada e Saldo de financiamento saíram da tela de vez.
+    expect(pv[1].linhas.some((l) => l.cartao === "Liberação acumulada")).toBe(false);
   });
 });

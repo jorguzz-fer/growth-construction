@@ -112,7 +112,7 @@ export async function RelatorioCef({ tenantId, versions, atual, sp }: { tenantId
           <strong>% do orçado medido</strong> é valor medido ÷ valor orçado — razão financeira, não o percentual físico do laudo. A coluna de percentuais de referência saiu: os números eram do empreendimento-piloto, não desta obra.
         </p>
         <p>
-          <strong>Imprimir página</strong> abre a impressão do navegador com esta tabela; não gera o FRE / Cronograma CEF formatado.
+          <strong>Imprimir página</strong> abre a impressão do navegador com esta tabela, para conferência. O documento oficial é o formulário da Caixa (PLS / RAE), assinado pelo responsável técnico; o sistema fornece os números, não o formulário.
         </p>
       </div>
     </div>

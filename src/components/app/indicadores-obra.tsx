@@ -2,7 +2,6 @@ import type { IndicadoresObra, StatusProjeto } from "@/lib/queries";
 import { brl0 } from "@/lib/utils";
 import { TEXTO_DA_JANELA } from "@/lib/dashboard-definicao";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 
 const pct = (v: number) =>
   `${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
@@ -50,7 +49,7 @@ function KPI({
  * %BDI) e das medições por serviço. Quando esses dados ainda não existem, o
  * painel diz o que falta em vez de exibir valor inventado.
  */
-export function IndicadoresObraPanel({ ind, definicaoNova = false }: { ind: IndicadoresObra; definicaoNova?: boolean }) {
+export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
   // Prompt AA, 3.2/3.5: sem serviço cadastrado, nada de zero — estado próprio.
   const semServico = ind.qtdServicos === 0;
   const SEM_SERVICO = "depende do cadastro de serviços (medição por serviço, ainda não usada — Prompt V)";
@@ -86,20 +85,6 @@ export function IndicadoresObraPanel({ ind, definicaoNova = false }: { ind: Indi
             hint={semFinanciamento ? "informe no cadastro do projeto" : "construção + terreno, do cadastro"}
             tone={semFinanciamento ? "muted" : "normal"}
           />
-          <KPI
-            label="Saldo de financiamento"
-            value={(semFinanciamento || definicaoNova) && !ind.temMedicao ? "—" : brl0(ind.saldoFinanciamento)}
-            hint={
-              ind.temMedicao
-                ? "ainda não liberado"
-                : semFinanciamento
-                  ? "informe no cadastro do projeto"
-                  : definicaoNova
-                    ? "sem medição registrada — não há saldo apurado"
-                    : "sem medição: é o financiamento da construção do cadastro, não um saldo apurado"
-            }
-            tone={ind.saldoFinanciamento > 0 ? "normal" : "muted"}
-          />
         </div>
       </div>
 
@@ -131,63 +116,19 @@ export function IndicadoresObraPanel({ ind, definicaoNova = false }: { ind: Indi
         </div>
       </div>
 
-      {/* Evolução física e liberação */}
+      {/* Decisão de 01/10/2026 (BV-1): a medição é por percentual de cada
+          serviço da PLS, que ainda não está cadastrada por obra. Os
+          indicadores de evolução física ficam DESLIGADOS até lá — a estrutura
+          (serviço, medicao_servico, calc/medicao-bdi) fica preparada. Liberação
+          acumulada e Saldo de financiamento saíram de vez: sem medição,
+          mostravam o financiamento do cadastro como se já tivesse acontecido. */}
       <div>
-        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
-          Evolução da obra e liberação
-          {!ind.temMedicao && (
-            // Prompt V (BV-1, provisório): estes KPIs leem a medição POR SERVIÇO
-            // (medicao_servico), que não está em uso — as medições por grupo da
-            // tela Medição de Obra não alimentam estes números.
-            <Badge tone="neutral" title="Os KPIs de evolução física leem a medição por serviço (PLS), que o sistema ainda não usa. As medições por grupo CEF lançadas em Medição de Obra não entram aqui.">
-              medição por serviço não está em uso
-            </Badge>
-          )}
-        </h2>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Referência da obra</h2>
+        <p className="mb-2 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[12px] text-[var(--color-ink2)]" data-evolucao-desligada>
+          Evolução física, liberação e geração de caixa por medição estão desligadas até o cadastro da PLS de cada obra (medição por
+          percentual de cada serviço). A medição por grupo, em Medição de Obra, continua valendo.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KPI
-            label="Evolução física acumulada"
-            value={ind.temMedicao ? pct(ind.evolucaoAcumulada) : "—"}
-            tone={ind.temMedicao ? "good" : "muted"}
-          />
-          <KPI
-            label="Evolução do mês"
-            value={ind.temMedicao ? pct(ind.evolucaoMes) : "—"}
-            tone={ind.temMedicao ? "normal" : "muted"}
-          />
-          <KPI
-            label="Liberação do mês"
-            value={ind.temMedicao ? brl0(ind.liberacaoMes) : "—"}
-            tone={ind.temMedicao ? "normal" : "muted"}
-          />
-          <KPI
-            label="Liberação acumulada"
-            value={(semFinanciamento || definicaoNova) && !ind.temMedicao ? "—" : brl0(ind.liberacaoAcumulada)}
-            hint={
-              ind.temMedicao
-                ? `${pct(ind.pctRecebido * 100)} do financiado`
-                : semFinanciamento
-                  ? "informe no cadastro do projeto"
-                  : definicaoNova
-                    ? "sem medição registrada — nenhuma liberação apurada"
-                    : "sem medição: é o financiamento do terreno do cadastro, não uma liberação registrada"
-            }
-            tone={ind.temMedicao ? "normal" : "muted"}
-          />
-          <KPI
-            label="Custo estimado do mês"
-            value={ind.temMedicao ? brl0(ind.custoEstimadoMes) : "—"}
-            hint="CUB × metragem × evolução"
-            tone={ind.temMedicao ? "normal" : "muted"}
-          />
-          <KPI
-            label="Geração de caixa do mês"
-            value={ind.temMedicao ? brl0(ind.geracaoCaixaMes) : "—"}
-            hint="liberação − custo estimado"
-            tone={
-              !ind.temMedicao ? "muted" : ind.geracaoCaixaMes >= 0 ? "good" : "warn"
-            }
-          />
           <KPI
             label="Custo referencial"
             value={ind.custoReferencial > 0 ? brl0(ind.custoReferencial) : "—"}

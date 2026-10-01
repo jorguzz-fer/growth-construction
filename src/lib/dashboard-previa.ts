@@ -8,7 +8,7 @@
  */
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getIndicadoresObra, getMonthlyRevenue, getStatusProjeto, getUnits, getVersionsDoProjeto } from "@/lib/queries";
+import { getMonthlyRevenue, getStatusProjeto, getUnits, getVersionsDoProjeto } from "@/lib/queries";
 import { rotuloDaVersao } from "@/lib/dashboard-tela";
 
 export interface LinhaDaPrevia {
@@ -32,11 +32,9 @@ export async function previaDashboardDefinicaoNova(
 ): Promise<PreviaDashboardObra[]> {
   const out: PreviaDashboardObra[] = [];
   for (const p of projetos) {
-    const [hoje, nova, indHoje, indNova, vs] = await Promise.all([
+    const [hoje, nova, vs] = await Promise.all([
       getStatusProjeto(tenantId, [p.id]),
       getStatusProjeto(tenantId, [p.id], { definicaoNova: true }),
-      getIndicadoresObra(tenantId, p.id),
-      getIndicadoresObra(tenantId, p.id, { definicaoNova: true }),
       getVersionsDoProjeto(tenantId, p.id),
     ]);
     const linhas: LinhaDaPrevia[] = [
@@ -49,18 +47,6 @@ export async function previaDashboardDefinicaoNova(
         tipo: "pct",
       },
       { cartao: "Margem de contribuição", hoje: hoje.margemContribuicao, nova: nova.margemContribuicao, tipo: "brl" },
-      {
-        cartao: "Liberação acumulada",
-        hoje: indHoje.liberacaoAcumulada,
-        nova: indNova.temMedicao ? indNova.liberacaoAcumulada : null,
-        tipo: "brl",
-      },
-      {
-        cartao: "Saldo de financiamento",
-        hoje: indHoje.saldoFinanciamento,
-        nova: indNova.temMedicao ? indNova.saldoFinanciamento : null,
-        tipo: "brl",
-      },
     ];
     // 4.5 e 4.2 — por versão de planejamento: VGV e "A receber".
     const atual = vs.find((v) => v.kind === "atual") ?? null;
