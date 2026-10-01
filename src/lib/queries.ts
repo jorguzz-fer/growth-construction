@@ -1880,6 +1880,22 @@ export async function getPlanejamentoNaoAprovado(tenantId: string): Promise<{ ve
   return rows.map((r) => ({ ...r, receitas: soma.get(`${r.versionId}|receita`) ?? 0, despesas: soma.get(`${r.versionId}|despesa`) ?? 0 }));
 }
 
+/** Prompt V, seção 5 — documentos vinculados às medições de uma versão (por medição). */
+export async function getDocumentosDasMedicoes(tenantId: string, versionId: string): Promise<Map<string, DocumentRow[]>> {
+  const rows = await db
+    .select({ d: schema.documents })
+    .from(schema.documents)
+    .innerJoin(schema.medicoes, eq(schema.medicoes.id, schema.documents.medicaoId))
+    .where(and(eq(schema.documents.tenantId, tenantId), eq(schema.medicoes.tenantId, tenantId), eq(schema.medicoes.versionId, versionId)))
+    .orderBy(asc(schema.documents.tipo), asc(schema.documents.versao));
+  const out = new Map<string, DocumentRow[]>();
+  for (const { d } of rows) {
+    if (!d.medicaoId) continue;
+    (out.get(d.medicaoId) ?? out.set(d.medicaoId, []).get(d.medicaoId)!).push(d);
+  }
+  return out;
+}
+
 /** Prompt B, 17 — registros de ponto da obra (aviso ao mudar coordenada). */
 export async function contarPontoDoProjeto(tenantId: string, projectId: string): Promise<number> {
   const [r] = await db
