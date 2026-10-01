@@ -1186,6 +1186,15 @@ export async function getDocumentsByContasReceber(tenantId: string, contaIds: st
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Documentos anexados ao ativo de permuta (Prompt P, 6.2), o mais novo primeiro. */
+export async function getDocumentsByPermuta(tenantId: string, permutaId: string): Promise<DocumentRow[]> {
+  return db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.permutaId, permutaId)))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */

@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
-import { getClientes, getPermutaDoTenant, getUnits } from "@/lib/queries";
+import { getClientes, getDocumentsByPermuta, getPermutaDoTenant, getUnits } from "@/lib/queries";
+import { isR2Configured, readUrl } from "@/lib/storage/r2";
+import { PermutaDocs, type PermutaDoc } from "@/components/app/permuta-docs";
 import { TIPOS_PERMUTA } from "@/lib/calc/constants";
 import { PageHeader } from "@/components/app/page-header";
 import { PermutaForm } from "@/components/app/permuta-form";
@@ -24,7 +26,21 @@ export default async function EditarPermutaPage({ params }: { params: Promise<{ 
   if (!alvo) notFound();
   const { permuta: p } = alvo;
   const nomeDaObra = ctx.projects.find((x) => x.id === alvo.projectId)?.name ?? "";
-  const [units, clientes] = await Promise.all([getUnits(ctx.tenant.id, p.versionId), getClientes(ctx.tenant.id)]);
+  const [units, clientes, documentos] = await Promise.all([getUnits(ctx.tenant.id, p.versionId), getClientes(ctx.tenant.id), getDocumentsByPermuta(ctx.tenant.id, p.id)]);
+  // 6.7 — o documento só chega a quem pode ver o ativo (a página já exigiu "ver").
+  const r2 = isR2Configured();
+  const docs: PermutaDoc[] = [];
+  for (const d of documentos) {
+    docs.push({
+      id: d.id,
+      filename: d.filename,
+      tipo: d.tipo,
+      versao: d.versao,
+      url: r2 ? await readUrl(d.storageKey) : null,
+      uploadedAt: d.uploadedAt ? `${String(d.uploadedAt.getMonth() + 1).padStart(2, "0")}/${String(d.uploadedAt.getDate()).padStart(2, "0")}/${d.uploadedAt.getFullYear()}` : null,
+      uploadedBy: d.uploadedBy,
+    });
+  }
   const unitCodes = [...new Set(units.map((u) => u.code))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   if (p.cancelado) {
@@ -50,6 +66,7 @@ export default async function EditarPermutaPage({ params }: { params: Promise<{ 
         unidades={unitCodes}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
         tipos={TIPOS_PERMUTA}
+        docsSlot={<PermutaDocs permutaId={p.id} docs={docs} canEdit={can(ctx.perms, "permuta", "editar")} r2={r2} />}
         initial={{
           id: p.id,
           unitCode: p.unitCode,
