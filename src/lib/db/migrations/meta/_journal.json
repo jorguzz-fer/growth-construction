@@ -379,6 +379,13 @@
       "when": 1790836502215,
       "tag": "0053_cartao_credito",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790837223626,
+      "tag": "0054_fatura_cartao",
+      "breakpoints": true
     }
   ]
 }

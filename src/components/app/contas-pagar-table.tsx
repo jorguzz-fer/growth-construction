@@ -21,6 +21,8 @@ import { MultiSelect } from "@/components/ui/multi-select";
  */
 function statusDaLinha(r: ContaPagarRow, hoje: string): string {
   if (r.origem === "obrigacao") return r.status ?? "—";
+  // Prompt U — o status da fatura já vem derivado (prevista / a pagar / vencida / pago).
+  if (r.origem === "fatura") return r.status ?? "—";
   return statusExibido(r, hoje);
 }
 
@@ -274,6 +276,13 @@ export function ContasPagarTable({
                         // Restituições; não passa por "Vencida" (a data aqui é
                         // uma previsão de restituição, não um vencimento).
                         <Badge tone="info">{r.status ?? "—"}</Badge>
+                      ) : r.origem === "fatura" ? (
+                        // Prompt U, 2.7 — fatura aberta é obrigação PREVISTA (o
+                        // valor ainda cresce); fechada é firme.
+                        <Badge tone={r.prevista ? "info" : tomDoStatus(r.status ?? "")} title={r.prevista ? "Fatura do ciclo aberto: ainda recebe compras; o valor é o acumulado até agora, sem estimativa de juros." : "Fatura fechada: obrigação firme, valor não muda mais."}>
+                          {r.status === STATUS_VENCIDA && <span aria-hidden className="mr-1">⚠</span>}
+                          {r.status}
+                        </Badge>
                       ) : (
                         (() => {
                           const st = statusDaLinha(r, hojeISO);
@@ -295,6 +304,11 @@ export function ContasPagarTable({
                             className="text-sm text-[var(--color-accent2)] hover:underline"
                           >
                             Ressarcir
+                          </Link>
+                        ) : r.origem === "fatura" ? (
+                          // Prompt R, 1.7 — a fatura não é despesa: o link vai para Cartões.
+                          <Link href="/cartoes" className="text-sm text-[var(--color-accent2)] hover:underline">
+                            Fatura
                           </Link>
                         ) : (
                           <Link

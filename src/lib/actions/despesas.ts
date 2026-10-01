@@ -30,6 +30,7 @@ import {
 } from "@/lib/calc/documento-fiscal";
 import { CATEGORIAS_DRE, type CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
+import { faturasDasParcelas, valoresDasParcelas, type FaturaDoCiclo } from "@/lib/calc/cartao-ciclo";
 import {
   AI_ACCEPTED_MIME,
   AI_MAX_DOCS,
@@ -100,6 +101,32 @@ type Resultado = { ok: true } | { ok: false; error: string };
 
 /** Erro de regra: vira `{ ok: false, error }`. Qualquer outro erro sobe. */
 class Recusa extends Error {}
+
+/**
+ * Prompt U, 2 — a fatura de um ciclo (cartão + data de fechamento), criada sob
+ * demanda dentro da transação. O índice único (0054) garante uma por ciclo:
+ * se outra transação criou primeiro, a inserção não faz nada e a leitura
+ * seguinte devolve a existente.
+ */
+async function faturaDoCiclo(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tenantId: string,
+  cartaoId: string,
+  ciclo: FaturaDoCiclo,
+): Promise<typeof schema.faturasCartao.$inferSelect> {
+  const achar = () =>
+    tx
+      .select()
+      .from(schema.faturasCartao)
+      .where(and(eq(schema.faturasCartao.cartaoId, cartaoId), eq(schema.faturasCartao.fechamento, ciclo.fechamento)))
+      .then((r) => r[0]);
+  const existente = await achar();
+  if (existente) return existente;
+  await tx.insert(schema.faturasCartao).values({ tenantId, cartaoId, fechamento: ciclo.fechamento, vencimento: ciclo.vencimento }).onConflictDoNothing();
+  const criada = await achar();
+  if (!criada) throw new Error("Não foi possível criar a fatura do ciclo.");
+  return criada;
+}
 
 /** A despesa com a versão dela, no tenant — e se essa versão está congelada (11.7). */
 async function despesaDoTenant(tenantId: string, id: string) {
@@ -226,15 +253,35 @@ async function lancarDespesa(
   const pagoPorSocioId = s("pagoPorSocioId");
   const socioReembolsavel = !!formData.get("socioReembolsavel");
   const socioDataPagamento = s("socioDataPagamento");
+  // Prompt U / Prompt S, 3-B.4 — compra no cartão: a despesa é reconhecida na
+  // competência informada; nenhuma saída de caixa agora; cada parcela cai numa
+  // fatura do ciclo (2.1–2.3). O cartão precisa ser desta empresa e estar ativo.
+  const cartaoId = s("cartaoId");
+  const cartaoDataCompra = s("cartaoDataCompra") ?? "";
+  const cartaoParcelas = Number(formData.get("cartaoParcelas") || 1);
+  let cartao: typeof schema.cartoesCredito.$inferSelect | null = null;
+  let faturasDoCartao: FaturaDoCiclo[] = [];
+  if (cartaoId) {
+    if (pagoPorSocioId) throw new Recusa("Uma compra é paga pelo cartão OU por terceiro — não pelos dois.");
+    if (parcelasManuais.length > 0) throw new Recusa("No cartão, as parcelas seguem o ciclo da fatura: informe só o nº de parcelas, sem o painel de parcelas.");
+    if (!Number.isInteger(cartaoParcelas) || cartaoParcelas < 1 || cartaoParcelas > 48) throw new Recusa("Nº de parcelas no cartão: de 1 a 48.");
+    const [c] = await db.select().from(schema.cartoesCredito).where(and(eq(schema.cartoesCredito.id, cartaoId), eq(schema.cartoesCredito.tenantId, ctx.tenant.id)));
+    if (!c) throw new Recusa("Cartão não encontrado.");
+    if (!c.ativo) throw new Recusa(`O cartão "${c.apelido}" está inativo.`);
+    faturasDoCartao = faturasDasParcelas(cartaoDataCompra, cartaoParcelas, c);
+    if (faturasDoCartao.length === 0) throw new Recusa("Informe a data da compra no cartão.");
+    cartao = c;
+  }
   const core = {
     versionId: version.id,
     tenantId: ctx.tenant.id,
     fornecedorId: s("fornecedorId"),
-    bancoId: s("bancoId"),
+    // Compra no cartão não tem conta da empresa: o caixa sai no pagamento da fatura.
+    bancoId: cartao ? null : s("bancoId"),
     contaCef: s("contaCef"),
     categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
     competencia: s("competencia"),
-    vencimento: pagoPorSocioId ? socioDataPagamento : s("vencimento"),
+    vencimento: cartao ? faturasDoCartao[0].vencimento : pagoPorSocioId ? socioDataPagamento : s("vencimento"),
     // Modo bottom-up: quando o total chega vazio e há parcelas, `valorNum` já é
     // a soma delas. O PED carrega SEMPRE o custo total da compra; o
     // fracionamento vive nas parcelas (item 2.3).
@@ -242,14 +289,16 @@ async function lancarDespesa(
     // Descrição/observação da compra — campo PRÓPRIO, separado do nº do pedido
     // (numDoc). O objeto da compra não deve ser guardado no número do pedido.
     obs: s("obs"),
-    status: pagoPorSocioId ? "Pago" : s("status") || "A pagar",
+    // 3-B.5 — no cartão a despesa NÃO nasce paga: o caixa da empresa não saiu.
+    status: cartao ? "A pagar" : pagoPorSocioId ? "Pago" : s("status") || "A pagar",
     // Não gera saída de caixa da empresa no momento do cadastro.
     pagoPorTerceiro: !!pagoPorSocioId,
+    cartaoId: cartao?.id ?? null,
     // Fase 2 — forma/condição de pagamento
-    formaPagamento: s("formaPagamento"),
+    formaPagamento: cartao ? "Cartão de crédito" : s("formaPagamento"),
     formaPagamentoDesc: s("formaPagamentoDesc"),
     condicaoPagamento: s("condicaoPagamento"),
-    qtdParcelas: formData.get("qtdParcelas") ? Number(formData.get("qtdParcelas")) : null,
+    qtdParcelas: cartao ? cartaoParcelas : formData.get("qtdParcelas") ? Number(formData.get("qtdParcelas")) : null,
     dataEmissao: s("dataEmissao"),
     boletoLinhaDigitavel: s("boletoLinhaDigitavel"),
     boletoCodigoBarras: s("boletoCodigoBarras"),
@@ -267,6 +316,8 @@ async function lancarDespesa(
   const mesesRecorrencia = recorrente
     ? Math.min(60, Math.max(2, Number(formData.get("recorrenciaMeses")) || 0))
     : 0;
+
+  if (cartao && recorrente) throw new Recusa("Compra no cartão não pode ser recorrente: lance cada compra na data dela.");
 
   const row = await db.transaction(async (tx) => {
     // RG-06 — o PED é numeração interna: sempre reservado aqui, no servidor.
@@ -291,7 +342,7 @@ async function lancarDespesa(
     let parcelas: ParcelaRecebida[] = [];
     // Despesa paga por sócio já está quitada pelo sócio — não gera parcelas/contas
     // a pagar da empresa.
-    if (pagoPorSocioId) {
+    if (pagoPorSocioId || cartao) {
       parcelas = [];
     } else if (parcelasManuais.length > 0) {
       // Vindas do painel auxiliar: cada linha traz forma, cheque, banco e status
@@ -335,6 +386,41 @@ async function lancarDespesa(
           dataBomPara: p.dataBomPara,
           status: p.status,
         })),
+      );
+    }
+
+    // Prompt U, 2.1–2.3 / Prompt S, 3-B.6 — compra no cartão: uma parcela por
+    // fatura (1x = uma parcela), cada uma vinculada à fatura do ciclo, criada
+    // sob demanda NA MESMA transação. A competência é única (2.4): é a do
+    // cabeçalho. Nenhuma saída de caixa: ela é do pagamento da fatura.
+    if (cartao) {
+      const valores = valoresDasParcelas(valorTotal, faturasDoCartao.length);
+      const fechamentos: string[] = [];
+      for (let i = 0; i < faturasDoCartao.length; i++) {
+        const fatura = await faturaDoCiclo(tx, ctx.tenant.id, cartao.id, faturasDoCartao[i]);
+        fechamentos.push(fatura.fechamento);
+        await tx.insert(schema.despesaParcelas).values({
+          tenantId: ctx.tenant.id,
+          despesaId: row.id,
+          numeroParcela: i + 1,
+          vencimento: fatura.vencimento,
+          valorOriginal: String(valores[i]),
+          formaPagamento: "Cartão de crédito",
+          bankAccountId: cartao.bankAccountId,
+          status: "Pendente",
+          faturaId: fatura.id,
+        });
+      }
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "despesa.cartao",
+          entity: "despesa",
+          entityId: row.id,
+          meta: { cartaoId: cartao.id, apelido: cartao.apelido, dataCompra: cartaoDataCompra, parcelas: faturasDoCartao.length, faturas: fechamentos },
+        },
+        tx,
       );
     }
 

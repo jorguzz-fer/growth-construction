@@ -1,7 +1,7 @@
 import { getTenantContext } from "@/lib/context";
 import Link from "next/link";
-import { getContasPagar, getContasPagarEmPlanejamento, getParcelasContasPagar, type ContaPagarRow } from "@/lib/queries";
-import { linhasPorObrigacao } from "@/lib/contas-pagar-regras";
+import { getContasPagar, getContasPagarEmPlanejamento, getFaturasCartao, getParcelasContasPagar, type ContaPagarRow } from "@/lib/queries";
+import { linhasComFaturas } from "@/lib/calc/fatura";
 import { hojeISO } from "@/lib/despesa-status";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { brl0, dateBR } from "@/lib/utils";
@@ -25,7 +25,8 @@ export default async function ContasPagarPage() {
   // §10 — prévia da chave: só quem administra chaves vê as linhas de
   // planejamento que deixam de aparecer quando ela liga.
   const podeVerPrevia = can(ctx.perms, "chaves", "ver");
-  const [despesas, parcelas, obrigacoes, soAtual, planejamento] = await Promise.all([
+  const podeVerFaturas = can(ctx.perms, "cartoes", "ver");
+  const [despesas, parcelas, obrigacoes, soAtual, planejamento, faturas] = await Promise.all([
     getContasPagar(ctx.tenant.id),
     // Prompt R, seção 1 — consulta própria da tela: `getContasPagar` não muda
     // para Dashboard, Fechamento e conciliação.
@@ -35,6 +36,9 @@ export default async function ContasPagarPage() {
       : Promise.resolve([]),
     chaveLigada(ctx.tenant.id, "contas_pagar_so_atual"),
     podeVerPrevia ? getContasPagarEmPlanejamento(ctx.tenant.id) : Promise.resolve([]),
+    // Prompt U, 2.6/2.7 (R 1.6) — as faturas de cartão: a obrigação é a
+    // fatura, nunca as compras; a do ciclo aberto entra como prevista.
+    podeVerFaturas ? getFaturasCartao(ctx.tenant.id) : Promise.resolve([]),
   ]);
 
   // §11 — a obrigação com quem desembolsou aparece aqui como uma linha própria,
@@ -71,7 +75,13 @@ export default async function ContasPagarPage() {
   // Prompt R, 1.2 — despesa parcelada vira uma linha por parcela (nº,
   // vencimento, saldo, cheque); sem parcelamento, uma linha como hoje (1.5:
   // as obrigações com terceiro não têm parcela e não mudam).
-  const rows: ContaPagarRow[] = [...linhasPorObrigacao(despesas, parcelas), ...linhasObrigacao];
+  // Prompt U, 2.6 — compra no cartão SAI da lista (e as parcelas dela); quem
+  // fica é a fatura, pelo acumulado do ciclo, sem estimativa de juros (2.8).
+  // Sem permissão de ver cartões, as compras continuam fora (o mesmo dinheiro
+  // não pode aparecer duas vezes) e a fatura não aparece.
+  const hoje = hojeISO();
+  const comCartao = linhasComFaturas(despesas, parcelas, faturas, hoje);
+  const rows: ContaPagarRow[] = [...comCartao.compras, ...linhasObrigacao, ...comCartao.faturas];
 
   return (
     <>
@@ -81,7 +91,7 @@ export default async function ContasPagarPage() {
         subtitle="Uma linha por obrigação que vence: despesa, parcela ou ressarcimento. Filtre por período, fornecedor, cliente, projeto, categoria e status; clique no cabeçalho para ordenar."
       />
       {/* Prompt R, 4.5 — hoje vem do servidor: o relógio do navegador não decide o que está vencido. */}
-      <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} hoje={hojeISO()} />
+      <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} hoje={hoje} />
       {podeVerPrevia && <PreviaPlanejamento linhas={planejamento} chaveLigada={soAtual} />}
     </>
   );

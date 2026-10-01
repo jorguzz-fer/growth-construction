@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -121,6 +121,29 @@ export async function setCartaoAtivo(id: string, ativo: boolean): Promise<Result
     .returning();
   if (!row) return { ok: false, error: "Cartão não encontrado." };
   await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId ?? null, action: ativo ? "cartao.reativar" : "cartao.inativar", entity: "cartao_credito", entityId: id, meta: { apelido: row.apelido } });
+  revalidatePath("/cartoes");
+  return { ok: true, id };
+}
+
+/**
+ * 1.4 — excluir só cartão SEM fatura e SEM compra vinculada; com vínculo, o
+ * caminho é inativar. Nada em despesa ou fatura é tocado.
+ */
+export async function deleteCartao(id: string): Promise<ResultadoCartao> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "cartoes", "excluir")) return { ok: false, error: "Sem permissão para excluir cartões." };
+  const [c] = await db.select().from(schema.cartoesCredito).where(and(eq(schema.cartoesCredito.id, id), eq(schema.cartoesCredito.tenantId, ctx.tenant.id)));
+  if (!c) return { ok: false, error: "Cartão não encontrado." };
+  const n = sql<number>`count(*)::int`;
+  const [[f], [d]] = await Promise.all([
+    db.select({ n }).from(schema.faturasCartao).where(eq(schema.faturasCartao.cartaoId, id)),
+    db.select({ n }).from(schema.despesas).where(eq(schema.despesas.cartaoId, id)),
+  ]);
+  if ((f?.n ?? 0) > 0 || (d?.n ?? 0) > 0) {
+    return { ok: false, error: `O cartão "${c.apelido}" tem ${d?.n ?? 0} compra(s) e ${f?.n ?? 0} fatura(s) vinculada(s): inative em vez de excluir.` };
+  }
+  await db.delete(schema.cartoesCredito).where(eq(schema.cartoesCredito.id, id));
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId ?? null, action: "cartao.delete", entity: "cartao_credito", entityId: id, meta: { apelido: c.apelido, ultimos4: c.ultimos4 } });
   revalidatePath("/cartoes");
   return { ok: true, id };
 }

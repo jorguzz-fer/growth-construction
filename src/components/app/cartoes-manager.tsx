@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setCartaoAtivo, updateCartao } from "@/lib/actions/cartoes";
+import { deleteCartao, setCartaoAtivo, updateCartao } from "@/lib/actions/cartoes";
 import type { CartaoView } from "@/lib/queries";
 import { cicloAberto, disponivelDoLimite } from "@/lib/calc/cartao-ciclo";
 import { brl0, dateBR } from "@/lib/utils";
@@ -16,7 +16,7 @@ import { BANDEIRAS } from "@/components/app/cartao-form";
  * disponível. `usado` vem da página (compras e parcelas vinculadas ao ciclo
  * aberto); 1.4: inativar em vez de excluir.
  */
-export function CartoesManager({ cartoes, contas, usado, hoje, canEditar }: { cartoes: CartaoView[]; contas: { id: string; nome: string }[]; usado: Record<string, number>; hoje: string; canEditar: boolean }) {
+export function CartoesManager({ cartoes, contas, usado, vinculos, hoje, canEditar, canExcluir = false }: { cartoes: CartaoView[]; contas: { id: string; nome: string }[]; usado: Record<string, number>; vinculos: Record<string, { compras: number; faturas: number }>; hoje: string; canEditar: boolean; canExcluir?: boolean }) {
   return (
     <Table>
       <THead>
@@ -41,14 +41,14 @@ export function CartoesManager({ cartoes, contas, usado, hoje, canEditar }: { ca
             </TD>
           </TR>
         ) : (
-          cartoes.map((c) => <Linha key={c.id} c={c} contas={contas} usado={usado[c.id] ?? 0} hoje={hoje} canEditar={canEditar} />)
+          cartoes.map((c) => <Linha key={c.id} c={c} contas={contas} usado={usado[c.id] ?? 0} vinculo={vinculos[c.id] ?? { compras: 0, faturas: 0 }} hoje={hoje} canEditar={canEditar} canExcluir={canExcluir} />)
         )}
       </tbody>
     </Table>
   );
 }
 
-function Linha({ c, contas, usado, hoje, canEditar }: { c: CartaoView; contas: { id: string; nome: string }[]; usado: number; hoje: string; canEditar: boolean }) {
+function Linha({ c, contas, usado, vinculo, hoje, canEditar, canExcluir }: { c: CartaoView; contas: { id: string; nome: string }[]; usado: number; vinculo: { compras: number; faturas: number }; hoje: string; canEditar: boolean; canExcluir: boolean }) {
   const [editando, setEditando] = useState(false);
   const [pending, start] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
@@ -128,7 +128,7 @@ function Linha({ c, contas, usado, hoje, canEditar }: { c: CartaoView; contas: {
       </TD>
       <TD>{c.contaNome ?? <span className="text-[var(--color-ink4)]">sem conta</span>}</TD>
       <TD className="text-right font-[family-name:var(--font-mono)]">{c.limite == null ? "—" : brl0(c.limite)}</TD>
-      <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(usado)}</TD>
+      <TD className="text-right font-[family-name:var(--font-mono)]" title={`${vinculo.compras} compra(s) · ${vinculo.faturas} fatura(s) no total`}>{brl0(usado)}</TD>
       <TD className="text-right font-[family-name:var(--font-mono)]">{disponivel == null ? "—" : <span className={disponivel < 0 ? "text-[var(--color-danger)]" : undefined}>{brl0(disponivel)}</span>}</TD>
       <TD className="text-[12px]">{c.taxaRotativo == null ? <span className="text-[var(--color-ink4)]">sem taxa — não projeta juro</span> : `${c.taxaRotativo}% a.m.`}</TD>
       <TD>
@@ -154,6 +154,24 @@ function Linha({ c, contas, usado, hoje, canEditar }: { c: CartaoView; contas: {
             >
               {c.ativo ? "Inativar" : "Reativar"}
             </Button>
+            {/* 1.4 — excluir só sem fatura nem compra; com vínculo, inativar. */}
+            {canExcluir && vinculo.compras === 0 && vinculo.faturas === 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => {
+                  if (!window.confirm(`Excluir o cartão "${c.apelido}"? Ele não tem compras nem faturas.`)) return;
+                  setErro(null);
+                  start(async () => {
+                    const r = await deleteCartao(c.id);
+                    if (!r.ok) setErro(r.error);
+                  });
+                }}
+              >
+                Excluir
+              </Button>
+            )}
           </div>
           {erro && <p className="text-[11px] text-[var(--color-danger)]">{erro}</p>}
         </TD>
