@@ -61,6 +61,14 @@ export const CHAVES = [
     origem: "Prompt AC, Partes 2, 3.1, 1.3 e 10",
     previa: { href: "/chaves#previa-dre", rotulo: "Prévia — resultado de hoje × definição nova, por projeto e competência" },
   },
+  {
+    id: "fluxo_definicao_nova",
+    titulo: "Fluxo de Caixa pela definição nova",
+    efeito:
+      "No Fluxo de Caixa: o realizado vem sempre da versão Atual (antes, da primeira versão marcada); a permuta deixa de somar nas colunas de Orçamento e Previsão; projeto sem Atual mostra a ausência em vez de usar outra versão; o saldo acumulado de uma obra parte do caixa dela (não das contas da empresa) e corre pelo realizado nos meses fechados. Nada é gravado.",
+    origem: "Prompt AD, Partes 1, 2 e BAD-1 (8.1)",
+    previa: { href: "/chaves#previa-fluxo", rotulo: "Prévia — saldo e acumulado de hoje × definição nova, por obra" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

@@ -51,3 +51,27 @@ describe("Prompt AD · tabela do Fluxo de Caixa", () => {
     expect(t).toEqual({ valor: -150, pct: -25, mesesComparados: 1, soPrevisto: 2, soRealizado: 1 });
   });
 });
+
+import { mesCorrente, partidaDaObra } from "./fluxo-tela";
+
+describe("Prompt AD · chave fluxo_definicao_nova (regras puras)", () => {
+  it("9 — mês fechado entra no acumulado pelo realizado; do mês corrente em diante, pelo previsto", () => {
+    const eixo = ["01/2026", "02/2026", "03/2026"];
+    const p = { entradas: { "01/2026": 1000, "02/2026": 1000, "03/2026": 1000 }, saidas: {} };
+    const r = { entradas: { "01/2026": 700, "02/2026": 0 }, saidas: { "02/2026": 50 } };
+    const ls = linhasDoFluxo(eixo, eixo, p, r, 0, { mesAtual: "03/2026" });
+    expect(ls.map((l) => [l.mm, l.fechado, l.saldo])).toEqual([
+      ["01/2026", true, 700],
+      ["02/2026", true, 650],
+      ["03/2026", false, 1650],
+    ]);
+    // sem a opção: tudo pelo previsto, como antes
+    expect(linhasDoFluxo(eixo, eixo, p, r, 0).map((l) => l.saldo)).toEqual([1000, 2000, 3000]);
+  });
+
+  it("BAD-1 — a partida da obra é o realizado antes do primeiro mês do eixo", () => {
+    expect(partidaDaObra(["03/2026"], { entradas: { "01/2026": 100, "03/2026": 5 }, saidas: { "02/2026": 30 } })).toBe(70);
+    expect(partidaDaObra([], { entradas: { "01/2026": 100 }, saidas: {} })).toBe(0);
+    expect(mesCorrente(new Date(2026, 9, 1))).toBe("10/2026");
+  });
+});

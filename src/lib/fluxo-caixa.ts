@@ -5,8 +5,11 @@ import {
   getParcelasByVersion,
   getPermutas,
   getCash,
+  getInccRows,
+  getVersionsDoProjeto,
   permToResale,
 } from "@/lib/queries";
+import { eixoDoFluxo, linhasDoFluxo, mesCorrente, partidaDaObra } from "@/lib/fluxo-tela";
 import { permutaCashByMonth } from "@/lib/calc";
 import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
@@ -36,6 +39,12 @@ export { vencMonth };
 export async function flowMaps(
   version: Version,
   projectId: string,
+  /**
+   * Prompt AD — chave "fluxo_definicao_nova" (nasce desligada). Ligada, a
+   * permuta (fato) NÃO entra na coluna de planejamento (1.2): Orçamento e
+   * Previsão ficam só com `budget_line`. Desligada: exatamente o de antes.
+   */
+  opts: { definicaoNova?: boolean } = {},
 ): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
   const [entradas, despesas, permutas, parcelas] = await Promise.all([
     getMonthlyRevenue(version.id, projectId),
@@ -45,9 +54,11 @@ export async function flowMaps(
   ]);
 
   // Recebimentos da revenda de bens recebidos em permuta (item 10).
-  const permCash = permutaCashByMonth(permToResale(permutas));
-  for (const [mm, v] of Object.entries(permCash)) {
-    entradas[mm] = (entradas[mm] || 0) + v;
+  if (!(opts.definicaoNova && isBudgetVersion(version.kind))) {
+    const permCash = permutaCashByMonth(permToResale(permutas));
+    for (const [mm, v] of Object.entries(permCash)) {
+      entradas[mm] = (entradas[mm] || 0) + v;
+    }
   }
 
   const saidas: Record<string, number> = {};
@@ -138,4 +149,63 @@ export async function flowMapsRealizado(
     else saidas[mm] = (saidas[mm] || 0) + Math.abs(v);
   }
   return { entradas, saidas, semData };
+}
+
+export interface PreviaFluxoObra {
+  projeto: string;
+  temAtual: boolean;
+  /** Saldo inicial e acumulado final, hoje e pela definição nova. */
+  partidaHoje: number;
+  partidaNova: number;
+  acumuladoHoje: number;
+  acumuladoNovo: number;
+  /** Permuta que sai das colunas de Orçamento/Previsão. */
+  permutaNoPlanejamento: number;
+  /** Caixa gravado em versões que não são a Atual (deixa de aparecer como realizado). */
+  caixaForaDaAtual: number;
+}
+
+/**
+ * Prompt AD, 8.1 — prévia da chave "fluxo_definicao_nova", por obra.
+ * SOMENTE LEITURA: usa as mesmas funções da tela (flowMaps, flowMapsRealizado
+ * e o módulo puro fluxo-tela), com a chave desligada e ligada.
+ */
+export async function previaFluxoDefinicaoNova(
+  tenantId: string,
+  projetos: readonly { id: string; name: string }[],
+  saldoDasContas: number,
+): Promise<PreviaFluxoObra[]> {
+  const out: PreviaFluxoObra[] = [];
+  for (const p of projetos) {
+    const vs = await getVersionsDoProjeto(tenantId, p.id);
+    const atual = vs.find((v) => v.kind === "atual") ?? null;
+    const planejamento = vs.filter((v) => isBudgetVersion(v.kind));
+    let permutaNoPlanejamento = 0;
+    for (const v of planejamento) {
+      const comPermuta = await flowMaps(v, p.id);
+      const semPermuta = await flowMaps(v, p.id, { definicaoNova: true });
+      permutaNoPlanejamento += Object.values(comPermuta.entradas).reduce((a, x) => a + x, 0) - Object.values(semPermuta.entradas).reduce((a, x) => a + x, 0);
+    }
+    let caixaForaDaAtual = 0;
+    for (const v of vs.filter((x) => x.kind !== "atual")) for (const c of await getCash(v.id)) caixaForaDaAtual += Number(c.valor) || 0;
+    if (!atual) {
+      out.push({ projeto: p.name, temAtual: false, partidaHoje: saldoDasContas, partidaNova: 0, acumuladoHoje: 0, acumuladoNovo: 0, permutaNoPlanejamento, caixaForaDaAtual });
+      continue;
+    }
+    const [previsto, realizado, incc] = await Promise.all([flowMaps(atual, p.id), flowMapsRealizado(atual.id), getInccRows(tenantId, p.id)]);
+    const eixo = eixoDoFluxo(incc.map((r) => r.m), [previsto], realizado);
+    const partidaNova = partidaDaObra(eixo, realizado);
+    const ultimo = (ls: { saldo: number }[]) => (ls.length ? ls[ls.length - 1].saldo : 0);
+    out.push({
+      projeto: p.name,
+      temAtual: true,
+      partidaHoje: saldoDasContas,
+      partidaNova,
+      acumuladoHoje: ultimo(linhasDoFluxo(eixo, eixo, previsto, realizado, saldoDasContas)),
+      acumuladoNovo: ultimo(linhasDoFluxo(eixo, eixo, previsto, realizado, partidaNova, { mesAtual: mesCorrente() })),
+      permutaNoPlanejamento,
+      caixaForaDaAtual,
+    });
+  }
+  return out;
 }

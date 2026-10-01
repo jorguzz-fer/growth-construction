@@ -6,6 +6,9 @@ import { can } from "@/lib/permissions";
 import { CHAVES } from "@/lib/chaves";
 import { getPlanejamentoNaoAprovado } from "@/lib/queries";
 import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
+import { previaFluxoDefinicaoNova } from "@/lib/fluxo-caixa";
+import { getBankAccounts } from "@/lib/queries";
+import { saldoDisponivel } from "@/lib/contas-saldo";
 import { brl } from "@/lib/utils";
 import { membroRestritoPorAmbiente } from "@/lib/membro-padrao";
 import { definirChave } from "@/lib/actions/chaves";
@@ -39,6 +42,8 @@ export default async function ChavesPage() {
   // Prompt AC, 10.3: prévia da chave "dre_definicao_nova" (só leitura).
   const previaDre = await previaDreDefinicaoNova(ctx.tenant.id, ctx.projects);
   const dreLigada = estado.get("dre_definicao_nova")?.ligada ?? false;
+  // Prompt AD, 8.1: prévia da chave "fluxo_definicao_nova" (só leitura).
+  const previaFluxo = await previaFluxoDefinicaoNova(ctx.tenant.id, ctx.projects, saldoDisponivel(await getBankAccounts(ctx.tenant.id)));
   // A chave do membro também liga pela variável de ambiente, de antes do B4.
   const peloAmbiente: Record<string, boolean> = {
     membro_padrao_restrito: membroRestritoPorAmbiente(ctx.tenant.id),
@@ -225,6 +230,44 @@ export default async function ChavesPage() {
                         </ul>
                       )}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-fluxo">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · Fluxo de Caixa pela definição nova</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Por obra (versão Atual), de onde parte e onde termina o saldo acumulado hoje e pela definição nova. Hoje toda obra parte
+            do saldo das contas da empresa; pela nova, parte do caixa da própria obra e corre pelo realizado nos meses fechados. Mostra
+            também a permuta que sai das colunas de Orçamento e Previsão e o caixa gravado fora da Atual. Nada é gravado.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]" aria-label="Prévia do Fluxo de Caixa pela definição nova">
+              <thead>
+                <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  <th className="py-1.5 pr-3">Obra</th>
+                  <th className="py-1.5 pr-3 text-right">Partida hoje</th>
+                  <th className="py-1.5 pr-3 text-right">Partida nova</th>
+                  <th className="py-1.5 pr-3 text-right">Acumulado hoje</th>
+                  <th className="py-1.5 pr-3 text-right">Acumulado novo</th>
+                  <th className="py-1.5 pr-3 text-right">Permuta no planejamento</th>
+                  <th className="py-1.5 text-right">Caixa fora da Atual</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaFluxo.map((p) => (
+                  <tr key={p.projeto} className="border-b border-[var(--color-line)]/60">
+                    <td className="py-1.5 pr-3">{p.projeto}{!p.temAtual && <span className="ml-1 text-[11px] text-[var(--color-warning)]">sem Atual: sem realizado</span>}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.partidaHoje)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.partidaNova)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.acumuladoHoje)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.acumuladoNovo)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.permutaNoPlanejamento)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{brl(p.caixaForaDaAtual)}</td>
                   </tr>
                 ))}
               </tbody>

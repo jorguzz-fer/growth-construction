@@ -60,6 +60,8 @@ export const TEXTO_ESTADO: Record<EstadoDoDesvio, string> = {
 
 export interface LinhaDoFluxo {
   mm: string;
+  /** Mês já fechado (antes do mês corrente) — só com a chave ligada. */
+  fechado: boolean;
   e: number;
   s: number;
   /** null em mês sem nenhum previsto (3.4: "—", não R$ 0). */
@@ -81,11 +83,21 @@ export function linhasDoFluxo(
   previsto: Mapas,
   realizado: Mapas,
   saldoInicial: number,
+  /**
+   * Prompt AD, 2.1 (chave ligada): mês FECHADO (antes de `mesAtual`) entra no
+   * acumulado pelo REALIZADO; o mês corrente e os futuros, pelo previsto.
+   * Sem `mesAtual`: tudo pelo previsto, como antes.
+   */
+  opts: { mesAtual?: string } = {},
 ): LinhaDoFluxo[] {
+  const corte = opts.mesAtual ? mesIdx(opts.mesAtual) : null;
   let acumulado = saldoInicial;
   const acum: Record<string, number> = {};
   for (const mm of eixo) {
-    acumulado += (previsto.entradas[mm] || 0) - (previsto.saidas[mm] || 0);
+    const fechado = corte != null && mesIdx(mm) < corte;
+    acumulado += fechado
+      ? (realizado.entradas[mm] || 0) - (realizado.saidas[mm] || 0)
+      : (previsto.entradas[mm] || 0) - (previsto.saidas[mm] || 0);
     acum[mm] = acumulado;
   }
   return meses.map((mm) => {
@@ -95,6 +107,7 @@ export function linhasDoFluxo(
     const realS = realizado.saidas[mm] || 0;
     return {
       mm,
+      fechado: corte != null && mesIdx(mm) < corte,
       e,
       s,
       liquido: e === 0 && s === 0 ? null : e - s,
@@ -126,4 +139,23 @@ export function totalDoDesvio(linhas: readonly LinhaDoFluxo[]): TotalDoDesvio {
     soPrevisto: linhas.filter((l) => l.desvio.estado === "so_previsto").length,
     soRealizado: linhas.filter((l) => l.desvio.estado === "so_realizado").length,
   };
+}
+
+/** "MM/YYYY" do mês corrente (fuso local do servidor). */
+export function mesCorrente(hoje: Date = new Date()): string {
+  return `${String(hoje.getMonth() + 1).padStart(2, "0")}/${hoje.getFullYear()}`;
+}
+
+/**
+ * BAD-1 (chave ligada), projeto único: o ponto de partida é o caixa REALIZADO
+ * da Atual antes do primeiro mês do eixo — o fluxo da obra, não o caixa da
+ * empresa. (Empresa toda continua pelo saldo das contas.)
+ */
+export function partidaDaObra(eixo: readonly string[], realizado: Mapas): number {
+  if (eixo.length === 0) return 0;
+  const inicio = mesIdx(eixo[0]);
+  let total = 0;
+  for (const [mm, v] of Object.entries(realizado.entradas)) if (mesIdx(mm) < inicio) total += v;
+  for (const [mm, v] of Object.entries(realizado.saidas)) if (mesIdx(mm) < inicio) total -= v;
+  return total;
 }
