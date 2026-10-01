@@ -1,4 +1,5 @@
 import { getTenantContext } from "@/lib/context";
+import { chaveLigada } from "@/lib/chaves-tenant";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
@@ -20,6 +21,8 @@ export default async function BudgetPage({
   const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "budget", "ver")) return <AccessDenied />;
+  // Prompt H (5.2): aviso na tela quando a regra está ligada na empresa.
+  const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
   const sp = await searchParams;
 
   // Inclui obras e matriz/filiais (office). Offices não têm cronograma → o
@@ -56,6 +59,7 @@ export default async function BudgetPage({
             kind="budget"
             projects={projects}
             canEdit={can(ctx.perms, "budget", "editar")}
+            rascunhoForaLigado={rascunhoFora}
           />
         </div>
         {data.hasPeriod && <AssistenteOrcamento usuario={ctx.userEmail ?? "anon"} tela="budget" analise={analise} />}

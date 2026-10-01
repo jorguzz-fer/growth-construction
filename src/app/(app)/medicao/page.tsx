@@ -53,7 +53,8 @@ export default async function MedicaoPage({
   const atualV = escolhido.trabalho;
 
   const [budgetLines, medicoes] = await Promise.all([
-    budgetV ? getBudgetLines(budgetV.id) : Promise.resolve([]),
+    // Prompt H: o orçado do relatório CEF respeita a situação da versão.
+    budgetV ? getBudgetLines(budgetV.id, { respeitarSituacao: true }) : Promise.resolve([]),
     getMedicoes(atualV.id),
   ]);
 

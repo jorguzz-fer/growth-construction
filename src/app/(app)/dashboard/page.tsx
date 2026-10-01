@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { totalPendente } from "@/lib/contas-pagar-regras";
 import { db, schema } from "@/lib/db";
 import { getTenantContext, type Version } from "@/lib/context";
+import { avisoNoSeletor } from "@/lib/situacao-versao";
+import { chaveLigada } from "@/lib/chaves-tenant";
 import { somarResumos, type Summary } from "@/lib/dashboard-resumo";
 import {
   TODOS_OS_PROJETOS,
@@ -94,6 +96,8 @@ export default async function DashboardPage({
   // A guarda do layout não basta: ele renderiza em paralelo com a página e
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "dashboard", "ver")) return <AccessDenied />;
+  // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
+  const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
 
   const sp = await searchParams;
   const de = sp.de ?? "";
@@ -241,7 +245,7 @@ export default async function DashboardPage({
             <DateRangeFilter de={de} ate={ate} />
             {project && (
               <VersionMultiSelect
-                versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color }))}
+                versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
                 selected={selected.map((v) => v.id)}
               />
             )}

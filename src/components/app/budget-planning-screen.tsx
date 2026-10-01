@@ -17,6 +17,7 @@ import {
 import type { BudgetPlanningData, PlanningAccountRow } from "@/lib/planning";
 import { recusaDaRemocao, resumoDaRemocao, textoDaRemocao } from "@/lib/orcamento-regras";
 import { avisoDeDivergencia, isoParaInterna, rotuloDaOrigem } from "@/lib/previsao-regras";
+import { avisoNaEdicao, efeitoDaTrocaDeSituacao } from "@/lib/situacao-versao";
 import { BudgetForecastCompare } from "@/components/app/budget-forecast-compare";
 import type { ForecastComparisonData } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +66,7 @@ export function BudgetPlanningScreen({
   budgetVersions = [],
   canCreateForecast = false,
   comparacao,
+  rascunhoForaLigado = false,
 }: {
   data: BudgetPlanningData;
   kind: "budget" | "forecast";
@@ -74,6 +76,8 @@ export function BudgetPlanningScreen({
   canCreateForecast?: boolean;
   /** Prompt F, FC-11: modo comparação dentro da moldura da tela (cabeçalho, seletores, barra). */
   comparacao?: ForecastComparisonData | null;
+  /** Prompt H: a chave "rascunho_fora_dos_relatorios" está ligada na empresa (5.2 / BH-4). */
+  rascunhoForaLigado?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -105,6 +109,7 @@ export function BudgetPlanningScreen({
           onProj={(id) => go({ proj: id, v: "" })}
           onVersion={(id) => go({ v: id })}
           canEdit={canEdit}
+          rascunhoForaLigado={rascunhoForaLigado}
         />
         <Card>
           <CardContent className="p-6 text-center">
@@ -138,6 +143,7 @@ export function BudgetPlanningScreen({
         onProj={(id) => go({ proj: id, v: "" })}
         onVersion={(id) => go({ v: id })}
         canEdit={canEdit}
+        rascunhoForaLigado={rascunhoForaLigado}
       />
       {kind === "forecast" && (
         <ForecastToolbar
@@ -324,6 +330,7 @@ function TopBar({
   onProj,
   onVersion,
   canEdit,
+  rascunhoForaLigado = false,
 }: {
   titulo: string;
   data: BudgetPlanningData;
@@ -331,6 +338,7 @@ function TopBar({
   onProj: (id: string) => void;
   onVersion: (id: string) => void;
   canEdit: boolean;
+  rascunhoForaLigado?: boolean;
 }) {
   const [pending, start] = useTransition();
   const version = data.versions.find((v) => v.id === data.versionId) ?? null;
@@ -425,7 +433,7 @@ function TopBar({
             }
             disabled={!canEdit || pending}
             className="h-9 w-auto"
-            title="Status da versão"
+            title={`Status da versão${efeitoDaTrocaDeSituacao(rascunhoForaLigado) ? `. ${efeitoDaTrocaDeSituacao(rascunhoForaLigado)}` : ""}`}
           >
             <option>Rascunho</option>
             <option>Concluído</option>
@@ -443,6 +451,12 @@ function TopBar({
       <p className="mb-4 text-[11px] text-[var(--color-ink3)]">
         Período definido no cadastro do projeto (somente leitura aqui).
       </p>
+      {version && avisoNaEdicao(version, rascunhoForaLigado) && (
+        // Prompt H, 5.2: versão não Aprovada — avisa se já está (ou passará a ficar) fora dos relatórios.
+        <p role="status" data-aviso-situacao className={`mb-4 rounded-[8px] px-3 py-2 text-[12px] ${rascunhoForaLigado ? "bg-[#fef3c7] text-[#92400e]" : "bg-[var(--color-surface2)] text-[var(--color-ink2)]"}`}>
+          {avisoNaEdicao(version, rascunhoForaLigado)}
+        </p>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Indicador titulo="Receitas" valor={receitas} tom="var(--color-accent2)" />
