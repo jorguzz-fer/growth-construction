@@ -144,7 +144,7 @@ describe.skipIf(!HAS_DB)("Despesas — integridade (Prompt I, §11 e §19)", asy
       expect(r.ok).toBe(false);
       expect((r as { error: string }).error).toMatch(/congelada/);
     }
-    await expect(importUnits([{ code: "U-1" }], projectId)).rejects.toThrow(/congelada/);
+    expect(await importUnits([{ code: "U-1" }], projectId)).toEqual({ ok: false, error: expect.stringMatching(/congelada/) });
     await lock(false);
     const [d] = await db.select().from(schema.despesas).where(eq(schema.despesas.id, id));
     expect(d.cancelado).toBe(false);

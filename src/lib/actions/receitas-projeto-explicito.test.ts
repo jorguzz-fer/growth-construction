@@ -74,30 +74,32 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
   const unidadesDe = (versionId: string) =>
     db.select().from(schema.units).where(eq(schema.units.versionId, versionId));
 
-  it("saveUnit grava na Atual da obra escolhida e volta para a lista dela", async () => {
-    await saveUnit(unidade(p.a2.id, "U-201"));
+  // Desde a PR J-2 as actions de unidade devolvem { ok, error } e não navegam:
+  // quem volta para a lista da obra é o formulário, com o resultado em mãos.
+  it("saveUnit grava na Atual da obra escolhida e devolve id e código", async () => {
+    const r = await saveUnit(unidade(p.a2.id, "U-201"));
+    expect(r).toEqual({ ok: true, id: expect.any(String), code: "U-201" });
     expect((await unidadesDe(v.a2.id)).map((u) => u.code)).toEqual(["U-201"]);
     expect(await unidadesDe(v.a1.id)).toHaveLength(0);
-    expect(redirects.at(-1)).toBe(`/unidades?proj=${p.a2.id}`);
   });
 
   it("saveUnit sem obra: recusa — na edição, não move a unidade", async () => {
-    await expect(saveUnit(unidade("", "U-X"))).rejects.toThrow(/Escolha o projeto/);
+    expect(await saveUnit(unidade("", "U-X"))).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     const [u] = await unidadesDe(v.a2.id);
-    await expect(saveUnit(unidade("", "U-201-editada", u.id))).rejects.toThrow(/Escolha o projeto/);
+    expect(await saveUnit(unidade("", "U-201-editada", u.id))).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
     const [depois] = await db.select().from(schema.units).where(eq(schema.units.id, u.id));
     expect(depois.versionId).toBe(v.a2.id);
     expect(depois.code).toBe("U-201");
   });
 
   it("saveUnit com obra de outra empresa: recusa", async () => {
-    await expect(saveUnit(unidade(p.b1.id, "U-B"))).rejects.toThrow(/sem versão Atual/);
+    expect(await saveUnit(unidade(p.b1.id, "U-B"))).toEqual({ ok: false, error: expect.stringMatching(/sem versão Atual/) });
     expect(await unidadesDe(v.b1.id)).toHaveLength(0);
   });
 
   it("importUnits exige a obra e grava nela", async () => {
-    await expect(importUnits([{ code: "I-1" }])).rejects.toThrow(/Escolha o projeto/);
-    expect(await importUnits([{ code: "I-1" }], p.a1.id)).toEqual({ inserted: 1 });
+    expect(await importUnits([{ code: "I-1" }])).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
+    expect(await importUnits([{ code: "I-1" }], p.a1.id)).toEqual({ ok: true, inseridas: 1 });
     expect((await unidadesDe(v.a1.id)).map((u) => u.code)).toEqual(["I-1"]);
   });
 

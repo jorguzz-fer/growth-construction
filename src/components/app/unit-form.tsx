@@ -91,9 +91,16 @@ export function UnitForm({
     };
     start(async () => {
       try {
-        await saveUnit(input);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao salvar.");
+        // 5.1 — a action devolve { ok, error }; a mensagem aparece aqui, e o
+        // sucesso fica visível na lista ("Unidade X salva").
+        const r = await saveUnit(input);
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        router.push(`/unidades?proj=${v.projetoId}&salva=${encodeURIComponent(r.code)}`);
+      } catch {
+        setError("Não foi possível salvar. Tente de novo.");
       }
     });
   }
@@ -114,9 +121,9 @@ export function UnitForm({
           setError(r.error);
           return;
         }
-        router.push(`/unidades?proj=${v.projetoId}`);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao excluir.");
+        router.push(`/unidades?proj=${v.projetoId}&excluida=${encodeURIComponent(v.code)}`);
+      } catch {
+        setError("Não foi possível excluir. Tente de novo.");
       }
     });
   }
