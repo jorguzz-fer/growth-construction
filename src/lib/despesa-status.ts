@@ -14,7 +14,11 @@ export function dataBRParaISO(d: string | null | undefined): string {
   return `${ano}-${m.padStart(2, "0")}-${dia.padStart(2, "0")}`;
 }
 
-/** Hoje no formato ISO, no fuso do navegador/servidor que chamou. */
+/**
+ * Hoje no formato ISO. Prompt R, 4.5 — a tela recebe este valor do SERVIDOR
+ * (prop), nunca o calcula no navegador: relógio ou fuso errado na máquina do
+ * usuário não pode mudar o conjunto de vencidas.
+ */
 export function hojeISO(agora: Date = new Date()): string {
   return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
 }
@@ -32,8 +36,11 @@ export function statusExibido(
   hoje: string = hojeISO(),
 ): string {
   if (d.cancelado) return STATUS_CANCELADA;
-  if (d.status === "Pago" || d.status === STATUS_CANCELADA || d.status === "Parcialmente paga") return d.status;
+  if (d.status === "Pago" || d.status === STATUS_CANCELADA) return d.status;
   const iso = dataBRParaISO(d.vencimento);
+  // Prompt R, 4.6 — parcialmente paga com vencimento passado está devendo o
+  // saldo: é vencida (critério único para exibição, filtro, ordenação e
+  // contadores). Vale nas duas telas que usam esta função.
   if (iso && iso < hoje) return STATUS_VENCIDA;
   return d.status || "Em aberto";
 }

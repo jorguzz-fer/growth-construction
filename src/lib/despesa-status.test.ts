@@ -17,7 +17,10 @@ describe("status exibido (Prompt I, §16)", () => {
   });
   it("pago, parcialmente paga e cancelada têm prioridade sobre a data", () => {
     expect(statusExibido({ status: "Pago", vencimento: "01/01/2020" }, HOJE)).toBe("Pago");
-    expect(statusExibido({ status: "Parcialmente paga", vencimento: "01/01/2020" }, HOJE)).toBe("Parcialmente paga");
+    // Prompt R, 4.6 — parcialmente paga com vencimento passado passou a ser
+    // "Vencida" (está devendo o saldo); antes ficava "Parcialmente paga".
+    expect(statusExibido({ status: "Parcialmente paga", vencimento: "01/01/2020" }, HOJE)).toBe("Vencida");
+    expect(statusExibido({ status: "Parcialmente paga", vencimento: "01/01/2099" }, HOJE)).toBe("Parcialmente paga");
     expect(statusExibido({ status: "Cancelada", vencimento: "01/01/2020" }, HOJE)).toBe("Cancelada");
     expect(statusExibido({ status: "A pagar", vencimento: "01/01/2020", cancelado: true }, HOJE)).toBe("Cancelada");
   });
@@ -34,5 +37,14 @@ describe("status exibido (Prompt I, §16)", () => {
     expect(tomDoStatus("Vencida")).toBe("danger");
     expect(tomDoStatus("Cancelada")).toBe("neutral");
     expect(tomDoStatus("A pagar")).toBe("warning");
+  });
+});
+
+describe("Prompt R, 4.6 — parcialmente paga com vencimento passado é vencida", () => {
+  it("vencimento passado → Vencida; futuro → Parcialmente paga; paga nunca vence", async () => {
+    const { statusExibido } = await import("./despesa-status");
+    expect(statusExibido({ status: "Parcialmente paga", vencimento: "01/10/2026" }, "2026-02-01")).toBe("Vencida");
+    expect(statusExibido({ status: "Parcialmente paga", vencimento: "03/10/2026" }, "2026-02-01")).toBe("Parcialmente paga");
+    expect(statusExibido({ status: "Pago", vencimento: "01/10/2026" }, "2026-02-01")).toBe("Pago");
   });
 });

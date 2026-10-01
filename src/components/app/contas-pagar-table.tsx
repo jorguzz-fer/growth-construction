@@ -10,7 +10,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
 import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
-import { dataBRParaISO as toISO, hojeISO as calcularHoje, statusExibido, tomDoStatus } from "@/lib/despesa-status";
+import { dataBRParaISO as toISO, statusExibido, STATUS_VENCIDA, tomDoStatus } from "@/lib/despesa-status";
 import { pendenteDaConta, totalPendente } from "@/lib/contas-pagar-regras";
 
 /**
@@ -26,11 +26,14 @@ function statusDaLinha(r: ContaPagarRow, hoje: string): string {
 export function ContasPagarTable({
   rows,
   canEditar = false,
+  hoje,
 }: {
   rows: ContaPagarRow[];
   canEditar?: boolean;
+  /** Prompt R, 4.5 — a data de hoje vem do servidor (ISO), não do navegador. */
+  hoje: string;
 }) {
-  const hojeISO = calcularHoje();
+  const hojeISO = hoje;
   const [fornecedor, setFornecedor] = useState("");
   const [cliente, setCliente] = useState("");
   const [projeto, setProjeto] = useState("");
@@ -132,6 +135,10 @@ export function ContasPagarTable({
   const obrigacoesFiltradas = filtered.filter((r) => r.origem === "obrigacao");
   const total = despesasFiltradas.reduce((a, r) => a + r.valor, 0);
   const totalPend = totalPendente(despesasFiltradas);
+  // Prompt R, 4.4 — quantas estão vencidas e quanto somam (mesmo status da
+  // lista: o contador confere com o filtro "Vencida").
+  const vencidas = despesasFiltradas.filter((r) => statusDaLinha(r, hojeISO) === STATUS_VENCIDA);
+  const totalVencido = totalPendente(vencidas);
   const totalRestituir = obrigacoesFiltradas.reduce((a, r) => a + r.valor, 0);
 
   const limpar = () => {
@@ -174,6 +181,17 @@ export function ContasPagarTable({
         </span>
         <span className="text-[var(--color-ink3)]">
           Pendente <strong className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">{brl0(totalPend)}</strong>
+        </span>
+        <span className="text-[var(--color-ink3)]" role="status" title="Contas com vencimento anterior a hoje (data do servidor) e saldo em aberto">
+          Vencidas{" "}
+          <strong className={`font-[family-name:var(--font-mono)] ${vencidas.length ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`}>
+            {vencidas.length}
+          </strong>
+          {vencidas.length > 0 && (
+            <>
+              {" "}· <strong className="font-[family-name:var(--font-mono)] text-[var(--color-danger)]">{brl0(totalVencido)}</strong>
+            </>
+          )}
         </span>
         {obrigacoesFiltradas.length > 0 && (
           <span
@@ -218,8 +236,11 @@ export function ContasPagarTable({
                 </tr>
               </THead>
               <tbody>
-                {visiveis.map((r) => (
-                  <TR key={r.id}>
+                {visiveis.map((r) => {
+                  const vencida = r.origem !== "obrigacao" && statusDaLinha(r, hojeISO) === STATUS_VENCIDA;
+                  return (
+                  // 4.3 — linha vencida com evidência discreta (borda à esquerda e fundo leve)
+                  <TR key={r.id} className={vencida ? "border-l-2 border-l-[var(--color-danger)] bg-[var(--color-danger)]/[0.04]" : undefined}>
                     <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
                       {r.fornecedorNome ?? "—"}
                     </TD>
@@ -265,7 +286,13 @@ export function ContasPagarTable({
                       ) : (
                         (() => {
                           const st = statusDaLinha(r, hojeISO);
-                          return <Badge tone={tomDoStatus(st)}>{st}</Badge>;
+                          // 4.3 — selo vermelho com ícone de alerta quando vencida
+                          return (
+                            <Badge tone={tomDoStatus(st)}>
+                              {st === STATUS_VENCIDA && <span aria-hidden className="mr-1">⚠</span>}
+                              {st}
+                            </Badge>
+                          );
                         })()
                       )}
                     </TD>
@@ -291,7 +318,8 @@ export function ContasPagarTable({
                       </TD>
                     )}
                   </TR>
-                ))}
+                  );
+                })}
                 {visiveis.length === 0 && (
                   <TR>
                     <TD colSpan={canEditar ? 13 : 12} className="py-8 text-center text-[var(--color-ink4)]">
