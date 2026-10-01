@@ -96,6 +96,7 @@ export const NAV_MENU: NavModule[] = [
       { href: "/despesas", label: "Despesas / Lançamentos" },
       { href: "/contaspagar", label: "Contas a Pagar" },
       { href: "/restituicoes", label: "Ressarcimentos" },
+      { href: "/cartoes", label: "Cartões de Crédito" },
       // Pagamento único quitando várias despesas — governado por Despesas.
       { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
       { href: "/fornecedores", label: "Fornecedores" },

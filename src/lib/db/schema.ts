@@ -660,6 +660,31 @@ export const despesas = pgTable("despesa", {
  * reconhecida 1× na DRE (competência); esta tabela registra a OBRIGAÇÃO da
  * empresa com quem desembolsou. A saída de caixa ocorre só nas restituições.
  */
+/**
+ * Cartão de crédito da empresa (Prompt U, seção 1). Cadastro próprio:
+ * bandeira, ciclo (dia de fechamento e de vencimento), limite, conta que
+ * debita a fatura e taxa de rotativo opcional (BU-3). Guarda SOMENTE os
+ * quatro últimos dígitos — não há coluna para o número completo.
+ */
+export const cartoesCredito = pgTable("cartao_credito", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  apelido: text("apelido").notNull(),
+  bandeira: text("bandeira"),
+  ultimos4: text("ultimos4"),
+  titular: text("titular"),
+  limite: numeric("limite", { precision: 15, scale: 2 }),
+  diaFechamento: integer("dia_fechamento").notNull(),
+  diaVencimento: integer("dia_vencimento").notNull(),
+  bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, { onDelete: "set null" }),
+  /** % ao mês; nula = sem taxa definida, a tela não projeta juro (BU-3). */
+  taxaRotativo: numeric("taxa_rotativo", { precision: 8, scale: 4 }),
+  ativo: boolean("ativo").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const despesaTerceiros = pgTable("despesa_terceiro", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id")

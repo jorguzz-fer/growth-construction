@@ -361,6 +361,45 @@ export async function getSocios(
     .map((r) => ({ id: r.id, nome: r.nome }));
 }
 
+/** Cartões de crédito do tenant, com a conta que debita a fatura (Prompt U, 1.3). */
+export interface CartaoView {
+  id: string;
+  apelido: string;
+  bandeira: string | null;
+  ultimos4: string | null;
+  titular: string | null;
+  limite: number | null;
+  diaFechamento: number;
+  diaVencimento: number;
+  bankAccountId: string | null;
+  contaNome: string | null;
+  taxaRotativo: number | null;
+  ativo: boolean;
+}
+
+export async function getCartoes(tenantId: string): Promise<CartaoView[]> {
+  const rows = await db
+    .select({ c: schema.cartoesCredito, banco: schema.bankAccounts.banco, cc: schema.bankAccounts.cc })
+    .from(schema.cartoesCredito)
+    .leftJoin(schema.bankAccounts, eq(schema.cartoesCredito.bankAccountId, schema.bankAccounts.id))
+    .where(eq(schema.cartoesCredito.tenantId, tenantId))
+    .orderBy(desc(schema.cartoesCredito.ativo), schema.cartoesCredito.apelido);
+  return rows.map(({ c, banco, cc }) => ({
+    id: c.id,
+    apelido: c.apelido,
+    bandeira: c.bandeira,
+    ultimos4: c.ultimos4,
+    titular: c.titular,
+    limite: c.limite == null ? null : Number(c.limite),
+    diaFechamento: c.diaFechamento,
+    diaVencimento: c.diaVencimento,
+    bankAccountId: c.bankAccountId,
+    contaNome: banco ? `${banco}${cc ? " · " + cc : ""}` : null,
+    taxaRotativo: c.taxaRotativo == null ? null : Number(c.taxaRotativo),
+    ativo: c.ativo,
+  }));
+}
+
 export async function getBankAccounts(
   tenantId: string,
 ): Promise<BankAccountRow[]> {
