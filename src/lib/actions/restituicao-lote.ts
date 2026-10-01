@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext, getWorkingVersion } from "@/lib/context";
@@ -173,6 +173,7 @@ export async function confirmarRestituicaoLote(
   }
   const versaoCaixa = await getWorkingVersion(ctx.tenant.id, input.projectId);
   if (!versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (versaoCaixa.locked) return { ok: false, error: "Versão congelada — restituição bloqueada." };
   const idem = input.idempotencyKey?.trim() || null;
   if (idem) {
     const [existente] = await db
@@ -208,12 +209,13 @@ export async function confirmarRestituicaoLote(
         .for("update");
 
       const despesaIds = obrigacoes.map((o) => o.despesaId);
+      // §23 — só os PEDs das obrigações em questão, não todas as despesas da empresa.
       const docs =
         despesaIds.length > 0
           ? await tx
               .select({ id: schema.despesas.id, numDoc: schema.despesas.numDoc, competencia: schema.despesas.competencia })
               .from(schema.despesas)
-              .where(eq(schema.despesas.tenantId, ctx.tenant.id))
+              .where(and(eq(schema.despesas.tenantId, ctx.tenant.id), inArray(schema.despesas.id, despesaIds)))
           : [];
       const docById = new Map(docs.map((d) => [d.id, d]));
 
@@ -509,7 +511,9 @@ export async function compensarSaldos(input: {
         impactoCaixa: 0,
       },
     });
+    // §27 — a compensação baixa a obrigação: Contas a Pagar também muda.
     revalidatePath("/restituicoes");
+    revalidatePath("/contaspagar");
     return { ok: true, compensacaoId: out.id, numDoc: out.numDoc, valor: out.valor };
   } catch (e) {
     return {

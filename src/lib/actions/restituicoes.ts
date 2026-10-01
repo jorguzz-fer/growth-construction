@@ -1,6 +1,7 @@
 "use server";
 
 import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { chaveDataBR } from "@/lib/db/ordem-data";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
@@ -198,6 +199,15 @@ export async function criarDespesaTerceiro(
           );
         if (Number(d.valor) <= 0)
           throw new Error("O lançamento tem valor zero — incompatível com uma restituição.");
+        // Obrigação com terceiro é fato realizado: só PED da versão Atual, não
+        // congelada (Prompt I, 11.7 e §20).
+        const [vd] = await tx
+          .select({ kind: schema.versions.kind, locked: schema.versions.locked })
+          .from(schema.versions)
+          .where(eq(schema.versions.id, d.versionId))
+          .limit(1);
+        if (vd?.kind !== "atual") throw new Error("O PED não está na versão Atual — obrigação só sobre o realizado.");
+        if (vd.locked) throw new Error("Versão congelada — o PED não pode receber obrigação.");
 
         // Uma obrigação ATIVA por despesa (§16). Se já existe, devolve a
         // existente para a tela abri-la, em vez de criar a segunda.
@@ -211,15 +221,18 @@ export async function criarDespesaTerceiro(
             ),
           )
           .limit(1);
-        if (jaTem) return { obrigacaoId: jaTem.id, jaExistia: true, despesaId: d.id };
+        if (jaTem) return { obrigacaoId: jaTem.id, jaExistia: true, despesaId: d.id, statusAnterior: d.status };
 
-        // Só a marcação de "pago por terceiro" muda no lançamento original.
-        // Valor, competência, vencimento, categoria, fornecedor e PED ficam
-        // exatamente como o usuário lançou.
-        if (!d.pagoPorTerceiro) {
+        // §20 — o fornecedor JÁ foi pago (pelo terceiro): a despesa não pode
+        // seguir "a pagar ao fornecedor" e, ao mesmo tempo, "a restituir ao
+        // terceiro" pelo mesmo valor. Marca pago por terceiro E status "Pago"
+        // (como no modo despesa nova). Valor, competência, vencimento,
+        // categoria, fornecedor e PED ficam exatamente como o usuário lançou;
+        // `pagoPorTerceiro` impede a despesa de contar como saída de caixa.
+        if (!d.pagoPorTerceiro || d.status !== "Pago") {
           await tx
             .update(schema.despesas)
-            .set({ pagoPorTerceiro: true })
+            .set({ pagoPorTerceiro: true, status: "Pago" })
             .where(eq(schema.despesas.id, d.id));
         }
         despesaAlvo = d;
@@ -276,7 +289,7 @@ export async function criarDespesaTerceiro(
         })
         .returning();
 
-      return { obrigacaoId: dt.id, jaExistia: false, despesaId: despesaAlvo.id };
+      return { obrigacaoId: dt.id, jaExistia: false, despesaId: despesaAlvo.id, statusAnterior: despesaId ? despesaAlvo.status : null };
     });
 
     if (!resultado.jaExistia) {
@@ -286,7 +299,7 @@ export async function criarDespesaTerceiro(
         action: "despesaTerceiro.create",
         entity: "despesa_terceiro",
         entityId: resultado.obrigacaoId,
-        meta: { despesaId: resultado.despesaId, vinculadoPorPed: !!despesaId },
+        meta: { despesaId: resultado.despesaId, vinculadoPorPed: !!despesaId, statusAnterior: resultado.statusAnterior ?? null },
       });
     }
     revalidatePath("/restituicoes");
@@ -319,6 +332,16 @@ export async function criarDespesaTerceiro(
     }
     return { ok: false, error: msg };
   }
+}
+
+/** §22 — o item do extrato existe e é desta empresa? */
+async function cashEntryDoTenant(tenantId: string, cashEntryId: string): Promise<boolean> {
+  const [c] = await db
+    .select({ id: schema.cashEntries.id })
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.id, cashEntryId), eq(schema.cashEntries.tenantId, tenantId)))
+    .limit(1);
+  return !!c;
 }
 
 export interface RestituicaoInput {
@@ -376,6 +399,11 @@ export async function registrarRestituicao(
     ? null
     : await getWorkingVersion(ctx.tenant.id, input.projectId);
   if (!input.cashEntryId && !versaoCaixa) return { ok: false, error: "Escolha o projeto." };
+  if (versaoCaixa?.locked) return { ok: false, error: "Versão congelada — restituição bloqueada." };
+  // §22 — id de extrato vindo do navegador só vale se for desta empresa.
+  if (input.cashEntryId && !(await cashEntryDoTenant(ctx.tenant.id, input.cashEntryId))) {
+    return { ok: false, error: "Lançamento do extrato não encontrado." };
+  }
   const idem = input.idempotencyKey?.trim() || null;
 
   if (idem) {
@@ -429,7 +457,7 @@ export async function registrarRestituicao(
         const [usado] = await tx
           .select({ id: schema.restituicoes.id })
           .from(schema.restituicoes)
-          .where(eq(schema.restituicoes.cashEntryId, input.cashEntryId))
+          .where(and(eq(schema.restituicoes.tenantId, ctx.tenant.id), eq(schema.restituicoes.cashEntryId, input.cashEntryId)))
           .limit(1);
         if (usado)
           throw new Error("Este lançamento do extrato já foi vinculado a outra restituição.");
@@ -466,7 +494,7 @@ export async function registrarRestituicao(
         await tx
           .update(schema.cashEntries)
           .set({ rec: true, cat: "restituicao" })
-          .where(eq(schema.cashEntries.id, input.cashEntryId));
+          .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)));
       } else {
         await tx.insert(schema.cashEntries).values({
           versionId: versaoCaixa!.id,
@@ -568,15 +596,32 @@ export async function cancelarRestituicao(
   const canceladaEm = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${String(hoje.getDate()).padStart(2, "0")}/${hoje.getFullYear()}`;
   // Estorno em UMA transação: o saldo da obrigação, a marcação da restituição e
   // a compensação de caixa não podem ficar meio aplicados.
+  let devolucoes: { id: string; valor: number }[] = [];
   await db.transaction(async (tx) => {
-    const restituido = Math.max(0, Number(dt.valorRestituido) - valor);
-    await tx
-      .update(schema.despesaTerceiros)
-      .set({
-        valorRestituido: String(restituido),
-        status: statusRestituicao(Number(dt.valorTotal), restituido),
-      })
-      .where(eq(schema.despesaTerceiros.id, dt.id));
+    // §23 — restituição em lote: desfaz cada abatimento na SUA obrigação, pelo
+    // que `restituicao_item` gravou (100 = A 30 + B 70 devolve 30 a A e 70 a
+    // B). Só a avulsa, sem itens, devolve o valor inteiro à obrigação âncora.
+    const itens = await tx
+      .select({ despesaTerceiroId: schema.restituicaoItens.despesaTerceiroId, valor: schema.restituicaoItens.valorAbatido })
+      .from(schema.restituicaoItens)
+      .where(and(eq(schema.restituicaoItens.tenantId, ctx.tenant.id), eq(schema.restituicaoItens.restituicaoId, rest.id)));
+    devolucoes = itens.length > 0 ? itens.map((i) => ({ id: i.despesaTerceiroId, valor: Number(i.valor) })) : [{ id: dt.id, valor }];
+    for (const dev of devolucoes) {
+      const [o] = await tx
+        .select()
+        .from(schema.despesaTerceiros)
+        .where(and(eq(schema.despesaTerceiros.id, dev.id), eq(schema.despesaTerceiros.tenantId, ctx.tenant.id)))
+        .for("update");
+      if (!o) throw new Error("Obrigação abatida não encontrada.");
+      const restituido = Math.max(0, Math.round((Number(o.valorRestituido) - dev.valor) * 100) / 100);
+      await tx
+        .update(schema.despesaTerceiros)
+        .set({
+          valorRestituido: String(restituido),
+          status: statusRestituicao(Number(o.valorTotal), restituido),
+        })
+        .where(eq(schema.despesaTerceiros.id, o.id));
+    }
     await tx
       .update(schema.restituicoes)
       .set({
@@ -614,7 +659,7 @@ export async function cancelarRestituicao(
         action: "restituicao.cancel",
         entity: "restituicao",
         entityId: rest.id,
-        meta: { despesaTerceiroId: dt.id, valor, motivo: motivo?.trim() || null, dataRestituicao: rest.dataRestituicao },
+        meta: { despesaTerceiroId: dt.id, valor, motivo: motivo?.trim() || null, dataRestituicao: rest.dataRestituicao, itens: devolucoes.length },
       },
       tx,
     );
@@ -963,7 +1008,7 @@ export async function getRestituicoesPendentesByVersion(
     .from(schema.despesaTerceiros)
     .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
     .where(eq(schema.despesas.versionId, versionId))
-    .orderBy(asc(schema.despesaTerceiros.dataPrevistaRestituicao));
+    .orderBy(asc(chaveDataBR(schema.despesaTerceiros.dataPrevistaRestituicao)), asc(schema.despesaTerceiros.id));
   const saidas: Record<string, number> = {};
   const despesaIds: string[] = [];
   for (const r of rows) {
