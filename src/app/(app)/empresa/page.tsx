@@ -3,6 +3,9 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { renameTenant, salvarDadosFiscais, uploadLogo } from "@/lib/actions/empresa";
+import { getUltimoTesteR2 } from "@/lib/queries";
+import { AJUDA_CAMPO, avisosComplementares, estadoDoSeloR2, rotuloDoSeloR2 } from "@/lib/empresa-regras";
+import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,10 @@ export default async function EmpresaPage() {
   const r2 = isR2Configured();
   const logoUrl =
     ctx.tenant.logoKey && r2 ? await readUrl(ctx.tenant.logoKey) : null;
+  // Prompt AH, 5.2 — o selo diz o que mede: variáveis presentes ≠ conexão
+  // provada. Verde só depois do round-trip real registrado pela rota.
+  const ultimoTeste = await getUltimoTesteR2(ctx.tenant.id);
+  const selo = rotuloDoSeloR2(estadoDoSeloR2(r2, ultimoTeste));
 
   const t = ctx.tenant;
   const ambiente = resolverAmbiente(t.fiscalAmbiente);
@@ -59,7 +66,12 @@ export default async function EmpresaPage() {
     email: t.emailFiscal,
   });
   const bloqueios = pendencias.filter((p) => p.severidade === "bloqueio");
-  const avisos = pendencias.filter((p) => p.severidade === "aviso");
+  // Prompt AH, Parte 4 — os dois avisos complementares vivem fora do
+  // checklist (9.4) e são concatenados aqui; `emitentePronto` não os vê.
+  const avisos = [
+    ...pendencias.filter((p) => p.severidade === "aviso"),
+    ...avisosComplementares({ codigoTributarioMunicipio: t.codigoTributarioMunicipio, municipio: t.municipio, codigoMunicipio: t.codigoMunicipio }),
+  ];
 
   return (
     <>
@@ -74,13 +86,14 @@ export default async function EmpresaPage() {
             <h2 className="text-sm font-semibold text-[var(--color-ink)]">
               Dados
             </h2>
-            <form action={renameTenant} className="space-y-3">
+            <FormComResultado action={renameTenant} sucesso="Nome salvo." aoConcluir="recarregar" className="space-y-3">
               <div>
-                <Label>Nome da empresa</Label>
+                <Label>Nome da empresa (razão social)</Label>
                 <Input name="name" defaultValue={ctx.tenant.name} disabled={!canEdit} />
+                <p className="mt-1 text-[11px] text-[var(--color-ink3)]">Vai no corpo da nota. Toda troca fica na Auditoria.</p>
               </div>
               {canEdit && <Button type="submit">Salvar nome</Button>}
-            </form>
+            </FormComResultado>
           </CardContent>
         </Card>
 
@@ -90,9 +103,15 @@ export default async function EmpresaPage() {
               <h2 className="text-sm font-semibold text-[var(--color-ink)]">
                 Logo
               </h2>
-              <Badge tone={r2 ? "success" : "neutral"}>
-                {r2 ? "R2 ativo" : "R2 não configurado"}
-              </Badge>
+              <span className="flex flex-wrap items-center gap-2" data-selo-r2>
+                <Badge tone={selo.tom}>{selo.texto}</Badge>
+                {ultimoTeste && (
+                  <span className="text-[11px] text-[var(--color-ink3)]">
+                    último teste real {ultimoTeste.ok ? "OK" : `falhou em "${ultimoTeste.etapa ?? "?"}"`} em {ultimoTeste.quando.toLocaleString("pt-BR")}
+                  </span>
+                )}
+                {r2 && !ultimoTeste && <span className="text-[11px] text-[var(--color-ink3)]">variáveis presentes; a conexão ainda não foi testada</span>}
+              </span>
             </div>
 
             {canEdit && <R2HealthCheck />}
@@ -115,7 +134,7 @@ export default async function EmpresaPage() {
             </div>
 
             {canEdit && r2 ? (
-              <form action={uploadLogo} className="flex items-center gap-2">
+              <FormComResultado action={uploadLogo} sucesso="Logo enviado." aoConcluir="recarregar" className="flex flex-wrap items-center gap-2">
                 <input
                   type="file"
                   name="logo"
@@ -126,7 +145,7 @@ export default async function EmpresaPage() {
                 <Button type="submit" size="sm">
                   Enviar
                 </Button>
-              </form>
+              </FormComResultado>
             ) : (
               <p className="text-xs text-[var(--color-ink3)]">
                 {r2
@@ -180,18 +199,18 @@ export default async function EmpresaPage() {
             </ul>
           )}
 
-          {!provedorPronto && (
-            <p className="text-xs text-[var(--color-ink3)]">
-              Defina <code>FOCUS_NFE_TOKEN</code> (ou a variante por ambiente) para
-              habilitar o envio ao provedor de emissão.
-            </p>
-          )}
+          <p className="text-xs text-[var(--color-ink3)]" data-texto-emissor>
+            {bloqueios.length === 0
+              ? "Cadastro sem pendência de bloqueio: a emissão de NFS-e passa a ser feita em Receitas › Notas Fiscais, com o provedor configurado pelo administrador do servidor."
+              : "Quando as pendências de bloqueio fecharem, a emissão de NFS-e passa a ser feita em Receitas › Notas Fiscais. O provedor de emissão é configurado pelo administrador do servidor, fora desta tela."}
+            {!provedorPronto && " Provedor ainda sem token neste ambiente."}
+          </p>
 
-          <form action={salvarDadosFiscais} className="space-y-4">
+          <FormComResultado action={salvarDadosFiscais} sucesso="Dados fiscais salvos." aoConcluir="recarregar" className="space-y-4">
             <fieldset disabled={!canEdit} className="space-y-4">
               <div className="grid gap-3 md:grid-cols-3">
                 <div>
-                  <Label>Nome fantasia</Label>
+                  <Label>Nome fantasia (opcional)</Label>
                   <Input name="nomeFantasia" defaultValue={t.nomeFantasia ?? ""} />
                 </div>
                 <div>
@@ -210,7 +229,7 @@ export default async function EmpresaPage() {
                   />
                 </div>
                 <div>
-                  <Label>Inscrição estadual</Label>
+                  <Label>Inscrição estadual (opcional)</Label>
                   <Input
                     name="inscricaoEstadual"
                     defaultValue={t.inscricaoEstadual ?? ""}
@@ -243,8 +262,8 @@ export default async function EmpresaPage() {
                   <Input
                     name="itemListaServico"
                     defaultValue={t.itemListaServico ?? ""}
-                    placeholder="7.02"
                   />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">{AJUDA_CAMPO.itemListaServico.ajuda}</p>
                 </div>
                 <div>
                   <Label>Código tributário do município</Label>
@@ -252,18 +271,21 @@ export default async function EmpresaPage() {
                     name="codigoTributarioMunicipio"
                     defaultValue={t.codigoTributarioMunicipio ?? ""}
                   />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">Vai no corpo da nota; alguns municípios exigem. Confira com a prefeitura.</p>
                 </div>
                 <div>
                   <Label>CNAE</Label>
-                  <Input name="cnae" defaultValue={t.cnae ?? ""} placeholder="4120400" />
+                  <Input name="cnae" defaultValue={t.cnae ?? ""} />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">{AJUDA_CAMPO.cnae.ajuda}</p>
                 </div>
                 <div>
                   <Label>Alíquota de ISS (%)</Label>
                   <Input
                     name="aliquotaIss"
                     defaultValue={t.aliquotaIss ?? ""}
-                    placeholder="3"
+                    placeholder={AJUDA_CAMPO.aliquotaIss.placeholder}
                   />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">{AJUDA_CAMPO.aliquotaIss.ajuda}</p>
                 </div>
                 <div>
                   <Label>Ambiente de emissão</Label>
@@ -284,7 +306,7 @@ export default async function EmpresaPage() {
                   <Input name="numeroEndereco" defaultValue={t.numeroEndereco ?? ""} />
                 </div>
                 <div>
-                  <Label>Complemento</Label>
+                  <Label>Complemento (opcional)</Label>
                   <Input name="complemento" defaultValue={t.complemento ?? ""} />
                 </div>
                 <div>
@@ -292,16 +314,18 @@ export default async function EmpresaPage() {
                   <Input name="bairro" defaultValue={t.bairro ?? ""} />
                 </div>
                 <div>
-                  <Label>Município</Label>
+                  <Label>Município (nome)</Label>
                   <Input name="municipio" defaultValue={t.municipio ?? ""} />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">A nota usa o código IBGE ao lado; o nome é para conferência.</p>
                 </div>
                 <div>
-                  <Label>Código IBGE (7 dígitos)</Label>
+                  <Label>Código IBGE do município</Label>
                   <Input
                     name="codigoMunicipio"
                     defaultValue={t.codigoMunicipio ?? ""}
-                    placeholder="3552502"
+                    placeholder={AJUDA_CAMPO.codigoMunicipio.placeholder}
                   />
+                  <p className="mt-1 text-[11px] text-[var(--color-ink3)]">{AJUDA_CAMPO.codigoMunicipio.ajuda}</p>
                 </div>
                 <div>
                   <Label>UF</Label>
@@ -312,7 +336,7 @@ export default async function EmpresaPage() {
                   <Input name="cep" defaultValue={t.cep ?? ""} />
                 </div>
                 <div>
-                  <Label>Telefone</Label>
+                  <Label>Telefone (opcional)</Label>
                   <Input name="telefone" defaultValue={t.telefone ?? ""} />
                 </div>
                 <div className="md:col-span-2">
@@ -333,7 +357,7 @@ export default async function EmpresaPage() {
                 Sem permissão para alterar os dados fiscais.
               </p>
             )}
-          </form>
+          </FormComResultado>
         </CardContent>
       </Card>
     </>
