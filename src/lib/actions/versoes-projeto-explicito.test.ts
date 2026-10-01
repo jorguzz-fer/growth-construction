@@ -1,5 +1,6 @@
+import { existsSync, globSync, readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 /**
  * Prompt A, PR 8 — ações de versão sem "projeto ativo": a obra sai da própria
@@ -21,8 +22,6 @@ describe.skipIf(!HAS_DB)("Versões com obra explícita", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
   const { getVersionContext } = await import("@/lib/context");
-  const versoes = await import("./versions");
-  const { updateVersion, setDefaultVersion, deleteVersion } = versoes;
   const tenants: string[] = [];
   let tA = "";
   const p: Record<string, typeof schema.projects.$inferSelect> = {};
@@ -34,8 +33,6 @@ describe.skipIf(!HAS_DB)("Versões com obra explícita", async () => {
       .values({ projectId: p[projeto].id, tenantId, key: kind, kind, label: `${projeto}-${kind}`, color: "#000", isDefault })
       .returning();
   }
-  const versoesDe = (projectId: string) =>
-    db.select().from(schema.versions).where(eq(schema.versions.projectId, projectId));
 
   beforeAll(async () => {
     const [a] = await db.insert(schema.tenants).values({ name: "ver-A" }).returning();
@@ -74,42 +71,20 @@ describe.skipIf(!HAS_DB)("Versões com obra explícita", async () => {
     expect(await getVersionContext(tA, "")).toBeNull();
   });
 
-  it("updateVersion edita versão de qualquer obra do tenant (antes: só da obra do cookie)", async () => {
-    await updateVersion(v.a2atual.id, { label: "Atual OBRA 2" });
-    const [x] = await db.select().from(schema.versions).where(eq(schema.versions.id, v.a2atual.id));
-    expect(x.label).toBe("Atual OBRA 2");
+  // Prompt AP: updateVersion, setDefaultVersion e deleteVersion saíram com a
+  // tela /versao (não há mais caminho de interface para renomear, marcar
+  // padrão ou excluir versão). A única escrita que ficou, a trava, tem o
+  // próprio teste de tenant em versao-trava.test.ts.
+  it("AP: as actions de versão saíram; a duplicação (BI-3) também não existe", () => {
+    expect(existsSync("src/lib/actions/versions.ts")).toBe(false);
+    const fontes = globSync("src/lib/actions/*.ts").filter((f) => !f.endsWith(".test.ts")).map((f) => readFileSync(f, "utf8")).join("\n");
+    for (const nome of ["duplicateVersion", "deleteVersion", "setDefaultVersion", "updateVersion"]) {
+      expect(fontes, nome).not.toMatch(new RegExp(`export async function ${nome}\\b`));
+    }
   });
 
-  it("updateVersion não alcança versão de outro tenant", async () => {
-    await updateVersion(v.b1atual.id, { label: "Invadida" });
+  it("nenhuma versão mudou de rótulo, padrão, trava ou tipo por estes testes", async () => {
     const [x] = await db.select().from(schema.versions).where(eq(schema.versions.id, v.b1atual.id));
-    expect(x.label).toBe("b1-atual");
-  });
-
-  it("setDefaultVersion mexe só nas versões da obra da versão", async () => {
-    await setDefaultVersion(v.a2atual.id);
-    const a2 = await versoesDe(p.a2.id);
-    expect(a2.find((x) => x.id === v.a2atual.id)?.isDefault).toBe(true);
-    expect(a2.find((x) => x.id === v.a2forecast.id)?.isDefault).toBe(false);
-    const [a1] = await versoesDe(p.a1.id);
-    expect(a1.isDefault).toBe(true); // outra obra: intacta
-    const [l] = await db
-      .select()
-      .from(schema.auditLog)
-      .where(and(eq(schema.auditLog.tenantId, tA), eq(schema.auditLog.action, "version.setDefault")));
-    expect(l.meta).toMatchObject({ projeto: "OBRA 2" });
-  });
-
-  it("BI-3: duplicateVersion não existe mais — nenhuma versão nasce por cópia", () => {
-    expect("duplicateVersion" in versoes).toBe(false);
-  });
-
-  it("deleteVersion: versão de outro tenant intacta", async () => {
-    const [custom] = await db
-      .insert(schema.versions)
-      .values({ projectId: p.b1.id, tenantId: tenants[1], key: "c", kind: "custom", label: "c", color: "#000" })
-      .returning();
-    await deleteVersion(custom.id);
-    expect(await db.select().from(schema.versions).where(eq(schema.versions.id, custom.id))).toHaveLength(1);
+    expect({ label: x.label, isDefault: x.isDefault, locked: x.locked, kind: x.kind }).toEqual({ label: "b1-atual", isDefault: true, locked: false, kind: "atual" });
   });
 });

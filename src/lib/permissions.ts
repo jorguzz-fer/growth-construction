@@ -103,7 +103,8 @@ export const SCREENS: Screen[] = [
   // Chaves de mudança por empresa (B4): ligar muda número ou acesso em
   // produção. Só owner e admin, qualquer que seja o override.
   { id: "chaves", label: "Chaves de mudança", modulo: "Config" },
-  { id: "versao", label: "Configuração da Versão", modulo: "Config" },
+  // Prompt AP: "versao" saiu (a tela virou redirecionamento para Projetos).
+  // A trava foi para `versaotrava`; a planilha, para a tela Projetos.
   { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
 ];
 

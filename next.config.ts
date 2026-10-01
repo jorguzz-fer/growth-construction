@@ -34,6 +34,12 @@ const nextConfig: NextConfig = {
       // Prompt AN, Parte 5: a Conferência mudou de endereço para ter id próprio
       // em SCREENS. Filtros na URL antiga seguem junto (query preservada).
       { source: "/diagnostico/categorias-invertidas", destination: "/conferencia", permanent: false },
+      // Prompt AP: os downloads da planilha mudaram de endereço (?v= segue junto);
+      // a tela em si vira aviso em Projetos. Os específicos vêm antes do genérico.
+      { source: "/versao/export", destination: "/projeto/planilha/exportar", permanent: false },
+      { source: "/versao/template", destination: "/projeto/planilha/modelo", permanent: false },
+      { source: "/versao", destination: "/projeto?de=versao", permanent: false },
+      { source: "/versao/:path*", destination: "/projeto?de=versao", permanent: false },
     ];
   },
   experimental: {

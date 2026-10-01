@@ -390,8 +390,18 @@ export const versions = pgTable(
     kind: versionKindEnum("kind").notNull(),
     label: text("label").notNull(),
     color: text("color").notNull(),
+    /**
+     * Prompt AP: deixou de ser escrita pela interface (setDefaultVersion saiu
+     * com /versao). Só nasce na criação do projeto. Continua LIDA: o contexto
+     * (depois da Atual) e o Orçamento do card Orçado x Realizado
+     * (dre-inputs.ts). Nenhum valor gravado foi alterado.
+     */
     isDefault: boolean("is_default").notNull().default(false),
-    /** congelada: bloqueia lançamentos/edições (ver Configuração da Versão). */
+    /**
+     * congelada: bloqueia lançamentos/edições. Prompt AP: escrita por
+     * `travarVersao` (permissão `versaotrava`), nas telas de Orçamentos,
+     * Previsão e Projetos — não mais em /versao.
+     */
     locked: boolean("locked").notNull().default(false),
     /** status do workflow da versão: "Rascunho" | "Concluído" | "Aprovado". */
     status: text("status").notNull().default("Rascunho"),

@@ -1,5 +1,6 @@
 import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { VersoesDoProjeto } from "@/components/app/versoes-do-projeto";
+import { avisoDeTelaRemovida } from "@/lib/telas-removidas";
 import { contarPontoDoProjeto, getClientes, getDocumentsByProjects } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
@@ -27,7 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function ProjetoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string }>;
+  searchParams: Promise<{ proj?: string; de?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -110,6 +111,11 @@ export default async function ProjetoPage({
         }
       />
 
+      {avisoDeTelaRemovida(sp.de) && (
+        <p role="status" className="mb-4 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-surface2)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+          {avisoDeTelaRemovida(sp.de)}
+        </p>
+      )}
       {idDesconhecido && (
         <p role="alert" className="mb-4 rounded-[10px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-2 text-[12.5px] text-[var(--color-ink)]">
           O projeto pedido na URL não existe nesta empresa. Mostrando todos os projetos.

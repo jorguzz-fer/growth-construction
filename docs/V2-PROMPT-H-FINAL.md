@@ -59,3 +59,12 @@ todas as empresas: nada mudou em produção até alguém ligar.
 Deploy sem efeito até ligar a chave. Antes de ligar: `/chaves` →
 conferir a lista → marcar "Conferi a prévia" → Ligar. Desligar volta ao
 comportamento anterior na hora.
+
+## Atualização — Prompt AP (01/10/2026)
+
+"Aprovar não trava a edição; trava é `version.locked`" continua valendo. O
+que mudou é **onde** se trava. A tela `/versao` saiu, e a trava passou para:
+- a barra de Orçamentos e de Previsão, para a versão aberta;
+- o cartão "Versões do projeto", na tela Projetos, para todas as versões.
+
+A permissão é a nova `versaotrava`, pelo padrão só owner e admin.

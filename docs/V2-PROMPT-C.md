@@ -198,3 +198,10 @@ formulário de convite igual ao da tela Usuários. Manter um segundo caminho de
 concessão de acesso, fora da trava de owner e admin da Gestão de Acessos,
 contrariava o Prompt AJ. A URL antiga redireciona para `/usuarios` com um
 aviso de uma linha. O que o contador vê agora se ajusta em Gestão de Acessos.
+
+## Atualização — Prompt AP (01/10/2026)
+
+A tela `/versao` **deixou de existir**. Ela nunca teve item de menu, e os
+itens 19 e C6 acima perdem o objeto. A URL antiga redireciona para Projetos
+com aviso. A trava e a planilha da versão Atual moram no cartão "Versões do
+projeto".
