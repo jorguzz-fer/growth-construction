@@ -60,6 +60,7 @@ export default async function BudgetPage({
             projects={projects}
             canEdit={can(ctx.perms, "budget", "editar")}
             rascunhoForaLigado={rascunhoFora}
+            podeTravar={can(ctx.perms, "versaotrava", "editar")}
           />
         </div>
         {data.hasPeriod && <AssistenteOrcamento usuario={ctx.userEmail ?? "anon"} tela="budget" analise={analise} />}

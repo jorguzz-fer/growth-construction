@@ -4,6 +4,7 @@ import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import * as XLSX from "xlsx";
+import { BotaoTrava } from "@/components/app/botao-trava";
 import { baixarXlsx } from "@/lib/download";
 import {
   saveBudgetPlanning,
@@ -67,6 +68,7 @@ export function BudgetPlanningScreen({
   canCreateForecast = false,
   comparacao,
   rascunhoForaLigado = false,
+  podeTravar = false,
 }: {
   data: BudgetPlanningData;
   kind: "budget" | "forecast";
@@ -78,6 +80,8 @@ export function BudgetPlanningScreen({
   comparacao?: ForecastComparisonData | null;
   /** Prompt H: a chave "rascunho_fora_dos_relatorios" está ligada na empresa (5.2 / BH-4). */
   rascunhoForaLigado?: boolean;
+  /** Prompt AP, BAP-2: pode travar/destravar a versão aberta (`versaotrava`). */
+  podeTravar?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -110,6 +114,7 @@ export function BudgetPlanningScreen({
           onVersion={(id) => go({ v: id })}
           canEdit={canEdit}
           rascunhoForaLigado={rascunhoForaLigado}
+          podeTravar={podeTravar}
         />
         <Card>
           <CardContent className="p-6 text-center">
@@ -144,6 +149,7 @@ export function BudgetPlanningScreen({
         onVersion={(id) => go({ v: id })}
         canEdit={canEdit}
         rascunhoForaLigado={rascunhoForaLigado}
+        podeTravar={podeTravar}
       />
       {kind === "forecast" && (
         <ForecastToolbar
@@ -331,6 +337,7 @@ function TopBar({
   onVersion,
   canEdit,
   rascunhoForaLigado = false,
+  podeTravar = false,
 }: {
   titulo: string;
   data: BudgetPlanningData;
@@ -339,6 +346,7 @@ function TopBar({
   onVersion: (id: string) => void;
   canEdit: boolean;
   rascunhoForaLigado?: boolean;
+  podeTravar?: boolean;
 }) {
   const [pending, start] = useTransition();
   const version = data.versions.find((v) => v.id === data.versionId) ?? null;
@@ -442,8 +450,9 @@ function TopBar({
         )}
         {version && (
           // BF-2: a situação é documental e não bloqueia; a trava é outra coisa.
-          <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-ink3)]" title="Rascunho → Concluído (revisão fechada pelo autor) → Aprovado. A situação não bloqueia a edição; a trava é feita em Configuração da Versão.">
+          <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-ink3)]" title="Rascunho → Concluído (revisão fechada pelo autor) → Aprovado. A situação não bloqueia a edição; a trava é o botão ao lado (quem tem a permissão de travar versão).">
             <Badge tone={version.locked ? "warning" : "neutral"}>{version.locked ? "travada" : "não travada"}</Badge>
+            {podeTravar && <BotaoTrava versionId={version.id} rotulo={version.label} locked={version.locked} />}
             situação não bloqueia a edição
           </span>
         )}

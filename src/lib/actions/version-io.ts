@@ -30,7 +30,8 @@ export type ResultadoImportacao = { ok: true; result: ImportResult } | { ok: fal
  */
 export async function importVersionData(formData: FormData): Promise<ResultadoImportacao> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "versao", "editar")) {
+  // Prompt AP, BAP-3: a importação mora na tela Projetos (`projeto:editar`).
+  if (!ctx || !can(ctx.perms, "projeto", "editar")) {
     return { ok: false, error: "Sem permissão para importar dados." };
   }
 
