@@ -24,6 +24,8 @@ import { db, schema } from "@/lib/db";
 import { BLOCOS_PENDENTES, STATUS_DE_UNIDADE, blocoAtencao, blocoExposicao, blocoVendas, temPlanoDePagamento } from "@/lib/resumo-blocos";
 import { ehVersaoAtual, pendenteDaConta } from "@/lib/contas-pagar-regras";
 import { estaVencida } from "@/lib/despesa-status";
+import { analisarResumo } from "@/lib/resumo-analise";
+import { AssistenteResumo } from "@/components/app/assistente-resumo";
 import { TEXTO_DA_BASE, indicadoresDoResumo, type IndicadorDoResumo } from "@/lib/resumo-tela";
 import { rotuloDaVersao } from "@/lib/dashboard-tela";
 import { brl0, dateBR, monthInRange, ymd } from "@/lib/utils";
@@ -221,6 +223,20 @@ export default async function ResumoPage({
       })
     : null;
 
+  // Prompt AE, Parte 5 — o assistente lê os números já montados acima.
+  const analise = analisarResumo({
+    obra: obra.name,
+    versao: `${rotuloDaVersao(version).titulo} “${version.label}”`,
+    definicaoNova: resumoNovo,
+    indicadores,
+    unidades: { total: unitRows.length, vendidas: totals.vend },
+    vendas: blocos?.vendas ?? null,
+    exposicao: blocos?.exposicao ?? null,
+    atencao: blocos?.atencao ?? null,
+    recorte: [obra.id, version.id, de, ate, resumoNovo ? "nova" : "hoje"].join("|"),
+    fmt: brl0,
+  });
+
   return (
     <>
       <PageHeader
@@ -236,6 +252,8 @@ export default async function ResumoPage({
       />
       <div className="mb-4">{versionSelect}</div>
 
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {aviso}
       {hasRange && (
         <Card className="mb-6">
@@ -359,6 +377,9 @@ export default async function ResumoPage({
         </div>
       </div>
       )}
+      </div>
+      <AssistenteResumo usuario={ctx.userId ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
