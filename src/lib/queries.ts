@@ -139,13 +139,35 @@ export async function getUnitWithProject(
   return row ? { ...row.u, projectId: row.projectId } : undefined;
 }
 
-/** Liberações de obra da versão — da empresa (Prompt O, 3.5: antes filtrava só a versão). */
-export async function getReembolsos(tenantId: string, versionId: string): Promise<ReembolsoRow[]> {
+/**
+ * Liberações de obra da versão — da empresa (Prompt O, 3.5: antes filtrava
+ * só a versão). Por padrão SEM as canceladas (4.4): é o que `reembursementsByMonth`,
+ * `calcTotals`, Projeção, Consolidado, Resumo, Caixa e exportação devem ler.
+ * A lista da tela pede `incluirCanceladas` para mantê-las legíveis.
+ */
+export async function getReembolsos(tenantId: string, versionId: string, opts: { incluirCanceladas?: boolean } = {}): Promise<ReembolsoRow[]> {
+  const cond = [eq(schema.reembolsos.tenantId, tenantId), eq(schema.reembolsos.versionId, versionId)];
+  if (!opts.incluirCanceladas) cond.push(eq(schema.reembolsos.cancelado, false));
   return db
     .select()
     .from(schema.reembolsos)
-    .where(and(eq(schema.reembolsos.tenantId, tenantId), eq(schema.reembolsos.versionId, versionId)))
+    .where(and(...cond))
     .orderBy(asc(chaveDataBR(schema.reembolsos.data)), asc(schema.reembolsos.id));
+}
+
+/** Uma liberação da empresa, com a obra e a trava da versão (para editar e cancelar). */
+export async function getReembolsoDoTenant(
+  tenantId: string,
+  id: string,
+): Promise<{ liberacao: ReembolsoRow; projectId: string; versionLabel: string; locked: boolean } | undefined> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return undefined;
+  const [row] = await db
+    .select({ r: schema.reembolsos, projectId: schema.versions.projectId, versionLabel: schema.versions.label, locked: schema.versions.locked })
+    .from(schema.reembolsos)
+    .innerJoin(schema.versions, eq(schema.reembolsos.versionId, schema.versions.id))
+    .where(and(eq(schema.reembolsos.id, id), eq(schema.reembolsos.tenantId, tenantId)))
+    .limit(1);
+  return row ? { liberacao: row.r, projectId: row.projectId, versionLabel: row.versionLabel, locked: !!row.locked } : undefined;
 }
 
 /**

@@ -351,6 +351,13 @@
       "when": 1787064452285,
       "tag": "0049_permuta_cancelamento_cliente_documento",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787064453285,
+      "tag": "0050_reembolso_cancelamento",
+      "breakpoints": true
     }
   ]
 }

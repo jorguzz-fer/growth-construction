@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addReembolso } from "@/lib/actions/receitas";
+import { addReembolso, updateReembolso } from "@/lib/actions/receitas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -16,18 +16,26 @@ import { DateField } from "@/components/ui/date-field";
  * a nota "entrada de caixa, não receita", e a mensagem da action — inteira —
  * no erro e no sucesso (3.2, 3-A.6). A validação de verdade é a do servidor.
  */
-export function LiberacaoForm({ projectId }: { projectId: string }) {
+export interface LiberacaoInicial {
+  id: string;
+  data: string | null;
+  origem: string | null;
+  valor: string | null;
+  obs: string | null;
+}
+
+export function LiberacaoForm({ projectId, initial }: { projectId: string; initial?: LiberacaoInicial }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
-  const [valor, setValor] = useState("");
+  const [valor, setValor] = useState(initial?.valor ?? "");
 
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     setAviso(null);
     start(async () => {
-      const r = await addReembolso(fd);
+      const r = initial ? await updateReembolso(fd) : await addReembolso(fd);
       if (!r.ok) {
         setAviso(r.error);
         return;
@@ -42,14 +50,15 @@ export function LiberacaoForm({ projectId }: { projectId: string }) {
         <form onSubmit={enviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Obra desta tela (Prompt A): a liberação vai para a versão de trabalho dela. */}
           <input type="hidden" name="projectId" value={projectId} />
+          {initial && <input type="hidden" name="id" value={initial.id} />}
           <div>
             <Label>Data *</Label>
-            <DateField name="data" required />
+            <DateField name="data" defaultValue={initial?.data ?? ""} required />
             <p className="mt-1 text-[11px] leading-snug text-[var(--color-ink3)]">Data em que o recurso entrou na conta. É a data que o Fluxo de Caixa usa.</p>
           </div>
           <div>
             <Label>Origem *</Label>
-            <Input name="origem" placeholder="Ex.: CEF · medição 03/2026" required />
+            <Input name="origem" defaultValue={initial?.origem ?? ""} placeholder="Ex.: CEF · medição 03/2026" required />
           </div>
           <div>
             <Label>Valor (R$) *</Label>
@@ -57,7 +66,7 @@ export function LiberacaoForm({ projectId }: { projectId: string }) {
           </div>
           <div>
             <Label>Observações</Label>
-            <Input name="obs" placeholder="" />
+            <Input name="obs" defaultValue={initial?.obs ?? ""} placeholder="" />
           </div>
           {aviso && (
             <p role="status" className="text-[13px] text-[var(--color-danger)] sm:col-span-2">
@@ -66,7 +75,7 @@ export function LiberacaoForm({ projectId }: { projectId: string }) {
           )}
           <div className="flex items-center gap-2 sm:col-span-2">
             <Button type="submit" disabled={pending}>
-              {pending ? "Gravando…" : "Salvar liberação"}
+              {pending ? "Gravando…" : initial ? "Salvar alterações" : "Salvar liberação"}
             </Button>
             <a href={`/reembolso?proj=${projectId}`} className={buttonVariants({ variant: "ghost" })}>
               Cancelar

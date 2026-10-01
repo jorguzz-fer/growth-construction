@@ -5,6 +5,8 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getReembolsos } from "@/lib/queries";
+import { LiberacaoActions } from "@/components/app/liberacao-actions";
+import { Badge } from "@/components/ui/badge";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -17,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function ReembolsoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string; salva?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; salva?: string; cancelada?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -35,9 +37,13 @@ export default async function ReembolsoPage({
     return <PedirProjeto titulo="Liberações de Obra" projetos={ctx.projects} oQue="ver as liberações de obra" />;
   }
   const { project, trabalho: version } = escolhido;
-  const rows = await getReembolsos(ctx.tenant.id, version.id);
-  const total = rows.reduce((a, r) => a + Number(r.valor ?? 0), 0);
+  // A lista mantém as canceladas legíveis (4.2); o total não as conta (4.4).
+  const rows = await getReembolsos(ctx.tenant.id, version.id, { incluirCanceladas: true });
+  const ativas = rows.filter((r) => !r.cancelado);
+  const total = ativas.reduce((a, r) => a + Number(r.valor ?? 0), 0);
   const canCriar = can(ctx.perms, "reembolso", "criar");
+  const canEditar = can(ctx.perms, "reembolso", "editar");
+  const canExcluir = can(ctx.perms, "reembolso", "excluir");
 
   return (
     <>
@@ -63,16 +69,16 @@ export default async function ReembolsoPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
-      {sp.salva && (
+      {(sp.salva || sp.cancelada) && (
         <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
-          Liberação lançada.
+          {sp.cancelada ? "Liberação cancelada. Ela continua na lista, fora dos totais." : "Liberação lançada."}
         </p>
       )}
 
       <p className="mb-4 text-sm text-[var(--color-ink3)]">
         Total:{" "}
         <strong className="text-[var(--color-success)]">{brl0(total)}</strong> ·{" "}
-        {rows.length} lançamento(s)
+        {ativas.length} lançamento(s){rows.length > ativas.length ? ` · ${rows.length - ativas.length} cancelada(s)` : ""}
       </p>
 
       {/* Prompt O, 2.1/2.2 — o aviso sobre SERIAL/SUMIFS e a coluna Serial
@@ -87,26 +93,37 @@ export default async function ReembolsoPage({
             <TH>Origem</TH>
             <TH className="text-right">Valor R$</TH>
             <TH>Observações</TH>
+            <TH className="text-right">Ações</TH>
           </tr>
         </THead>
         <tbody>
           {rows.length === 0 ? (
             <TR>
-              <TD colSpan={4} className="py-8 text-center text-[var(--color-ink4)]">
+              <TD colSpan={5} className="py-8 text-center text-[var(--color-ink4)]">
                 Nenhuma liberação lançada nesta versão.
               </TD>
             </TR>
           ) : (
             rows.map((r) => (
-              <TR key={r.id}>
+              <TR key={r.id} className={r.cancelado ? "text-[var(--color-ink4)] line-through" : undefined}>
                 <TD className="font-[family-name:var(--font-mono)]">
                   {dateBR(r.data)}
                 </TD>
-                <TD>{r.origem ?? "—"}</TD>
-                <TD className="text-right font-[family-name:var(--font-mono)] font-semibold text-[var(--color-success)]">
+                <TD>
+                  {r.origem ?? "—"}
+                  {r.cancelado && (
+                    <Badge tone="neutral" className="ml-2 no-underline" title={`Cancelada em ${dateBR(r.canceladoEm)} por ${r.canceladoPor ?? "—"}${r.motivoCancelamento ? `: ${r.motivoCancelamento}` : ""}`}>
+                      Cancelada
+                    </Badge>
+                  )}
+                </TD>
+                <TD className={`text-right font-[family-name:var(--font-mono)] font-semibold ${r.cancelado ? "" : "text-[var(--color-success)]"}`}>
                   {brl0(Number(r.valor ?? 0))}
                 </TD>
                 <TD>{r.obs || "—"}</TD>
+                <TD className="text-right">
+                  <LiberacaoActions id={r.id} rotulo={`de ${dateBR(r.data)} (${brl0(Number(r.valor ?? 0))})`} projectId={project.id} cancelada={r.cancelado} canEditar={canEditar} canExcluir={canExcluir} />
+                </TD>
               </TR>
             ))
           )}

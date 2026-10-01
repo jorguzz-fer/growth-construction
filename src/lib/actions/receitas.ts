@@ -15,7 +15,7 @@ import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { desc } from "drizzle-orm";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { prepararImportacaoDePermutas, type LinhaIgnoradaPermuta, type LinhaImportacaoPermuta } from "@/lib/permuta-inventario";
-import { getPermutaDoTenant } from "@/lib/queries";
+import { getPermutaDoTenant, getReembolsoDoTenant } from "@/lib/queries";
 import { and, eq } from "drizzle-orm";
 
 /**
@@ -86,6 +86,87 @@ export async function addReembolso(formData: FormData): Promise<ResultadoLiberac
   });
   for (const t of ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/consolidado", "/resumo"]) revalidatePath(t);
   return { ok: true, id: lib.id };
+}
+
+const TELAS_DA_LIBERACAO = ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/consolidado", "/resumo"];
+
+/**
+ * Edita uma liberação (Prompt O, 4.3): valor, data, origem e observações,
+ * enquanto não cancelada e com a versão destravada; mesma validação do
+ * lançamento; auditoria campo a campo (valor anterior × novo), sem linha
+ * quando nada mudou. O serial acompanha a data (continua indo à planilha).
+ */
+export async function updateReembolso(formData: FormData): Promise<ResultadoLiberacao> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "reembolso", "editar")) return { ok: false, error: "Sem permissão para editar liberações de obra." };
+  const id = texto(formData.get("id"));
+  if (!id) return { ok: false, error: "Liberação não informada." };
+  const alvo = await getReembolsoDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Liberação não encontrada." };
+  if (alvo.liberacao.cancelado) return { ok: false, error: "Liberação cancelada não pode ser editada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — edição bloqueada." };
+  const campos = { data: texto(formData.get("data")), origem: texto(formData.get("origem")), valor: texto(formData.get("valor")) };
+  const motivo = motivoDeRecusaDaLiberacao(campos);
+  if (motivo) return { ok: false, error: motivo };
+  const novo = {
+    data: campos.data,
+    origem: campos.origem,
+    valor: lerValorDaLiberacao(campos.valor).toFixed(2),
+    obs: texto(formData.get("obs")),
+    serial: excelSerial(campos.data),
+  };
+  const changes = diffAudit(alvo.liberacao as unknown as Record<string, unknown>, novo);
+  await db
+    .update(schema.reembolsos)
+    .set(novo)
+    .where(and(eq(schema.reembolsos.id, id), eq(schema.reembolsos.tenantId, ctx.tenant.id)));
+  if (houveMudanca(changes)) {
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "reembolso.update",
+      entity: "reembolso",
+      entityId: id,
+      meta: { changes },
+    });
+  }
+  for (const t of TELAS_DA_LIBERACAO) revalidatePath(t);
+  return { ok: true, id };
+}
+
+/**
+ * Cancelamento lógico (Prompt O, 4.2), no padrão da despesa: flag, data,
+ * autor e motivo. O registro permanece legível na lista; sai dos totais, do
+ * caixa e da projeção (4.4, pelo filtro de `getReembolsos`). Estorno, não
+ * exclusão — RG-09.
+ */
+export async function cancelarReembolso(id: string, motivo: string): Promise<ResultadoLiberacao> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "reembolso", "excluir")) return { ok: false, error: "Sem permissão para cancelar liberações de obra." };
+  const alvo = await getReembolsoDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Liberação não encontrada." };
+  if (alvo.liberacao.cancelado) return { ok: false, error: "Liberação já cancelada." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — cancelamento bloqueado." };
+  const razao = motivo?.trim();
+  if (!razao) return { ok: false, error: "Informe o motivo do cancelamento." };
+  const hoje = new Date();
+  const canceladoEm = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${String(hoje.getDate()).padStart(2, "0")}/${hoje.getFullYear()}`;
+  await db
+    .update(schema.reembolsos)
+    .set({ cancelado: true, canceladoEm, canceladoPor: ctx.userEmail || ctx.userId || null, motivoCancelamento: razao })
+    .where(and(eq(schema.reembolsos.id, id), eq(schema.reembolsos.tenantId, ctx.tenant.id)));
+  await logAudit({
+    tenantId: ctx.tenant.id,
+    userId: ctx.userId,
+    action: "reembolso.cancel",
+    entity: "reembolso",
+    entityId: id,
+    meta: { motivo: razao, valor: alvo.liberacao.valor, data: alvo.liberacao.data, origem: alvo.liberacao.origem },
+  });
+  for (const t of TELAS_DA_LIBERACAO) revalidatePath(t);
+  return { ok: true, id };
 }
 
 export type ResultadoPermuta = { ok: true; id: string } | { ok: false; error: string };

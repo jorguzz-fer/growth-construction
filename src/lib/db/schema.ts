@@ -502,6 +502,11 @@ export const reembolsos = pgTable("reembolso", {
   obs: text("obs"),
   serial: integer("serial"),
   status: text("status"),
+  /** Cancelamento lógico (Prompt O, 4.2): a liberação fica legível, sai dos totais, do caixa e da projeção. */
+  cancelado: boolean("cancelado").notNull().default(false),
+  canceladoEm: text("cancelado_em"),
+  canceladoPor: text("cancelado_por"),
+  motivoCancelamento: text("motivo_cancelamento"),
 });
 
 // ─────────────────── Fornecedores / contas / despesas ───────────────────
