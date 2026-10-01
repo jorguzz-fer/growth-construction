@@ -1748,6 +1748,44 @@ export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/**
+ * Prompt B, 13 — SÓ os documentos vinculados a projeto (`project_id`
+ * preenchido), da empresa. A tela de Projetos lia `getDocuments` inteiro e
+ * filtrava em memória; `getDocuments` fica como está para as outras telas.
+ */
+export async function getDocumentsByProjects(tenantId: string): Promise<DocumentRow[]> {
+  return db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), isNotNull(schema.documents.projectId)))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
+/**
+ * Prompt B, 37 — o que a exclusão física do projeto leva junto (em cascata
+ * pelas versões, ou direto por `project_id`). Só contagens; nada é alterado.
+ * Tenant em toda cláusula: o projeto de outro tenant devolve zeros.
+ */
+export async function getInventarioDoProjeto(tenantId: string, projectId: string): Promise<import("./projeto-regras").InventarioDoProjeto> {
+  const versoes = db
+    .select({ id: schema.versions.id })
+    .from(schema.versions)
+    .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, projectId)));
+  const n = async (q: Promise<{ n: number }[]>) => Number((await q)[0]?.n ?? 0);
+  const [unidades, despesas, lancamentosCaixa, medicoes, linhasOrcamento, versoesN, contasReceber, documentos, registrosDePonto] = await Promise.all([
+    n(db.select({ n: count() }).from(schema.units).where(and(eq(schema.units.tenantId, tenantId), inArray(schema.units.versionId, versoes)))),
+    n(db.select({ n: count() }).from(schema.despesas).where(and(eq(schema.despesas.tenantId, tenantId), inArray(schema.despesas.versionId, versoes)))),
+    n(db.select({ n: count() }).from(schema.cashEntries).where(and(eq(schema.cashEntries.tenantId, tenantId), inArray(schema.cashEntries.versionId, versoes)))),
+    n(db.select({ n: count() }).from(schema.medicoes).where(and(eq(schema.medicoes.tenantId, tenantId), inArray(schema.medicoes.versionId, versoes)))),
+    n(db.select({ n: count() }).from(schema.budgetLines).where(and(eq(schema.budgetLines.tenantId, tenantId), inArray(schema.budgetLines.versionId, versoes)))),
+    n(db.select({ n: count() }).from(schema.versions).where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, projectId)))),
+    n(db.select({ n: count() }).from(schema.contasReceber).where(and(eq(schema.contasReceber.tenantId, tenantId), eq(schema.contasReceber.projectId, projectId)))),
+    n(db.select({ n: count() }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.projectId, projectId)))),
+    n(db.select({ n: count() }).from(schema.timeEntries).where(and(eq(schema.timeEntries.tenantId, tenantId), eq(schema.timeEntries.projectId, projectId)))),
+  ]);
+  return { unidades, despesas, lancamentosCaixa, medicoes, contasReceber, documentos, linhasOrcamento, registrosDePonto, versoes: versoesN };
+}
+
 /** Prompt S, 7.1 — documentos das despesas em tela (mais recentes primeiro). */
 export async function getDocumentsByDespesaIds(tenantId: string, despesaIds: string[]): Promise<DocumentRow[]> {
   if (despesaIds.length === 0) return [];

@@ -435,6 +435,13 @@
       "when": 1791000000000,
       "tag": "0061_modulo_pessoas",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791050000000,
+      "tag": "0062_project_cep",
+      "breakpoints": true
     }
   ]
 }
