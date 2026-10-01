@@ -10,7 +10,9 @@ import {
 } from "@/lib/projeto-selecao";
 import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-aba";
 import { saldoDisponivel } from "@/lib/contas-saldo";
-import { flowMaps, flowMapsRealizado } from "@/lib/fluxo-caixa";
+import { flowMaps, flowMapsRealizado, ladosDoFluxo } from "@/lib/fluxo-caixa";
+import { analisarFluxo } from "@/lib/fluxo-analise";
+import { AssistenteFluxo } from "@/components/app/assistente-fluxo";
 import { TEXTO_ESTADO, eixoDoFluxo, linhasDoFluxo, mesCorrente, partidaDaObra, totalDoDesvio } from "@/lib/fluxo-tela";
 import {
   getBankAccounts,
@@ -288,6 +290,54 @@ export default async function FluxoCaixaPage({
   const totS = linhas.reduce((a, l) => a + l.s, 0);
   const saldoAcumFinal = linhas.length ? linhas[linhas.length - 1].saldo : saldoInicial;
 
+  // Prompt AD, Parte 4 — o assistente (somente leitura). Os projetos vêm do
+  // contexto do servidor (4.7.1); os números, das mesmas funções da tabela
+  // (4.2). O realizado que ele lê é SEMPRE o da Atual (4.6): com a chave
+  // desligada e outra versão em primeiro, a tabela lê outro — e ele avisa.
+  const projetosDoAssistente = project ? [project] : projetosConsolidados;
+  const realizadoDaTabelaEhAtual = isAll ? fluxoNovo : fluxoNovo || compareVersions[0]?.id === atualReal?.id;
+  let realizadoAtual: { entradas: Record<string, number>; saidas: Record<string, number> } | null = realizado;
+  let avisoDoRealizado: string | null = null;
+  if (!realizadoDaTabelaEhAtual) {
+    if (project) {
+      realizadoAtual = atualReal ? await flowMapsRealizado(atualReal.id) : null;
+      avisoDoRealizado = atualReal
+        ? `A tabela mostra o realizado de “${compareVersions[0].label}”; o assistente lê só o da Atual.`
+        : `${project.name} não tem versão Atual: não há caixa realizado para o assistente ler.`;
+    } else {
+      // Empresa toda, chave desligada: obra sem Atual entra na tabela com o
+      // caixa de outra versão; aqui fica fora.
+      const porProjeto = await Promise.all(
+        projetosConsolidados.map(async (p) => {
+          const atual = (await getVersionsDoProjeto(ctx.tenant.id, p.id)).find((v) => v.kind === "atual");
+          return atual ? flowMapsRealizado(atual.id) : null;
+        }),
+      );
+      const soma = { entradas: {} as Record<string, number>, saidas: {} as Record<string, number> };
+      for (const m of porProjeto) {
+        if (!m) continue;
+        for (const [mm, v] of Object.entries(m.entradas)) soma.entradas[mm] = (soma.entradas[mm] || 0) + v;
+        for (const [mm, v] of Object.entries(m.saidas)) soma.saidas[mm] = (soma.saidas[mm] || 0) + v;
+      }
+      realizadoAtual = soma;
+      const sem = porProjeto.filter((m) => !m).length;
+      if (sem) avisoDoRealizado = `${sem} obra(s) sem versão Atual ficam fora do realizado que o assistente lê.`;
+    }
+  }
+  const dataBR = (d: string) => (d ? d.split("-").reverse().join("/") : "");
+  const analise = analisarFluxo({
+    periodo: hasRange ? `${de ? `de ${dataBR(de)}` : "do início"} ${ate ? `a ${dataBR(ate)}` : "em diante"}` : String(selectedYear),
+    origemDoPeriodo: hasRange ? "intervalo de datas" : "ano escolhido",
+    meses: yearMonths,
+    lados: await ladosDoFluxo(ctx.tenant.id, projetosDoAssistente, fluxoNovo),
+    referencia: `o previsto de ${versoesTabela[0]?.label ?? "Atual"}`,
+    linhasDaTabela: realizadoAtual
+      ? linhasDoFluxo(axis, yearMonths, { entradas, saidas }, realizadoAtual, saldoInicial)
+      : [],
+    mesAtual: mesCorrente(),
+    avisoDoRealizado,
+  });
+
   return (
     <>
       <PageHeader
@@ -318,6 +368,8 @@ export default async function FluxoCaixaPage({
         </p>
       )}
 
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {versoesTabela.length > 1 ? (
         // Comparando versões: um cartão de saldo por versão, com a diferença
         // em relação à primeira (referência) — sem trocar de tela.
@@ -603,6 +655,9 @@ export default async function FluxoCaixaPage({
           previsto e {desvioTotal.soRealizado} só com realizado não entram na soma.
         </p>
       )}
+      </div>
+      <AssistenteFluxo usuario={ctx.userId ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
