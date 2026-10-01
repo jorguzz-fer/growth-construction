@@ -1786,6 +1786,15 @@ export async function getInventarioDoProjeto(tenantId: string, projectId: string
   return { unidades, despesas, lancamentosCaixa, medicoes, contasReceber, documentos, linhasOrcamento, registrosDePonto, versoes: versoesN };
 }
 
+/** Prompt B, 17 — registros de ponto da obra (aviso ao mudar coordenada). */
+export async function contarPontoDoProjeto(tenantId: string, projectId: string): Promise<number> {
+  const [r] = await db
+    .select({ n: count() })
+    .from(schema.timeEntries)
+    .where(and(eq(schema.timeEntries.tenantId, tenantId), eq(schema.timeEntries.projectId, projectId)));
+  return Number(r?.n ?? 0);
+}
+
 /** Prompt S, 7.1 — documentos das despesas em tela (mais recentes primeiro). */
 export async function getDocumentsByDespesaIds(tenantId: string, despesaIds: string[]): Promise<DocumentRow[]> {
   if (despesaIds.length === 0) return [];
