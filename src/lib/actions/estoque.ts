@@ -6,7 +6,10 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { avisoDaDespesa, avisoDeSaldo, movimentoInverso, numeroDoCampo, recusaDaExclusaoDoItem, recusaDoEstorno, recusaDoItem, recusaDoMovimento, valorDoMovimento } from "@/lib/estoque-regras";
+import { avisoDaDespesa, avisoDeSaldo, movimentoInverso, numeroDoCampo, recusaDaExclusaoDoItem, recusaDoEstorno, recusaDoItem, recusaDoMovimento, TIPOS_DOC_ESTOQUE, valorDoMovimento } from "@/lib/estoque-regras";
+import { desc } from "drizzle-orm";
+import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 
 /**
  * Estoque (Prompt Y). Controle FÍSICO: a saída não realoca custo (BY-1) —
@@ -222,4 +225,79 @@ export async function estornarMovimento(id: string, motivo: string): Promise<Res
   await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.mov.estorno", entity: "stock_movement", entityId: id, meta: { estornoId: row.id, motivo: motivo.trim(), tipo: m.tipo, quantidade: m.quantidade, custoUnit: m.custoUnit } });
   revalidatePath("/estoque");
   return { ok: true, id: row.id };
+}
+
+/* ───────────── 4-A — documentos do movimento ───────────── */
+
+export type ResultadoDocEstoque = { ok: true; added: number } | { ok: false; error: string };
+
+/**
+ * 4-A — anexa nota do fornecedor, romaneio, foto do recebimento ou requisição
+ * ao movimento. Versão POR TIPO dentro do movimento (4-A.7): anexar do mesmo
+ * tipo cria a versão seguinte e preserva a anterior; tipo diferente não herda.
+ * Várias imagens de uma vez (4-A.5). A nota fiscal já vive na despesa — aqui
+ * vai o recebimento (4-A.6).
+ */
+export async function addStockMovementDocs(formData: FormData): Promise<ResultadoDocEstoque> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, "estoque", "criar")) return { ok: false, error: "Sem permissão para anexar documentos ao movimento." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (R2) não configurado — defina as variáveis R2_*." };
+  const movimentoId = str(formData.get("movimentoId"));
+  if (!movimentoId) return { ok: false, error: "Movimento não informado." };
+  const [mov] = await db.select().from(schema.stockMovements).where(and(eq(schema.stockMovements.id, movimentoId), eq(schema.stockMovements.tenantId, ctx.tenant.id))).limit(1);
+  if (!mov) return { ok: false, error: "Movimento não encontrado." };
+  const tipo = str(formData.get("tipo")) ?? "";
+  if (!(TIPOS_DOC_ESTOQUE as readonly string[]).includes(tipo)) return { ok: false, error: "Escolha o tipo do documento." };
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) return { ok: false, error: "Selecione ao menos um arquivo." };
+  for (const f of files) if (f.size > LIMITE_UPLOAD_BYTES) return { ok: false, error: `"${f.name}" excede ${LIMITE_UPLOAD_MB} MB. Fotos são comprimidas no navegador; PDF grande precisa ser reduzido antes.` };
+  const [ultima] = await db
+    .select({ versao: schema.documents.versao })
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, ctx.tenant.id), eq(schema.documents.stockMovementId, mov.id), eq(schema.documents.tipo, tipo)))
+    .orderBy(desc(schema.documents.versao))
+    .limit(1);
+  let versao = ultima?.versao ?? 0;
+  const gravados: { filename: string; versao: number; storageKey: string }[] = [];
+  try {
+    for (const file of files) {
+      versao += 1;
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const key = `tenants/${ctx.tenant.id}/estoque/${mov.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`;
+      await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || "application/octet-stream");
+      await db.insert(schema.documents).values({
+        tenantId: ctx.tenant.id,
+        stockMovementId: mov.id,
+        projectId: mov.projectId,
+        storageKey: key,
+        filename: file.name,
+        contentType: file.type || null,
+        size: file.size,
+        tipo,
+        versao,
+        uploadedBy: ctx.userEmail || ctx.userId || null,
+      });
+      gravados.push({ filename: file.name, versao, storageKey: key });
+    }
+  } catch (e) {
+    console.error("[estoque] falha ao anexar documentos:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao enviar os arquivos." };
+  }
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.doc.upload", entity: "stock_movement", entityId: mov.id, meta: { tipo, arquivos: gravados } });
+  revalidatePath("/estoque");
+  return { ok: true, added: files.length };
+}
+
+/** 4-A.8 — remover desfaz o vínculo (a linha sai); o arquivo NÃO é apagado do storage. Auditoria com nome e chave. */
+export async function deleteStockMovementDoc(documentId: string): Promise<ResultadoEstoque> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, "estoque", "criar")) return { ok: false, error: "Sem permissão para remover documentos do movimento." };
+  const [doc] = await db.select().from(schema.documents).where(and(eq(schema.documents.id, documentId), eq(schema.documents.tenantId, ctx.tenant.id))).limit(1);
+  if (!doc || !doc.stockMovementId) return { ok: false, error: "Documento não encontrado." };
+  await db.delete(schema.documents).where(and(eq(schema.documents.id, doc.id), eq(schema.documents.tenantId, ctx.tenant.id)));
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.doc.unlink", entity: "stock_movement", entityId: doc.stockMovementId, meta: { documentId: doc.id, filename: doc.filename, storageKey: doc.storageKey, tipo: doc.tipo, versao: doc.versao } });
+  revalidatePath("/estoque");
+  return { ok: true, id: doc.id };
 }

@@ -12,6 +12,9 @@ export const ENTRADA_ORIGENS = ["Compra", "Permuta", "Devolução ao estoque", "
 export const SAIDA_MOTIVOS = ["Consumo na obra", "Perda / Quebra", "Devolução ao fornecedor", "Transferência entre obras", "Ajuste (inventário)"] as const;
 export const ORIGEM_ESTORNO = "Estorno";
 
+/** 4-A.4 — tipos de documento do movimento. A nota fiscal já vive na despesa; aqui vai o RECEBIMENTO. */
+export const TIPOS_DOC_ESTOQUE = ["Nota do fornecedor", "Romaneio ou canhoto de entrega", "Foto do recebimento", "Requisição de saída", "Outros"] as const;
+
 /**
  * Número vindo de campo de formulário: aceita "32.5" (input type=number),
  * "32,5" e "1.250,75" (digitado à brasileira). Vazio = 0; inválido = NaN.
