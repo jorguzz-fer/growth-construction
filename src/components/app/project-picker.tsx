@@ -15,6 +15,8 @@ import { gravarProjetoDaAba } from "./projeto-da-aba";
 export interface ProjectOpt {
   id: string;
   label: string;
+  /** Quando informado, obras e escritórios aparecem em grupos separados (Prompt B, 3). */
+  kind?: "proj" | "office";
 }
 
 /**
@@ -72,11 +74,32 @@ export function ProjectPicker({
         {(allOption || scopeOptions) && projects.length > 0 && (
           <option disabled value="__sep">──────────</option>
         )}
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.label}
-          </option>
-        ))}
+        {projects.some((p) => p.kind) ? (
+          <>
+            <optgroup label="Obras">
+              {projects.filter((p) => p.kind !== "office").map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </optgroup>
+            {projects.some((p) => p.kind === "office") && (
+              <optgroup label="Unidades / escritórios">
+                {projects.filter((p) => p.kind === "office").map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </>
+        ) : (
+          projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))
+        )}
       </Select>
     </div>
   );

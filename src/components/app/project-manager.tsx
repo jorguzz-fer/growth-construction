@@ -1,23 +1,32 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Building2, ChevronLeft, MoreHorizontal, Plus } from "lucide-react";
 import type { Project } from "@/lib/context";
-import {
-  createProject,
-  updateProject,
-  setProjectSituacao,
-} from "@/lib/actions/projects";
-import { ExcluirProjeto } from "@/components/app/excluir-projeto";
+import { createProject, updateProject, setProjectSituacao } from "@/lib/actions/projects";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
-import { brl } from "@/lib/utils";
+import { brl, dateBR } from "@/lib/utils";
 import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
+import { ExcluirProjeto } from "@/components/app/excluir-projeto";
 import { codigoMunicipioValido } from "@/lib/calc/emitente-fiscal";
 import { naturezaPorMunicipio } from "@/lib/calc/nfse";
+import {
+  avisoDeCoordenada,
+  avisoDeDuracao,
+  avisoDeFunding,
+  avisoDeMunicipio,
+  duracaoDerivada,
+  entradaFinanceira,
+  recusaDasDatas,
+  valorGlobal,
+} from "@/lib/projeto-regras";
 
 interface Perms {
   criar: boolean;
@@ -29,24 +38,47 @@ export interface ClienteOpt {
   nome: string;
 }
 
-type Status = "Em andamento" | "Planejamento";
+type Msg = { ok: boolean; texto: string } | null;
 
-/** Dropdown de Cliente: "próprio" (tenant) + clientes cadastrados. */
-function ClienteSelect({
-  clientes,
-  tenantName,
-  value,
-  onChange,
-  disabled,
-}: {
-  clientes: ClienteOpt[];
-  tenantName: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
+/* ─── blocos visuais (seção 33: cores suaves, nunca saturadas) ────────── */
+
+const BLOCO = {
+  neutro: "border-[var(--color-line)] bg-white",
+  receita: "border-[#a7f3d0] bg-[#f0fdf7]",
+  custo: "border-[#fecdd3] bg-[#fff5f6]",
+  estrutura: "border-[#bfdbfe] bg-[#f3f8ff]",
+  localizacao: "border-[var(--color-line)] bg-[var(--color-surface2)]",
+} as const;
+
+function Bloco({ tom, titulo, subtitulo, children, className = "" }: { tom: keyof typeof BLOCO; titulo: string; subtitulo?: string; children: ReactNode; className?: string }) {
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+    <section aria-label={titulo} className={`rounded-[10px] border p-3.5 ${BLOCO[tom]} ${className}`}>
+      <h3 className="font-[family-name:var(--font-mono)] text-[10.5px] uppercase tracking-wide text-[var(--color-ink)]">{titulo}</h3>
+      {subtitulo && <p className="mb-2.5 text-[11.5px] text-[var(--color-ink3)]">{subtitulo}</p>}
+      {!subtitulo && <div className="mb-2.5" />}
+      {children}
+    </section>
+  );
+}
+
+const Aviso = ({ texto, tom = "warning" }: { texto: string | null; tom?: "warning" | "danger" | "info" }) =>
+  texto ? (
+    <p role="note" className={`mt-1 text-[11.5px] ${tom === "danger" ? "text-[var(--color-danger)]" : tom === "info" ? "text-[var(--color-info)]" : "text-[#92400e]"}`}>
+      {texto}
+    </p>
+  ) : null;
+
+const Resultado = ({ msg }: { msg: Msg }) =>
+  msg ? (
+    <span role="status" className={`text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+      {msg.texto}
+    </span>
+  ) : null;
+
+/** Dropdown de Cliente: "próprio" (tenant) + clientes cadastrados (seção 32). */
+function ClienteSelect({ clientes, tenantName, value, onChange, disabled }: { clientes: ClienteOpt[]; tenantName: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label="Cliente">
       <option value="">Empreendimento próprio — {tenantName}</option>
       {clientes.map((c) => (
         <option key={c.id} value={c.id}>
@@ -57,6 +89,8 @@ function ClienteSelect({
   );
 }
 
+/* ─── tela ───────────────────────────────────────────────────────────── */
+
 export function ProjectManager({
   projects,
   perms,
@@ -66,6 +100,8 @@ export function ProjectManager({
   r2Configured = false,
   selecionadoId = "all",
   tenantCodigoMunicipio = null,
+  registrosDePonto = 0,
+  orcadoRealizado,
 }: {
   projects: Project[];
   perms: Perms;
@@ -73,205 +109,166 @@ export function ProjectManager({
   tenantName: string;
   docsByProject?: Record<string, ProjetoDoc[]>;
   r2Configured?: boolean;
-  /** id vindo do seletor do topo; "all" lista todos (comportamento original). */
+  /** id vindo do seletor do topo; "all" lista todos. */
   selecionadoId?: string;
-  /**
-   * Código IBGE do município da EMPRESA (Config › Empresa). Serve só para a
-   * tela dizer se a obra tributa dentro ou fora do município da sede — a nota
-   * em si recalcula isso no servidor.
-   */
+  /** Código IBGE do município da EMPRESA (Config › Empresa), para dizer onde o ISS incide. */
   tenantCodigoMunicipio?: string | null;
+  /** Registros de ponto do projeto selecionado (aviso ao mudar coordenada, seção 17). */
+  registrosDePonto?: number;
+  /** Card Orçado x Realizado do projeto selecionado (seção 19), montado no servidor. */
+  orcadoRealizado?: ReactNode;
 }) {
   const umSo = selecionadoId !== "all";
+  const [busca, setBusca] = useState("");
+  const [novo, setNovo] = useState<"proj" | "office" | null>(null);
+  const nomeDoCliente = useMemo(() => new Map(clientes.map((c) => [c.id, c.nome])), [clientes]);
+
   // O seletor filtra o que é EXIBIDO. `projects` continua completo, então a
-  // trava de exclusão (não deixar o tenant sem nenhum projeto) segue olhando o
-  // total real, e não o que está na tela.
-  const visiveis = umSo ? projects.filter((p) => p.id === selecionadoId) : projects;
+  // trava de exclusão (não deixar a empresa sem projeto) olha o total real.
+  const q = busca.trim().toLowerCase();
+  const casa = (p: Project) => !q || p.name.toLowerCase().includes(q) || (p.clienteId ? (nomeDoCliente.get(p.clienteId) ?? "").toLowerCase().includes(q) : "próprio".includes(q));
+  const visiveis = umSo ? projects.filter((p) => p.id === selecionadoId) : projects.filter(casa);
   const empreendimentos = visiveis.filter((p) => p.kind !== "office");
   const escritorios = visiveis.filter((p) => p.kind === "office");
   const canDelete = perms.excluir && projects.length > 1;
+  const comum = { canDelete, canEdit: perms.editar, clientes, tenantName, nomeDoCliente, r2: r2Configured, tenantCodigoMunicipio };
 
   return (
-    <div className="space-y-8">
-      {/* Projetos — empreendimentos imobiliários */}
-      {(!umSo || empreendimentos.length > 0) && (
-      <section className="space-y-3">
-        <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
-          Projetos — empreendimentos imobiliários
-        </h2>
-        {/* Com um projeto escolhido, o formulário de cadastro só atrapalha:
-            quem selecionou uma obra veio olhar aquela obra. Ele volta ao
-            escolher "Todos" no seletor. */}
-        {perms.criar && !umSo && (
-          <NewProjectForm clientes={clientes} tenantName={tenantName} />
-        )}
-        {empreendimentos.map((p) => (
-          <ProjectRow
-            key={p.id}
-            project={p}
-            canDelete={canDelete}
-            canEdit={perms.editar}
-            clientes={clientes}
-            tenantName={tenantName}
-            docs={docsByProject[p.id] ?? []}
-            r2={r2Configured}
-            tenantCodigoMunicipio={tenantCodigoMunicipio}
-          />
-        ))}
-      </section>
+    <div className="space-y-6">
+      {umSo ? (
+        <Link href="/projeto?proj=all" className="inline-flex items-center gap-1 text-[12.5px] text-[var(--color-accent2)] hover:underline">
+          <ChevronLeft size={14} aria-hidden /> Projetos
+        </Link>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar obra por nome ou cliente…" aria-label="Buscar projeto" className="max-w-xs" />
+          {perms.criar && (
+            <>
+              <Button size="sm" variant={novo === "proj" ? "default" : "outline"} onClick={() => setNovo(novo === "proj" ? null : "proj")}>
+                <Plus size={14} aria-hidden /> Novo projeto
+              </Button>
+              <Button size="sm" variant={novo === "office" ? "default" : "outline"} onClick={() => setNovo(novo === "office" ? null : "office")}>
+                <Plus size={14} aria-hidden /> Nova unidade / escritório
+              </Button>
+            </>
+          )}
+          <span className="ml-auto text-[12px] text-[var(--color-ink3)]">
+            {empreendimentos.length} obra(s) · {escritorios.length} unidade(s)
+          </span>
+        </div>
       )}
 
-      {/* Unidades / escritórios — centros de custo */}
+      {novo === "proj" && !umSo && perms.criar && <NewProjectForm clientes={clientes} tenantName={tenantName} onFechar={() => setNovo(null)} />}
+      {novo === "office" && !umSo && perms.criar && <NewOfficeForm onFechar={() => setNovo(null)} />}
+
+      {(!umSo || empreendimentos.length > 0) && (
+        <section className="space-y-3" aria-label="Projetos — empreendimentos imobiliários">
+          {!umSo && (
+            <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">Projetos — empreendimentos imobiliários</h2>
+          )}
+          {empreendimentos.map((p) => (
+            <ProjectCard key={p.id} project={p} detalhado={umSo} docs={docsByProject[p.id] ?? []} registrosDePonto={umSo ? registrosDePonto : 0} orcadoRealizado={umSo ? orcadoRealizado : undefined} {...comum} />
+          ))}
+          {!umSo && empreendimentos.length === 0 && <p className="text-[12px] text-[var(--color-ink4)]">{q ? "Nenhuma obra com esse nome ou cliente." : "Nenhum projeto cadastrado ainda."}</p>}
+        </section>
+      )}
+
       {(!umSo || escritorios.length > 0) && (
-      <section className="space-y-3">
-        <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
-          Unidades / Escritórios — centros de custo
-        </h2>
-        {!umSo && (
-          <p className="text-[12px] text-[var(--color-ink3)]">
-            Matriz e filiais: contas corporativas não vinculadas a um
-            empreendimento específico (despesas administrativas, overhead).
-          </p>
-        )}
-        {perms.criar && !umSo && <NewOfficeForm />}
-        {escritorios.map((p) => (
-          <OfficeRow
-            key={p.id}
-            project={p}
-            canDelete={canDelete}
-            canEdit={perms.editar}
-          />
-        ))}
-        {escritorios.length === 0 && (
-          <p className="text-[12px] text-[var(--color-ink4)]">
-            Nenhuma unidade/escritório cadastrado ainda.
-          </p>
-        )}
-      </section>
+        <section className="space-y-3" aria-label="Unidades / Escritórios — centros de custo">
+          {!umSo && (
+            <>
+              <h2 className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">Unidades / Escritórios — centros de custo</h2>
+              <p className="text-[12px] text-[var(--color-ink3)]">Matriz e filiais: contas corporativas não vinculadas a um empreendimento específico (despesas administrativas, overhead).</p>
+            </>
+          )}
+          {escritorios.map((p) => (
+            <OfficeCard key={p.id} project={p} detalhado={umSo} canDelete={canDelete} canEdit={perms.editar} />
+          ))}
+          {!umSo && escritorios.length === 0 && <p className="text-[12px] text-[var(--color-ink4)]">{q ? "Nenhuma unidade com esse nome." : "Nenhuma unidade/escritório cadastrado ainda."}</p>}
+        </section>
       )}
     </div>
   );
 }
 
-function NewProjectForm({
-  clientes,
-  tenantName,
-}: {
-  clientes: ClienteOpt[];
-  tenantName: string;
-}) {
+/* ─── criação (seção 30) ─────────────────────────────────────────────── */
+
+function NewProjectForm({ clientes, tenantName, onFechar }: { clientes: ClienteOpt[]; tenantName: string; onFechar: () => void }) {
+  const router = useRouter();
   const [name, setName] = useState("");
-  const [duration, setDuration] = useState("");
-  const [status, setStatus] = useState<Status>("Planejamento");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
+  const janela = duracaoDerivada(startDate, endDate);
+  const recusa = recusaDasDatas(startDate, endDate);
 
   const submit = () => {
     const clean = name.trim();
     if (!clean) return;
-    const months = duration.trim() ? Number(duration) : null;
     start(async () => {
-      const r = await createProject(clean, months, {
-        kind: "proj",
-        status,
-        startDate,
-        endDate,
-        clienteId,
-      });
+      // Duração não é mais digitada: deriva das datas (seção 9). Fase nasce
+      // "Planejamento" (enum antigo, preservado) e a situação nasce Ativo.
+      const r = await createProject(clean, null, { kind: "proj", startDate, endDate, clienteId });
       if (!r.ok) {
         setMsg({ ok: false, texto: r.error });
         return;
       }
       setMsg({ ok: true, texto: `"${clean}" criado.` });
       setName("");
-      setDuration("");
-      setStatus("Planejamento");
       setStartDate("");
       setEndDate("");
       setClienteId("");
+      // Ação local: abre o recém-criado (não grava projeto ativo, seção 30).
+      if (r.id) router.push(`/projeto?proj=${r.id}`);
     });
   };
 
   return (
     <Card>
-      <CardContent className="p-5">
-        <h3 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-          Novo projeto
-        </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--color-ink)]">Novo projeto</h3>
+          <button type="button" onClick={onFechar} className="text-[12px] text-[var(--color-ink3)] hover:underline">fechar</button>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div className="sm:col-span-2">
             <Label>Nome da obra</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex.: Bloco A — RMV"
-              disabled={pending}
-            />
-          </div>
-          <div>
-            <Label>Duração (meses)</Label>
-            <Input
-              type="number"
-              min={1}
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              placeholder="Ex.: 24"
-              disabled={pending}
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Bloco A — RMV" disabled={pending} aria-label="Nome da obra" />
           </div>
           <div>
             <Label>Data de início</Label>
-            <DateField value={startDate} onChange={setStartDate} />
+            <DateField value={startDate} onChange={setStartDate} disabled={pending} />
           </div>
           <div>
             <Label>Data de fim</Label>
-            <DateField value={endDate} onChange={setEndDate} />
+            <DateField value={endDate} onChange={setEndDate} disabled={pending} />
           </div>
-          <p className="sm:col-span-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-            A Data de início e a Data de fim definem as colunas mensais do Budget e
-            do Forecast deste projeto.
-          </p>
-          <div>
-            {/* Fase da obra (campo antigo). O status Ativo/Finalizado nasce Ativo. */}
-            <Label>Fase da obra</Label>
-            <Select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as Status)}
-              disabled={pending}
-            >
-              <option value="Planejamento">Planejamento</option>
-              <option value="Em andamento">Em andamento</option>
-            </Select>
-          </div>
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-3">
             <Label>Cliente</Label>
-            <ClienteSelect
-              clientes={clientes}
-              tenantName={tenantName}
-              value={clienteId}
-              onChange={setClienteId}
-              disabled={pending}
-            />
+            <ClienteSelect clientes={clientes} tenantName={tenantName} value={clienteId} onChange={setClienteId} disabled={pending} />
           </div>
           <div className="flex items-end">
-            <Button onClick={submit} disabled={pending || !name.trim()} className="w-full">
+            <Button onClick={submit} disabled={pending || !name.trim() || !!recusa} className="w-full">
               Adicionar
             </Button>
           </div>
         </div>
-        {msg && <p role="status" className={`mt-2 text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</p>}
+        <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
+          Duração: {janela != null ? `${janela} competência(s) entre as datas` : "informe início e fim para ter a janela do projeto"}.
+        </p>
+        <Aviso texto={recusa} tom="danger" />
+        <div className="mt-1"><Resultado msg={msg} /></div>
       </CardContent>
     </Card>
   );
 }
 
-function NewOfficeForm() {
+function NewOfficeForm({ onFechar }: { onFechar: () => void }) {
   const [name, setName] = useState("");
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
 
   const submit = () => {
     const clean = name.trim();
@@ -289,518 +286,453 @@ function NewOfficeForm() {
 
   return (
     <Card>
-      <CardContent className="p-5">
-        <h3 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">
-          Nova unidade / escritório
-        </h3>
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--color-ink)]">Nova unidade / escritório</h3>
+          <button type="button" onClick={onFechar} className="text-[12px] text-[var(--color-ink3)] hover:underline">fechar</button>
+        </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
             <Label>Nome</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex.: Escritório Central / Filial SP"
-              disabled={pending}
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Escritório Central / Filial SP" disabled={pending} aria-label="Nome da unidade" />
           </div>
           <Button onClick={submit} disabled={pending || !name.trim()}>
             Adicionar
           </Button>
         </div>
-        {msg && <p role="status" className={`mt-2 text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</p>}
+        <div className="mt-2"><Resultado msg={msg} /></div>
       </CardContent>
     </Card>
   );
+}
+
+/* ─── situação (seção 5) ─────────────────────────────────────────────── */
+
+function BadgeSituacao({ situacao }: { situacao: "Ativo" | "Finalizado" | null | undefined }) {
+  if (situacao === "Ativo") return <Badge tone="success">Ativo</Badge>;
+  if (situacao === "Finalizado") return <Badge tone="neutral">Finalizado</Badge>;
+  return <Badge tone="neutral" title="Projeto ainda não classificado como Ativo ou Finalizado">—</Badge>;
 }
 
 /**
  * Situação Ativo / Finalizado (Prompt A, 23). Grava na hora, só esse campo —
- * independente do Salvar do formulário. "—" = ainda não classificado (projetos
- * anteriores à mudança); o selo não representa seleção.
+ * independente do Salvar do formulário. "—" = ainda não classificado; o selo
+ * não representa seleção.
  */
-function SituacaoControl({
-  projectId,
-  situacao,
-  canEdit,
-}: {
-  projectId: string;
-  situacao: "Ativo" | "Finalizado" | null;
-  canEdit: boolean;
-}) {
+function SituacaoControl({ projectId, situacao, canEdit }: { projectId: string; situacao: "Ativo" | "Finalizado" | null; canEdit: boolean }) {
   const [valor, setValor] = useState(situacao);
   const [pending, start] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
+  if (!canEdit) return <div className="flex h-9 items-center"><BadgeSituacao situacao={valor} /></div>;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {valor === "Ativo" ? (
-        <Badge tone="success">Ativo</Badge>
-      ) : valor === "Finalizado" ? (
-        <Badge tone="neutral">Finalizado</Badge>
-      ) : (
-        <Badge tone="neutral">sem status</Badge>
-      )}
-      {canEdit && (
-        <Select
-          value={valor ?? ""}
-          disabled={pending}
-          aria-label="Status do projeto"
-          onChange={(e) => {
-            const novo = e.target.value as "Ativo" | "Finalizado";
-            if (!novo) return;
-            const antes = valor;
-            setValor(novo);
-            setErro(null);
-            start(async () => {
-              const r = await setProjectSituacao(projectId, novo);
-              if (!r.ok) {
-                setValor(antes);
-                setErro(r.error ?? "Falhou.");
-              }
-            });
-          }}
-          className="h-8 w-auto text-xs"
-        >
-          {valor == null && <option value="">— classificar —</option>}
-          <option value="Ativo">Ativo</option>
-          <option value="Finalizado">Finalizado</option>
-        </Select>
-      )}
-      {erro && <span className="text-xs text-[var(--color-danger)]">{erro}</span>}
+    <div>
+      <Select
+        value={valor ?? ""}
+        disabled={pending}
+        aria-label="Status do projeto"
+        onChange={(e) => {
+          const novo = e.target.value as "Ativo" | "Finalizado";
+          if (!novo) return;
+          const antes = valor;
+          setValor(novo);
+          setErro(null);
+          start(async () => {
+            const r = await setProjectSituacao(projectId, novo);
+            if (!r.ok) {
+              setValor(antes);
+              setErro(r.error ?? "Falhou.");
+            }
+          });
+        }}
+      >
+        {valor == null && <option value="">— não classificado —</option>}
+        <option value="Ativo">Ativo</option>
+        <option value="Finalizado">Finalizado</option>
+      </Select>
+      {erro && <span className="text-[11.5px] text-[var(--color-danger)]">{erro}</span>}
     </div>
   );
 }
 
-function DeleteButton({
-  projectId,
-  name,
-  pending,
-}: {
-  projectId: string;
-  name: string;
-  pending: boolean;
-}) {
+/* ─── menu [...] (seção 8: Abrir · Copiar link · Excluir) ────────────── */
+
+function MenuAcoes({ projectId, nome, detalhado, canDelete }: { projectId: string; nome: string; detalhado: boolean; canDelete: boolean }) {
   const [aberto, setAberto] = useState(false);
+  const [excluir, setExcluir] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const item = "block w-full px-3 py-1.5 text-left text-[12.5px] text-[var(--color-ink)] hover:bg-[var(--color-surface2)]";
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/projeto?proj=${projectId}`);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    } catch {
+      /* sem clipboard */
+    }
+    setAberto(false);
+  };
   return (
-    <>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => setAberto(true)}
-        className="ml-auto text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
-      >
-        Excluir…
+    <div className="relative">
+      <button type="button" aria-label={`Mais ações de ${nome}`} aria-haspopup="menu" aria-expanded={aberto} onClick={() => setAberto(!aberto)} className="rounded-[8px] border border-[var(--color-line)] bg-white p-1.5 text-[var(--color-ink2)] hover:bg-[var(--color-surface2)]">
+        <MoreHorizontal size={16} aria-hidden />
       </button>
-      <ExcluirProjeto projectId={projectId} nome={name} aberto={aberto} onFechar={() => setAberto(false)} />
-    </>
+      {copiado && <span role="status" className="absolute right-0 top-9 whitespace-nowrap text-[11px] text-[var(--color-success)]">link copiado</span>}
+      {aberto && (
+        <>
+          <button type="button" aria-label="Fechar menu" onClick={() => setAberto(false)} className="fixed inset-0 z-10 cursor-default" />
+          <div role="menu" className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-white py-1 shadow-lg">
+            {!detalhado && (
+              <Link role="menuitem" href={`/projeto?proj=${projectId}`} className={item} onClick={() => setAberto(false)}>
+                Abrir projeto
+              </Link>
+            )}
+            <button role="menuitem" type="button" className={item} onClick={copiar}>
+              Copiar link
+            </button>
+            {canDelete && (
+              <button role="menuitem" type="button" className={`${item} border-t border-[var(--color-line)] text-[var(--color-danger)]`} onClick={() => { setAberto(false); setExcluir(true); }}>
+                Excluir projeto…
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      <ExcluirProjeto projectId={projectId} nome={nome} aberto={excluir} onFechar={() => setExcluir(false)} voltarParaTodos={detalhado} />
+    </div>
   );
 }
 
+/* ─── incidência fiscal (mantido) ────────────────────────────────────── */
+
 /**
- * Mostra onde o ISS desta obra vai incidir.
- *
- * A natureza da operação da NFS-e não é escolha do usuário: ela sai da
- * comparação entre o município da obra e o da sede. Exibir o resultado aqui
- * evita a descoberta tardia — no momento da emissão — de que a nota ia sair
- * tributada na cidade errada por falta de um código de 7 dígitos.
+ * Mostra onde o ISS desta obra vai incidir. A natureza da operação da NFS-e
+ * sai da comparação entre o município da obra e o da sede.
  */
-function ObraIncidencia({
-  codigoObra,
-  codigoSede,
-}: {
-  codigoObra: string;
-  codigoSede?: string | null;
-}) {
+function ObraIncidencia({ codigoObra, codigoSede }: { codigoObra: string; codigoSede?: string | null }) {
   const informado = codigoObra.trim();
-
-  if (!informado) {
-    return (
-      <span className="text-[var(--color-ink3)]">
-        Sem município da obra: a nota sairá tributada no município da empresa.
-      </span>
-    );
-  }
-
+  if (!informado) return <span className="text-[var(--color-ink3)]">Sem município da obra: a nota sairá tributada no município da empresa.</span>;
   if (!codigoMunicipioValido(informado)) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         <Badge tone="danger">código inválido</Badge>
-        <span className="text-[var(--color-ink2)]">
-          O código IBGE tem 7 dígitos. A API de emissão identifica o município por
-          ele, não pelo nome da cidade.
-        </span>
+        <span className="text-[var(--color-ink2)]">O código IBGE tem 7 dígitos. A API de emissão identifica o município por ele, não pelo nome da cidade.</span>
       </span>
     );
   }
-
   if (!codigoSede) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         <Badge tone="warning">sede sem código</Badge>
-        <span className="text-[var(--color-ink2)]">
-          Cadastre o código IBGE da empresa em <strong>Config › Empresa</strong> para
-          que a natureza da operação possa ser determinada.
-        </span>
+        <span className="text-[var(--color-ink2)]">Cadastre o código IBGE da empresa em <strong>Config › Empresa</strong> para que a natureza da operação possa ser determinada.</span>
       </span>
     );
   }
-
   const fora = naturezaPorMunicipio(codigoSede, informado) === "2";
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <Badge tone={fora ? "info" : "success"}>
-        {fora ? "tributação fora do município" : "tributação no município"}
-      </Badge>
-      <span className="text-[var(--color-ink3)]">
-        {fora
-          ? "A obra fica em outro município: o ISS é devido lá, e a nota vai com natureza 2."
-          : "Obra no mesmo município da sede: ISS devido no município da empresa."}
-      </span>
+      <Badge tone={fora ? "info" : "success"}>{fora ? "tributação fora do município" : "tributação no município"}</Badge>
+      <span className="text-[var(--color-ink3)]">{fora ? "A obra fica em outro município: o ISS é devido lá, e a nota vai com natureza 2." : "Obra no mesmo município da sede: ISS devido no município da empresa."}</span>
     </span>
   );
 }
 
-function ProjectRow({
+/* ─── card do projeto (seções 8–13, 16–22) ───────────────────────────── */
+
+const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+
+/** Estado do formulário, todo em texto, lido do projeto. */
+function formDe(p: Project) {
+  return {
+    name: p.name,
+    startDate: p.startDate ?? "",
+    endDate: p.endDate ?? "",
+    clienteId: p.clienteId ?? "",
+    valorConstrucao: str(p.valorConstrucao),
+    valorTerreno: str(p.valorTerreno),
+    custoConstrucao: str(p.custoConstrucao),
+    custoTerreno: str(p.custoTerreno),
+    financiamentoConstrucao: str(p.financiamentoConstrucao),
+    financiamentoTerreno: str(p.financiamentoTerreno),
+    recursosProprios: str(p.recursosProprios),
+    proprietarioTerreno: p.proprietarioTerreno ?? "",
+    formaPagamentoTerreno: p.formaPagamentoTerreno ?? "",
+    terrenoForaCaixa: p.terrenoForaCaixa ?? true,
+    endereco: p.endereco ?? "",
+    cep: p.cep ?? "",
+    municipioObra: p.municipioObra ?? "",
+    ufObra: p.ufObra ?? "",
+    codigoMunicipioObra: p.codigoMunicipioObra ?? "",
+    latitude: str(p.latitude),
+    longitude: str(p.longitude),
+    codigoObra: p.codigoObra ?? "",
+    art: p.art ?? "",
+  };
+}
+type Form = ReturnType<typeof formDe>;
+
+function ProjectCard({
   project,
+  detalhado,
   canEdit,
   canDelete,
   clientes,
   tenantName,
+  nomeDoCliente,
   docs,
   r2,
   tenantCodigoMunicipio,
+  registrosDePonto,
+  orcadoRealizado,
 }: {
   project: Project;
+  detalhado: boolean;
   canEdit: boolean;
   canDelete: boolean;
   clientes: ClienteOpt[];
   tenantName: string;
+  nomeDoCliente: Map<string, string>;
   docs: ProjetoDoc[];
   r2: boolean;
   tenantCodigoMunicipio?: string | null;
+  registrosDePonto: number;
+  orcadoRealizado?: ReactNode;
 }) {
-  const [name, setName] = useState(project.name);
-  const [duration, setDuration] = useState(
-    project.durationMonths != null ? String(project.durationMonths) : "",
-  );
-  const [status, setStatus] = useState<Status>(project.status as Status);
-  const [startDate, setStartDate] = useState(project.startDate ?? "");
-  const [endDate, setEndDate] = useState(project.endDate ?? "");
-  const [clienteId, setClienteId] = useState(project.clienteId ?? "");
-  const numStr = (v: unknown) => (v === null || v === undefined ? "" : String(v));
-  const [terr, setTerr] = useState({
-    custoConstrucao: numStr(project.custoConstrucao),
-    custoTerreno: numStr(project.custoTerreno),
-    valorConstrucao: numStr(project.valorConstrucao),
-    valorTerreno: numStr(project.valorTerreno),
-    formaPagamentoTerreno: project.formaPagamentoTerreno ?? "",
-    proprietarioTerreno: project.proprietarioTerreno ?? "",
-    terrenoForaCaixa: project.terrenoForaCaixa ?? true,
-    financiamentoConstrucao: numStr(project.financiamentoConstrucao),
-    financiamentoTerreno: numStr(project.financiamentoTerreno),
-    recursosProprios: numStr(project.recursosProprios),
-  });
-  const [fisc, setFisc] = useState({
-    codigoMunicipioObra: project.codigoMunicipioObra ?? "",
-    municipioObra: project.municipioObra ?? "",
-    ufObra: project.ufObra ?? "",
-    codigoObra: project.codigoObra ?? "",
-    art: project.art ?? "",
-  });
+  const inicial = useMemo(() => formDe(project), [project]);
+  const [f, setF] = useState<Form>(inicial);
   const [pending, start] = useTransition();
-  const isObra = project.kind !== "office";
-  const valorGlobal = (Number(terr.valorConstrucao) || 0) + (Number(terr.valorTerreno) || 0);
+  const [msg, setMsg] = useState<Msg>(null);
+  const set = <K extends keyof Form>(k: K) => (v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
+  const dirty = JSON.stringify(f) !== JSON.stringify(inicial);
+  const off = !canEdit || pending;
 
-  const terrDirty =
-    terr.custoConstrucao !== numStr(project.custoConstrucao) ||
-    terr.custoTerreno !== numStr(project.custoTerreno) ||
-    terr.valorConstrucao !== numStr(project.valorConstrucao) ||
-    terr.valorTerreno !== numStr(project.valorTerreno) ||
-    terr.formaPagamentoTerreno !== (project.formaPagamentoTerreno ?? "") ||
-    terr.proprietarioTerreno !== (project.proprietarioTerreno ?? "") ||
-    terr.terrenoForaCaixa !== (project.terrenoForaCaixa ?? true) ||
-    terr.financiamentoConstrucao !== numStr(project.financiamentoConstrucao) ||
-    terr.financiamentoTerreno !== numStr(project.financiamentoTerreno) ||
-    terr.recursosProprios !== numStr(project.recursosProprios);
+  const janela = duracaoDerivada(f.startDate, f.endDate);
+  const avisoDuracao = avisoDeDuracao(project.durationMonths, f.startDate, f.endDate);
+  const recusaDatas = (f.startDate !== inicial.startDate || f.endDate !== inicial.endDate) ? recusaDasDatas(f.startDate, f.endDate) : null;
+  const global = valorGlobal(f);
+  const avisoFunding = avisoDeFunding(f);
+  const avisoMunicipio = avisoDeMunicipio(f.municipioObra, f.ufObra, f.codigoMunicipioObra);
+  const mexeuCoordenada = f.latitude !== inicial.latitude || f.longitude !== inicial.longitude;
+  const avisoPonto = mexeuCoordenada ? avisoDeCoordenada(registrosDePonto) : null;
+  const cliente = project.clienteId ? nomeDoCliente.get(project.clienteId) ?? "cliente" : `próprio (${tenantName})`;
 
-  const fiscDirty =
-    fisc.codigoMunicipioObra !== (project.codigoMunicipioObra ?? "") ||
-    fisc.municipioObra !== (project.municipioObra ?? "") ||
-    fisc.ufObra !== (project.ufObra ?? "") ||
-    fisc.codigoObra !== (project.codigoObra ?? "") ||
-    fisc.art !== (project.art ?? "");
-
-  const dirty =
-    name.trim() !== project.name ||
-    status !== project.status ||
-    (duration.trim() ? Number(duration) : null) !==
-      (project.durationMonths ?? null) ||
-    startDate !== (project.startDate ?? "") ||
-    endDate !== (project.endDate ?? "") ||
-    clienteId !== (project.clienteId ?? "") ||
-    terrDirty ||
-    fiscDirty;
-
-  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const save = () =>
     start(async () => {
-      const r = await updateProject(project.id, {
-        name,
-        durationMonths: duration.trim() ? Number(duration) : null,
-        status,
-        startDate,
-        endDate,
-        clienteId,
-        custoConstrucao: terr.custoConstrucao || null,
-        custoTerreno: terr.custoTerreno || null,
-        valorConstrucao: terr.valorConstrucao || null,
-        valorTerreno: terr.valorTerreno || null,
-        formaPagamentoTerreno: terr.formaPagamentoTerreno || null,
-        proprietarioTerreno: terr.proprietarioTerreno || null,
-        terrenoForaCaixa: terr.terrenoForaCaixa,
-        financiamentoConstrucao: terr.financiamentoConstrucao || null,
-        financiamentoTerreno: terr.financiamentoTerreno || null,
-        recursosProprios: terr.recursosProprios || null,
-        codigoMunicipioObra: fisc.codigoMunicipioObra || null,
-        municipioObra: fisc.municipioObra || null,
-        ufObra: fisc.ufObra || null,
-        codigoObra: fisc.codigoObra || null,
-        art: fisc.art || null,
-      });
+      const patch = {
+        name: f.name,
+        startDate: f.startDate,
+        endDate: f.endDate,
+        clienteId: f.clienteId,
+        valorConstrucao: f.valorConstrucao || null,
+        valorTerreno: f.valorTerreno || null,
+        custoConstrucao: f.custoConstrucao || null,
+        custoTerreno: f.custoTerreno || null,
+        financiamentoConstrucao: f.financiamentoConstrucao || null,
+        financiamentoTerreno: f.financiamentoTerreno || null,
+        recursosProprios: f.recursosProprios || null,
+        proprietarioTerreno: f.proprietarioTerreno || null,
+        formaPagamentoTerreno: f.formaPagamentoTerreno || null,
+        terrenoForaCaixa: f.terrenoForaCaixa,
+        // Localização só é editada na visão do projeto (seção 22); na visão
+        // Todos esses campos não vão no patch, e o servidor não os toca.
+        ...(detalhado
+          ? {
+              endereco: f.endereco || null,
+              cep: f.cep || null,
+              municipioObra: f.municipioObra || null,
+              ufObra: f.ufObra || null,
+              codigoMunicipioObra: f.codigoMunicipioObra || null,
+              latitude: f.latitude || null,
+              longitude: f.longitude || null,
+              codigoObra: f.codigoObra || null,
+              art: f.art || null,
+            }
+          : {}),
+      };
+      const r = await updateProject(project.id, patch);
       setMsg(r.ok ? { ok: true, texto: r.aviso ?? "Salvo." } : { ok: false, texto: r.error });
     });
 
+  const campoMoney = (k: keyof Form, label: string) => (
+    <div>
+      <Label>{label}</Label>
+      <MoneyInput value={f[k] as string} onChange={set(k) as (v: string) => void} disabled={off} placeholder="não informado" aria-label={label} />
+    </div>
+  );
+
   return (
-    <Card>
-      <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
-        <div className="sm:col-span-2">
-          <Label>Nome da obra</Label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!canEdit || pending}
-          />
-        </div>
-        <div>
-          <Label>Duração (meses)</Label>
-          <Input
-            type="number"
-            min={1}
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-            disabled={!canEdit || pending}
-          />
-        </div>
-        <div>
-          <Label>Data de início</Label>
-          <DateField value={startDate} onChange={setStartDate} />
-        </div>
-        <div>
-          <Label>Data de fim</Label>
-          <DateField value={endDate} onChange={setEndDate} />
-        </div>
-        {isObra && (
-          <p className="sm:col-span-3 -mt-1 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-            A Data de início e a Data de fim determinam as colunas mensais do
-            Budget e do Forecast deste projeto.
-          </p>
-        )}
-        <div>
-          <Label>Status</Label>
-          <SituacaoControl
-            projectId={project.id}
-            situacao={project.situacao ?? null}
-            canEdit={canEdit}
-          />
-        </div>
-        <div>
-          {/* O campo antigo (Planejamento / Em andamento) é a fase da obra —
-              preservado como está (Prompt A, 2). */}
-          <Label>Fase da obra</Label>
-          <Select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Status)}
-            disabled={!canEdit || pending}
-          >
-            <option value="Planejamento">Planejamento</option>
-            <option value="Em andamento">Em andamento</option>
-          </Select>
-        </div>
-        <div className="sm:col-span-2">
-          <Label>Cliente</Label>
-          <ClienteSelect
-            clientes={clientes}
-            tenantName={tenantName}
-            value={clienteId}
-            onChange={setClienteId}
-            disabled={!canEdit || pending}
-          />
-        </div>
+    <Card className={detalhado ? "" : "scroll-mt-20"}>
+      <CardContent className="space-y-3 p-4">
+        {/* Cabeçalho compacto (seção 8): nome, situação, cliente, valor global, duração, datas, [...] */}
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--color-surface2)] text-[var(--color-accent2)]"><Building2 size={16} aria-hidden /></span>
+          <h3 className="text-[15px] font-semibold text-[var(--color-ink)]">
+            {detalhado ? project.name : <Link href={`/projeto?proj=${project.id}`} className="hover:underline">{project.name}</Link>}
+          </h3>
+          <BadgeSituacao situacao={project.situacao} />
+          <span className="text-[12px] text-[var(--color-ink2)]">
+            {cliente}
+            {global > 0 ? <> · valor global <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl(global)}</strong></> : <> · <span className="text-[var(--color-ink4)]">sem valor global</span></>}
+            {" · "}
+            {janela != null ? `Duração: ${janela} competência(s)` : "Duração: sem datas"}
+            {project.startDate && <> · Início: {dateBR(project.startDate)}</>}
+            {project.endDate && <> · Fim: {dateBR(project.endDate)}</>}
+          </span>
+          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} canDelete={canDelete} /></div>
+        </header>
 
-        {isObra && (
-          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
-            <h3 className="mb-1 text-[13px] font-semibold text-[var(--color-ink)]">
-              Terreno &amp; valor global da operação
-            </h3>
-            <p className="mb-3 text-[11.5px] text-[var(--color-ink3)]">
-              Distingue a <strong>visão financeira</strong> da construtora (o que entra/sai do caixa)
-              da <strong>visão econômica/imobiliária</strong> (valor global, incluindo o terreno).
-            </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div>
-                <Label>Custo da construção</Label>
-                <MoneyInput value={terr.custoConstrucao} onChange={(v) => setTerr((s) => ({ ...s, custoConstrucao: v }))} />
+        {/* DADOS DO PROJETO (seção 9) */}
+        <Bloco tom="neutro" titulo="Dados do projeto">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
+            <div className="sm:col-span-4">
+              <Label>Nome da obra</Label>
+              <Input value={f.name} onChange={(e) => set("name")(e.target.value)} disabled={off} aria-label="Nome da obra" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Duração (competências)</Label>
+              <div className="flex h-9 items-center rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-surface2)] px-3 text-sm text-[var(--color-ink)]" aria-label="Duração derivada das datas">
+                {janela != null ? `${janela} meses` : <span className="text-[var(--color-ink4)]">sem datas</span>}
               </div>
-              <div>
-                <Label>Custo do terreno</Label>
-                <MoneyInput value={terr.custoTerreno} onChange={(v) => setTerr((s) => ({ ...s, custoTerreno: v }))} />
-              </div>
-              <div>
-                <Label>Valor da construção</Label>
-                <MoneyInput value={terr.valorConstrucao} onChange={(v) => setTerr((s) => ({ ...s, valorConstrucao: v }))} />
-              </div>
-              <div>
-                <Label>Valor do terreno</Label>
-                <MoneyInput value={terr.valorTerreno} onChange={(v) => setTerr((s) => ({ ...s, valorTerreno: v }))} />
-              </div>
-              <div>
-                <Label>Financiamento da construção</Label>
-                <MoneyInput value={terr.financiamentoConstrucao} onChange={(v) => setTerr((s) => ({ ...s, financiamentoConstrucao: v }))} />
-              </div>
-              <div>
-                <Label>Financiamento do terreno</Label>
-                <MoneyInput value={terr.financiamentoTerreno} onChange={(v) => setTerr((s) => ({ ...s, financiamentoTerreno: v }))} />
-              </div>
-              <div>
-                <Label>Recursos próprios</Label>
-                <MoneyInput value={terr.recursosProprios} onChange={(v) => setTerr((s) => ({ ...s, recursosProprios: v }))} />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Proprietário do terreno</Label>
-                <Input
-                  value={terr.proprietarioTerreno}
-                  onChange={(e) => setTerr((s) => ({ ...s, proprietarioTerreno: e.target.value }))}
-                  disabled={!canEdit || pending}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Forma de pagamento do terreno</Label>
-                <Input
-                  value={terr.formaPagamentoTerreno}
-                  onChange={(e) => setTerr((s) => ({ ...s, formaPagamentoTerreno: e.target.value }))}
-                  disabled={!canEdit || pending}
-                />
+              <Aviso texto={avisoDuracao} />
+            </div>
+            <div className="sm:col-span-1">
+              <Label>Data de início</Label>
+              <DateField value={f.startDate} onChange={set("startDate")} disabled={off} />
+            </div>
+            <div className="sm:col-span-1">
+              <Label>Data de fim</Label>
+              <DateField value={f.endDate} onChange={set("endDate")} disabled={off} />
+              <Aviso texto={recusaDatas} tom="danger" />
+            </div>
+            <div className="sm:col-span-1">
+              <Label>Status</Label>
+              <SituacaoControl projectId={project.id} situacao={project.situacao ?? null} canEdit={canEdit} />
+            </div>
+            <div className="sm:col-span-1">
+              {/* Enum antigo (Planejamento / Em andamento), preservado e visível (seção 6). */}
+              <Label>Fase (legado)</Label>
+              <div className="flex h-9 items-center rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-surface2)] px-3 text-sm text-[var(--color-ink2)]" aria-label="Fase (legado)">
+                {project.status}
               </div>
             </div>
-            <label className="mt-3 flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-ink)]">
-              <input
-                type="checkbox"
-                checked={terr.terrenoForaCaixa}
-                onChange={(e) => setTerr((s) => ({ ...s, terrenoForaCaixa: e.target.checked }))}
-                disabled={!canEdit || pending}
-                className="h-4 w-4 accent-[var(--color-accent2)]"
-              />
-              Terreno pago direto ao proprietário — <strong>não passa pelo caixa da construtora</strong>
-            </label>
-            <div className="mt-3 flex flex-wrap gap-4 border-t border-[var(--color-accent2)]/10 pt-3 text-[12.5px]">
-              <span className="text-[var(--color-ink3)]">
-                Valor global da operação:{" "}
-                <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">
-                  {brl(valorGlobal)}
-                </strong>
-              </span>
-              <span className="text-[var(--color-ink3)]">
-                Entrada financeira da construtora:{" "}
-                <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">
-                  {brl(
-                    terr.terrenoForaCaixa
-                      ? Number(terr.valorConstrucao) || 0
-                      : valorGlobal,
-                  )}
-                </strong>
-              </span>
+            <div className="sm:col-span-2">
+              <Label>Cliente</Label>
+              <ClienteSelect clientes={clientes} tenantName={tenantName} value={f.clienteId} onChange={set("clienteId")} disabled={off} />
             </div>
+          </div>
+        </Bloco>
+
+        {/* Visão do projeto: LOCALIZAÇÃO à esquerda, ORÇADO x REALIZADO à direita (seções 17–19) */}
+        {detalhado && (
+          <div className={`grid grid-cols-1 gap-3 ${orcadoRealizado ? "xl:grid-cols-2" : ""}`}>
+            <Bloco tom="localizacao" titulo="Localização do projeto" subtitulo="Endereço e informações geográficas do empreendimento">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="col-span-2 sm:col-span-3">
+                  <Label>Endereço</Label>
+                  <Input value={f.endereco} onChange={(e) => set("endereco")(e.target.value)} disabled={off} aria-label="Endereço" />
+                </div>
+                <div>
+                  <Label>CEP</Label>
+                  <Input value={f.cep} onChange={(e) => set("cep")(e.target.value)} disabled={off} placeholder="00000-000" inputMode="numeric" aria-label="CEP" />
+                </div>
+                <div className="col-span-2">
+                  <Label>Município</Label>
+                  <Input value={f.municipioObra} onChange={(e) => set("municipioObra")(e.target.value)} disabled={off} aria-label="Município" />
+                </div>
+                <div>
+                  <Label>UF</Label>
+                  <Input value={f.ufObra} onChange={(e) => set("ufObra")(e.target.value)} maxLength={2} disabled={off} aria-label="UF" />
+                </div>
+                <div>
+                  <Label>Código IBGE (fiscal)</Label>
+                  <Input value={f.codigoMunicipioObra} onChange={(e) => set("codigoMunicipioObra")(e.target.value)} placeholder="7 dígitos" disabled={off} aria-label="Código IBGE do município" />
+                </div>
+                <div>
+                  <Label>Latitude</Label>
+                  <Input value={f.latitude} onChange={(e) => set("latitude")(e.target.value)} disabled={off} placeholder="-23.5505" aria-label="Latitude" />
+                </div>
+                <div>
+                  <Label>Longitude</Label>
+                  <Input value={f.longitude} onChange={(e) => set("longitude")(e.target.value)} disabled={off} placeholder="-46.6333" aria-label="Longitude" />
+                </div>
+                <div>
+                  <Label>Código da obra (CNO/CEI)</Label>
+                  <Input value={f.codigoObra} onChange={(e) => set("codigoObra")(e.target.value)} maxLength={15} disabled={off} aria-label="Código da obra" />
+                </div>
+                <div>
+                  <Label>ART / RRT</Label>
+                  <Input value={f.art} onChange={(e) => set("art")(e.target.value)} maxLength={15} disabled={off} aria-label="ART / RRT" />
+                </div>
+              </div>
+              <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
+                <strong>Efeito fiscal:</strong> na construção civil o ISS é devido no município da obra (LC 116/2003, art. 3º, III). A NFS-e usa o <strong>código IBGE</strong>, não o nome. Coordenadas alimentam o raio do ponto da obra ({project.pontoRaioMetros} m).
+              </p>
+              <Aviso texto={avisoMunicipio} />
+              <Aviso texto={avisoPonto} tom="info" />
+              <div className="mt-2 border-t border-[var(--color-line)] pt-2 text-[12px]">
+                <ObraIncidencia codigoObra={f.codigoMunicipioObra} codigoSede={tenantCodigoMunicipio} />
+              </div>
+            </Bloco>
+            {orcadoRealizado}
           </div>
         )}
 
-        {isObra && (
-          <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
-            <h3 className="mb-1 text-[13px] font-semibold text-[var(--color-ink)]">
-              Dados fiscais da obra — NFS-e
-            </h3>
-            <p className="mb-3 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
-              Na construção civil o <strong>ISS é devido no município da obra</strong> (LC
-              116/2003, art. 3º, III), que nem sempre é o da sede. Preenchido aqui, é este
-              município que entra na nota; em branco, a nota sai tributada no município da
-              empresa. Opcional — projeto que não fatura serviço não precisa.
-            </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div>
-                <Label>Município da obra</Label>
-                <Input
-                  value={fisc.municipioObra}
-                  onChange={(e) => setFisc((s) => ({ ...s, municipioObra: e.target.value }))}
-                  disabled={!canEdit || pending}
-                />
-              </div>
-              <div>
-                <Label>Código IBGE (7 dígitos)</Label>
-                <Input
-                  value={fisc.codigoMunicipioObra}
-                  onChange={(e) =>
-                    setFisc((s) => ({ ...s, codigoMunicipioObra: e.target.value }))
-                  }
-                  placeholder="3552502"
-                  disabled={!canEdit || pending}
-                />
-              </div>
-              <div>
-                <Label>UF</Label>
-                <Input
-                  value={fisc.ufObra}
-                  onChange={(e) => setFisc((s) => ({ ...s, ufObra: e.target.value }))}
-                  maxLength={2}
-                  disabled={!canEdit || pending}
-                />
-              </div>
-              <div>
-                <Label>Código da obra (CNO/CEI)</Label>
-                <Input
-                  value={fisc.codigoObra}
-                  onChange={(e) => setFisc((s) => ({ ...s, codigoObra: e.target.value }))}
-                  maxLength={15}
-                  disabled={!canEdit || pending}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>ART / RRT do responsável técnico</Label>
-                <Input
-                  value={fisc.art}
-                  onChange={(e) => setFisc((s) => ({ ...s, art: e.target.value }))}
-                  maxLength={15}
-                  disabled={!canEdit || pending}
-                />
-              </div>
+        {/* RECEITAS (10) antes de CUSTOS (11); ESTRUTURA FINANCEIRA (12) */}
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <Bloco tom="receita" titulo="Receitas do projeto" subtitulo="Valores de venda e geração de receita">
+            <div className="grid grid-cols-2 gap-3">
+              {campoMoney("valorConstrucao", "Valor da construção")}
+              {campoMoney("valorTerreno", "Valor do terreno")}
             </div>
-            <div className="mt-3 border-t border-[var(--color-accent2)]/10 pt-3 text-[12.5px]">
-              <ObraIncidencia
-                codigoObra={fisc.codigoMunicipioObra}
-                codigoSede={tenantCodigoMunicipio}
-              />
+          </Bloco>
+          <Bloco tom="custo" titulo="Custos do projeto" subtitulo="Investimentos necessários para a realização do empreendimento">
+            <div className="grid grid-cols-2 gap-3">
+              {campoMoney("custoConstrucao", "Custo da construção")}
+              {campoMoney("custoTerreno", "Custo do terreno")}
+            </div>
+          </Bloco>
+        </div>
+        <Bloco tom="estrutura" titulo="Estrutura financeira" subtitulo="Fontes de recursos e informações do terreno">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {campoMoney("financiamentoConstrucao", "Financiamento da construção")}
+            {campoMoney("financiamentoTerreno", "Financiamento do terreno")}
+            {campoMoney("recursosProprios", "Recursos próprios")}
+            <div className="col-span-2 sm:col-span-3 xl:col-span-2">
+              <Label>Proprietário do terreno</Label>
+              <Input value={f.proprietarioTerreno} onChange={(e) => set("proprietarioTerreno")(e.target.value)} disabled={off} aria-label="Proprietário do terreno" />
+            </div>
+            <div className="col-span-2 sm:col-span-3 xl:col-span-1">
+              <Label>Forma de pagamento do terreno</Label>
+              <Input value={f.formaPagamentoTerreno} onChange={(e) => set("formaPagamentoTerreno")(e.target.value)} disabled={off} aria-label="Forma de pagamento do terreno" />
             </div>
           </div>
-        )}
+          <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-ink)]">
+            <input type="checkbox" checked={f.terrenoForaCaixa} onChange={(e) => set("terrenoForaCaixa")(e.target.checked)} disabled={off} className="h-4 w-4 accent-[var(--color-accent2)]" />
+            Terreno pago direto ao proprietário — <strong>não passa pelo caixa da construtora</strong>
+          </label>
+          <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 border-t border-[#bfdbfe] pt-2.5 text-[12.5px]">
+            <span className="text-[var(--color-ink3)]">
+              Valor global da operação: <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent)]">{global > 0 ? brl(global) : "—"}</strong>
+            </span>
+            <span className="text-[var(--color-ink3)]">
+              Entrada financeira da construtora: <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{global > 0 ? brl(entradaFinanceira(f)) : "—"}</strong>
+            </span>
+          </div>
+          <Aviso texto={avisoFunding} />
+        </Bloco>
 
         <ProjetoDocs projectId={project.id} docs={docs} canEdit={canEdit} r2={r2} />
 
-        <div className="flex flex-wrap items-center gap-2 pb-1.5 sm:col-span-3">
+        <div className="flex flex-wrap items-center gap-3">
           {canEdit && (
-            <Button size="sm" disabled={pending || !dirty} onClick={save}>
-              Salvar
+            <Button size="sm" disabled={pending || !dirty || !!recusaDatas} onClick={save}>
+              {pending ? "Salvando…" : "Salvar"}
             </Button>
           )}
-          {msg && <span role="status" className={`text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</span>}
-          {canDelete && (
-            <DeleteButton projectId={project.id} name={project.name} pending={pending} />
+          <Resultado msg={msg} />
+          {detalhado && (
+            <Link href="/projeto?proj=all" className="ml-auto text-[12.5px] text-[var(--color-ink3)] hover:underline">
+              Voltar
+            </Link>
           )}
         </div>
       </CardContent>
@@ -808,18 +740,12 @@ function ProjectRow({
   );
 }
 
-function OfficeRow({
-  project,
-  canEdit,
-  canDelete,
-}: {
-  project: Project;
-  canEdit: boolean;
-  canDelete: boolean;
-}) {
+/* ─── unidade / escritório ───────────────────────────────────────────── */
+
+function OfficeCard({ project, detalhado, canEdit, canDelete }: { project: Project; detalhado: boolean; canEdit: boolean; canDelete: boolean }) {
   const [name, setName] = useState(project.name);
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
   const dirty = name.trim() !== project.name;
 
   const save = () =>
@@ -830,31 +756,29 @@ function OfficeRow({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <Label>Nome da unidade / escritório</Label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!canEdit || pending}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-2 pb-1.5">
-          {/* Antes: um selo "Ativo" fixo no código, que não refletia nada. */}
-          <SituacaoControl
-            projectId={project.id}
-            situacao={project.situacao ?? null}
-            canEdit={canEdit}
-          />
+      <CardContent className="space-y-3 p-4">
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--color-surface2)] text-[var(--color-ink2)]"><Building2 size={16} aria-hidden /></span>
+          <h3 className="text-[15px] font-semibold text-[var(--color-ink)]">{project.name}</h3>
+          <Badge tone="neutral">Matriz/Filial</Badge>
+          <BadgeSituacao situacao={project.situacao} />
+          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} canDelete={canDelete} /></div>
+        </header>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <Label>Nome da unidade / escritório</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!canEdit || pending} aria-label="Nome da unidade" />
+          </div>
+          <div className="sm:w-44">
+            <Label>Status</Label>
+            <SituacaoControl projectId={project.id} situacao={project.situacao ?? null} canEdit={canEdit} />
+          </div>
           {canEdit && (
             <Button size="sm" disabled={pending || !dirty} onClick={save}>
               Salvar
             </Button>
           )}
-          {msg && <span role="status" className={`text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</span>}
-          {canDelete && (
-            <DeleteButton projectId={project.id} name={project.name} pending={pending} />
-          )}
+          <Resultado msg={msg} />
         </div>
       </CardContent>
     </Card>

@@ -1,5 +1,5 @@
 import { getTenantContext } from "@/lib/context";
-import { getClientes, getDocumentsByProjects } from "@/lib/queries";
+import { contarPontoDoProjeto, getClientes, getDocumentsByProjects } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { PageHeader } from "@/components/app/page-header";
@@ -10,6 +10,12 @@ import type { ProjetoDoc } from "@/components/app/projeto-docs";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Projetos (Prompt B): dois estados na mesma rota — "Todos" (cards empilhados,
+ * editáveis) e um projeto (`?proj=<id>`, visão completa com Localização e
+ * Orçado x Realizado). O seletor é só desta página: não grava projeto ativo,
+ * cookie nem padrão (seção 3). A lista já vem ordenada do contexto.
+ */
 export default async function ProjetoPage({
   searchParams,
 }: {
@@ -19,19 +25,17 @@ export default async function ProjetoPage({
   if (!ctx) return null;
   if (!can(ctx.perms, "projeto", "ver")) return <AccessDenied />;
 
-  // Seletor no topo (?proj=): a tela listava TODOS os projetos empilhados, o
-  // que obriga a rolar muito para achar um. "all" mantém o comportamento
-  // anterior — quem quiser a lista inteira continua tendo.
   const sp = await searchParams;
   const selecionado = !sp.proj || sp.proj === "all" ? "all" : sp.proj;
   const projetoSel =
     selecionado === "all" ? null : ctx.projects.find((p) => p.id === selecionado) ?? null;
 
   const r2 = isR2Configured();
-  const [clientes, projDocs] = await Promise.all([
+  const [clientes, projDocs, registrosDePonto] = await Promise.all([
     getClientes(ctx.tenant.id),
     // Só os documentos de projeto (Prompt B, 13) — e não todos os da empresa.
     getDocumentsByProjects(ctx.tenant.id),
+    projetoSel && projetoSel.kind !== "office" ? contarPontoDoProjeto(ctx.tenant.id, projetoSel.id) : Promise.resolve(0),
   ]);
   // URLs assinadas em paralelo, não uma a uma.
   const urls = await Promise.all(projDocs.map((d) => (r2 ? readUrl(d.storageKey) : Promise.resolve(null))));
@@ -46,38 +50,48 @@ export default async function ProjetoPage({
     });
   });
 
+  // Id inválido na URL (projeto de outra empresa, ou apagado): a tela não
+  // escolhe outro no lugar — mostra "Todos" com aviso.
+  const idDesconhecido = selecionado !== "all" && !projetoSel;
+
   return (
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
-        title="Projetos & Unidades"
+        title={projetoSel ? `Projeto ${projetoSel.name}` : "Projetos"}
         subtitle={
           projetoSel
-            ? `Exibindo ${projetoSel.name}. Escolha "Todos" no seletor para ver a lista completa.`
-            : "Cadastre empreendimentos (nome, datas, cliente e duração) e unidades/escritórios (matriz e filiais)."
+            ? `Projetos — empreendimentos imobiliários — ${projetoSel.name}`
+            : "Projetos — empreendimentos imobiliários · unidades e escritórios"
         }
         actions={
           <ProjectPicker
             projects={ctx.projects.map((p) => ({
               id: p.id,
-              // Matriz/filial fica identificada na própria lista: as duas
-              // aparecem juntas porque a tela também tem as duas seções.
               label: p.kind === "office" ? `${p.name} · Matriz/Filial` : p.name,
+              kind: p.kind === "office" ? "office" : "proj",
             }))}
-            selected={selecionado}
+            selected={projetoSel ? projetoSel.id : "all"}
             allOption
           />
         }
       />
 
+      {idDesconhecido && (
+        <p role="alert" className="mb-4 rounded-[10px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-2 text-[12.5px] text-[var(--color-ink)]">
+          O projeto pedido na URL não existe nesta empresa. Mostrando todos os projetos.
+        </p>
+      )}
+
       <ProjectManager
         projects={ctx.projects}
-        selecionadoId={selecionado}
+        selecionadoId={projetoSel ? projetoSel.id : "all"}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
         tenantName={ctx.tenant.name}
         docsByProject={docsByProject}
         r2Configured={r2}
         tenantCodigoMunicipio={ctx.tenant.codigoMunicipio}
+        registrosDePonto={registrosDePonto}
         perms={{
           criar: can(ctx.perms, "projeto", "criar"),
           editar: can(ctx.perms, "projeto", "editar"),
