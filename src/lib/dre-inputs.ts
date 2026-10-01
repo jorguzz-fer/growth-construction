@@ -10,8 +10,9 @@ import type { Project } from "@/lib/context";
 import { getBudgetLines, getExpenseRows, getMonthlyRevenue, getPermutas, permToResale } from "@/lib/queries";
 import { permutaRevenueByMonth } from "@/lib/calc";
 import { getEncargosByVersion } from "@/lib/actions/pagamentos";
-import { aggregateInputs, emptyInputs, NO_COMP, type Inputs } from "@/lib/calc/dre-cascata";
+import { aggregateInputs, emptyInputs, NO_COMP, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
 import { resumirForaDaCascata, type ForaDaCascata } from "@/lib/dre";
+import { chaveLigada } from "@/lib/chaves-tenant";
 
 export async function defaultVersionId(projectId: string): Promise<string | null> {
   return versionIdOfKind(projectId, "atual");
@@ -47,12 +48,20 @@ export async function versionInputsByMonth(
   tenantId: string,
   vid: string,
   projectId: string,
+  /**
+   * Prompt AC, Parte 10 — a chave "dre_definicao_nova" (por empresa, nasce
+   * DESLIGADA). Desligada (padrão): exatamente o cálculo de antes.
+   * Ligada: (2) despesa classificada como "Receita" não soma na receita;
+   * (3.1) encargos entram na competência da despesa que os gerou.
+   */
+  opts: { definicaoNova?: boolean } = {},
 ): Promise<Record<string, Inputs>> {
+  const nova = !!opts.definicaoNova;
   const [revenue, despesas, permutas, encargosMes] = await Promise.all([
     getMonthlyRevenue(vid, projectId),
     getExpenseRows(vid),
     getPermutas(tenantId, vid),
-    getEncargosByVersion(vid),
+    nova ? getEncargosPorCompetencia(vid) : getEncargosByVersion(vid),
   ]);
   const out: Record<string, Inputs> = {};
   const bucket = (mm: string | null) => (out[mm ?? NO_COMP] ??= emptyInputs());
@@ -65,6 +74,8 @@ export async function versionInputsByMonth(
   // Despesas por categoria da DRE.
   for (const d of despesas) {
     if (!d.categoriaDre) continue;
+    // Parte 2 (chave ligada): a "quinta origem" sai da soma — a tela lista à parte.
+    if (nova && d.categoriaDre === "Receita") continue;
     const b = bucket(d.competencia);
     b.byCat[d.categoriaDre] = (b.byCat[d.categoriaDre] || 0) + Number(d.valor);
     // Receita/Custo Variável lançados como despesa entram na linha própria.
@@ -140,10 +151,12 @@ export async function getOrcadoRealizado(tenantId: string, projectId: string): P
   const budget = budgets.find((v) => v.isDefault) ?? budgets[0] ?? null;
   const atual = versoes.find((v) => v.kind === "atual") ?? null;
 
+  // A MESMA definição da DRE (Prompt AC, Parte 10): o card segue a chave.
+  const definicaoNova = await chaveLigada(tenantId, "dre_definicao_nova");
   const [linhasBudget, porMesBudget, porMesAtual] = await Promise.all([
     budget ? getBudgetLines(budget.id) : Promise.resolve([]),
-    budget ? versionInputsByMonth(tenantId, budget.id, projectId) : Promise.resolve({}),
-    atual ? versionInputsByMonth(tenantId, atual.id, projectId) : Promise.resolve({}),
+    budget ? versionInputsByMonth(tenantId, budget.id, projectId, { definicaoNova }) : Promise.resolve({}),
+    atual ? versionInputsByMonth(tenantId, atual.id, projectId, { definicaoNova }) : Promise.resolve({}),
   ]);
   return {
     orcado: budget && linhasBudget.length > 0 ? aggregateInputs(porMesBudget, null) : null,
@@ -159,6 +172,100 @@ export async function getOrcadoRealizado(tenantId: string, projectId: string): P
  * Lê as MESMAS linhas que `versionInputsByMonth` (`getExpenseRows`) e só
  * conta: não muda nenhum número.
  */
-export async function foraDaCascataDaVersao(vid: string): Promise<ForaDaCascata> {
-  return resumirForaDaCascata(await getExpenseRows(vid));
+export async function foraDaCascataDaVersao(vid: string, opts: { definicaoNova?: boolean } = {}): Promise<ForaDaCascata> {
+  return resumirForaDaCascata(await getExpenseRows(vid), { receitaFora: !!opts.definicaoNova });
+}
+
+/**
+ * Prompt AC, 3.1 (chave ligada) — encargos financeiros (multa + juros +
+ * outros − desconto) na COMPETÊNCIA da despesa que os gerou, e não no mês do
+ * pagamento. Despesa sem competência cai no mesmo balde "sem competência" da
+ * despesa. Função nova: `getEncargosByVersion` (data de pagamento) não muda.
+ */
+export async function getEncargosPorCompetencia(versionId: string): Promise<Record<string, number>> {
+  const rows = await db
+    .select({
+      competencia: schema.despesas.competencia,
+      multa: schema.pagamentos.multa,
+      juros: schema.pagamentos.juros,
+      outros: schema.pagamentos.outrosAcrescimos,
+      desconto: schema.pagamentos.desconto,
+    })
+    .from(schema.pagamentos)
+    .innerJoin(schema.despesas, eq(schema.pagamentos.despesaId, schema.despesas.id))
+    .where(eq(schema.despesas.versionId, versionId));
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const enc = Number(r.multa) + Number(r.juros) + Number(r.outros) - Number(r.desconto);
+    const mm = r.competencia && r.competencia.trim() ? r.competencia.trim() : NO_COMP;
+    out[mm] = (out[mm] || 0) + enc;
+  }
+  return out;
+}
+
+export interface PreviaDreProjeto {
+  projeto: string;
+  /** Resultado Final acumulado, hoje e pela definição nova. */
+  hoje: number;
+  nova: number;
+  /** Competências em que o Resultado Final muda (mês: hoje → novo). */
+  meses: { mes: string; hoje: number; nova: number }[];
+  /** Despesas classificadas como "Receita" que deixam de somar na receita. */
+  comoReceita: { numDoc: string | null; competencia: string | null; valor: number }[];
+  /** Cenários que o projeto NÃO tem (na Empresa toda, deixa de entrar com o Realizado). */
+  semCenario: string[];
+}
+
+/**
+ * Prompt AC, 10.3 — prévia da chave "dre_definicao_nova", por projeto e
+ * competência, sobre a versão Atual: o Resultado Final de hoje, o pela
+ * definição nova, a diferença e os lançamentos que deixam de somar na
+ * receita. SOMENTE LEITURA.
+ */
+export async function previaDreDefinicaoNova(
+  tenantId: string,
+  projetos: readonly { id: string; name: string }[],
+): Promise<PreviaDreProjeto[]> {
+  const out: PreviaDreProjeto[] = [];
+  for (const p of projetos) {
+    const vs = await db
+      .select({ id: schema.versions.id, kind: schema.versions.kind })
+      .from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, p.id)))
+      .orderBy(asc(schema.versions.createdAt));
+    const atual = vs.find((v) => v.kind === "atual");
+    const semCenario = (["budget", "forecast", "atual"] as const).filter((k) => !vs.some((v) => v.kind === k));
+    if (!atual) {
+      out.push({ projeto: p.name, hoje: 0, nova: 0, meses: [], comoReceita: [], semCenario });
+      continue;
+    }
+    const [bmHoje, bmNova, receitaDespesa] = await Promise.all([
+      versionInputsByMonth(tenantId, atual.id, p.id),
+      versionInputsByMonth(tenantId, atual.id, p.id, { definicaoNova: true }),
+      db
+        .select({ numDoc: schema.despesas.numDoc, competencia: schema.despesas.competencia, valor: schema.despesas.valor })
+        .from(schema.despesas)
+        .where(
+          and(
+            eq(schema.despesas.tenantId, tenantId),
+            eq(schema.despesas.versionId, atual.id),
+            eq(schema.despesas.categoriaDre, "Receita"),
+            eq(schema.despesas.cancelado, false),
+          ),
+        ),
+    ]);
+    const rf = (i: Inputs) => waterfall([i]).rows.find((r) => r.kind === "final")!.value;
+    const meses = [...new Set([...Object.keys(bmHoje), ...Object.keys(bmNova)])]
+      .map((mes) => ({ mes: mes === NO_COMP ? "sem competência" : mes, hoje: rf(bmHoje[mes] ?? emptyInputs()), nova: rf(bmNova[mes] ?? emptyInputs()) }))
+      .filter((m) => Math.abs(m.hoje - m.nova) >= 0.005);
+    out.push({
+      projeto: p.name,
+      hoje: rf(aggregateInputs(bmHoje, null)),
+      nova: rf(aggregateInputs(bmNova, null)),
+      meses,
+      comoReceita: receitaDespesa.map((r) => ({ numDoc: r.numDoc, competencia: r.competencia, valor: Number(r.valor) })),
+      semCenario,
+    });
+  }
+  return out;
 }

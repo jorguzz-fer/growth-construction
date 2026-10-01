@@ -93,6 +93,8 @@ export default async function DREPage({
   if (!can(ctx.perms, "dre", "ver")) return <AccessDenied />;
   // Prompt H (BH-3): selo no seletor quando a regra está ligada na empresa.
   const rascunhoFora = await chaveLigada(ctx.tenant.id, "rascunho_fora_dos_relatorios");
+  // Prompt AC, Parte 10 — a definição nova da DRE (nasce desligada).
+  const definicaoNova = await chaveLigada(ctx.tenant.id, "dre_definicao_nova");
   const sp = await searchParams;
   const monthly = sp.view === "mensal";
 
@@ -141,7 +143,7 @@ export default async function DREPage({
     const daUrl = vsIds.length ? selecaoDaUrl(versoesDaObra, vsIds) : [];
     selecionadas = daUrl.length ? daUrl : selecaoPadrao(versoesDaObra);
     const porVersao = await Promise.all(
-      selecionadas.map((v) => versionInputsByMonth(ctx.tenant.id, v.id, escopo.projeto.id)),
+      selecionadas.map((v) => versionInputsByMonth(ctx.tenant.id, v.id, escopo.projeto.id, { definicaoNova })),
     );
     selecionadas.forEach((v, i) => {
       const r = rotuloDaColuna(v);
@@ -156,12 +158,13 @@ export default async function DREPage({
     );
     const projetos = selectedProjects.map((p, i) => ({ id: p.id, name: p.name, versoes: versoesPorProjeto[i] }));
     for (const c of cenarios) {
-      const res = resolverCenario(c, projetos, true);
+      // 1.3 — com a chave, sem fallback: projeto sem o cenário fica fora e é contado.
+      const res = resolverCenario(c, projetos, !definicaoNova);
       const texto = textoDaCobertura(c, res);
       if (texto) cobertura.push(texto);
       const usadas = res.filter((r) => r.versao);
       const porProjeto = await Promise.all(
-        usadas.map((r) => versionInputsByMonth(ctx.tenant.id, r.versao!.id, r.projetoId)),
+        usadas.map((r) => versionInputsByMonth(ctx.tenant.id, r.versao!.id, r.projetoId, { definicaoNova })),
       );
       series.push({ key: c, titulo: ROTULO_CENARIO[c], porProjeto, versoes: usadas.map((r) => r.versao!.id) });
     }
@@ -181,7 +184,7 @@ export default async function DREPage({
   const customDe = (sp.de ?? "").trim();
   const customAte = (sp.ate ?? "").trim();
   // 1.6 — o período é UM SÓ para todas as colunas.
-  const { periodMonths, label: periodLabel } = resolverPeriodo(periodo, customDe, customAte, axisIncc, years);
+  const { periodMonths, label: periodLabel } = resolverPeriodo(periodo, customDe, customAte, definicaoNova ? axis : axisIncc, years);
 
 
   const multi = series.length > 1;
@@ -202,7 +205,7 @@ export default async function DREPage({
   // Parte 4/5 — o que fica fora da cascata, por coluna (só conta).
   const foraPorVersao = new Map<string, ForaDaCascata>();
   await Promise.all(
-    [...new Set(series.flatMap((x) => x.versoes))].map(async (id) => foraPorVersao.set(id, await foraDaCascataDaVersao(id))),
+    [...new Set(series.flatMap((x) => x.versoes))].map(async (id) => foraPorVersao.set(id, await foraDaCascataDaVersao(id, { definicaoNova }))),
   );
   const rodape = series
     .map((x) => ({ titulo: x.titulo, frases: frasesDoRodape(somarForaDaCascata(x.versoes.map((id) => foraPorVersao.get(id)!)), periodMonths == null, brl0) }))
@@ -292,6 +295,12 @@ export default async function DREPage({
           <p className="mb-1 text-[12.5px] text-[var(--color-ink2)]" data-recorte>
             {recorte}
           </p>
+          {definicaoNova && (
+            <p className="mb-1 text-[12px] text-[var(--color-accent2)]" data-definicao-nova>
+              Definição nova da DRE ligada nesta empresa: “Receita” lançada como despesa fora da receita; encargos na
+              competência da despesa; cenário ausente fora da coluna.
+            </p>
+          )}
           {cobertura.map((c) => (
             <p key={c} className="mb-1 text-[12px] text-[var(--color-warning)]" data-cobertura>
               {c}
@@ -425,7 +434,7 @@ export default async function DREPage({
           <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--color-ink3)]" data-regime>
             Regime de cada bloco: despesas por <strong>competência</strong>; receita da venda e contas a receber pelo{" "}
             <strong>vencimento</strong> das parcelas; liberações de obra e permutas pela data de <strong>liquidação</strong>;
-            encargos financeiros (multa, juros) pela data de <strong>pagamento</strong>. Retiradas, Investimentos e Empréstimos
+            encargos financeiros (multa, juros) pela {definicaoNova ? <><strong>competência</strong> da despesa que os gerou</> : <>data de <strong>pagamento</strong></>}. Retiradas, Investimentos e Empréstimos
             estão incluídos na cascata, como hoje — a classificação contábil dessas três linhas aguarda decisão.
             “—” numa célula: a linha não teve nenhum lançamento; “R$ 0” é soma que deu zero.
           </p>
