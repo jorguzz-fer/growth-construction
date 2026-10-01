@@ -101,6 +101,7 @@ export function ContasPagarTable({
     () => [
       { key: "fornecedor", tipo: "texto", get: (r) => r.fornecedorNome },
       { key: "descricao", tipo: "texto", get: (r) => r.descricao },
+      { key: "parcela", tipo: "valor", get: (r) => r.parcela?.numero ?? null },
       { key: "categoria", tipo: "texto", get: (r) => r.categoriaDre },
       { key: "projeto", tipo: "texto", get: (r) => r.projectName },
       { key: "cliente", tipo: "texto", get: (r) => r.clienteNome ?? "Próprio" },
@@ -168,8 +169,8 @@ export function ContasPagarTable({
 
       <div className="flex flex-wrap items-center gap-3 text-[13px]">
         <Badge tone="neutral">{filtered.length} contas</Badge>
-        <span className="text-[var(--color-ink3)]">
-          Total <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl0(total)}</strong>
+        <span className="text-[var(--color-ink3)]" title="Soma do valor de todas as despesas (e parcelas) no filtro, pagas ou não. Não é o que falta pagar: isso é o Pendente.">
+          Total lançado no filtro <strong className="font-[family-name:var(--font-mono)] text-[var(--color-ink)]">{brl0(total)}</strong>
         </span>
         <span className="text-[var(--color-ink3)]">
           Pendente <strong className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">{brl0(totalPend)}</strong>
@@ -203,6 +204,7 @@ export function ContasPagarTable({
                 <tr>
                   <SortTH coluna="fornecedor" estado={estado} onSort={onSort}>Fornecedor</SortTH>
                   <SortTH coluna="descricao" estado={estado} onSort={onSort}>Descrição</SortTH>
+                  <SortTH coluna="parcela" estado={estado} onSort={onSort}>Parcela</SortTH>
                   <SortTH coluna="categoria" estado={estado} onSort={onSort}>Categoria</SortTH>
                   <SortTH coluna="projeto" estado={estado} onSort={onSort}>Projeto (Obra)</SortTH>
                   <SortTH coluna="cliente" estado={estado} onSort={onSort}>Cliente</SortTH>
@@ -222,6 +224,22 @@ export function ContasPagarTable({
                       {r.fornecedorNome ?? "—"}
                     </TD>
                     <TD className="max-w-[240px] truncate">{r.descricao ?? "—"}</TD>
+                    <TD className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
+                      {r.parcela ? (
+                        <>
+                          {r.parcela.numero}/{r.parcela.total}
+                          {/* 1.3 — cheque por parcela: número e "bom para" (migração 0038) */}
+                          {r.parcela.chequeNumero && (
+                            <span className="ml-1.5 text-[11px] text-[var(--color-ink3)]" title="Cheque desta parcela">
+                              ch. {r.parcela.chequeNumero}
+                              {r.parcela.bomPara ? ` · bom para ${dateBR(r.parcela.bomPara)}` : ""}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </TD>
                     <TD>{r.categoriaDre ?? "—"}</TD>
                     <TD className="whitespace-nowrap">{r.projectName}</TD>
                     <TD className="whitespace-nowrap text-[var(--color-ink3)]">
@@ -262,7 +280,9 @@ export function ContasPagarTable({
                           </Link>
                         ) : (
                           <Link
-                            href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.id}`}
+                            // 1.4 — leva à despesa RAIZ; a parcela de origem vai na URL para
+                            // a tela de destino dizer de onde se veio.
+                            href={`/despesas?proj=${r.projectId}&tab=lancamentos&edit=${r.despesaId ?? r.id}${r.parcela ? `&parcela=${r.parcela.numero}` : ""}`}
                             className="text-sm text-[var(--color-accent2)] hover:underline"
                           >
                             Editar
@@ -274,7 +294,7 @@ export function ContasPagarTable({
                 ))}
                 {visiveis.length === 0 && (
                   <TR>
-                    <TD colSpan={canEditar ? 12 : 11} className="py-8 text-center text-[var(--color-ink4)]">
+                    <TD colSpan={canEditar ? 13 : 12} className="py-8 text-center text-[var(--color-ink4)]">
                       Nenhuma conta a pagar com os filtros aplicados.
                     </TD>
                   </TR>

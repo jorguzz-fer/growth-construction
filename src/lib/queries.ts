@@ -506,8 +506,19 @@ export async function getDespesasByTenant(
   }));
 }
 
+/** Prompt R, 1.2/1.3 — a parcela que esta linha representa, quando a despesa é parcelada. */
+export interface ParcelaDaLinha {
+  numero: number;
+  total: number;
+  chequeNumero: string | null;
+  bomPara: string | null;
+}
+
 export interface ContaPagarRow {
   id: string;
+  /** id da despesa raiz (igual a `id` quando a linha não é de parcela). */
+  despesaId?: string;
+  parcela?: ParcelaDaLinha;
   numDoc: string | null;
   fornecedorNome: string | null;
   descricao: string | null;
@@ -556,6 +567,56 @@ export interface ContaPagarRow {
 export async function getContasPagar(tenantId: string): Promise<ContaPagarRow[]> {
   const soAtual = await chaveLigada(tenantId, "contas_pagar_so_atual");
   return lerContasPagar(tenantId, soAtual ? "atual" : "todas");
+}
+
+/**
+ * Prompt R, seção 1 — as parcelas das despesas de Contas a Pagar, para a tela
+ * listar POR OBRIGAÇÃO QUE VENCE. Consulta própria da tela: `getContasPagar`
+ * não muda, e Dashboard, Fechamento e conciliação seguem iguais (seção 9).
+ * Só leitura; respeita a mesma chave de versão.
+ */
+export interface ParcelaContasPagar {
+  despesaId: string;
+  numero: number;
+  vencimento: string | null;
+  valorOriginal: number;
+  valorPago: number;
+  status: string;
+  dataPagamento: string | null;
+  chequeNumero: string | null;
+  bomPara: string | null;
+}
+
+export async function getParcelasContasPagar(tenantId: string): Promise<ParcelaContasPagar[]> {
+  const soAtual = await chaveLigada(tenantId, "contas_pagar_so_atual");
+  const rows = await db
+    .select({
+      despesaId: schema.despesaParcelas.despesaId,
+      numero: schema.despesaParcelas.numeroParcela,
+      vencimento: schema.despesaParcelas.vencimento,
+      valorOriginal: schema.despesaParcelas.valorOriginal,
+      valorPago: schema.despesaParcelas.valorPago,
+      status: schema.despesaParcelas.status,
+      dataPagamento: schema.despesaParcelas.dataPagamento,
+      chequeNumero: schema.despesaParcelas.numeroCheque,
+      bomPara: schema.despesaParcelas.dataBomPara,
+    })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .where(and(eq(schema.despesaParcelas.tenantId, tenantId), eq(schema.despesas.cancelado, false), soAtual ? eq(schema.versions.kind, "atual") : undefined))
+    .orderBy(schema.despesaParcelas.despesaId, schema.despesaParcelas.numeroParcela);
+  return rows.map((r) => ({
+    despesaId: r.despesaId,
+    numero: r.numero,
+    vencimento: r.vencimento,
+    valorOriginal: Number(r.valorOriginal),
+    valorPago: Number(r.valorPago ?? 0),
+    status: r.status,
+    dataPagamento: r.dataPagamento ?? null,
+    chequeNumero: r.chequeNumero ?? null,
+    bomPara: r.bomPara ?? null,
+  }));
 }
 
 /** Consulta explicitamente histórica (§10): só as despesas fora da Atual. Prévia da chave. */
