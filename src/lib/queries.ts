@@ -147,13 +147,62 @@ export async function getReembolsos(
     .where(eq(schema.reembolsos.versionId, versionId));
 }
 
-/** Ativos de permuta da versão — da empresa (Prompt P, 3.5: antes filtrava só a versão). */
-export async function getPermutas(tenantId: string, versionId: string): Promise<PermutaRow[]> {
+/**
+ * Ativos de permuta da versão — da empresa (Prompt P, 3.5: antes filtrava só a
+ * versão). Por padrão SEM os cancelados (2.4): é o que receita, caixa, totais
+ * e exportação devem ler. A lista da tela pede `incluirCancelados` para
+ * mantê-los legíveis.
+ */
+export async function getPermutas(
+  tenantId: string,
+  versionId: string,
+  opts: { incluirCancelados?: boolean } = {},
+): Promise<PermutaRow[]> {
+  const cond = [eq(schema.permutas.tenantId, tenantId), eq(schema.permutas.versionId, versionId)];
+  if (!opts.incluirCancelados) cond.push(eq(schema.permutas.cancelado, false));
   return db
     .select()
     .from(schema.permutas)
+    .where(and(...cond))
+    .orderBy(asc(schema.permutas.dataRecebimento), asc(schema.permutas.id));
+}
+
+export type PermutaDaTela = PermutaRow & {
+  /** Nome do cadastro quando há `cliente_id`; senão o nome gravado (3.6). */
+  clienteNome: string | null;
+  /** Há entrada de estoque apontando para este ativo (BP-1: "no Estoque"). */
+  noEstoque: boolean;
+};
+
+/** Lista da tela de Permuta: todos os ativos da versão, inclusive cancelados, com o cliente do cadastro. */
+export async function getPermutasDaTela(tenantId: string, versionId: string): Promise<PermutaDaTela[]> {
+  const rows = await db
+    .select({
+      p: schema.permutas,
+      clienteCadastro: schema.clientes.nomeCompleto,
+      noEstoque: sql<boolean>`exists (select 1 from ${schema.stockMovements} sm where sm.permuta_id = ${schema.permutas.id})`,
+    })
+    .from(schema.permutas)
+    .leftJoin(schema.clientes, eq(schema.permutas.clienteId, schema.clientes.id))
     .where(and(eq(schema.permutas.tenantId, tenantId), eq(schema.permutas.versionId, versionId)))
     .orderBy(asc(schema.permutas.dataRecebimento), asc(schema.permutas.id));
+  return rows.map((r) => ({ ...r.p, clienteNome: r.clienteCadastro ?? r.p.cliente, noEstoque: !!r.noEstoque }));
+}
+
+/** Um ativo da empresa, com a obra e a trava da versão (para editar e cancelar). */
+export async function getPermutaDoTenant(
+  tenantId: string,
+  id: string,
+): Promise<{ permuta: PermutaRow; projectId: string; versionLabel: string; locked: boolean } | undefined> {
+  // Id que não é uuid vira "não encontrado", não erro 500 do Postgres.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return undefined;
+  const [row] = await db
+    .select({ p: schema.permutas, projectId: schema.versions.projectId, versionLabel: schema.versions.label, locked: schema.versions.locked })
+    .from(schema.permutas)
+    .innerJoin(schema.versions, eq(schema.permutas.versionId, schema.versions.id))
+    .where(and(eq(schema.permutas.id, id), eq(schema.permutas.tenantId, tenantId)))
+    .limit(1);
+  return row ? { permuta: row.p, projectId: row.projectId, versionLabel: row.versionLabel, locked: !!row.locked } : undefined;
 }
 
 export async function getInccRows(projectId: string): Promise<InccRow[]> {

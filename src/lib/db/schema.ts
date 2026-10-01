@@ -471,6 +471,18 @@ export const permutas = pgTable("permuta", {
   /** vencimento da 1ª parcela "MM/DD/YYYY". */
   dataPrimParcela: text("data_prim_parcela"),
   obs: text("obs"),
+  /**
+   * Prompt P, 3.6: cliente por id (0049). A coluna "cliente" (nome) continua
+   * preenchida; registros antigos só têm o nome e seguem exibindo o nome.
+   */
+  clienteId: uuid("cliente_id").references((): AnyPgColumn => clientes.id, {
+    onDelete: "set null",
+  }),
+  /** Cancelamento lógico (Prompt P, 2.3): o ativo fica legível, sai dos totais, da receita e do caixa. */
+  cancelado: boolean("cancelado").notNull().default(false),
+  canceladoEm: text("cancelado_em"),
+  canceladoPor: text("cancelado_por"),
+  motivoCancelamento: text("motivo_cancelamento"),
 });
 
 /** Reembolsos da versão. Ver docs/SPEC.md §3 e §7.3. */
@@ -1077,6 +1089,10 @@ export const documents = pgTable("document", {
   }),
   /** Boleto, comprovante ou contrato de uma conta a receber (Prompt K, 6.1 — migração 0047). */
   contaReceberId: uuid("conta_receber_id").references((): AnyPgColumn => contasReceber.id, {
+    onDelete: "set null",
+  }),
+  /** Prompt P, 6.1: documento do ativo de permuta (0049). */
+  permutaId: uuid("permuta_id").references((): AnyPgColumn => permutas.id, {
     onDelete: "set null",
   }),
   /** chave do objeto no bucket R2. */

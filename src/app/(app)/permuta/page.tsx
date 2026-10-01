@@ -4,7 +4,8 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getPermutas } from "@/lib/queries";
+import { getPermutasDaTela } from "@/lib/queries";
+import { PermutaActions } from "@/components/app/permuta-actions";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -31,7 +32,7 @@ function tipoTone(tipo: string | null): BadgeProps["tone"] {
 export default async function PermutaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string; salvo?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; salvo?: string; cancelado?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -49,12 +50,16 @@ export default async function PermutaPage({
     return <PedirProjeto titulo="Inventário de Permuta" projetos={ctx.projects} oQue="ver o inventário de permuta" />;
   }
   const { project, trabalho: version } = escolhido;
-  const rows = await getPermutas(ctx.tenant.id, version.id);
-  const estimado = rows.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
-  const projetada = rows
+  // A lista mantém os cancelados legíveis (2.3); os totais não os contam (2.4).
+  const rows = await getPermutasDaTela(ctx.tenant.id, version.id);
+  const ativos = rows.filter((p) => !p.cancelado);
+  const estimado = ativos.reduce((a, p) => a + Number(p.estimado ?? 0), 0);
+  const projetada = ativos
     .filter((p) => p.status === "Vendido")
     .reduce((a, p) => a + Number(p.valorVenda ?? 0), 0);
   const canCriar = can(ctx.perms, "permuta", "criar");
+  const canEditar = can(ctx.perms, "permuta", "editar");
+  const canExcluir = can(ctx.perms, "permuta", "excluir");
 
   return (
     <>
@@ -80,9 +85,9 @@ export default async function PermutaPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
-      {sp.salvo && (
+      {(sp.salvo || sp.cancelado) && (
         <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
-          Ativo gravado.
+          {sp.cancelado ? "Ativo cancelado. Ele continua na lista, fora dos totais." : "Ativo gravado."}
         </p>
       )}
 
@@ -107,27 +112,28 @@ export default async function PermutaPage({
             <TH className="text-right">Val.venda</TH>
             <TH>Tipo perm.</TH>
             <TH>Obs.</TH>
+            <TH className="text-right">Ações</TH>
           </tr>
         </THead>
         <tbody>
           {rows.length === 0 ? (
             <TR>
-              <TD colSpan={12} className="py-8 text-center text-[var(--color-ink4)]">
+              <TD colSpan={13} className="py-8 text-center text-[var(--color-ink4)]">
                 Nenhum ativo de permuta nesta versão.
               </TD>
             </TR>
           ) : (
             rows.map((p, i) => {
-              const sold = p.status === "Vendido";
+              const sold = p.status === "Vendido" && !p.cancelado;
               return (
-                <TR key={p.id}>
+                <TR key={p.id} className={p.cancelado ? "text-[var(--color-ink4)] line-through" : undefined}>
                   <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink4)]">
                     {i + 1}
                   </TD>
                   <TD className="font-medium text-[var(--color-ink)]">
                     {p.unitCode ?? "—"}
                   </TD>
-                  <TD>{p.cliente || "—"}</TD>
+                  <TD>{p.clienteNome || "—"}</TD>
                   <TD className="font-[family-name:var(--font-mono)]">
                     {dateBR(p.dataRecebimento)}
                   </TD>
@@ -139,9 +145,16 @@ export default async function PermutaPage({
                     {brl0(Number(p.estimado ?? 0))}
                   </TD>
                   <TD>
-                    <Badge tone={sold ? "success" : "neutral"}>
-                      {p.status ?? "—"}
-                    </Badge>
+                    {p.cancelado ? (
+                      <Badge tone="neutral" title={`Cancelado em ${dateBR(p.canceladoEm)} por ${p.canceladoPor ?? "—"}${p.motivoCancelamento ? `: ${p.motivoCancelamento}` : ""}`}>
+                        Cancelado
+                      </Badge>
+                    ) : (
+                      <span className="inline-flex flex-wrap gap-1">
+                        <Badge tone={sold ? "success" : "neutral"}>{p.status ?? "—"}</Badge>
+                        {p.noEstoque && <Badge tone="info">no Estoque</Badge>}
+                      </span>
+                    )}
                   </TD>
                   <TD className="font-[family-name:var(--font-mono)]">
                     {dateBR(p.dataVenda)}
@@ -155,6 +168,16 @@ export default async function PermutaPage({
                   </TD>
                   <TD>{p.tipoPermuta || "—"}</TD>
                   <TD>{p.obs || "—"}</TD>
+                  <TD className="text-right">
+                    <PermutaActions
+                      id={p.id}
+                      rotulo={[p.unitCode, p.descricao || p.tipo].filter(Boolean).join(" · ")}
+                      projectId={project.id}
+                      cancelado={p.cancelado}
+                      canEditar={canEditar}
+                      canExcluir={canExcluir}
+                    />
+                  </TD>
                 </TR>
               );
             })
