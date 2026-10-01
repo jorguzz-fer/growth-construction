@@ -113,20 +113,29 @@ export async function flowMaps(
  */
 export async function flowMapsRealizado(
   versionId: string,
-): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
+): Promise<{ entradas: Record<string, number>; saidas: Record<string, number>; semData: { qtd: number; valor: number } }> {
   const entradas: Record<string, number> = {};
   const saidas: Record<string, number> = {};
+  // Prompt AD, 3.3: o que fica fora dos meses é CONTADO, para a tela mostrar.
+  const semData = { qtd: 0, valor: 0 };
   const lancamentos = await getCash(versionId);
   for (const c of lancamentos) {
     // Sem data não há competência de caixa a atribuir — o lançamento existe,
     // mas não entra em nenhum mês (e some-lo do total seria pior do que
     // reportá-lo em mês errado).
     const mm = vencMonth(c.data);
-    if (!mm) continue;
+    if (!mm) {
+      const v = Number(c.valor);
+      if (Number.isFinite(v) && v !== 0) {
+        semData.qtd++;
+        semData.valor += v;
+      }
+      continue;
+    }
     const v = Number(c.valor);
     if (!Number.isFinite(v) || v === 0) continue;
     if (v > 0) entradas[mm] = (entradas[mm] || 0) + v;
     else saidas[mm] = (saidas[mm] || 0) + Math.abs(v);
   }
-  return { entradas, saidas };
+  return { entradas, saidas, semData };
 }
