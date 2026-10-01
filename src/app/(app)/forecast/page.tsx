@@ -66,7 +66,14 @@ export default async function ForecastPage({
             comparacao={comparando ? cmp : null}
           />
         </div>
-        {data.hasPeriod && data.versionId && <AssistenteOrcamento usuario={ctx.userEmail ?? "anon"} tela="forecast" analise={analise} />}
+        {data.hasPeriod && data.versionId && (
+          <AssistenteOrcamento
+            usuario={ctx.userEmail ?? "anon"}
+            tela="forecast"
+            analise={analise}
+            reprojecao={{ versionId: data.versionId, canCriar: can(ctx.perms, "forecast", "criar"), temOrigem: !!data.versions.find((v) => v.id === data.versionId)?.sourceVersionId }}
+          />
+        )}
       </div>
     </>
   );
