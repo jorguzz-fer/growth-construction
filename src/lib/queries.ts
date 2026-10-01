@@ -3000,6 +3000,23 @@ export async function getAllTenantsOverview(): Promise<TenantOverview[]> {
 
 export type AuditRow = typeof schema.auditLog.$inferSelect;
 
+/**
+ * Prompt AH, 6.1 — histórico do cadastro fiscal e do nome (`tenant.fiscal`,
+ * `tenant.rename`): quando, quem e QUAIS campos mudaram. Os valores de/para
+ * não saem daqui — o painel mostra nomes de campos (8.2 fica para o módulo de
+ * auditoria).
+ */
+export async function getHistoricoFiscal(tenantId: string, limit = 15): Promise<{ quando: Date; quem: string | null; acao: string; campos: string[] }[]> {
+  const rows = await db
+    .select({ action: schema.auditLog.action, meta: schema.auditLog.meta, createdAt: schema.auditLog.createdAt, email: schema.users.email })
+    .from(schema.auditLog)
+    .leftJoin(schema.users, eq(schema.users.id, schema.auditLog.userId))
+    .where(and(eq(schema.auditLog.tenantId, tenantId), inArray(schema.auditLog.action, ["tenant.fiscal", "tenant.rename"])))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(limit);
+  return rows.map((r) => ({ quando: r.createdAt, quem: r.email ?? null, acao: r.action, campos: Object.keys(((r.meta ?? {}) as { changes?: Record<string, unknown> }).changes ?? {}) }));
+}
+
 /** Prompt AH, 5.2 — último teste REAL do R2 (gravado por /api/health/r2), para o selo da tela Empresa. */
 export async function getUltimoTesteR2(tenantId: string): Promise<{ ok: boolean; quando: Date; etapa: string | null } | null> {
   const [row] = await db
