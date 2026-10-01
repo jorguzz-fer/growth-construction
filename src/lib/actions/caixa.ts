@@ -16,6 +16,10 @@ import { registroCasa } from "@/lib/busca";
 import { can } from "@/lib/permissions";
 import { gravarRecebimento } from "@/lib/conta-receber-recebimento";
 import { logAudit } from "@/lib/audit";
+import { desfazerVinculosDoMovimento, gravarVinculos } from "@/lib/conciliacao-db";
+import { correspondenciaInequivoca, type ItemDeVinculo } from "@/lib/conciliacao-regras";
+import { somaDosVinculosPorMovimento } from "@/lib/conciliacao-vinculos";
+import { saldosReaisDasDespesas } from "@/lib/acerto-saldo";
 import {
   getDespesas,
   getUnits,
@@ -316,14 +320,17 @@ export async function importCash(
     getDespesas(version.id),
     getUnits(version.tenantId, version.id),
   ]);
-  // Despesas previstas: chave (centavos|mês) → quantidade disponível.
-  const despPool = new Map<string, number>();
+  // Despesas em aberto: chave (centavos|mês) → candidatas. Prompt L, 2.7 — a
+  // importação só grava vínculo quando a correspondência é INEQUÍVOCA (uma
+  // candidata); com mais de uma, PROPÕE (fica pendente, com as sugestões da
+  // tela). Nunca mais marca `rec` sem guardar com o quê casou.
+  const despPool = new Map<string, string[]>();
   for (const d of despesas) {
-    if (d.cancelado) continue;
+    if (d.cancelado || d.status === "Pago") continue;
     const mm = monthKeyFrom(d.competencia) ?? monthKeyFrom(d.vencimento);
     if (!mm) continue;
     const key = `${cents(Math.abs(Number(d.valor)))}|${mm}`;
-    despPool.set(key, (despPool.get(key) ?? 0) + 1);
+    despPool.set(key, [...(despPool.get(key) ?? []), d.id]);
   }
   // Receitas previstas: conjunto de valores de parcela esperados (em centavos).
   const receitaVals = new Set<number>();
@@ -346,26 +353,29 @@ export async function importCash(
   }
 
   let conciliated = 0;
+  let propostos = 0;
+  const vinculosAGravar: { sig: string; despesaId: string; valor: number }[] = [];
   const toInsert = valid.map((r) => {
     const v = Number(r.valor);
-    let rec = false;
     let cat = r.cat || "extrato";
+    const sig = importSignature(bankAccountId, r.data, v, r.doc);
     if (v < 0) {
-      // Saída → tenta casar com uma despesa prevista (valor + mês).
       const mm = monthKeyFrom(r.data);
       const key = `${cents(Math.abs(v))}|${mm}`;
-      const avail = despPool.get(key) ?? 0;
-      if (mm && avail > 0) {
-        despPool.set(key, avail - 1);
-        rec = true;
+      const candidatas = mm ? (despPool.get(key) ?? []) : [];
+      const unica = correspondenciaInequivoca(candidatas);
+      if (unica) {
+        despPool.set(key, []);
+        vinculosAGravar.push({ sig, despesaId: unica, valor: Math.abs(v) });
         cat = "despesa";
-        conciliated++;
+      } else if (candidatas.length > 1) {
+        propostos++;
       }
     } else if (receitaVals.has(cents(v))) {
-      // Entrada → casa com um valor de parcela previsto das unidades.
-      rec = true;
+      // Entrada compatível com parcela prevista das unidades: só proposta
+      // (não há conta a receber para dar lastro); a tela sugere.
       cat = "receita";
-      conciliated++;
+      propostos++;
     }
     return {
       versionId: version.id,
@@ -376,13 +386,20 @@ export async function importCash(
       valor: String(v),
       cat,
       doc: r.doc || null,
-      importHash: importSignature(bankAccountId, r.data, v, r.doc),
-      rec,
+      importHash: sig,
+      rec: false,
     };
   });
 
-  if (toInsert.length > 0) {
-    await db.insert(schema.cashEntries).values(toInsert);
+  const inseridos = toInsert.length > 0 ? await db.insert(schema.cashEntries).values(toInsert).returning({ id: schema.cashEntries.id, importHash: schema.cashEntries.importHash }) : [];
+  // Vínculo com valor para as correspondências inequívocas (2.7), com rastro.
+  const quem = { tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail };
+  for (const vg of vinculosAGravar) {
+    const mov = inseridos.find((i) => i.importHash === vg.sig);
+    if (!mov) continue;
+    const r = await gravarVinculos(quem, { cashEntryId: mov.id, itens: [{ despesaId: vg.despesaId, valor: vg.valor }], origem: "importacao" });
+    if (r.ok) conciliated++;
+    else propostos++;
   }
 
   // Atualiza o saldo final da conta, se informado.
@@ -412,6 +429,7 @@ export async function importCash(
     meta: {
       count: toInsert.length,
       conciliated,
+      propostos,
       skipped,
       bankAccountId,
       saldoUpdated,
@@ -419,13 +437,29 @@ export async function importCash(
   });
   revalidatePath("/caixa");
   revalidatePath("/contas");
+  revalidatePath("/contaspagar");
   return { inserted: toInsert.length, conciliated, saldoUpdated, skipped };
 }
 
 /** Alterna o estado de conciliação de um lançamento de caixa. */
-export async function toggleConciliado(id: string, rec: boolean) {
+export async function toggleConciliado(id: string, rec: boolean, contraparte?: { despesaId: string; valor?: number } | null) {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "caixa", "editar")) return;
+  // Prompt L, 2.6 — tenant, versão congelada e auditoria; com contraparte
+  // escolhida, grava o VÍNCULO com valor em vez de só alternar a marca.
+  const [alvo] = await db
+    .select({ id: schema.cashEntries.id, locked: schema.versions.locked })
+    .from(schema.cashEntries)
+    .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
+    .where(and(eq(schema.cashEntries.id, id), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!alvo) throw new Error("Movimento não encontrado.");
+  if (alvo.locked) throw new Error("Versão congelada — conciliação bloqueada.");
+  if (rec && contraparte?.despesaId) {
+    const r = await conciliarMovimento({ cashEntryId: id, itens: [{ despesaId: contraparte.despesaId, valor: contraparte.valor ?? 0 }] });
+    if (!r.ok) throw new Error(r.error);
+    return;
+  }
   const [mov] = await db
     .update(schema.cashEntries)
     .set({ rec })
@@ -448,79 +482,66 @@ export async function toggleConciliado(id: string, rec: boolean) {
 }
 
 /**
- * Concilia um movimento do extrato com uma conta a pagar (despesa) escolhida
- * pelo usuário: marca a despesa como PAGA (data e banco do movimento), vincula o
- * movimento à despesa e registra a auditoria. Nada é conciliado automaticamente
- * — só por esta ação. Um movimento não pode ser conciliado mais de uma vez.
+ * Prompt L, Parte 2 — concilia um movimento (saída do extrato) com uma ou
+ * várias despesas, COM VALOR por vínculo (2.2): um pagamento quita seis
+ * despesas de três obras; a soma dos vínculos não excede o movimento (2.4);
+ * o status da despesa é derivado (2.5); a conciliação só conclui quando os
+ * vínculos somam o movimento (3.1). Núcleo em `conciliacao-db.ts`.
+ */
+export async function conciliarMovimento(input: { cashEntryId: string; itens: ItemDeVinculo[] }): Promise<{ ok: true; concluida: boolean; soma: number } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "caixa", "editar")) return { ok: false, error: "Sem permissão para conciliar." };
+  const [alvo] = await db
+    .select({ locked: schema.versions.locked })
+    .from(schema.cashEntries)
+    .innerJoin(schema.versions, eq(schema.cashEntries.versionId, schema.versions.id))
+    .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!alvo) return { ok: false, error: "Movimento não encontrado." };
+  if (alvo.locked) return { ok: false, error: "Versão congelada — conciliação bloqueada." };
+  // Valor zero ou ausente = "o que couber": o menor entre o livre do movimento e o saldo da despesa.
+  const itens: ItemDeVinculo[] = [];
+  let restante = await livreDoMovimento(ctx.tenant.id, input.cashEntryId);
+  for (const i of input.itens) {
+    let valor = Number(i.valor) || 0;
+    if (valor <= 0) {
+      const [d] = await db.select({ id: schema.despesas.id, valor: schema.despesas.valor }).from(schema.despesas).where(and(eq(schema.despesas.id, i.despesaId), eq(schema.despesas.tenantId, ctx.tenant.id)));
+      if (!d) return { ok: false, error: "Despesa não encontrada." };
+      const saldo = (await saldosReaisDasDespesas(db, ctx.tenant.id, [d])).get(d.id)?.saldo ?? Number(d.valor);
+      valor = Math.round(Math.min(restante, saldo) * 100) / 100;
+    }
+    restante = Math.round((restante - valor) * 100) / 100;
+    itens.push({ despesaId: i.despesaId, valor });
+  }
+  const r = await gravarVinculos({ tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail }, { cashEntryId: input.cashEntryId, itens, origem: "manual" });
+  if (!r.ok) return r;
+  revalidatePath("/caixa");
+  revalidatePath("/despesas");
+  revalidatePath("/contaspagar");
+  return { ok: true, concluida: r.concluida, soma: r.soma };
+}
+
+/** Quanto uma saída do extrato ainda tem livre para vínculos com despesas. */
+async function livreDoMovimento(tenantId: string, cashEntryId: string): Promise<number> {
+  const [mov] = await db.select({ valor: schema.cashEntries.valor }).from(schema.cashEntries).where(and(eq(schema.cashEntries.id, cashEntryId), eq(schema.cashEntries.tenantId, tenantId))).limit(1);
+  if (!mov) return 0;
+  const soma = (await somaDosVinculosPorMovimento(db, tenantId, [cashEntryId])).get(cashEntryId) ?? 0;
+  return Math.max(0, Math.round((Math.abs(Number(mov.valor)) - soma) * 100) / 100);
+}
+
+/**
+ * Concilia um movimento do extrato com UMA despesa escolhida pelo usuário —
+ * caminho antigo da tela e do pareamento, agora com valor: o menor entre o
+ * livre do movimento e o saldo da despesa (2.4; nunca mais "R$ 1.000 marca
+ * R$ 5.000 como pago"). Lança exceção com a mensagem, como antes.
  */
 export async function conciliarDespesa(input: {
   cashEntryId: string;
   despesaId: string;
+  valor?: number;
 }): Promise<void> {
-  const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "caixa", "editar")) {
-    throw new Error("Sem permissão para conciliar.");
-  }
-  const [mov] = await db
-    .select()
-    .from(schema.cashEntries)
-    .where(
-      and(
-        eq(schema.cashEntries.id, input.cashEntryId),
-        eq(schema.cashEntries.tenantId, ctx.tenant.id),
-      ),
-    )
-    .limit(1);
-  if (!mov) throw new Error("Movimento não encontrado.");
-  if (mov.rec || mov.conciliadoDespesaId) {
-    throw new Error("Este movimento já está conciliado.");
-  }
-  const [desp] = await db
-    .select()
-    .from(schema.despesas)
-    .where(
-      and(
-        eq(schema.despesas.id, input.despesaId),
-        eq(schema.despesas.tenantId, ctx.tenant.id),
-      ),
-    )
-    .limit(1);
-  if (!desp) throw new Error("Despesa não encontrada.");
-  if (desp.cancelado) throw new Error("Despesa cancelada.");
-  if (desp.status === "Pago") {
-    throw new Error("Esta despesa já está paga. Escolha outra ou desfaça o pagamento antes.");
-  }
-
-  const agora = new Date().toISOString();
-  await db
-    .update(schema.despesas)
-    .set({
-      status: "Pago",
-      dataCaixa: mov.data,
-      bancoId: mov.bankAccountId ?? desp.bancoId,
-    })
-    .where(eq(schema.despesas.id, desp.id));
-  await db
-    .update(schema.cashEntries)
-    .set({
-      rec: true,
-      conciliadoDespesaId: desp.id,
-      conciliadoPor: ctx.userEmail || ctx.userId || null,
-      conciliadoEm: agora,
-    })
-    .where(eq(schema.cashEntries.id, mov.id));
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "conciliacao.create",
-    entity: "cash_entry",
-    entityId: mov.id,
-    meta: { despesaId: desp.id, numDoc: desp.numDoc, valor: mov.valor, data: mov.data },
-  });
-  revalidatePath("/caixa");
-  revalidatePath("/despesas");
-  revalidatePath("/contaspagar");
+  const r = await conciliarMovimento({ cashEntryId: input.cashEntryId, itens: [{ despesaId: input.despesaId, valor: input.valor ?? 0 }] });
+  if (!r.ok) throw new Error(r.error);
 }
 
 /**
@@ -528,10 +549,13 @@ export async function conciliarDespesa(input: {
  * "A pagar" (remove data de pagamento) e libera o movimento. Preserva o registro
  * de auditoria da operação.
  */
-export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
+export async function desfazerConciliacao(cashEntryId: string, motivo?: string | null): Promise<void> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "caixa", "excluir")) {
-    throw new Error("Sem permissão para desfazer conciliação.");
+  // Prompt L, 5.1/5.2 — permissão PRÓPRIA, distinta de editar despesa ou
+  // caixa: quem pode editar mas não pode desfazer fica bloqueado, e a
+  // mensagem diz com todas as letras.
+  if (!ctx || !can(ctx.perms, "conciliacao", "excluir")) {
+    throw new Error("Desfazer conciliação exige a permissão \"Conciliação — ajustar e desfazer: excluir\", que o seu usuário não tem. Peça a um administrador.");
   }
   const [mov] = await db
     .select()
@@ -583,34 +607,11 @@ export async function desfazerConciliacao(cashEntryId: string): Promise<void> {
     revalidatePath("/contasreceber");
     return;
   }
-  if (!mov.conciliadoDespesaId) {
-    // Nada vinculado: apenas garante o flag desmarcado.
-    await db.update(schema.cashEntries).set({ rec: false }).where(eq(schema.cashEntries.id, mov.id));
-    revalidatePath("/caixa");
-    return;
-  }
-  await db
-    .update(schema.despesas)
-    .set({ status: "A pagar", dataCaixa: null })
-    .where(
-      and(
-        eq(schema.despesas.id, mov.conciliadoDespesaId),
-        eq(schema.despesas.tenantId, ctx.tenant.id),
-      ),
-    );
-  await db
-    .update(schema.cashEntries)
-    .set({ rec: false, conciliadoDespesaId: null, conciliadoPor: null, conciliadoEm: null })
-    .where(eq(schema.cashEntries.id, mov.id));
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "conciliacao.undo",
-    entity: "cash_entry",
-    entityId: mov.id,
-    meta: { despesaId: mov.conciliadoDespesaId },
-  });
+  // Lado da despesa (com vínculos de valor ou pelo caminho antigo): o núcleo
+  // faz o estorno lógico, remove os pagamentos gerados, recalcula o status
+  // derivado e libera o movimento — que é preservado (5.3). Auditado (5.4).
+  const r = await desfazerVinculosDoMovimento({ tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail }, mov.id, motivo ?? null);
+  if (!r.ok) throw new Error(r.error);
   revalidatePath("/caixa");
   revalidatePath("/despesas");
   revalidatePath("/contaspagar");

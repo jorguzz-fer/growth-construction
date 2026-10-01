@@ -2,42 +2,35 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  conciliarDespesa,
-  desfazerConciliacao,
-  conciliarContaReceber,
-  criarContaFromExtrato,
-} from "@/lib/actions/caixa";
-import type {
-  MovimentoPendente,
-  MovimentoPendenteEntrada,
-  MovimentoConciliado,
-} from "@/lib/queries";
+import { conciliarMovimento, desfazerConciliacao, conciliarContaReceber, criarContaFromExtrato } from "@/lib/actions/caixa";
+import type { MovimentoPendente, MovimentoPendenteEntrada, MovimentoConciliado } from "@/lib/queries";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 
-const grauTone = (g: "alta" | "media" | "baixa") =>
-  g === "alta" ? "success" : g === "media" ? "warning" : "neutral";
-const grauLabel = (g: "alta" | "media" | "baixa") =>
-  g === "alta" ? "Alta compatibilidade" : g === "media" ? "Média" : "Baixa";
+/**
+ * Revisão da conciliação (Prompt L, Parte 2): para cada saída do extrato, as
+ * contas a pagar compatíveis (o grau é só orientação) — o usuário escolhe
+ * uma ou várias, com o VALOR de cada vínculo (2.2/2.3), e a soma não pode
+ * exceder o movimento (2.4). A conciliação só conclui quando os vínculos
+ * somam o movimento (3.1); enquanto não soma, o movimento continua aqui,
+ * com o que já foi vinculado. Nada é conciliado sem confirmação. Desfazer
+ * exige permissão própria (5.1) e pede o motivo (5.4).
+ */
+const grauTone = (g: "alta" | "media" | "baixa") => (g === "alta" ? "success" : g === "media" ? "warning" : "neutral");
+const grauLabel = (g: "alta" | "media" | "baixa") => (g === "alta" ? "alta compatibilidade" : g === "media" ? "média" : "baixa");
 
-export function ConciliacaoReview({
-  pendentes,
-  pendentesEntrada = [],
-  conciliados,
-  canDesfazer,
-}: {
-  pendentes: MovimentoPendente[];
-  pendentesEntrada?: MovimentoPendenteEntrada[];
-  conciliados: MovimentoConciliado[];
-  canDesfazer: boolean;
-}) {
+export function ConciliacaoReview({ pendentes, pendentesEntrada, conciliados, canDesfazer }: { pendentes: MovimentoPendente[]; pendentesEntrada: MovimentoPendenteEntrada[]; conciliados: MovimentoConciliado[]; canDesfazer: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  /** valores escolhidos por movimento → despesa (string para o input). */
+  const [valores, setValores] = useState<Record<string, Record<string, string>>>({});
+  const valorDe = (mov: string, desp: string, padrao: number) => valores[mov]?.[desp] ?? String(padrao);
+  const setValor = (mov: string, desp: string, v: string) => setValores((s) => ({ ...s, [mov]: { ...(s[mov] ?? {}), [desp]: v } }));
 
   const run = (fn: () => Promise<void>, ok: string) => {
     setErro(null);
@@ -45,205 +38,138 @@ export function ConciliacaoReview({
     start(async () => {
       try {
         await fn();
-        setMsg(ok);
+        if (ok) setMsg(ok);
         router.refresh();
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Falha na operação.");
       }
     });
   };
-
-  const conciliar = (cashEntryId: string, despesaId: string) =>
-    run(() => conciliarDespesa({ cashEntryId, despesaId }), "Movimento conciliado: despesa marcada como paga.");
-  const conciliarReceber = (cashEntryId: string, contaReceberId: string) =>
-    run(() => conciliarContaReceber({ cashEntryId, contaReceberId }), "Movimento conciliado: conta a receber marcada como recebida.");
-  const criarConta = (cashEntryId: string, entrada: boolean) =>
-    run(
-      () => criarContaFromExtrato(cashEntryId),
-      entrada ? "Conta a receber criada a partir do extrato." : "Conta a pagar criada a partir do extrato.",
-    );
-  const desfazer = (cashEntryId: string) => {
-    setErro(null);
-    setMsg(null);
-    start(async () => {
-      try {
-        await desfazerConciliacao(cashEntryId);
-        setMsg("Conciliação desfeita: despesa voltou para 'A pagar'.");
-        router.refresh();
-      } catch (e) {
-        setErro(e instanceof Error ? e.message : "Falha ao desfazer.");
-      }
-    });
+  const conciliarUm = (m: MovimentoPendente, despesaId: string, valor: number) =>
+    run(async () => {
+      const r = await conciliarMovimento({ cashEntryId: m.cashEntryId, itens: [{ despesaId, valor }] });
+      if (!r.ok) throw new Error(r.error);
+      setMsg(r.concluida ? "Movimento conciliado: os vínculos somam o valor dele." : `Vínculo gravado (${brl0(r.soma)} de ${brl0(Math.abs(m.valor))}). A conciliação só conclui quando os vínculos somarem o movimento.`);
+    }, "");
+  const conciliarVarios = (m: MovimentoPendente) =>
+    run(async () => {
+      const itens = m.sugestoes.map((s) => ({ despesaId: s.despesaId, valor: Number(valorDe(m.cashEntryId, s.despesaId, 0)) || 0 })).filter((i) => i.valor > 0);
+      const r = await conciliarMovimento({ cashEntryId: m.cashEntryId, itens });
+      if (!r.ok) throw new Error(r.error);
+      setMsg(r.concluida ? `Movimento conciliado com ${itens.length} despesa(s).` : `${itens.length} vínculo(s) gravado(s) (${brl0(r.soma)} de ${brl0(Math.abs(m.valor))}); a conciliação só conclui quando a soma fechar.`);
+    }, "");
+  const conciliarReceber = (cashEntryId: string, contaReceberId: string) => run(() => conciliarContaReceber({ cashEntryId, contaReceberId }), "Movimento conciliado: conta a receber marcada como recebida.");
+  const criarConta = (cashEntryId: string, entrada: boolean) => run(() => criarContaFromExtrato(cashEntryId), entrada ? "Conta a receber criada a partir do extrato." : "Conta a pagar criada a partir do extrato.");
+  const desfazer = (c: MovimentoConciliado) => {
+    const motivo = window.prompt("Motivo para desfazer a conciliação (fica na auditoria):", "");
+    if (motivo === null) return;
+    run(() => desfazerConciliacao(c.cashEntryId, motivo), "Conciliação desfeita: o movimento do extrato foi preservado e a despesa voltou ao status derivado.");
   };
 
   return (
     <div className="space-y-4">
-      {erro && <p className="text-xs text-[var(--color-danger)]">{erro}</p>}
-      {msg && <p className="text-xs text-[var(--color-success)]">{msg}</p>}
-
+      {erro && <p className="text-xs text-[var(--color-danger)]" role="alert">{erro}</p>}
+      {msg && <p className="text-xs text-[var(--color-success)]" role="status">{msg}</p>}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-[var(--color-ink)]">
-          Movimentos do extrato a conciliar{" "}
-          <span className="font-normal text-[var(--color-ink3)]">
-            ({pendentes.length})
-          </span>
+          Movimentos do extrato a conciliar <span className="font-normal text-[var(--color-ink3)]">({pendentes.length})</span>
         </h3>
         <p className="text-[12px] text-[var(--color-ink3)]">
-          Para cada saída do extrato, sugerimos as contas a pagar mais compatíveis
-          (o grau é só orientação). Nada é conciliado sem a sua confirmação. Ao
-          conciliar, a despesa é marcada como paga na data e no banco do movimento.
+          Para cada saída do extrato, sugerimos as contas a pagar mais compatíveis (o grau é só orientação). Escolha uma ou várias, com o valor de cada vínculo — um pagamento pode quitar várias despesas. A soma não pode passar do movimento, e a conciliação só conclui quando a soma fechar. Nada é conciliado sem a sua confirmação.
         </p>
-        {pendentes.length === 0 && (
-          <p className="py-6 text-center text-sm text-[var(--color-ink4)]">
-            Nenhuma saída do extrato pendente de conciliação.
-          </p>
-        )}
-        {pendentes.map((m) => (
-          <Card key={m.cashEntryId}>
-            <CardContent className="p-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                  <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                    {m.data ? dateBR(m.data) : "—"}
-                  </span>
-                  <span className="text-[var(--color-ink)]">{m.descricao ?? "—"}</span>
-                  {m.doc && (
-                    <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">
-                      doc {m.doc}
-                    </span>
-                  )}
+        {pendentes.length === 0 && <p className="py-6 text-center text-sm text-[var(--color-ink4)]">Nenhuma saída do extrato pendente de conciliação.</p>}
+        {pendentes.map((m) => {
+          const falta = Math.round((Math.abs(m.valor) - m.vinculado) * 100) / 100;
+          return (
+            <Card key={m.cashEntryId}>
+              <CardContent className="p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                    <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{m.data ? dateBR(m.data) : "—"}</span>
+                    <span className="text-[var(--color-ink)]">{m.descricao ?? "—"}</span>
+                    {m.doc && <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">doc {m.doc}</span>}
+                    {m.vinculado > 0 && <Badge tone="warning">parcial: {brl0(m.vinculado)} vinculado · falta {brl0(falta)}</Badge>}
+                  </div>
+                  <span className="font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--color-danger)]">−{brl0(Math.abs(m.valor))}</span>
                 </div>
-                <span className="font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--color-danger)]">
-                  −{brl0(Math.abs(m.valor))}
-                </span>
-              </div>
-              {m.sugestoes.length === 0 ? (
-                <p className="text-[12px] text-[var(--color-ink4)]">
-                  Sem contas a pagar compatíveis. Concilie manualmente em Despesas
-                  ou mantenha pendente.
-                </p>
-              ) : (
-                <div className="divide-y divide-[var(--color-accent2)]/8 rounded-[8px] border border-[var(--color-accent2)]/12">
-                  {m.sugestoes.map((s) => (
-                    <div
-                      key={s.despesaId}
-                      className="flex flex-wrap items-center gap-2 px-3 py-2"
-                    >
-                      <Badge tone={grauTone(s.grau)}>{grauLabel(s.grau)}</Badge>
-                      <span className="text-[13px] text-[var(--color-ink)]">
-                        {s.fornecedor ?? "—"}
-                      </span>
-                      <span className="text-[12px] text-[var(--color-ink3)]">
-                        {s.descricao ?? s.numDoc ?? ""}
-                      </span>
-                      <span className="font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink2)]">
-                        {brl0(Math.abs(s.valor))}
-                      </span>
-                      {s.vencimento && (
-                        <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">
-                          venc {dateBR(s.vencimento)}
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        className="ml-auto"
-                        disabled={pending}
-                        onClick={() => conciliar(m.cashEntryId, s.despesaId)}
-                      >
-                        Conciliar
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mt-2 flex items-center gap-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() => criarConta(m.cashEntryId, false)}
-                >
-                  Criar conta a pagar
+                {m.sugestoes.length === 0 ? (
+                  <p className="text-[12px] text-[var(--color-ink4)]">Sem contas a pagar compatíveis. Lance a despesa em Despesas (com data, valor e histórico do extrato) ou mantenha pendente.</p>
+                ) : (
+                  <div className="divide-y divide-[var(--color-accent2)]/8 rounded-[8px] border border-[var(--color-accent2)]/12">
+                    {m.sugestoes.map((s) => {
+                      const padrao = Math.min(falta, Math.abs(s.valor));
+                      return (
+                        <div key={s.despesaId} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                          <Badge tone={grauTone(s.grau)}>{grauLabel(s.grau)}</Badge>
+                          <span className="text-[13px] text-[var(--color-ink)]">{s.fornecedor ?? "—"}</span>
+                          <span className="text-[12px] text-[var(--color-ink3)]">{s.descricao ?? s.numDoc ?? ""}</span>
+                          <span className="font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink2)]">{brl0(Math.abs(s.valor))}</span>
+                          {s.vencimento && <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">venc. {dateBR(s.vencimento)}</span>}
+                          <span className="ml-auto flex items-center gap-1.5">
+                            <Input type="number" step="0.01" min="0" value={valorDe(m.cashEntryId, s.despesaId, padrao)} onChange={(e) => setValor(m.cashEntryId, s.despesaId, e.target.value)} aria-label={`Valor do vínculo com ${s.numDoc ?? s.despesaId}`} className="h-8 w-28 text-right font-[family-name:var(--font-mono)] text-xs" />
+                            <Button size="sm" onClick={() => conciliarUm(m, s.despesaId, Number(valorDe(m.cashEntryId, s.despesaId, padrao)) || 0)} disabled={pending}>
+                              Conciliar
+                            </Button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {m.sugestoes.length > 1 && (
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11.5px] text-[var(--color-ink3)]">
+                        <span>Várias despesas num só movimento: ajuste os valores acima e vincule todas de uma vez (as com valor zero ficam de fora).</span>
+                        <Button size="sm" variant="outline" onClick={() => conciliarVarios(m)} disabled={pending}>
+                          Vincular todas com valor
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <Button variant="ghost" size="sm" className="mt-2" onClick={() => criarConta(m.cashEntryId, false)} disabled={pending}>
+                  Converter em conta a pagar (já paga)
                 </Button>
-                <span className="text-[11px] text-[var(--color-ink4)]">
-                  ou deixe pendente para não processar agora.
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </section>
 
-      {/* Entradas do extrato → conta a receber (item 6/7) */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-[var(--color-ink)]">
-          Entradas do extrato a conciliar{" "}
-          <span className="font-normal text-[var(--color-ink3)]">({pendentesEntrada.length})</span>
+          Entradas do extrato a conciliar <span className="font-normal text-[var(--color-ink3)]">({pendentesEntrada.length})</span>
         </h3>
-        <p className="text-[12px] text-[var(--color-ink3)]">
-          Para cada entrada, sugerimos as contas a receber compatíveis. Você pode
-          vincular a uma conta existente, criar uma nova conta a receber, ou deixar
-          pendente. Nada é processado sem confirmação.
-        </p>
-        {pendentesEntrada.length === 0 && (
-          <p className="py-6 text-center text-sm text-[var(--color-ink4)]">
-            Nenhuma entrada do extrato pendente.
-          </p>
-        )}
+        <p className="text-[12px] text-[var(--color-ink3)]">Para cada entrada, as contas a receber compatíveis. O recebimento é gravado com valor (Prompt K): um depósito pode quitar várias parcelas.</p>
+        {pendentesEntrada.length === 0 && <p className="py-6 text-center text-sm text-[var(--color-ink4)]">Nenhuma entrada do extrato pendente.</p>}
         {pendentesEntrada.map((m) => (
           <Card key={m.cashEntryId}>
             <CardContent className="p-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                  <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                    {m.data ? dateBR(m.data) : "—"}
-                  </span>
+                  <span className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{m.data ? dateBR(m.data) : "—"}</span>
                   <span className="text-[var(--color-ink)]">{m.descricao ?? "—"}</span>
+                  {m.doc && <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">doc {m.doc}</span>}
                 </div>
-                <span className="font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--color-success)]">
-                  +{brl0(Math.abs(m.valor))}
-                </span>
+                <span className="font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--color-success)]">+{brl0(Math.abs(m.valor))}</span>
               </div>
-              {m.sugestoes.length > 0 && (
+              {m.sugestoes.length === 0 ? (
+                <p className="text-[12px] text-[var(--color-ink4)]">Sem contas a receber compatíveis. Lance em Contas a Receber ou mantenha pendente.</p>
+              ) : (
                 <div className="divide-y divide-[var(--color-accent2)]/8 rounded-[8px] border border-[var(--color-accent2)]/12">
                   {m.sugestoes.map((s) => (
                     <div key={s.contaReceberId} className="flex flex-wrap items-center gap-2 px-3 py-2">
                       <Badge tone={grauTone(s.grau)}>{grauLabel(s.grau)}</Badge>
-                      <span className="text-[13px] text-[var(--color-ink)]">{s.projectName}</span>
-                      <span className="text-[12px] text-[var(--color-ink3)]">{s.descricao ?? ""}</span>
-                      <span className="font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink2)]">
-                        {brl0(Math.abs(s.valor))}
-                      </span>
-                      {s.vencimento && (
-                        <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-ink4)]">
-                          venc {dateBR(s.vencimento)}
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        className="ml-auto"
-                        disabled={pending}
-                        onClick={() => conciliarReceber(m.cashEntryId, s.contaReceberId)}
-                      >
+                      <span className="text-[13px] text-[var(--color-ink)]">{s.descricao ?? "—"}</span>
+                      <span className="text-[12px] text-[var(--color-ink3)]">{s.projectName}</span>
+                      <span className="font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-ink2)]">{brl0(Math.abs(s.valor))}</span>
+                      <Button size="sm" className="ml-auto" onClick={() => conciliarReceber(m.cashEntryId, s.contaReceberId)} disabled={pending}>
                         Conciliar
                       </Button>
                     </div>
                   ))}
                 </div>
               )}
-              <div className="mt-2 flex items-center gap-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() => criarConta(m.cashEntryId, true)}
-                >
-                  Criar conta a receber
-                </Button>
-                <span className="text-[11px] text-[var(--color-ink4)]">
-                  ou deixe pendente para não processar agora.
-                </span>
-              </div>
+              <Button variant="ghost" size="sm" className="mt-2" onClick={() => criarConta(m.cashEntryId, true)} disabled={pending}>
+                Converter em conta a receber (já recebida)
+              </Button>
             </CardContent>
           </Card>
         ))}
@@ -252,44 +178,48 @@ export function ConciliacaoReview({
       {conciliados.length > 0 && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-[var(--color-ink)]">
-            Conciliados{" "}
-            <span className="font-normal text-[var(--color-ink3)]">
-              ({conciliados.length})
-            </span>
+            Conciliados <span className="font-normal text-[var(--color-ink3)]">({conciliados.length})</span>
           </h3>
           <div className="overflow-x-auto rounded-[8px] border border-[var(--color-accent2)]/12">
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead className="bg-[var(--color-surface2)] text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+            <table className="w-full text-[12px]">
+              <thead className="bg-[var(--color-surface2)] text-left text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
                 <tr>
                   <th className="px-3 py-2">Data</th>
                   <th className="px-3 py-2">Movimento</th>
-                  <th className="px-3 py-2">Despesa</th>
                   <th className="px-3 py-2 text-right">Valor</th>
-                  <th className="px-3 py-2">Por</th>
+                  <th className="px-3 py-2">Vínculos</th>
+                  <th className="px-3 py-2">Por / quando</th>
                   {canDesfazer && <th className="px-3 py-2 text-right">Ação</th>}
                 </tr>
               </thead>
               <tbody>
                 {conciliados.map((c) => (
                   <tr key={c.cashEntryId} className="border-t border-[var(--color-accent2)]/8">
-                    <td className="whitespace-nowrap px-3 py-1.5 font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                      {c.data ? dateBR(c.data) : "—"}
+                    <td className="px-3 py-2 font-[family-name:var(--font-mono)]">{c.data ? dateBR(c.data) : "—"}</td>
+                    <td className="px-3 py-2">{c.descricao ?? "—"}</td>
+                    <td className={`px-3 py-2 text-right font-[family-name:var(--font-mono)] ${c.valor < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}`}>{brl0(c.valor)}</td>
+                    <td className="px-3 py-2">
+                      {c.semVinculo ? (
+                        <Badge tone="warning" title="Marcado como conciliado sem registro de com o quê casou (BL-2). Regularize vinculando uma despesa ou desfazendo.">conciliado sem vínculo</Badge>
+                      ) : c.vinculos.length > 0 ? (
+                        <ul className="space-y-0.5">
+                          {c.vinculos.map((v) => (
+                            <li key={v.despesaId + v.valor} className="text-[11.5px]">
+                              {v.numDoc ?? "sem PED"} · {v.fornecedor ?? "—"} · <span className="font-[family-name:var(--font-mono)]">{brl0(v.valor)}</span> {v.origem === "importacao" && <Badge tone="neutral">importação</Badge>}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-[11.5px]">{c.despesaNumDoc ?? "—"} · {c.fornecedor ?? "—"}</span>
+                      )}
                     </td>
-                    <td className="px-3 py-1.5 text-[var(--color-ink)]">{c.descricao ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-[var(--color-ink2)]">
-                      {c.fornecedor ?? c.despesaNumDoc ?? "—"}
+                    <td className="px-3 py-2 text-[11px] text-[var(--color-ink3)]">
+                      {c.conciliadoPor ?? "—"}
+                      {c.conciliadoEm ? ` · ${c.conciliadoEm.slice(0, 10).split("-").reverse().join("/")}` : ""}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right font-[family-name:var(--font-mono)]">
-                      {brl0(Math.abs(c.valor))}
-                    </td>
-                    <td className="px-3 py-1.5 text-[var(--color-ink4)]">{c.conciliadoPor ?? "—"}</td>
                     {canDesfazer && (
-                      <td className="px-3 py-1.5 text-right">
-                        <button
-                          className="text-[12px] text-[var(--color-danger)] hover:underline disabled:opacity-50"
-                          disabled={pending}
-                          onClick={() => desfazer(c.cashEntryId)}
-                        >
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => desfazer(c)} disabled={pending} className="text-[12px] text-[var(--color-danger)] hover:underline disabled:opacity-50">
                           Desfazer
                         </button>
                       </td>
@@ -299,6 +229,7 @@ export function ConciliacaoReview({
               </tbody>
             </table>
           </div>
+          <p className="text-[11px] text-[var(--color-ink4)]">Desfazer preserva o movimento do extrato; o que se desfaz é o vínculo. Exige a permissão própria de desfazer conciliação.</p>
         </section>
       )}
     </div>

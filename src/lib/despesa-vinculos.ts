@@ -44,7 +44,18 @@ export async function vinculosDaDespesa(exec: Exec, tenantId: string, despesaId:
           ),
         ),
     ),
-    n(exec.select({ n: count }).from(schema.cashEntries).where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.cashEntries.conciliadoDespesaId, despesaId)))),
+    // Caixa conciliado: pelo caminho antigo (coluna) OU por vínculo com valor ativo (Prompt L, Parte 2).
+    n(
+      exec
+        .select({ n: count })
+        .from(schema.cashEntries)
+        .where(
+          and(
+            eq(schema.cashEntries.tenantId, tenantId),
+            sql`(${schema.cashEntries.conciliadoDespesaId} = ${despesaId} or exists (select 1 from ${schema.conciliacoesDespesa} cd where cd.cash_entry_id = ${schema.cashEntries.id} and cd.despesa_id = ${despesaId} and cd.desfeito = false))`,
+          ),
+        ),
+    ),
     n(exec.select({ n: count }).from(schema.despesaTerceiros).where(and(eq(schema.despesaTerceiros.tenantId, tenantId), eq(schema.despesaTerceiros.despesaId, despesaId)))),
     n(exec.select({ n: count }).from(schema.documentosFiscais).where(and(eq(schema.documentosFiscais.tenantId, tenantId), eq(schema.documentosFiscais.despesaId, despesaId)))),
     n(exec.select({ n: count }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.despesaId, despesaId)))),
@@ -89,6 +100,11 @@ export async function movimentosConciliados(exec: Exec, tenantId: string, despes
   const rows = await exec
     .select({ data: schema.cashEntries.data, valor: schema.cashEntries.valor, descricao: schema.cashEntries.descricao })
     .from(schema.cashEntries)
-    .where(and(eq(schema.cashEntries.tenantId, tenantId), eq(schema.cashEntries.conciliadoDespesaId, despesaId)));
+    .where(
+      and(
+        eq(schema.cashEntries.tenantId, tenantId),
+        sql`(${schema.cashEntries.conciliadoDespesaId} = ${despesaId} or exists (select 1 from ${schema.conciliacoesDespesa} cd where cd.cash_entry_id = ${schema.cashEntries.id} and cd.despesa_id = ${despesaId} and cd.desfeito = false))`,
+      ),
+    );
   return rows.map((r) => ({ data: r.data, valor: Number(r.valor), descricao: r.descricao }));
 }

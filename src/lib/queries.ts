@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, max, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
 import type { CalcPermutaRevenda } from "@/lib/calc/permuta-ganho";
 import { db, schema } from "./db";
@@ -2386,6 +2387,8 @@ export interface MovimentoPendente {
   descricao: string | null;
   doc: string | null;
   valor: number;
+  /** Prompt L, Parte 2 — já vinculado com valor (parcial); o que falta é |valor| − vinculado. */
+  vinculado: number;
   sugestoes: ConciliacaoSugestao[];
 }
 export interface SugestaoReceber {
@@ -2414,6 +2417,10 @@ export interface MovimentoConciliado {
   fornecedor: string | null;
   conciliadoPor: string | null;
   conciliadoEm: string | null;
+  /** Prompt L — vínculos com valor (Parte 2); vazio no caminho antigo. */
+  vinculos: { despesaId: string; numDoc: string | null; fornecedor: string | null; valor: number; origem: string }[];
+  /** BL-2 / 6.6 — `rec` sem nenhum vínculo: estado próprio, não "conciliado". */
+  semVinculo: boolean;
 }
 export interface ConciliacaoData {
   pendentes: MovimentoPendente[];
@@ -2459,12 +2466,18 @@ export async function getConciliacaoData(
   const despById = new Map(contas.map((c) => [c.id, c]));
   const recById = new Map(receber.map((c) => [c.id, c]));
   const abertas = contas.filter((c) => c.status !== "Pago");
+  // Prompt L, Parte 2 — vínculos com valor dos movimentos desta versão.
+  const vinculos = await vinculosDaVersao(tenantId, versionId);
+  const vinculosPorMov = new Map<string, typeof vinculos>();
+  for (const v of vinculos) vinculosPorMov.set(v.cashEntryId, [...(vinculosPorMov.get(v.cashEntryId) ?? []), v]);
+  const vinculadoDe = (id: string) => Math.round((vinculosPorMov.get(id) ?? []).reduce((a, v) => a + v.valor, 0) * 100) / 100;
   const receberAbertas = receber.filter((c) => c.status !== "Recebido" && c.status !== "Cancelada");
 
   const pendentes: MovimentoPendente[] = [];
   const rankGrau = { alta: 0, media: 1, baixa: 2 } as const;
   for (const e of entries) {
-    if (e.rec || e.conciliadoDespesaId) continue;
+    // Movimento com vínculo PARCIAL continua pendente (3.1: só conclui quando os vínculos somam o valor).
+    if (e.rec || (e.conciliadoDespesaId && vinculadoDe(e.id) === 0)) continue;
     const valor = Number(e.valor);
     if (!valor || valor >= 0) continue; // só saídas do extrato, por ora
     const movCents = Math.round(Math.abs(valor) * 100);
@@ -2504,6 +2517,7 @@ export async function getConciliacaoData(
       descricao: e.descricao,
       doc: e.doc,
       valor,
+      vinculado: vinculadoDe(e.id),
       sugestoes: sugestoes.slice(0, 4).map(({ _prox, ...s }) => { void _prox; return s; }),
     });
   }
@@ -2554,11 +2568,14 @@ export async function getConciliacaoData(
     });
   }
 
+  // Conciliados: os com vínculo (novo ou antigo) e — BL-2 / 6.6 — os marcados
+  // `rec` sem lastro nenhum, em estado próprio. Ajuste nasce conciliado e não entra.
   const conciliados: MovimentoConciliado[] = entries
-    .filter((e) => e.conciliadoDespesaId || e.conciliadoContaReceberId)
+    .filter((e) => (e.rec && e.cat !== "ajuste") || e.conciliadoDespesaId || e.conciliadoContaReceberId)
     .map((e) => {
       const d = e.conciliadoDespesaId ? despById.get(e.conciliadoDespesaId) : undefined;
       const r = e.conciliadoContaReceberId ? recById.get(e.conciliadoContaReceberId) : undefined;
+      const vs = vinculosPorMov.get(e.id) ?? [];
       return {
         cashEntryId: e.id,
         data: e.data,
@@ -2569,6 +2586,8 @@ export async function getConciliacaoData(
         fornecedor: d?.fornecedorNome ?? r?.clienteNome ?? r?.descricao ?? null,
         conciliadoPor: e.conciliadoPor,
         conciliadoEm: e.conciliadoEm,
+        vinculos: vs.map((v) => ({ despesaId: v.despesaId, numDoc: v.numDoc, fornecedor: v.fornecedor, valor: v.valor, origem: v.origem })),
+        semVinculo: vs.length === 0 && !e.conciliadoDespesaId && !e.conciliadoContaReceberId,
       };
     });
 
