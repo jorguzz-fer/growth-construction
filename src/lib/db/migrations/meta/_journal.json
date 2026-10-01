@@ -393,6 +393,13 @@
       "when": 1790838182275,
       "tag": "0055_fatura_pagamento",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790839101905,
+      "tag": "0056_extrato_estorno_cartao",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,8 @@ export interface FaturaParaEstado {
   valorPago: number;
   /** 3.3 — saldo não pago das faturas anteriores (pagas parcialmente) que esta fatura traz. */
   rotativoAnterior?: number;
+  /** 6.2 — créditos de estorno ainda não aplicados num pagamento: reduzem o que falta pagar. */
+  creditos?: number;
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -36,8 +38,8 @@ export function totalDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "rotati
   return r2(f.valorCompras + (f.rotativoAnterior ?? 0));
 }
 
-export function saldoDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "valorPago" | "rotativoAnterior">): number {
-  return Math.max(0, r2(totalDaFatura(f) - f.valorPago));
+export function saldoDaFatura(f: Pick<FaturaParaEstado, "valorCompras" | "valorPago" | "rotativoAnterior" | "creditos">): number {
+  return Math.max(0, r2(totalDaFatura(f) - f.valorPago - (f.creditos ?? 0)));
 }
 
 export function estadoDaFatura(f: FaturaParaEstado, hojeISO: string): EstadoDaFatura {
@@ -187,6 +189,7 @@ export function linhaDaFatura(f: FaturaParaLinha, hojeISO: string): LinhaDeFatur
   const partes = [`${f.qtdCompras} compra(s)`, `fecha ${dataBR(f.fechamento)}`];
   if (estado === "aberta") partes.push("ainda recebe compras");
   if (rotativo > 0) partes.push(`traz rotativo de ${rotativo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`);
+  if ((f.creditos ?? 0) > 0) partes.push(`crédito de estorno de ${(f.creditos ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`);
   if (parcial) partes.push(`saldo de ${saldoDaFatura(f).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} levado à fatura seguinte`);
   return {
     id: `fatura:${f.id}`,

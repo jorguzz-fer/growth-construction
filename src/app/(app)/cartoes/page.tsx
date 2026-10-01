@@ -1,5 +1,7 @@
 import { getTenantContext } from "@/lib/context";
-import { getBankAccounts, getCartoes, getComprasDaFatura, getFaturasCartao, getVinculosDosCartoes } from "@/lib/queries";
+import { getBankAccounts, getCartoes, getComprasDaFatura, getComprasDoCartao, getEstornosDoCartao, getExtratoCartao, getFaturasCartao, getVinculosDosCartoes } from "@/lib/queries";
+import { conferirExtrato } from "@/lib/calc/conferencia-cartao";
+import { ExtratoCartao } from "@/components/app/extrato-cartao";
 import { can } from "@/lib/permissions";
 import { hojeISO } from "@/lib/despesa-status";
 import { cicloAberto } from "@/lib/calc/cartao-ciclo";
@@ -19,7 +21,7 @@ export const dynamic = "force-dynamic";
  * ciclo. Aqui: cadastro (seção 1) e faturas (seção 2); pagamento, projeção e
  * conferência nos PRs seguintes.
  */
-export default async function CartoesPage({ searchParams }: { searchParams: Promise<{ fatura?: string }> }) {
+export default async function CartoesPage({ searchParams }: { searchParams: Promise<{ fatura?: string; extrato?: string }> }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
   if (!can(ctx.perms, "cartoes", "ver")) return <AccessDenied />;
@@ -38,6 +40,12 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
   const faturaAberta = sp.fatura && faturas.some((f) => f.id === sp.fatura) ? sp.fatura : null;
   const [compras, pagamentos] = await Promise.all([faturaAberta ? getComprasDaFatura(ctx.tenant.id, faturaAberta) : Promise.resolve([]), getPagamentosDaFatura(ctx.tenant.id, faturas.map((f) => f.id))]);
   const projetos = ctx.projects.map((p) => ({ id: p.id, nome: p.name }));
+  // Seções 5 e 6 — conferência do extrato do cartão escolhido, em código puro.
+  const cartaoExtrato = cartoes.find((c) => c.id === sp.extrato) ?? null;
+  const [itensExtrato, comprasCartao, estornos] = cartaoExtrato
+    ? await Promise.all([getExtratoCartao(ctx.tenant.id, cartaoExtrato.id), getComprasDoCartao(ctx.tenant.id, cartaoExtrato.id), getEstornosDoCartao(ctx.tenant.id, cartaoExtrato.id)])
+    : [[], [], []];
+  const conferencia = cartaoExtrato ? conferirExtrato(itensExtrato, comprasCartao, estornos, cartaoExtrato) : null;
   const contaDoCartao: Record<string, string | null> = Object.fromEntries(cartoes.map((c) => [c.id, c.bankAccountId]));
 
   return (
@@ -52,6 +60,7 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
       {can(ctx.perms, "cartoes", "criar") && <CartaoForm contas={contas} />}
       <CartoesManager cartoes={cartoes} contas={contas} usado={usado} vinculos={vinculos} hoje={hoje} canEditar={can(ctx.perms, "cartoes", "editar")} canExcluir={can(ctx.perms, "cartoes", "excluir")} />
       <ProjecaoCartao cartoes={cartoes} faturas={faturas} hoje={hoje} />
+      <ExtratoCartao cartoes={cartoes.map((c) => ({ id: c.id, nome: `${c.apelido}${c.ultimos4 ? " •••• " + c.ultimos4 : ""}` }))} cartaoId={cartaoExtrato?.id ?? null} conferencia={conferencia} compras={comprasCartao} projetos={projetos} canEditar={can(ctx.perms, "cartoes", "editar")} />
       <FaturasCartao faturas={faturas} hoje={hoje} aberta={faturaAberta} compras={compras} pagamentos={pagamentos} contas={contas} projetos={projetos} contaDoCartao={contaDoCartao} canPagar={can(ctx.perms, "cartoes", "editar")} />
     </>
   );

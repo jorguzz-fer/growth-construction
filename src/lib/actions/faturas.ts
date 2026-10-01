@@ -59,6 +59,18 @@ async function parcelasAPagar(exec: typeof db | Parameters<Parameters<typeof db.
     .sort((a, b) => (ymd(a.faturaFechamento) ?? 0) - (ymd(b.faturaFechamento) ?? 0) || (a.numDoc ?? "").localeCompare(b.numDoc ?? "") || a.numeroParcela - b.numeroParcela);
 }
 
+/** 6.2 — estornos ainda não aplicados, das faturas do cartão até o fechamento informado (inclusive). */
+async function creditosDisponiveis(exec: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0], tenantId: string, cartaoId: string, fechamentoLimite: string, forUpdate: boolean): Promise<{ id: string; valor: number }[]> {
+  const q = exec
+    .select({ id: schema.estornosCartao.id, valor: schema.estornosCartao.valor, fechamento: schema.faturasCartao.fechamento })
+    .from(schema.estornosCartao)
+    .innerJoin(schema.faturasCartao, eq(schema.estornosCartao.faturaId, schema.faturasCartao.id))
+    .where(and(eq(schema.estornosCartao.tenantId, tenantId), eq(schema.estornosCartao.cartaoId, cartaoId), sql`${schema.estornosCartao.aplicadoEm} is null`));
+  const rows = forUpdate ? await q.for("update", { of: schema.estornosCartao }) : await q;
+  const limite = ymd(fechamentoLimite) ?? 0;
+  return rows.filter((r) => (ymd(r.fechamento) ?? 0) <= limite).map((r) => ({ id: r.id, valor: Number(r.valor) }));
+}
+
 export interface PreviewPagamentoFatura {
   ok: true;
   faturaId: string;
@@ -70,6 +82,8 @@ export interface PreviewPagamentoFatura {
   bankAccountId: string | null;
   /** tudo que está em aberto no cartão até esta fatura: compras dela + rotativo das anteriores. */
   totalDevido: number;
+  /** 6.2 — créditos de estorno que entram antes do dinheiro. */
+  creditos: number;
   valor: number;
   /** o que ficará em aberto depois deste pagamento — o rotativo (3.3). */
   saldoRestante: number;
@@ -89,9 +103,11 @@ export async function previewPagamentoFatura(faturaId: string, valor: number): P
   const [view] = await getFaturasCartao(ctx.tenant.id, f.f.cartaoId).then((l) => l.filter((x) => x.id === faturaId));
   const estado = view ? estadoDaFatura(view, hojeISO()) : "aberta";
   const abertas = await parcelasAPagar(db, ctx.tenant.id, f.f.cartaoId, f.f.fechamento, false);
-  const totalDevido = Math.round(abertas.reduce((a, p) => a + p.saldo, 0) * 100) / 100;
+  const creditos = await creditosDisponiveis(db, ctx.tenant.id, f.f.cartaoId, f.f.fechamento, false);
+  const totalCreditos = Math.round(creditos.reduce((a, e) => a + e.valor, 0) * 100) / 100;
+  const totalDevido = Math.max(0, Math.round((abertas.reduce((a, p) => a + p.saldo, 0) - totalCreditos) * 100) / 100);
   const v = Math.abs(valor) || totalDevido;
-  const d = distribuirPagamento(v, abertas);
+  const d = distribuirPagamento(Math.round((v + totalCreditos) * 100) / 100, abertas);
   return {
     ok: true,
     faturaId,
@@ -101,6 +117,7 @@ export async function previewPagamentoFatura(faturaId: string, valor: number): P
     estado,
     bankAccountId: f.bankAccountId,
     totalDevido,
+    creditos: totalCreditos,
     valor: v,
     saldoRestante: Math.max(0, Math.round((totalDevido - v) * 100) / 100),
     linhas: d.abatimentos.map((a) => ({ numDoc: a.numDoc, parcela: a.numeroParcela, faturaFechamento: a.faturaFechamento, saldo: a.saldo, abatido: a.abatido })),
@@ -162,10 +179,15 @@ export async function pagarFatura(input: PagarFaturaInput): Promise<ResultadoPag
       }
       // Trava as parcelas em aberto do cartão até esta fatura (FIFO).
       const abertas = await parcelasAPagar(tx, ctx.tenant.id, f.cartaoId, f.fechamento, true);
-      const totalDevido = Math.round(abertas.reduce((a, p) => a + p.saldo, 0) * 100) / 100;
       if (abertas.length === 0) throw new Error("Esta fatura não tem saldo em aberto.");
-      const d = distribuirPagamento(valor, abertas);
-      if (d.sobra > 0.004) throw new Error(`O valor excede o saldo devido (${totalDevido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}). Ajuste o valor.`);
+      // 6.2 — créditos de estorno ainda não aplicados, das faturas até esta:
+      // entram ANTES do dinheiro, abatendo as mesmas parcelas (FIFO).
+      const creditos = await creditosDisponiveis(tx, ctx.tenant.id, f.cartaoId, f.fechamento, true);
+      const totalCreditos = Math.round(creditos.reduce((a, e) => a + e.valor, 0) * 100) / 100;
+      const bruto = Math.round(abertas.reduce((a, p) => a + p.saldo, 0) * 100) / 100;
+      const totalDevido = Math.max(0, Math.round((bruto - totalCreditos) * 100) / 100);
+      const d = distribuirPagamento(Math.round((valor + totalCreditos) * 100) / 100, abertas);
+      if (d.sobra > 0.004) throw new Error(`O valor excede o saldo devido (${totalDevido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, já descontados ${totalCreditos.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} de créditos). Ajuste o valor.`);
 
       // 3.1 — UMA saída de caixa, pelo valor pago, na data, na conta do cartão.
       const cartaoNome = `${cartao.apelido}${cartao.ultimos4 ? " •••• " + cartao.ultimos4 : ""}`;
@@ -191,24 +213,44 @@ export async function pagarFatura(input: PagarFaturaInput): Promise<ResultadoPag
       // (é o que o saldo real da despesa — §15 — lê). SEM caixa por parcela:
       // a saída é uma só, acima.
       const despesasTocadas = new Set<string>();
+      let creditoRestante = Math.round(totalCreditos * 100);
       for (const a of d.abatimentos) {
         const novoPago = Math.round((a.valorOriginal - a.saldo + a.abatido) * 100) / 100;
         await tx
           .update(schema.despesaParcelas)
           .set({ valorPago: String(novoPago), dataPagamento: input.data, status: statusDaParcela(a.valorOriginal, novoPago) })
           .where(eq(schema.despesaParcelas.id, a.id));
-        await tx.insert(schema.pagamentos).values({
-          tenantId: ctx.tenant.id,
-          parcelaId: a.id,
-          despesaId: a.despesaId,
-          valorOriginal: String(a.valorOriginal),
-          valorTotalPago: String(a.abatido),
-          dataPagamento: input.data,
-          bankAccountId,
-          obs: `Fatura cartão ${cartaoNome} · venc. ${f.vencimento}`,
-          usuarioId: ctx.userId,
-        });
+        // A parte coberta por crédito de estorno fica registrada como tal
+        // (sem banco); o resto é o pagamento em dinheiro.
+        const cents = Math.round(a.abatido * 100);
+        const porCredito = Math.min(cents, creditoRestante);
+        creditoRestante -= porCredito;
+        const porDinheiro = cents - porCredito;
+        for (const [parte, obs, banco] of [
+          [porCredito, `Estorno no cartão aplicado · fatura ${cartaoNome} venc. ${f.vencimento}`, null],
+          [porDinheiro, `Fatura cartão ${cartaoNome} · venc. ${f.vencimento}`, bankAccountId],
+        ] as const) {
+          if (parte <= 0) continue;
+          await tx.insert(schema.pagamentos).values({
+            tenantId: ctx.tenant.id,
+            parcelaId: a.id,
+            despesaId: a.despesaId,
+            valorOriginal: String(a.valorOriginal),
+            valorTotalPago: String(parte / 100),
+            dataPagamento: input.data,
+            bankAccountId: banco,
+            obs,
+            usuarioId: ctx.userId,
+          });
+        }
         despesasTocadas.add(a.despesaId);
+      }
+      // Os créditos usados ficam marcados como aplicados neste pagamento (6.3: nunca contam duas vezes).
+      if (creditos.length > 0) {
+        await tx
+          .update(schema.estornosCartao)
+          .set({ aplicadoEm: input.data, faturaPagamentoId: pag.id })
+          .where(inArray(schema.estornosCartao.id, creditos.map((e) => e.id)));
       }
       for (const despesaId of despesasTocadas) {
         const irmas = await tx.select({ status: schema.despesaParcelas.status, valorPago: schema.despesaParcelas.valorPago }).from(schema.despesaParcelas).where(eq(schema.despesaParcelas.despesaId, despesaId));
@@ -233,7 +275,7 @@ export async function pagarFatura(input: PagarFaturaInput): Promise<ResultadoPag
           action: "fatura.pagar",
           entity: "fatura_cartao",
           entityId: f.id,
-          meta: { pagamentoId: pag.id, cartaoId: cartao.id, valor, data: input.data, bankAccountId, projectId: input.projectId, cashEntryId: cash.id, parcelasAbatidas: d.abatimentos.length, saldoRestante },
+          meta: { pagamentoId: pag.id, cartaoId: cartao.id, valor, creditosAplicados: totalCreditos, data: input.data, bankAccountId, projectId: input.projectId, cashEntryId: cash.id, parcelasAbatidas: d.abatimentos.length, saldoRestante },
         },
         tx,
       );
