@@ -1282,6 +1282,8 @@ export const documents = pgTable("document", {
   funcionarioId: uuid("funcionario_id").references((): AnyPgColumn => funcionarios.id, { onDelete: "set null" }),
   equipeDiaId: uuid("equipe_dia_id").references((): AnyPgColumn => equipeDias.id, { onDelete: "set null" }),
   folhaId: uuid("folha_id").references((): AnyPgColumn => folhasCompetencia.id, { onDelete: "set null" }),
+  /** Prompt V, 5.2 (0064): laudo, relatório fotográfico, PLS ou ART/RRT de uma medição. */
+  medicaoId: uuid("medicao_id").references((): AnyPgColumn => medicoes.id, { onDelete: "set null" }),
   /** Prompt Z, 2.2-A.7: validade do documento (ASO, CNH), ISO YYYY-MM-DD. */
   validade: text("validade"),
   /** chave do objeto no bucket R2. */
@@ -1305,7 +1307,8 @@ export const documents = pgTable("document", {
 
 /**
  * Medição de obra lançada pelo engenheiro, por competência (MM/YYYY) e grupo
- * de obra (CEF). A soma das medições alimenta o Custo Variável da DRE.
+ * de obra (CEF). Informação AUXILIAR (Prompt V): alimenta o Relatório CEF
+ * (orçado × medido por grupo); NÃO alimenta a DRE nem compõe custo.
  */
 /**
  * Catálogo de SERVIÇOS do projeto (orçamento de obra). Cada serviço tem um
@@ -1314,7 +1317,7 @@ export const documents = pgTable("document", {
  * faixa aceitável. Ver docs/BDI-PROVISIONAMENTO.md §2.
  *
  * Tabela NOVA e independente: não altera nem substitui `medicao`, que continua
- * válida e em uso (Custo Variável da DRE).
+ * válida e em uso (alimenta o Relatório CEF; não a DRE — Prompt V).
  */
 export const servicos = pgTable("servico", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1375,6 +1378,8 @@ export const medicoes = pgTable("medicao", {
   grupoName: text("grupo_name").notNull(),
   valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
   obs: text("obs"),
+  /** Prompt V, 0.5.1 (0064): quem lançou; null nas medições anteriores à coluna (sem backfill). */
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

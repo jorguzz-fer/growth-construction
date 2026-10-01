@@ -61,7 +61,7 @@ describe.skipIf(!HAS_DB)("ordem cronológica sobre data em texto (Prompt I, §37
       .where(eq(schema.despesas.competencia, "1/2025"));
     expect(s.chave).toBe("202501");
     expect((await getDespesas(versionId)).map((d) => d.competencia)).toEqual(["1/2025", "12/2025", "01/2026"]);
-    expect((await getMedicoes(versionId)).map((m) => m.competencia)).toEqual(["1/2025", "12/2025", "01/2026"]);
+    expect((await getMedicoes(tenantId, versionId)).map((m) => m.competencia)).toEqual(["1/2025", "12/2025", "01/2026"]);
   });
 
   it("contas a receber por vencimento real", async () => {

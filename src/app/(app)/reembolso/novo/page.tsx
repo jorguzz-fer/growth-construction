@@ -40,7 +40,7 @@ export default async function NovoReembolsoPage({
   const { project, trabalho: version } = escolhido;
   // 6.2 — avisos do assistente no cadastro (competência com medição e sem
   // liberação; lançamento igual a um existente). Só leitura.
-  const [existentes, medicoes] = await Promise.all([getReembolsos(ctx.tenant.id, version.id), getMedicoes(version.id)]);
+  const [existentes, medicoes] = await Promise.all([getReembolsos(ctx.tenant.id, version.id), getMedicoes(ctx.tenant.id, version.id)]);
 
   return (
     <>
