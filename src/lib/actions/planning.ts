@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -11,6 +11,7 @@ import { RECEITAS_PROJETO_KEY, defaultDreCategory } from "@/lib/budget/config";
 import { getBudgetPlanning, getChartAccounts } from "@/lib/queries";
 import { naturezaDoGrupo } from "@/lib/natureza-grupo";
 import { recusaDaInclusao, recusaDaRemocao, resumoDaRemocao, totalReceitasDoProjeto, type GrupoDoPlano } from "@/lib/orcamento-regras";
+import { LIMITE_PREVISOES, recusaDoLimite, recusaDoNome, vagasRestantes } from "@/lib/previsao-regras";
 
 export interface PlanningAccountInput {
   rowKey: string;
@@ -158,7 +159,23 @@ export async function saveBudgetPlanning(
 const FORECAST_COLORS = [
   "#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b", "#ec4899", "#14b8a6", "#6366f1", "#f43f5e",
 ];
-const MAX_FORECASTS = 12;
+const MAX_FORECASTS = LIMITE_PREVISOES;
+
+/** Prompt F, 3.4: criar e duplicar devolvem resultado legível, não `throw`. */
+export type ResultadoPrevisao = { ok: true; id: string; aviso?: string } | { ok: false; error: string };
+
+/**
+ * FC-10: o limite é conferido DENTRO da transação, com a linha do projeto
+ * travada (`FOR UPDATE`), para duas criações simultâneas não passarem as duas.
+ */
+async function contarPrevisoesTravando(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], projectId: string): Promise<number> {
+  await tx.execute(sql`SELECT id FROM project WHERE id = ${projectId} FOR UPDATE`);
+  const rows = await tx
+    .select({ id: schema.versions.id })
+    .from(schema.versions)
+    .where(and(eq(schema.versions.projectId, projectId), eq(schema.versions.kind, "forecast")));
+  return rows.length;
+}
 
 /** Copia budget_account + budget_line de uma versão de origem para a nova versão. */
 async function copyPlanningData(
@@ -325,14 +342,14 @@ export async function createForecastFromBudget(
   projectId: string,
   budgetVersionId: string,
   label: string,
-): Promise<string> {
+): Promise<ResultadoPrevisao> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "forecast", "criar")) {
-    throw new Error("Sem permissão para criar Forecast.");
-  }
-  if (!ctx.projects.some((p) => p.id === projectId)) {
-    throw new Error("Projeto inválido.");
-  }
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "forecast", "criar")) return { ok: false, error: "Sem permissão para criar a Previsão." };
+  if (!ctx.projects.some((p) => p.id === projectId)) return { ok: false, error: "Projeto inválido." };
+  // 3.2: nome obrigatório.
+  const recusaNome = recusaDoNome(label);
+  if (recusaNome) return { ok: false, error: recusaNome };
   const [budget] = await db
     .select()
     .from(schema.versions)
@@ -345,62 +362,58 @@ export async function createForecastFromBudget(
       ),
     )
     .limit(1);
-  if (!budget) throw new Error("Versão de Budget de origem não encontrada.");
+  if (!budget) return { ok: false, error: "Versão de Orçamento de origem não encontrada." };
 
-  const existing = await db
-    .select({ id: schema.versions.id })
-    .from(schema.versions)
-    .where(
-      and(eq(schema.versions.projectId, projectId), eq(schema.versions.kind, "forecast")),
-    );
-  if (existing.length >= MAX_FORECASTS) {
-    throw new Error(`Limite de ${MAX_FORECASTS} versões de Forecast por projeto atingido.`);
-  }
-  const clean = (label || "").trim() || "Forecast";
+  const clean = label.trim();
   const key = `forecast-${crypto.randomUUID().slice(0, 8)}`;
-  const color = FORECAST_COLORS[existing.length % FORECAST_COLORS.length];
 
-  const newId = await db.transaction(async (tx) => {
-    const [v] = await tx
-      .insert(schema.versions)
-      .values({
-        projectId,
-        tenantId: ctx.tenant.id,
-        key,
-        kind: "forecast",
-        label: clean,
-        color,
-        isDefault: false,
-        locked: false,
-        status: "Rascunho",
-        sourceVersionId: budgetVersionId,
-      })
-      .returning();
-    await copyPlanningData(tx, ctx.tenant.id, budgetVersionId, v.id);
-    return v.id;
-  });
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "forecast.createFromBudget",
-    entity: "version",
-    entityId: newId,
-    meta: { projectId, budgetVersionId, label: clean },
-  });
-  revalidatePath("/forecast");
-  return newId;
+  try {
+    const { newId, existentes } = await db.transaction(async (tx) => {
+      const existentes = await contarPrevisoesTravando(tx, projectId);
+      const recusa = recusaDoLimite(existentes, MAX_FORECASTS);
+      if (recusa) throw new Error(recusa);
+      const color = FORECAST_COLORS[existentes % FORECAST_COLORS.length];
+      const [v] = await tx
+        .insert(schema.versions)
+        .values({
+          projectId,
+          tenantId: ctx.tenant.id,
+          key,
+          kind: "forecast",
+          label: clean,
+          color,
+          isDefault: false,
+          locked: false,
+          status: "Rascunho",
+          sourceVersionId: budgetVersionId,
+        })
+        .returning();
+      await copyPlanningData(tx, ctx.tenant.id, budgetVersionId, v.id);
+      return { newId: v.id, existentes };
+    });
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "forecast.createFromBudget",
+      entity: "version",
+      entityId: newId,
+      meta: { projectId, budgetVersionId, label: clean },
+    });
+    revalidatePath("/forecast");
+    return { ok: true, id: newId, aviso: vagasRestantes(existentes + 1, MAX_FORECASTS).aviso ?? undefined };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao criar a Previsão." };
+  }
 }
 
 /** Duplica uma versão de Forecast em uma nova versão independente. */
 export async function duplicateForecast(
   forecastVersionId: string,
   label: string,
-): Promise<string> {
+): Promise<ResultadoPrevisao> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "forecast", "criar")) {
-    throw new Error("Sem permissão para duplicar Forecast.");
-  }
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "forecast", "criar")) return { ok: false, error: "Sem permissão para duplicar a Previsão." };
   const [src] = await db
     .select()
     .from(schema.versions)
@@ -412,51 +425,50 @@ export async function duplicateForecast(
       ),
     )
     .limit(1);
-  if (!src) throw new Error("Forecast de origem não encontrado.");
-
-  const existing = await db
-    .select({ id: schema.versions.id })
-    .from(schema.versions)
-    .where(
-      and(eq(schema.versions.projectId, src.projectId), eq(schema.versions.kind, "forecast")),
-    );
-  if (existing.length >= MAX_FORECASTS) {
-    throw new Error(`Limite de ${MAX_FORECASTS} versões de Forecast por projeto atingido.`);
-  }
-  const clean = (label || "").trim() || `${src.label} (cópia)`;
+  if (!src) return { ok: false, error: "Previsão de origem não encontrada." };
+  const recusaNome = recusaDoNome(label);
+  if (recusaNome) return { ok: false, error: recusaNome };
+  const clean = label.trim();
   const key = `forecast-${crypto.randomUUID().slice(0, 8)}`;
-  const color = FORECAST_COLORS[existing.length % FORECAST_COLORS.length];
 
-  const newId = await db.transaction(async (tx) => {
-    const [v] = await tx
-      .insert(schema.versions)
-      .values({
-        projectId: src.projectId,
-        tenantId: ctx.tenant.id,
-        key,
-        kind: "forecast",
-        label: clean,
-        color,
-        isDefault: false,
-        locked: false,
-        status: "Rascunho",
-        sourceVersionId: src.sourceVersionId,
-      })
-      .returning();
-    await copyPlanningData(tx, ctx.tenant.id, src.id, v.id);
-    return v.id;
-  });
-
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "forecast.duplicate",
-    entity: "version",
-    entityId: newId,
-    meta: { from: forecastVersionId, label: clean },
-  });
-  revalidatePath("/forecast");
-  return newId;
+  try {
+    const { newId, existentes } = await db.transaction(async (tx) => {
+      const existentes = await contarPrevisoesTravando(tx, src.projectId);
+      const recusa = recusaDoLimite(existentes, MAX_FORECASTS);
+      if (recusa) throw new Error(recusa);
+      const color = FORECAST_COLORS[existentes % FORECAST_COLORS.length];
+      const [v] = await tx
+        .insert(schema.versions)
+        .values({
+          projectId: src.projectId,
+          tenantId: ctx.tenant.id,
+          key,
+          kind: "forecast",
+          label: clean,
+          color,
+          isDefault: false,
+          locked: false,
+          status: "Rascunho",
+          // BG-20 (fora de escopo): continua copiando a origem da origem.
+          sourceVersionId: src.sourceVersionId,
+        })
+        .returning();
+      await copyPlanningData(tx, ctx.tenant.id, src.id, v.id);
+      return { newId: v.id, existentes };
+    });
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "forecast.duplicate",
+      entity: "version",
+      entityId: newId,
+      meta: { from: forecastVersionId, label: clean },
+    });
+    revalidatePath("/forecast");
+    return { ok: true, id: newId, aviso: vagasRestantes(existentes + 1, MAX_FORECASTS).aviso ?? undefined };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao duplicar a Previsão." };
+  }
 }
 
 /** Atualiza o status do workflow da versão (Rascunho/Concluído/Aprovado). */

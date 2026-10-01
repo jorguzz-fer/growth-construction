@@ -114,7 +114,9 @@ describe.skipIf(!HAS_DB)("Prompt D · grade de Orçamentos", async () => {
   });
 
   it("a Previsão herda a seleção (BD-7) e recusa incluir/remover", async () => {
-    const fid = await createForecastFromBudget(projectId, budgetId, "Revisão 01");
+    const criada = await createForecastFromBudget(projectId, budgetId, "Revisão 01");
+    if (!criada.ok) throw new Error(criada.error);
+    const fid = criada.id;
     const sel = await db.select().from(schema.budgetSelecoes).where(eq(schema.budgetSelecoes.versionId, fid));
     expect(sel.map((s) => `${s.kind}:${s.rowKey}`)).toEqual(["despesa:1"]);
     const f = await getBudgetPlanning(tenantId, projectId, "forecast", fid);

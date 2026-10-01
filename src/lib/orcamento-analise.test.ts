@@ -10,6 +10,7 @@ const base = (over: Partial<BudgetPlanningData> = {}): BudgetPlanningData => ({
   selecao: { receita: false, despesa: false },
   disponiveis: { receita: [], despesa: [] },
   ultimaReplicacao: null,
+  totaisDaOrigem: null,
   hasPeriod: true,
   months: ["01/2026", "02/2026", "03/2026"],
   versions: [],

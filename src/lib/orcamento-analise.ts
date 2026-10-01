@@ -84,11 +84,12 @@ export function analisarDistribuicao(data: BudgetPlanningData): Apontamento[] {
 export function compararVersoes(cmp: ForecastComparisonData | null): Apontamento[] {
   if (!cmp) return [{ nivel: "info", texto: "Sem Previsão Atualizada para comparar: crie uma a partir deste Orçamento." }];
   if (!cmp.ok) return [{ nivel: "info", texto: cmp.message ?? "Comparação indisponível." }];
-  const linhas = [...cmp.receitas.map((r) => ({ ...r, bloco: "receita" as const })), ...cmp.despesas.map((r) => ({ ...r, bloco: "despesa" as const }))];
+  // Ausente (null) conta como zero só para somar; na frase vira "conta nova".
+  const linhas = [...cmp.receitas.map((r) => ({ ...r, budget: r.budget ?? 0, forecast: r.forecast ?? 0, bloco: "receita" as const })), ...cmp.despesas.map((r) => ({ ...r, budget: r.budget ?? 0, forecast: r.forecast ?? 0, bloco: "despesa" as const }))];
   const variacoes = linhas.map((l) => ({ ...l, dif: l.forecast - l.budget })).filter((l) => Math.abs(l.dif) > 0.005).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
   const out: Apontamento[] = [];
-  const totB = (rows: { budget: number }[]) => rows.reduce((a, r) => a + r.budget, 0);
-  const totF = (rows: { forecast: number }[]) => rows.reduce((a, r) => a + r.forecast, 0);
+  const totB = (rows: { budget: number | null }[]) => rows.reduce((a, r) => a + (r.budget ?? 0), 0);
+  const totF = (rows: { forecast: number | null }[]) => rows.reduce((a, r) => a + (r.forecast ?? 0), 0);
   const resB = totB(cmp.receitas) - totB(cmp.despesas);
   const resF = totF(cmp.receitas) - totF(cmp.despesas);
   out.push({ nivel: Math.abs(resF - resB) > 0.005 ? "info" : "info", texto: `Resultado: Orçamento ${brl0(resB)} × Previsão ${brl0(resF)} (${resF - resB >= 0 ? "+" : "−"}${brl0(Math.abs(resF - resB))}).` });
@@ -104,9 +105,9 @@ export function compararVersoes(cmp: ForecastComparisonData | null): Apontamento
 export function explicarDesvios(cmp: ForecastComparisonData | null): Apontamento[] {
   if (!cmp || !cmp.ok) return [{ nivel: "info", texto: "Sem comparação disponível, não há desvio a explicar." }];
   const out: Apontamento[] = [];
-  const linhas = [...cmp.receitas, ...cmp.despesas];
-  const soForecast = linhas.filter((l) => l.budget === 0 && l.forecast !== 0);
-  const soBudget = linhas.filter((l) => l.forecast === 0 && l.budget !== 0);
+  const linhas = [...cmp.receitas, ...cmp.despesas].map((l) => ({ ...l, budget: l.budget ?? 0, forecast: l.forecast ?? 0, ausenteB: l.budget == null, ausenteF: l.forecast == null }));
+  const soForecast = linhas.filter((l) => (l.ausenteB || l.budget === 0) && l.forecast !== 0);
+  const soBudget = linhas.filter((l) => (l.ausenteF || l.forecast === 0) && l.budget !== 0);
   if (soForecast.length) out.push({ nivel: "info", texto: `Conta(s) só na Previsão: ${soForecast.map((l) => l.label).join(", ")} — custo que não estava orçado, ou linha incluída depois.` });
   if (soBudget.length) out.push({ nivel: "info", texto: `Conta(s) só no Orçamento: ${soBudget.map((l) => l.label).join(", ")} — zeradas ou removidas na revisão.` });
   // totais iguais, meses diferentes
