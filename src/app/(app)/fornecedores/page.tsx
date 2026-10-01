@@ -65,6 +65,13 @@ export default async function FornecedoresPage() {
           cidade: s.cidade,
           estado: s.estado,
           cep: s.cep,
+          bancoNome: s.bancoNome,
+          bancoAgencia: s.bancoAgencia,
+          bancoConta: s.bancoConta,
+          bancoTipoConta: s.bancoTipoConta,
+          bancoTitular: s.bancoTitular,
+          pixTipo: s.pixTipo,
+          pixChave: s.pixChave,
         }))}
         papeis={PAPEIS_STAKEHOLDER}
         canEditar={can(ctx.perms, "fornecedores", "editar")}

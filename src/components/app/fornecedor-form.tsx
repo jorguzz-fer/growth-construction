@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { addStakeholder, extractFornecedorFromDoc } from "@/lib/actions/stakeholders";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
+import { TIPOS_DE_CHAVE_PIX, TIPOS_DE_CONTA } from "@/lib/stakeholder-regras";
 import { UploadDocumentos } from "@/components/ui/upload-documentos";
 import { CampoIA, ResumoLeituraIA } from "@/components/ui/campo-ia";
 import { legivelPelaIa, type Alerta } from "@/lib/ai/campos";
@@ -46,6 +47,9 @@ export function FornecedorForm({
   const [cidade, setCidade] = useState("");
   const [estado, setEstado] = useState("");
   const [cep, setCep] = useState("");
+  // Prompt T, BT-2 — dados de recebimento (banco e PIX) do pagador terceiro.
+  const [recebimento, setRecebimento] = useState({ bancoNome: "", bancoAgencia: "", bancoConta: "", bancoTipoConta: "", bancoTitular: "", pixTipo: "", pixChave: "" });
+  const rec = (k: keyof typeof recebimento) => (e: { target: { value: string } }) => setRecebimento((r) => ({ ...r, [k]: e.target.value }));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [file, setFile] = useState<File | null>(null);
   /**
@@ -181,6 +185,7 @@ export function FornecedorForm({
     fd.set("cidade", cidade);
     fd.set("estado", estado);
     fd.set("cep", cep);
+    for (const [k, v] of Object.entries(recebimento)) fd.set(k, v);
     for (const p of selected) fd.append("papeis", p);
     if (file) fd.set("file", file);
     startSaving(async () => {
@@ -208,6 +213,7 @@ export function FornecedorForm({
         setCidade("");
         setEstado("");
         setCep("");
+        setRecebimento({ bancoNome: "", bancoAgencia: "", bancoConta: "", bancoTipoConta: "", bancoTitular: "", pixTipo: "", pixChave: "" });
         setSelected(new Set());
         limparLeitura();
         setFile(null);
@@ -363,6 +369,38 @@ export function FornecedorForm({
             <Input value={cep} onChange={editando("cep", setCep)} />
           </CampoIA>
         </div>
+
+        {/* Prompt T, BT-2 — dados para ressarcir quem paga pela empresa. Sensíveis:
+            ficam só aqui; a auditoria registra que mudaram, não o valor; o
+            assistente não os recebe. */}
+        <details className="rounded-[8px] border border-[var(--color-line)] p-3">
+          <summary className="cursor-pointer text-[12.5px] font-medium text-[var(--color-ink2)]">Dados para ressarcimento (banco / PIX) — opcional</summary>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div><Label>Banco</Label><Input value={recebimento.bancoNome} onChange={rec("bancoNome")} /></div>
+            <div><Label>Agência</Label><Input value={recebimento.bancoAgencia} onChange={rec("bancoAgencia")} /></div>
+            <div><Label>Conta</Label><Input value={recebimento.bancoConta} onChange={rec("bancoConta")} /></div>
+            <div>
+              <Label>Tipo de conta</Label>
+              <Select value={recebimento.bancoTipoConta} onChange={rec("bancoTipoConta")}>
+                <option value="">—</option>
+                {TIPOS_DE_CONTA.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="sm:col-span-2"><Label>Titular (se diferente do cadastro)</Label><Input value={recebimento.bancoTitular} onChange={rec("bancoTitular")} /></div>
+            <div>
+              <Label>Tipo de chave PIX</Label>
+              <Select value={recebimento.pixTipo} onChange={rec("pixTipo")}>
+                <option value="">—</option>
+                {TIPOS_DE_CHAVE_PIX.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </Select>
+            </div>
+            <div><Label>Chave PIX</Label><Input value={recebimento.pixChave} onChange={rec("pixChave")} autoComplete="off" /></div>
+          </div>
+        </details>
 
         <CampoIA label="Papéis" alerta={alertas.papeis}>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">

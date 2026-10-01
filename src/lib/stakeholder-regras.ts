@@ -235,3 +235,19 @@ export function filtrarCadastros<T extends { nome: string; nomeFantasia?: string
     return termos.every((t) => nome.includes(t) || doc.includes(t) || (digitos && digitos.includes(t.replace(/\D/g, "")) && t.replace(/\D/g, "").length > 0));
   });
 }
+
+/** Prompt T, BT-2 — campos de recebimento (banco e PIX): nunca em claro no log, nunca ao assistente. */
+export const CAMPOS_DE_RECEBIMENTO = ["bancoNome", "bancoAgencia", "bancoConta", "bancoTipoConta", "bancoTitular", "pixTipo", "pixChave"] as const;
+export type CampoDeRecebimento = (typeof CAMPOS_DE_RECEBIMENTO)[number];
+export const TIPOS_DE_CHAVE_PIX = ["CPF", "CNPJ", "E-mail", "Telefone", "Aleatória"] as const;
+export const TIPOS_DE_CONTA = ["Corrente", "Poupança", "Pagamento"] as const;
+
+/**
+ * O que vai ao log quando um campo de recebimento muda: só QUE mudou. Devolve
+ * uma cópia de `changes` com os valores desses campos substituídos.
+ */
+export function changesSemValorDeRecebimento<T extends Record<string, unknown>>(changes: T): T {
+  const out: Record<string, unknown> = { ...changes };
+  for (const k of CAMPOS_DE_RECEBIMENTO) if (k in out) out[k] = { de: "[protegido]", para: "[protegido]" };
+  return out as T;
+}

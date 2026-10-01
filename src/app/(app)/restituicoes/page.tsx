@@ -11,10 +11,11 @@ import { situacaoDosDias } from "@/lib/calc/restituicao";
 import { hojeISO } from "@/lib/despesa-status";
 import { PagadoresTerceiros } from "@/components/app/pagadores-terceiros";
 import Link from "next/link";
-import { getContaCorrenteTerceiros, getDespesaTerceiros, getPreviaSaidaPorObra, type PreviaSaidaPorObra } from "@/lib/actions/restituicoes";
+import { getCompensacoes, getContaCorrenteTerceiros, getDespesaTerceiros, getPreviaSaidaPorObra, type CompensacaoView, type PreviaSaidaPorObra } from "@/lib/actions/restituicoes";
 import { chaveLigada } from "@/lib/chaves-tenant";
-import { brl0 } from "@/lib/utils";
+import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ContaCorrenteTerceiros } from "@/components/app/conta-corrente-terceiros";
 import { RestituicaoLote } from "@/components/app/restituicao-lote";
 import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-terceiro";
@@ -80,7 +81,7 @@ export default async function RestituicoesPage({
   }));
   // Prompt T, 1 — pagadores: quem tem o papel, com obrigações e saldo; os
   // candidatos são os cadastros ativos sem o papel.
-  const uso = await getUsoDosStakeholders(ctx.tenant.id);
+  const [uso, compensacoes] = await Promise.all([getUsoDosStakeholders(ctx.tenant.id), getCompensacoes(ctx.tenant.id)]);
   const usoPorId = new Map(uso.map((u) => [u.id, u]));
   const saldoPorTerceiro = new Map(contasCorrentes.map((c) => [c.pagadorId, c.saldoDevido]));
   const pagadores = stakeholders
@@ -132,6 +133,8 @@ export default async function RestituicoesPage({
         projectId={project.id}
         canEditar={can(ctx.perms, "restituicoes", "editar")}
       />
+      {/* Prompt T, 7 — a compensação existe, tem número e guarda os saldos de antes; agora é visível. */}
+      <Compensacoes linhas={compensacoes} />
       {podeVerPrevia && <PreviaSaidaSegueDespesa linhas={previa} ligada={segueDespesa} obraDaTela={project.name} />}
     </>
   );
@@ -180,6 +183,47 @@ function PreviaSaidaSegueDespesa({ linhas, ligada, obraDaTela }: { linhas: Previ
             </tbody>
           </table>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Prompt T, 7 — compensações registradas (encontro de contas), lidas de volta. Só leitura. */
+function Compensacoes({ linhas }: { linhas: CompensacaoView[] }) {
+  if (linhas.length === 0) return null;
+  return (
+    <Card className="mt-6">
+      <CardContent className="p-5">
+        <h2 className="text-sm font-semibold text-[var(--color-ink)]">Compensações registradas</h2>
+        <p className="mt-1 text-[11.5px] text-[var(--color-ink3)]">
+          Encontro de contas entre o que a empresa devia ao terceiro e o que ele devia à empresa. Não movimenta caixa; o número vem da sequência de PED.
+        </p>
+        <Table wrapperClassName="mt-3" className="min-w-[760px]">
+          <THead>
+            <tr>
+              <TH>Documento</TH>
+              <TH>Data</TH>
+              <TH>Terceiro</TH>
+              <TH className="text-right">Valor compensado</TH>
+              <TH className="text-right">A ressarcir (antes)</TH>
+              <TH className="text-right">A repassar (antes)</TH>
+              <TH>Obs.</TH>
+            </tr>
+          </THead>
+          <tbody>
+            {linhas.map((k) => (
+              <TR key={k.id}>
+                <TD className="font-[family-name:var(--font-mono)]">{k.numDoc ?? "—"}</TD>
+                <TD className="font-[family-name:var(--font-mono)]">{k.data ? dateBR(k.data) : "—"}</TD>
+                <TD>{k.terceiro ?? "—"}</TD>
+                <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(k.valor)}</TD>
+                <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{brl0(k.saldoRestituirAntes)}</TD>
+                <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{brl0(k.saldoRepassarAntes)}</TD>
+                <TD className="text-[var(--color-ink3)]">{k.obs ?? "—"}</TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
       </CardContent>
     </Card>
   );
