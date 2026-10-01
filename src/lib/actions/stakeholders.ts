@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, ne } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -11,6 +11,7 @@ import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { mascararDocumento } from "@/lib/clientes-sensivel";
 import { confirmacaoConfere } from "@/lib/clientes-regras";
 import {
+  PAPEL_PAGADOR_TERCEIRO,
   avisoDeDuplicidade,
   avisoDeTipoIncompativel,
   bloqueiosDeExclusaoDoStakeholder,
@@ -338,4 +339,74 @@ export async function extractFornecedorFromDoc(formData: FormData): Promise<{ ok
     console.error("[fornecedor] falha na leitura por IA:", e);
     return falha(e instanceof Error ? e.message : "Falha ao ler o documento.");
   }
+}
+
+/**
+ * Prompt T, seção 1 — conceder o papel "Pagador por Terceiro" a um cadastro
+ * que já existe (1.2: acrescenta o papel, não cria registro). Permissão da
+ * tela de Ressarcimentos, que é onde o papel é administrado; auditoria com
+ * nome e documento mascarado (1.5). Nenhum outro papel é tocado.
+ */
+export async function concederPapelPagador(stakeholderId: string): Promise<ResultadoStakeholder> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "restituicoes", "editar")) return { ok: false, error: "Sem permissão para administrar pagadores." };
+  const [s] = await db
+    .select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, doc: schema.stakeholders.doc, papeis: schema.stakeholders.papeis, ativo: schema.stakeholders.ativo })
+    .from(schema.stakeholders)
+    .where(and(eq(schema.stakeholders.id, stakeholderId), eq(schema.stakeholders.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!s) return { ok: false, error: "Cadastro não encontrado." };
+  if (!s.ativo) return { ok: false, error: "Cadastro inativo: reative-o em Fornecedores antes de conceder o papel." };
+  if ((s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO)) return { ok: true, id: s.id, avisos: [`${s.nome} já tem o papel.`] };
+  const papeis = [...(s.papeis ?? []), PAPEL_PAGADOR_TERCEIRO];
+  await db.transaction(async (tx) => {
+    await tx.update(schema.stakeholders).set({ papeis }).where(eq(schema.stakeholders.id, s.id));
+    await logAudit(
+      { tenantId: ctx.tenant.id, userId: ctx.userId, action: "stakeholder.papelPagador.conceder", entity: "stakeholder", entityId: s.id, meta: { nome: s.nome, doc: mascararDocumento(s.doc), papeis: { de: s.papeis ?? [], para: papeis } } },
+      tx,
+    );
+  });
+  revalidatePath("/restituicoes");
+  revalidatePath("/fornecedores");
+  revalidatePath("/despesas");
+  return { ok: true, id: s.id, avisos: [] };
+}
+
+/**
+ * Prompt T, 1.3 — retirar o papel só enquanto não houver obrigação vinculada;
+ * com obrigação (ativa ou histórica), explica e oferece inativar o cadastro.
+ */
+export async function retirarPapelPagador(stakeholderId: string): Promise<ResultadoStakeholder> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "restituicoes", "editar")) return { ok: false, error: "Sem permissão para administrar pagadores." };
+  const [s] = await db
+    .select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, doc: schema.stakeholders.doc, papeis: schema.stakeholders.papeis })
+    .from(schema.stakeholders)
+    .where(and(eq(schema.stakeholders.id, stakeholderId), eq(schema.stakeholders.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!s) return { ok: false, error: "Cadastro não encontrado." };
+  if (!(s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO)) return { ok: true, id: s.id, avisos: [`${s.nome} não tem o papel.`] };
+  const [o] = await db
+    .select({ n: count(), saldo: sql<string>`coalesce(sum(${schema.despesaTerceiros.valorTotal} - ${schema.despesaTerceiros.valorRestituido}), 0)` })
+    .from(schema.despesaTerceiros)
+    .where(and(eq(schema.despesaTerceiros.tenantId, ctx.tenant.id), eq(schema.despesaTerceiros.pagadorTerceiroId, s.id)));
+  const obrigacoes = Number(o?.n ?? 0);
+  if (obrigacoes > 0) {
+    return {
+      ok: false,
+      error: `${s.nome} tem ${obrigacoes} obrigação(ões) vinculada(s) (saldo ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(o.saldo))}). O papel não pode ser retirado: o histórico precisa continuar explicável. Para que a pessoa deixe de ser oferecida, inative o cadastro em Fornecedores.`,
+    };
+  }
+  const papeis = (s.papeis ?? []).filter((x) => x !== PAPEL_PAGADOR_TERCEIRO);
+  await db.transaction(async (tx) => {
+    await tx.update(schema.stakeholders).set({ papeis }).where(eq(schema.stakeholders.id, s.id));
+    await logAudit(
+      { tenantId: ctx.tenant.id, userId: ctx.userId, action: "stakeholder.papelPagador.retirar", entity: "stakeholder", entityId: s.id, meta: { nome: s.nome, doc: mascararDocumento(s.doc), papeis: { de: s.papeis ?? [], para: papeis } } },
+      tx,
+    );
+  });
+  revalidatePath("/restituicoes");
+  revalidatePath("/fornecedores");
+  revalidatePath("/despesas");
+  return { ok: true, id: s.id, avisos: [] };
 }

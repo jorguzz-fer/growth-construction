@@ -4,8 +4,12 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { can } from "@/lib/permissions";
-import { getBankAccounts, getChartAccounts, getStakeholders } from "@/lib/queries";
-import { opcoesDeSelecao, pagadoresPorTerceiro } from "@/lib/stakeholder-regras";
+import { getBankAccounts, getChartAccounts, getStakeholders, getUsoDosStakeholders } from "@/lib/queries";
+import { opcoesDeSelecao, pagadoresPorTerceiro, PAPEL_PAGADOR_TERCEIRO } from "@/lib/stakeholder-regras";
+import { mascararDocumento } from "@/lib/clientes-sensivel";
+import { situacaoDosDias } from "@/lib/calc/restituicao";
+import { hojeISO } from "@/lib/despesa-status";
+import { PagadoresTerceiros } from "@/components/app/pagadores-terceiros";
 import Link from "next/link";
 import { getContaCorrenteTerceiros, getDespesaTerceiros, getPreviaSaidaPorObra, type PreviaSaidaPorObra } from "@/lib/actions/restituicoes";
 import { chaveLigada } from "@/lib/chaves-tenant";
@@ -15,24 +19,12 @@ import { ContaCorrenteTerceiros } from "@/components/app/conta-corrente-terceiro
 import { RestituicaoLote } from "@/components/app/restituicao-lote";
 import { getSaldosConsolidadosTerceiros } from "@/lib/actions/recebimento-terceiro";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
-import { ymd } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { RestituicoesManager } from "@/components/app/restituicoes-manager";
 
 export const dynamic = "force-dynamic";
 
-/** Dias em aberto entre a data-base e hoje. */
-function diasEmAberto(base: string | null): number {
-  const b = ymd(base);
-  if (b == null) return 0;
-  const now = new Date();
-  const hoje = now.getUTCFullYear() * 10000 + (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
-  // diferença aproximada em dias via datas UTC
-  const toDate = (n: number) =>
-    Date.UTC(Math.floor(n / 10000), (Math.floor(n / 100) % 100) - 1, n % 100);
-  return Math.max(0, Math.round((toDate(hoje) - toDate(b)) / 86_400_000));
-}
 
 export default async function RestituicoesPage({
   searchParams,
@@ -54,9 +46,9 @@ export default async function RestituicoesPage({
   if (!escolhido?.trabalho) {
     return (
       <PedirProjeto
-        titulo="Restituições — pago por terceiro"
+        titulo="Ressarcimentos — pago por terceiro"
         projetos={ctx.projects}
-        oQue="ver e lançar as restituições"
+        oQue="ver e registrar os ressarcimentos"
       />
     );
   }
@@ -66,7 +58,9 @@ export default async function RestituicoesPage({
     getStakeholders(ctx.tenant.id),
     getChartAccounts(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
-    getDespesaTerceiros(ctx.tenant.id, version.id),
+    // Prompt T, 6 — lista da EMPRESA (mesmo escopo da conta corrente); o filtro
+    // por obra é da tela.
+    getDespesaTerceiros(ctx.tenant.id),
     // Conta corrente por terceiro (§13) — escopo TENANT: a dívida com um sócio
     // é da empresa e não muda porque o usuário trocou o projeto ativo.
     getContaCorrenteTerceiros(ctx.tenant.id),
@@ -79,17 +73,29 @@ export default async function RestituicoesPage({
     chaveLigada(ctx.tenant.id, "restituicao_segue_despesa"),
     podeVerPrevia ? getPreviaSaidaPorObra(ctx.tenant.id) : Promise.resolve([]),
   ]);
+  // Prompt T, 8 — a coluna Dias distingue atraso, a vencer, hoje e sem data;
+  // 4.5 do Prompt R: hoje vem do servidor.
+  const hoje = hojeISO();
   const rows = lista.map((r) => ({
     ...r,
-    diasEmAberto: diasEmAberto(r.dataPrevistaRestituicao ?? r.dataPagamentoOriginal),
+    dias: situacaoDosDias(r.dataPrevistaRestituicao ?? r.dataPagamentoOriginal, hoje),
   }));
+  // Prompt T, 1 — pagadores: quem tem o papel, com obrigações e saldo; os
+  // candidatos são os cadastros ativos sem o papel.
+  const uso = await getUsoDosStakeholders(ctx.tenant.id);
+  const usoPorId = new Map(uso.map((u) => [u.id, u]));
+  const saldoPorTerceiro = new Map(contasCorrentes.map((c) => [c.pagadorId, c.saldoDevido]));
+  const pagadores = stakeholders
+    .filter((s) => (s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO))
+    .map((s) => ({ id: s.id, nome: s.nome, docMascarado: mascararDocumento(s.doc), ativo: s.ativo, obrigacoes: usoPorId.get(s.id)?.obrigacoes ?? 0, saldoDevido: saldoPorTerceiro.get(s.id) ?? 0 }));
+  const candidatos = stakeholders.filter((s) => s.ativo && !(s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO)).map((s) => ({ id: s.id, nome: s.nome, papeis: s.papeis ?? [] }));
 
   return (
     <>
       <PageHeader
         eyebrow={`${project.name} · ${version.label}`}
-        title="Restituições — pago por terceiro"
-        subtitle="Restituição de valores pagos para fornecedores anteriormente. A despesa é reconhecida 1× na DRE; a saída de caixa ocorre só na restituição."
+        title="Ressarcimentos — pago por terceiro"
+        subtitle="Ressarcir a quem pagou fornecedores pela empresa. A despesa é lançada em Despesas e reconhecida 1× na DRE; a saída de caixa ocorre só no ressarcimento."
         actions={
           <ProjectPicker
             projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
@@ -101,7 +107,9 @@ export default async function RestituicoesPage({
 
       {/* Conta corrente por terceiro: saldo devido e o extrato dos movimentos
           que o formam. NÃO é saldo bancário disponível — é obrigação. */}
-      <ContaCorrenteTerceiros contas={contasCorrentes} />
+      <PagadoresTerceiros pagadores={pagadores} candidatos={candidatos} canEditar={can(ctx.perms, "restituicoes", "editar")} />
+
+      <ContaCorrenteTerceiros contas={contasCorrentes} projectId={project.id} podeCancelar={can(ctx.perms, "restituicoes", "excluir")} />
 
       {/* Item 4.1 — o cliente não restitui item a item: fecha o combo e paga um
           valor único, distribuído entre os PEDs em aberto por FIFO. */}
@@ -125,6 +133,7 @@ export default async function RestituicoesPage({
           .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
           .map((c) => ({ code: c.code, name: c.name }))}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+        obraDaTela={project.id}
         bancos={bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo }))}
         categorias={CATEGORIAS_DRE}
         canCriar={can(ctx.perms, "restituicoes", "criar")}

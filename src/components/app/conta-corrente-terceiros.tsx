@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { cancelarRestituicao } from "@/lib/actions/restituicoes";
 import { rotuloDoMovimento, type ContaCorrenteTerceiro } from "@/lib/calc/conta-corrente";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,10 +24,32 @@ import { Badge } from "@/components/ui/badge";
  */
 export function ContaCorrenteTerceiros({
   contas,
+  projectId,
+  podeCancelar = false,
 }: {
   contas: ContaCorrenteTerceiro[];
+  /** obra da tela: onde cai o estorno de caixa (chave "segue a despesa" desligada). */
+  projectId?: string;
+  /** Prompt T, 9 — `cancelarRestituicao` não tinha porta de interface; esta é ela. */
+  podeCancelar?: boolean;
 }) {
   const [aberta, setAberta] = useState<string | null>(null);
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  const cancelar = (id: string) => {
+    const motivo = window.prompt("Cancelar este ressarcimento? O registro fica, marcado como cancelado, e o saldo da obrigação volta. Informe o motivo:");
+    if (motivo === null) return;
+    start(async () => {
+      setErro(null);
+      const r = await cancelarRestituicao(id, projectId ?? "", motivo);
+      if (!r.ok) {
+        setErro(r.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
   if (contas.length === 0) return null;
 
   const totalDevido = contas.reduce((a, c) => a + c.saldoDevido, 0);
@@ -37,6 +61,9 @@ export function ContaCorrenteTerceiros({
           <h2 className="text-sm font-semibold text-[var(--color-ink)]">
             Conta corrente de terceiros
           </h2>
+          {erro && (
+            <p role="alert" className="mt-1 text-[12px] text-[var(--color-danger)]">{erro}</p>
+          )}
           <span className="text-[12px] text-[var(--color-ink3)]">
             Saldo devido total{" "}
             <strong className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">
@@ -127,6 +154,7 @@ export function ContaCorrenteTerceiros({
                                 <th className="px-2 py-1 text-right">Valor</th>
                                 <th className="px-2 py-1 text-right">Saldo devido</th>
                                 <th className="px-2 py-1 text-right">A repassar</th>
+                                {podeCancelar && <th className="px-2 py-1 text-right">Ação</th>}
                               </tr>
                             </thead>
                             <tbody>
@@ -163,6 +191,15 @@ export function ContaCorrenteTerceiros({
                                   <td className="px-2 py-1 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
                                     {brl0(m.saldoRepassarAcumulado)}
                                   </td>
+                                  {podeCancelar && (
+                                    <td className="px-2 py-1 text-right">
+                                      {m.tipo === "restituicao" && !/cancelad/i.test(m.descricao) && (
+                                        <button type="button" disabled={pending} onClick={() => cancelar(m.id)} className="text-[11px] text-[var(--color-danger)] hover:underline disabled:opacity-50" title="Cancela o ressarcimento: o registro fica, marcado, e o saldo volta">
+                                          Cancelar
+                                        </button>
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>
