@@ -53,6 +53,14 @@ export const CHAVES = [
     origem: "Prompt H, seções 1 e 5",
     previa: { href: "/chaves#previa-rascunho", rotulo: "Lista de conferência — o que sairia dos relatórios" },
   },
+  {
+    id: "dre_definicao_nova",
+    titulo: "DRE pela definição nova",
+    efeito:
+      "Na DRE (e no card Orçado x Realizado de Projetos): despesa classificada como “Receita” deixa de somar na receita e passa a ser listada à parte; multa, juros e outros encargos entram na competência da despesa que os gerou, não no mês do pagamento; na Empresa toda, projeto sem o cenário escolhido fica fora da coluna (antes entrava com o Realizado); o período personalizado com limite aberto passa a usar o eixo do projeto. Nada é gravado nem reclassificado.",
+    origem: "Prompt AC, Partes 2, 3.1, 1.3 e 10",
+    previa: { href: "/chaves#previa-dre", rotulo: "Prévia — resultado de hoje × definição nova, por projeto e competência" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

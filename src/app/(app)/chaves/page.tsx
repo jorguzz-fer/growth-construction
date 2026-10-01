@@ -5,6 +5,7 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { CHAVES } from "@/lib/chaves";
 import { getPlanejamentoNaoAprovado } from "@/lib/queries";
+import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
 import { brl } from "@/lib/utils";
 import { membroRestritoPorAmbiente } from "@/lib/membro-padrao";
 import { definirChave } from "@/lib/actions/chaves";
@@ -35,6 +36,9 @@ export default async function ChavesPage() {
   // Prompt H, 5.3: prévia da chave "rascunho_fora_dos_relatorios" (só leitura).
   const naoAprovadas = await getPlanejamentoNaoAprovado(ctx.tenant.id);
   const rascunhoLigada = estado.get("rascunho_fora_dos_relatorios")?.ligada ?? false;
+  // Prompt AC, 10.3: prévia da chave "dre_definicao_nova" (só leitura).
+  const previaDre = await previaDreDefinicaoNova(ctx.tenant.id, ctx.projects);
+  const dreLigada = estado.get("dre_definicao_nova")?.ligada ?? false;
   // A chave do membro também liga pela variável de ambiente, de antes do B4.
   const peloAmbiente: Record<string, boolean> = {
     membro_padrao_restrito: membroRestritoPorAmbiente(ctx.tenant.id),
@@ -167,6 +171,65 @@ export default async function ChavesPage() {
               </table>
             </div>
           )}
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-dre">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · DRE pela definição nova</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Resultado Final da versão Atual de cada projeto, {dreLigada ? "como estava antes da chave e como está agora" : "hoje e pela definição nova"}.
+            Mudam: despesa classificada como “Receita” sai da receita; multa, juros e outros encargos vão para a
+            competência da despesa. Na Empresa toda, projeto sem o cenário escolhido deixa de entrar com o Realizado.
+            Nada é gravado nem reclassificado.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]" aria-label="Prévia da DRE pela definição nova">
+              <thead>
+                <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  <th className="py-1.5 pr-3">Projeto</th>
+                  <th className="py-1.5 pr-3 text-right">Resultado hoje</th>
+                  <th className="py-1.5 pr-3 text-right">Definição nova</th>
+                  <th className="py-1.5 pr-3 text-right">Diferença</th>
+                  <th className="py-1.5">O que muda</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaDre.map((p) => (
+                  <tr key={p.projeto} className="border-b border-[var(--color-line)]/60 align-top">
+                    <td className="py-1.5 pr-3">{p.projeto}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.hoje)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.nova)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{brl(p.nova - p.hoje)}</td>
+                    <td className="py-1.5 text-[12px] text-[var(--color-ink2)]">
+                      {p.meses.length === 0 && p.comoReceita.length === 0 && p.semCenario.length === 0 ? (
+                        "nada"
+                      ) : (
+                        <ul className="space-y-0.5">
+                          {p.meses.slice(0, 6).map((m) => (
+                            <li key={m.mes}>
+                              {m.mes}: {brl(m.hoje)} → {brl(m.nova)}
+                            </li>
+                          ))}
+                          {p.meses.length > 6 && <li>e mais {p.meses.length - 6} competência(s)</li>}
+                          {p.comoReceita.map((r, i) => (
+                            <li key={`r-${i}`}>
+                              Sai da receita: {r.numDoc ?? "sem PED"} · {r.competencia ?? "sem competência"} · {brl(r.valor)}
+                            </li>
+                          ))}
+                          {p.semCenario.length > 0 && (
+                            <li>
+                              Sem {p.semCenario.map((k) => (k === "budget" ? "Orçamento" : k === "forecast" ? "Previsão Atualizada" : "Realizado")).join(" e ")}:
+                              na Empresa toda, fica fora dessa coluna.
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </>

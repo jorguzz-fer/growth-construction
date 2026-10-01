@@ -212,6 +212,8 @@ export const CATEGORIAS_LIDAS = new Set([
 ]);
 
 export interface ForaDaCascata {
+  /** Parte 2 (chave ligada): despesa classificada como "Receita", fora da receita. */
+  comoReceita?: { qtd: number; valor: number };
   semCategoria: { qtd: number; valor: number };
   /** Têm categoria lida, mas não têm competência: entram SÓ no Acumulado (4.2). */
   semCompetencia: { qtd: number; valor: number };
@@ -222,11 +224,20 @@ export interface ForaDaCascata {
 export const FORA_VAZIO: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
 
 /** Resume as linhas de despesa da versão (as mesmas que a DRE lê) — só conta, não muda nada. */
-export function resumirForaDaCascata(rows: readonly { categoriaDre: string | null; competencia: string | null; valor: number }[]): ForaDaCascata {
+export function resumirForaDaCascata(
+  rows: readonly { categoriaDre: string | null; competencia: string | null; valor: number }[],
+  opts: { receitaFora?: boolean } = {},
+): ForaDaCascata {
   const out: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
+  if (opts.receitaFora) out.comoReceita = { qtd: 0, valor: 0 };
   const fora = new Map<string, { qtd: number; valor: number }>();
   for (const r of rows) {
     const v = Number(r.valor) || 0;
+    if (opts.receitaFora && r.categoriaDre === "Receita") {
+      out.comoReceita!.qtd++;
+      out.comoReceita!.valor += v;
+      continue;
+    }
     if (!r.categoriaDre) {
       out.semCategoria.qtd++;
       out.semCategoria.valor += v;
@@ -252,6 +263,11 @@ export function somarForaDaCascata(lista: readonly ForaDaCascata[]): ForaDaCasca
   const out: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
   const fora = new Map<string, { qtd: number; valor: number }>();
   for (const f of lista) {
+    if (f.comoReceita) {
+      out.comoReceita ??= { qtd: 0, valor: 0 };
+      out.comoReceita.qtd += f.comoReceita.qtd;
+      out.comoReceita.valor += f.comoReceita.valor;
+    }
     out.semCategoria.qtd += f.semCategoria.qtd;
     out.semCategoria.valor += f.semCategoria.valor;
     out.semCompetencia.qtd += f.semCompetencia.qtd;
@@ -274,6 +290,9 @@ export function somarForaDaCascata(lista: readonly ForaDaCascata[]): ForaDaCasca
  */
 export function frasesDoRodape(f: ForaDaCascata, acumulado: boolean, fmt: (n: number) => string): string[] {
   const out: string[] = [];
+  if (f.comoReceita && f.comoReceita.qtd > 0) {
+    out.push(`${fmt(f.comoReceita.valor)} em ${f.comoReceita.qtd} despesa(s) classificada(s) como “Receita” não somam na receita (definição nova da DRE).`);
+  }
   if (f.semCategoria.qtd > 0) {
     out.push(`${fmt(f.semCategoria.valor)} em ${f.semCategoria.qtd} lançamento(s) sem categoria não entram nesta demonstração.`);
   }
