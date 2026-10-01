@@ -8,3 +8,4 @@ export * from "./restituicao";
 export * from "./simulator";
 export * from "./constants";
 export * from "./receivables";
+export * from "./permuta-ganho";
