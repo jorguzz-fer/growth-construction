@@ -8,9 +8,11 @@ import {
   getProjectVersionsByKind,
   getForecastComparison,
 } from "@/lib/queries";
+import { analisarOrcamento } from "@/lib/orcamento-analise";
 import { AccessDenied } from "@/components/app/access-denied";
 import { BudgetPlanningScreen } from "@/components/app/budget-planning-screen";
 import { BudgetForecastCompare } from "@/components/app/budget-forecast-compare";
+import { AssistenteOrcamento } from "@/components/app/assistente-orcamento";
 
 export const dynamic = "force-dynamic";
 
@@ -49,17 +51,26 @@ export default async function ForecastPage({
     id: p.id,
     label: p.kind === "office" ? `${p.name} · Matriz/Filial` : p.name,
   }));
+  // Assistente (seção 6, somente leitura): compara esta Previsão com o seu
+  // Orçamento de origem. Versão já validada contra o tenant pela consulta.
+  const cmp = data.versionId && data.hasPeriod ? await getForecastComparison(ctx.tenant.id, data.versionId) : null;
+  const analise = analisarOrcamento(data, cmp);
   return (
     <>
       <LembrarProjeto projectId={projId} />
-      <BudgetPlanningScreen
-        data={data}
-        kind="forecast"
-        projects={projects}
-        canEdit={can(ctx.perms, "forecast", "editar")}
-        budgetVersions={budgetVersions.map((v) => ({ id: v.id, label: v.label }))}
-        canCreateForecast={can(ctx.perms, "forecast", "criar")}
-      />
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+        <div className="min-w-0 flex-1">
+          <BudgetPlanningScreen
+            data={data}
+            kind="forecast"
+            projects={projects}
+            canEdit={can(ctx.perms, "forecast", "editar")}
+            budgetVersions={budgetVersions.map((v) => ({ id: v.id, label: v.label }))}
+            canCreateForecast={can(ctx.perms, "forecast", "criar")}
+          />
+        </div>
+        {data.hasPeriod && data.versionId && <AssistenteOrcamento usuario={ctx.userEmail ?? "anon"} tela="forecast" analise={analise} />}
+      </div>
     </>
   );
 }
