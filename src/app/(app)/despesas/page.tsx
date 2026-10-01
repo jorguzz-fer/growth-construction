@@ -1,18 +1,7 @@
 import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
-import {
-  getChartAccounts,
-  getDespesas,
-  getDespesasByTenant,
-  getDespesaNoTenant,
-  getStakeholders,
-  getSocios,
-  getBankAccounts,
-  getDocuments,
-  getDocumentsByDespesa,
-  getAtualVersion,
-} from "@/lib/queries";
+import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getSocios, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds } from "@/lib/queries";
 import { opcoesDeSelecao } from "@/lib/stakeholder-regras";
 import { uploadDespesaDoc } from "@/lib/actions/despesas";
 import { can } from "@/lib/permissions";
@@ -36,7 +25,7 @@ import {
 import { ordenarLancamentos } from "@/lib/despesas-ordering";
 import { getDocumentosFiscais } from "@/lib/actions/documento-fiscal";
 import { getDocsFiscaisPorDespesa, getRepositorio } from "@/lib/queries";
-import { pendenteDeDocumento } from "@/lib/calc/documento-fiscal";
+import { pendenteDeDocumento, pendenciaFiscal } from "@/lib/calc/documento-fiscal";
 import { ParcelasList } from "@/components/app/parcelas-list";
 import { getParcelasByVersion } from "@/lib/queries";
 import { AccessDenied } from "@/components/app/access-denied";
@@ -159,7 +148,9 @@ export default async function DespesasPage({
   // Anexos por despesa: marca na lista (clipe) quais despesas têm documento e
   // permite abri-lo direto. Usa o documento mais recente de cada despesa.
   const despesaIdSet = new Set(despesas.map((d) => d.id));
-  const allDocs = await getDocuments(ctx.tenant.id); // ordenado por mais recente
+  // Prompt S, 7.1 — só os documentos das despesas em tela (antes vinham todos
+  // os do tenant e o filtro era em memória).
+  const allDocs = await getDocumentsByDespesaIds(ctx.tenant.id, [...despesaIdSet]); // ordenado por mais recente
   const docByDespesa = new Map<string, { count: number; storageKey: string }>();
   for (const doc of allDocs) {
     if (!doc.despesaId || !despesaIdSet.has(doc.despesaId)) continue;
@@ -204,6 +195,8 @@ export default async function DespesasPage({
     // Item 1.2 — pendência de nota fiscal. Lançar sem documento é permitido
     // (a nota chega depois); o selo só torna a pendência visível.
     semNf: pendenteDeDocumento(docsFiscaisPorDespesa.get(d.id) ?? []),
+    // Prompt S, 4.1 — o selo diz o que falta, não só que falta.
+    pendenciaNf: pendenciaFiscal(docsFiscaisPorDespesa.get(d.id) ?? []),
   });
   // A tabela só precisa de fornecedores (exibição) e bancos (pagamento).
   const tableRefProps = {
@@ -420,7 +413,7 @@ export default async function DespesasPage({
             ) : (
               <>
                 <p className="mb-3 text-[13px] text-[var(--color-ink3)]">
-                  {pendentes.length} lançamento(s) sem documento fiscal informado.
+                  {pendentes.length === 1 ? "1 lançamento sem documento fiscal informado." : `${pendentes.length} lançamentos sem documento fiscal informado.`}
                   Abra o lançamento para completar a nota — nada aqui está
                   bloqueado.
                 </p>

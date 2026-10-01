@@ -634,6 +634,9 @@ export function DespesaForm({
     fd.set("vencimento", vencimento);
     fd.set("valor", valor || "0");
     fd.set("status", status);
+    // Prompt S, 8.2 — a auditoria registra que a origem foi o assistente (a
+    // leitura por IA preencheu os campos; o usuário conferiu antes de lançar).
+    if (leitura) fd.set("origemIa", "1");
     if (recorrente) {
       fd.set("recorrente", "1");
       fd.set("recorrenciaMeses", recMeses);
