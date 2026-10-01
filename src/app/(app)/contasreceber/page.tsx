@@ -10,6 +10,8 @@ import {
   getEntradasDisponiveis,
 } from "@/lib/queries";
 import type { RecebimentoExibido } from "@/components/app/conta-receber-recebimentos";
+import { analisarContasReceber } from "@/lib/conta-receber-analise";
+import { AssistenteContasReceber } from "@/components/app/assistente-contas-receber";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import type { ContaReceberDoc } from "@/components/app/conta-receber-docs";
 import { can } from "@/lib/permissions";
@@ -82,6 +84,31 @@ export default async function ContasReceberPage({
     });
   }
 
+  // Seção 8 — análises do assistente, em código puro, sobre o que a página já
+  // carregou. "Hoje" vem do servidor em São Paulo.
+  const hoje = new Date();
+  const hojeYmd = Number(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(hoje)
+      .replace(/-/g, ""),
+  );
+  const analise = analisarContasReceber(
+    contas.map((c) => ({
+      id: c.id,
+      projectId: c.projectId,
+      tipo: c.tipo,
+      descricao: c.descricao,
+      valor: Number(c.valor),
+      vencimento: c.vencimento,
+      unitCode: c.unitCode,
+      clienteId: c.clienteId,
+      clienteNome: c.clienteNome,
+      recebimentos: recebimentosPorConta[c.id] ?? [],
+    })),
+    entradas,
+    hojeYmd,
+  );
+
   // Lista unificada para a busca (contas lançadas + recebíveis das vendas),
   // já só da obra escolhida.
   const receitasBuscaveis: ReceitaBuscavel[] = [
@@ -125,6 +152,9 @@ export default async function ContasReceberPage({
         }
         subtitle="Recebíveis das vendas (Unidades) e contas a receber lançadas manualmente — vinculadas a um projeto."
       />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       <div className="mb-3">
         <ReceitaSearch rows={receitasBuscaveis} />
       </div>
@@ -155,6 +185,9 @@ export default async function ContasReceberPage({
         canEditar={can(ctx.perms, "contasreceber", "editar")}
         canExcluir={can(ctx.perms, "contasreceber", "excluir")}
       />
+      </div>
+      <AssistenteContasReceber usuario={ctx.userEmail ?? "anon"} analise={analise} podeEditar={can(ctx.perms, "contasreceber", "editar")} />
+      </div>
     </>
   );
 }
