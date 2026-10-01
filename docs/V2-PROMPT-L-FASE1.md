@@ -123,7 +123,7 @@ prompt do conjunto. **Só leitura; nada foi alterado.** SQL em
 |---|---|---|---|
 | cash_entry | 46 | 1.793,14 | 22 rec |
 | bank_account | 4 | 0 | 4 ativas |
-| despesa | 75 | 43.701,75 | 0 "Pago" |
+| despesa | 75 | 43.701,75 | 24 "Pago" |
 | daily_closing | 0 | — | — |
 | carry_over | 0 | — | — |
 | acerto | 0 | — | — |
