@@ -10,7 +10,9 @@ import {
   validarMatriz,
   type PermAction,
   type PermMatrix,
-  type ScreenPerm,, TELAS_SENSIVEIS } from "./permissions";
+  type ScreenPerm,
+  TELAS_SENSIVEIS,
+} from "./permissions";
 import type { Role } from "./context";
 
 const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
