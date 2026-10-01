@@ -11,6 +11,13 @@ import { emptyPlan } from "@/lib/calc/plan";
 import type { PaymentPlan, UnitStatus } from "@/lib/calc/types";
 import { statusLiberaUnidade } from "@/lib/clientes-regras";
 import {
+  codigoNormalizado,
+  patchDeAtualizacao,
+  prepararImportacao,
+  type LinhaIgnorada,
+  type LinhaImportacao,
+} from "@/lib/unidade-importacao";
+import {
   bloqueiosDeExclusaoUnidade,
   confirmacaoDeUnidadeConfere,
   unidadeVendida,
@@ -119,21 +126,29 @@ export async function saveUnit(input: SaveUnitInput): Promise<ResultadoUnidade> 
   return { ok: true, id, code: values.code };
 }
 
-export interface ImportUnitRow {
-  code: string;
-  bloco?: string;
-  tipo?: string;
-  m2?: number;
-  andar?: number;
-  valor?: number;
-  status?: UnitStatus;
+export type ImportUnitRow = LinhaImportacao;
+
+export interface RelatorioImportacaoUnidades {
+  inseridas: number;
+  atualizadas: number;
+  ignoradas: LinhaIgnorada[];
 }
 
-export type ResultadoImportacaoUnidades = { ok: true; inseridas: number } | { ok: false; error: string };
+export type ResultadoImportacaoUnidades = ({ ok: true } & RelatorioImportacaoUnidades) | { ok: false; error: string };
+
+const CAMPOS_ATUALIZAVEIS = ["bloco", "tipo", "m2", "andar", "valor", "status"] as const;
 
 /**
  * Importa unidades em lote (ex.: de uma planilha XLSX). Devolve `{ ok, error }`
  * (Prompt J, 5.1); a mensagem chega inteira à tela.
+ *
+ * 4.1 — decide por (versão, código): código que já existe é **atualizado**,
+ * nunca inserido de novo. 4.2 — a atualização só toca bloco, tipo, m², andar,
+ * valor e status, e só o que veio preenchido; **nunca o plano de pagamento**
+ * (a inserção grava `emptyPlan()`; a atualização não passa perto dele), nem a
+ * data da venda, nem o tipo de cadastro. 4.4 — relata inseridas, atualizadas
+ * e ignoradas com motivo. Tudo numa transação, com as unidades da versão
+ * travadas: duas importações ao mesmo tempo não se atropelam.
  */
 export async function importUnits(
   rows: ImportUnitRow[],
@@ -148,32 +163,77 @@ export async function importUnits(
   if (!version) return { ok: false, error: "Projeto sem versão Atual." };
   // 11.10 — a trava vale também pela planilha, não só pela tela.
   if (version.locked) return { ok: false, error: "Versão congelada — importação bloqueada." };
-  const valid = rows.filter((r) => r.code && r.code.trim());
-  if (valid.length === 0) return { ok: true, inseridas: 0 };
+  const { validas, ignoradas } = prepararImportacao(rows);
+  if (validas.length === 0) return { ok: true, inseridas: 0, atualizadas: 0, ignoradas };
 
-  await db.insert(schema.units).values(
-    valid.map((r) => ({
-      versionId: version.id,
-      tenantId: ctx.tenant.id,
-      code: r.code.trim(),
-      bloco: r.bloco || null,
-      tipo: r.tipo || null,
-      m2: r.m2 != null ? String(r.m2) : null,
-      andar: r.andar ?? null,
-      valor: String(r.valor ?? 0),
-      status: r.status ?? "Disponivel",
-      paymentPlan: emptyPlan(),
-    })),
-  );
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "unit.import",
-    entity: "unit",
-    meta: { count: valid.length },
-  });
+  const inseridas: string[] = [];
+  const atualizadas: { code: string; antes: Record<string, unknown>; depois: Record<string, unknown> }[] = [];
+  try {
+    await db.transaction(async (tx) => {
+      const existentes = await tx
+        .select()
+        .from(schema.units)
+        .where(and(eq(schema.units.tenantId, ctx.tenant.id), eq(schema.units.versionId, version.id)))
+        .for("update");
+      const porCodigo = new Map(existentes.map((u) => [codigoNormalizado(u.code), u]));
+      for (const r of validas) {
+        const atual = porCodigo.get(r.code);
+        if (atual) {
+          const depois = patchDeAtualizacao(r);
+          const antes: Record<string, unknown> = {};
+          for (const k of CAMPOS_ATUALIZAVEIS) if (k in depois) antes[k] = atual[k];
+          if (Object.keys(depois).length > 0) {
+            await tx
+              .update(schema.units)
+              .set({ ...depois, updatedAt: new Date() })
+              .where(and(eq(schema.units.id, atual.id), eq(schema.units.tenantId, ctx.tenant.id)));
+          }
+          atualizadas.push({ code: atual.code, antes, depois });
+        } else {
+          await tx
+            .insert(schema.units)
+            .values({
+              versionId: version.id,
+              tenantId: ctx.tenant.id,
+              code: r.code,
+              bloco: r.bloco?.trim() || null,
+              tipo: r.tipo?.trim() || null,
+              m2: r.m2 != null ? String(r.m2) : null,
+              andar: r.andar ?? null,
+              valor: String(r.valor ?? 0),
+              status: r.status ?? "Disponivel",
+              paymentPlan: emptyPlan(),
+            });
+          inseridas.push(r.code);
+        }
+      }
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "unit.import",
+          entity: "unit",
+          meta: { projectId, versionId: version.id, inseridas, atualizadas, ignoradas },
+        },
+        tx,
+      );
+    });
+  } catch (e) {
+    // Índice único (0046): outra importação inseriu o mesmo código no meio.
+    if (codigoDoErroPg(e) === "23505") {
+      return { ok: false, error: "Um código já foi cadastrado nesta versão por outra importação. Recarregue a lista e tente de novo." };
+    }
+    throw e;
+  }
   revalidatePath("/unidades");
-  return { ok: true, inseridas: valid.length };
+  return { ok: true, inseridas: inseridas.length, atualizadas: atualizadas.length, ignoradas };
+}
+
+/** SQLSTATE do erro do Postgres, esteja ele solto ou embrulhado pelo drizzle (`cause`). */
+function codigoDoErroPg(e: unknown): string | undefined {
+  const direto = (e as { code?: string } | null)?.code;
+  if (typeof direto === "string") return direto;
+  return (e as { cause?: { code?: string } } | null)?.cause?.code;
 }
 
 export type ResultadoExclusaoUnidade = { ok: true } | { ok: false; error: string };

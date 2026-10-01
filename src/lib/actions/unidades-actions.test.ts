@@ -81,7 +81,7 @@ describe.skipIf(!HAS_DB)("Unidades — actions com retorno legível (Prompt J, P
 
   it("5.1 · importUnits devolve { ok, error } e conta o que inseriu", async () => {
     expect(await importUnits([{ code: "I-1" }])).toEqual({ ok: false, error: expect.stringMatching(/projeto/) });
-    expect(await importUnits([{ code: "I-1", valor: 10 }, { code: "  " }, { code: "I-2" }], projectId)).toEqual({ ok: true, inseridas: 2 });
+    expect(await importUnits([{ code: "I-1", valor: 10 }, { code: "  " }, { code: "I-2" }], projectId)).toMatchObject({ ok: true, inseridas: 2 });
     await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, versionId));
     expect(await importUnits([{ code: "I-3" }], projectId)).toEqual({ ok: false, error: expect.stringMatching(/congelada/) });
     await db.update(schema.versions).set({ locked: false }).where(eq(schema.versions.id, versionId));

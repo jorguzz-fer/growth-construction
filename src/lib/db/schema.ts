@@ -11,6 +11,7 @@ import {
   boolean,
   jsonb,
   unique,
+  uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -436,7 +437,10 @@ export const units = pgTable("unit", {
   paymentPlan: jsonb("payment_plan").$type<PaymentPlan>(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [
+  /** Um código por versão (Prompt J, 4.1) — migração 0046. */
+  uniqueIndex("unit_version_code_uq").on(t.versionId, t.code),
+]);
 
 /** Inventário de ativos recebidos em permuta. Ver docs/SPEC.md §3 e §7.4. */
 export const permutas = pgTable("permuta", {
