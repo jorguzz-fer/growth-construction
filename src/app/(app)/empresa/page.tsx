@@ -3,7 +3,9 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { renameTenant, salvarDadosFiscais, uploadLogo } from "@/lib/actions/empresa";
-import { getUltimoTesteR2 } from "@/lib/queries";
+import { getHistoricoFiscal, getUltimoTesteR2 } from "@/lib/queries";
+import { analisarEmpresa } from "@/lib/empresa-analise";
+import { AssistenteEmpresa } from "@/components/app/assistente-empresa";
 import { AJUDA_CAMPO, avisosComplementares, estadoDoSeloR2, rotuloDoSeloR2 } from "@/lib/empresa-regras";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
@@ -42,7 +44,7 @@ export default async function EmpresaPage() {
   const t = ctx.tenant;
   const ambiente = resolverAmbiente(t.fiscalAmbiente);
   const provedorPronto = focusConfigurado(ambiente);
-  const pendencias = checarProntidaoFiscal({
+  const emitente = {
     razaoSocial: t.name,
     nomeFantasia: t.nomeFantasia,
     cnpj: t.cnpj,
@@ -64,7 +66,11 @@ export default async function EmpresaPage() {
     cep: t.cep,
     telefone: t.telefone,
     email: t.emailFiscal,
-  });
+  };
+  const pendencias = checarProntidaoFiscal(emitente);
+  // Prompt AH, Parte 6 — análise somente leitura; nada vai a modelo, e token
+  // e variáveis de ambiente não entram nela (6.3).
+  const analise = analisarEmpresa(emitente, await getHistoricoFiscal(ctx.tenant.id));
   const bloqueios = pendencias.filter((p) => p.severidade === "bloqueio");
   // Prompt AH, Parte 4 — os dois avisos complementares vivem fora do
   // checklist (9.4) e são concatenados aqui; `emitentePronto` não os vê.
@@ -80,6 +86,8 @@ export default async function EmpresaPage() {
         subtitle="Identidade do tenant e cadastro fiscal do emitente"
       />
 
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardContent className="space-y-4 p-5">
@@ -360,6 +368,9 @@ export default async function EmpresaPage() {
           </FormComResultado>
         </CardContent>
       </Card>
+      </div>
+      <AssistenteEmpresa usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
