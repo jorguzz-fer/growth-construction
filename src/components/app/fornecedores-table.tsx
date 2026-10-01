@@ -120,18 +120,23 @@ function StakeholderRow({
       router.refresh();
     });
 
-  const excluir = () => {
-    if (!window.confirm(`Excluir definitivamente "${s.nome}"? (Se houver histórico, prefira inativar.)`)) return;
+  // 2.5 — exclusão com o nome digitado, como nas demais exclusões do sistema.
+  const [excluindo, setExcluindo] = useState(false);
+  const [confirmacao, setConfirmacao] = useState("");
+  const excluir = () =>
     start(async () => {
       setError(null);
-      const r = await deleteStakeholder(s.id);
+      const fd = new FormData();
+      fd.set("id", s.id);
+      fd.set("confirmacao", confirmacao);
+      const r = await deleteStakeholder(fd);
       if (!r.ok) {
         setError(r.error);
         return;
       }
+      setExcluindo(false);
       router.refresh();
     });
-  };
 
   if (editing) {
     return (
@@ -235,10 +240,20 @@ function StakeholderRow({
                 {s.ativo ? "Inativar" : "Reativar"}
               </button>
             )}
-            {canExcluir && (
-              <button onClick={excluir} disabled={pending} className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50">Excluir</button>
+            {canExcluir && !excluindo && (
+              <button onClick={() => { setExcluindo(true); setError(null); setConfirmacao(""); }} disabled={pending} className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50">Excluir</button>
             )}
           </div>
+          {excluindo && (
+            <div className="mt-2 flex flex-wrap items-end justify-end gap-2 text-left">
+              <div className="min-w-[220px]">
+                <Label>Digite o nome para confirmar a exclusão</Label>
+                <Input value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} placeholder={s.nome} autoComplete="off" aria-label={`Confirmar exclusão de ${s.nome}`} />
+              </div>
+              <Button size="sm" variant="outline" type="button" disabled={pending || !confirmacao.trim()} onClick={excluir}>Excluir definitivamente</Button>
+              <Button size="sm" variant="ghost" type="button" onClick={() => { setExcluindo(false); setError(null); }}>Cancelar</Button>
+            </div>
+          )}
           {error && <p role="alert" className="mt-1 text-[11px] text-[var(--color-danger)]">{error}</p>}
           {aviso && <p role="status" className="mt-1 text-[11px] text-[var(--color-warning)]">Salvo com aviso: {aviso}</p>}
         </TD>

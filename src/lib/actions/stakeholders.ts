@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -9,9 +9,12 @@ import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import { mascararDocumento } from "@/lib/clientes-sensivel";
+import { confirmacaoConfere } from "@/lib/clientes-regras";
 import {
   avisoDeDuplicidade,
   avisoDeTipoIncompativel,
+  bloqueiosDeExclusaoDoStakeholder,
+  type VinculosDoStakeholder,
   duplicatasDoDocumento,
   exigeEndereco,
   motivoDeRecusaDoDocumento,
@@ -231,33 +234,75 @@ export async function setStakeholderAtivo(id: string, ativo: boolean): Promise<R
   return { ok: true, id, avisos: [] };
 }
 
+/** Conta os vínculos nas seis tabelas (2.1), dentro da transação. */
+async function vinculosDoStakeholder(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], tenantId: string, id: string): Promise<VinculosDoStakeholder> {
+  const conta = async (tabela: { tenantId: unknown }, coluna: unknown) => {
+    const [r] = await tx
+      .select({ n: count() })
+      .from(tabela as typeof schema.despesas)
+      .where(and(eq((tabela as typeof schema.despesas).tenantId, tenantId), eq(coluna as typeof schema.despesas.fornecedorId, id)));
+    return Number(r?.n ?? 0);
+  };
+  const [despesas, obrigacoesTerceiro, recebimentosTerceiro, acertos, compensacoes, documentos] = await Promise.all([
+    conta(schema.despesas, schema.despesas.fornecedorId),
+    conta(schema.despesaTerceiros, schema.despesaTerceiros.pagadorTerceiroId),
+    conta(schema.recebimentosTerceiros, schema.recebimentosTerceiros.recebedorTerceiroId),
+    conta(schema.acertos, schema.acertos.favorecidoId),
+    conta(schema.compensacoes, schema.compensacoes.terceiroId),
+    conta(schema.documents, schema.documents.stakeholderId),
+  ]);
+  return { despesas, obrigacoesTerceiro, recebimentosTerceiro, acertos, compensacoes, documentos };
+}
+
+class Recusa extends Error {}
+
 /**
- * Exclusão física de um cadastro — só quando não há despesas vinculadas. Caso
- * haja histórico, oriente a inativar (exclusão lógica) em vez de excluir.
- * (As seis checagens, a confirmação pelo nome e o inventário na auditoria
- * entram na PR W-2.)
+ * Exclusão física de um cadastro (seção 2). Verifica as SEIS tabelas que
+ * apontam para `stakeholder` e recusa dizendo qual vínculo impede e quantos
+ * (2.4) — cinco FKs são `SET NULL` e a exclusão não falharia sozinha, só
+ * apagaria o nome; a de `document` é `CASCADE`. Exige o nome digitado (2.5).
+ * A auditoria leva nome, documento mascarado, papéis e a contagem de cada
+ * vínculo (2.6). Cadastro sem vínculo continua excluível (2.7).
  */
-export async function deleteStakeholder(id: string): Promise<ResultadoStakeholder> {
+export async function deleteStakeholder(formData: FormData): Promise<ResultadoStakeholder> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "fornecedores", "excluir")) return { ok: false, error: "Sem permissão para excluir cadastros." };
-  const [vinc] = await db
-    .select({ id: schema.despesas.id })
-    .from(schema.despesas)
-    .where(and(eq(schema.despesas.fornecedorId, id), eq(schema.despesas.tenantId, ctx.tenant.id)))
-    .limit(1);
-  if (vinc) {
-    return { ok: false, error: "Este cadastro possui despesas vinculadas — inative-o (exclusão lógica) para preservar o histórico." };
+  const id = texto(formData, "id");
+  if (!id) return { ok: false, error: "Cadastro inválido." };
+  try {
+    await db.transaction(async (tx) => {
+      const [s] = await tx
+        .select()
+        .from(schema.stakeholders)
+        .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)))
+        .for("update")
+        .limit(1);
+      if (!s) throw new Recusa("Cadastro não encontrado.");
+      if (!confirmacaoConfere(formData.get("confirmacao") as string, s.nome)) {
+        throw new Recusa("Para excluir, digite o nome exatamente como está no cadastro.");
+      }
+      const vinculos = await vinculosDoStakeholder(tx, ctx.tenant.id, id);
+      const bloqueios = bloqueiosDeExclusaoDoStakeholder(vinculos);
+      if (bloqueios.length) {
+        throw new Recusa(`Não é possível excluir "${s.nome}": ${bloqueios.join("; ")}. Inative o cadastro para preservar o histórico.`);
+      }
+      await tx.delete(schema.stakeholders).where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "stakeholder.delete",
+          entity: "stakeholder",
+          entityId: id,
+          meta: { nome: s.nome, tipo: s.tipo, doc: mascararDocumento(s.doc), papeis: s.papeis, ativo: s.ativo, vinculos },
+        },
+        tx,
+      );
+    });
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
   }
-  await db
-    .delete(schema.stakeholders)
-    .where(and(eq(schema.stakeholders.id, id), eq(schema.stakeholders.tenantId, ctx.tenant.id)));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "stakeholder.delete",
-    entity: "stakeholder",
-    entityId: id,
-  });
   revalidatePath("/fornecedores");
   return { ok: true, id, avisos: [] };
 }

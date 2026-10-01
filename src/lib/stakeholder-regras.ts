@@ -137,3 +137,37 @@ export function sinaisDoCadastro(
     papeisDesconhecidos: papeisForaDaLista(s.papeis),
   };
 }
+
+// ─────────────────────────── Exclusão (seção 2) ───────────────────────────
+
+/** 2.1 — as SEIS tabelas que apontam para `stakeholder`. */
+export interface VinculosDoStakeholder {
+  despesas: number;
+  obrigacoesTerceiro: number;
+  recebimentosTerceiro: number;
+  acertos: number;
+  compensacoes: number;
+  documentos: number;
+}
+
+export const SEM_VINCULOS: VinculosDoStakeholder = { despesas: 0, obrigacoesTerceiro: 0, recebimentosTerceiro: 0, acertos: 0, compensacoes: 0, documentos: 0 };
+
+/**
+ * 2.4 — cada vínculo que impede, com a contagem. Cinco das FKs são
+ * `SET NULL`: sem esta lista a exclusão não falharia, só apagaria o nome em
+ * silêncio; a sexta (`document`) é `CASCADE` e apagaria o registro do arquivo.
+ */
+export function bloqueiosDeExclusaoDoStakeholder(v: VinculosDoStakeholder): string[] {
+  const m: string[] = [];
+  if (v.despesas > 0) m.push(`${v.despesas} despesa(s) como fornecedor`);
+  if (v.obrigacoesTerceiro > 0) m.push(`${v.obrigacoesTerceiro} obrigação(ões) como pagador por terceiro`);
+  if (v.recebimentosTerceiro > 0) m.push(`${v.recebimentosTerceiro} recebimento(s) por terceiro`);
+  if (v.acertos > 0) m.push(`${v.acertos} acerto(s) como favorecido`);
+  if (v.compensacoes > 0) m.push(`${v.compensacoes} compensação(ões)`);
+  if (v.documentos > 0) m.push(`${v.documentos} documento(s) anexado(s)`);
+  return m;
+}
+
+export function totalDeVinculos(v: VinculosDoStakeholder): number {
+  return v.despesas + v.obrigacoesTerceiro + v.recebimentosTerceiro + v.acertos + v.compensacoes + v.documentos;
+}

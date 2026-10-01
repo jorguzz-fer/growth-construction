@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   avisoDeDuplicidade,
+  bloqueiosDeExclusaoDoStakeholder,
+  SEM_VINCULOS,
+  totalDeVinculos,
   avisoDeTipoIncompativel,
   cpfValido,
   duplicatasDoDocumento,
@@ -84,5 +87,14 @@ describe("sinaisDoCadastro (3.6, 3-A.4)", () => {
     const t = sinaisDoCadastro({ id: "3", tipo: "PJ", doc: "12.345", papeis: [], endereco: "Rua" }, todos);
     expect(t.documentoInvalido).toBe(true);
     expect(t.semPapel).toBe(true);
+  });
+});
+
+describe("bloqueiosDeExclusaoDoStakeholder (2.4)", () => {
+  it("nomeia cada vínculo com a contagem; sem vínculo, lista vazia", () => {
+    expect(bloqueiosDeExclusaoDoStakeholder(SEM_VINCULOS)).toEqual([]);
+    const b = bloqueiosDeExclusaoDoStakeholder({ ...SEM_VINCULOS, obrigacoesTerceiro: 2, documentos: 1 });
+    expect(b).toEqual(["2 obrigação(ões) como pagador por terceiro", "1 documento(s) anexado(s)"]);
+    expect(totalDeVinculos({ ...SEM_VINCULOS, acertos: 3, compensacoes: 1 })).toBe(4);
   });
 });
