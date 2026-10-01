@@ -214,7 +214,7 @@ export function Sidebar({ perms, mobileOpen, onCloseMobile }: SidebarProps) {
 
                 <div id={panelId} hidden={!isOpen} className="pb-1.5 pt-0.5">
                   {m.items.map((it) => {
-                    const active = isItemActive(pathname, it.href);
+                    const active = isItemActive(pathname, it.href, it.tambem);
                     return (
                       <Link
                         key={it.href}

@@ -66,16 +66,33 @@ const TELAS_NOVAS: Record<string, string> = {
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
   "/equipes": "equipes", // Prompt Z, Parte 3
 };
-const ESPERADO = { ...MENU_ANTIGO, ...TELAS_NOVAS };
+/**
+ * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única
+ * de Medição de Obra). O item /medicao aparece para quem tem `medicao` OU
+ * `medicaolanc` — o engenheiro continua vendo o módulo Obra.
+ */
+const FUNDIDAS_NO_ITEM: Record<string, string> = { "/medicao": "medicaolanc" };
+const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => href !== "/medicaolanc"));
 
 const todos = NAV_MENU.flatMap((m) => m.items);
 
 describe("NAV_MENU — nenhuma tela se perde", () => {
-  it("tem as 38 telas do menu antigo (40 menos /fechamento e /ponto), mais as novas declaradas, sem duplicata", () => {
+  it("tem as 38 telas do menu antigo (40 menos /fechamento e /ponto) menos /medicaolanc (fundida, Prompt V), mais as novas declaradas, sem duplicata", () => {
     const hrefs = todos.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect([...hrefs].sort()).toEqual(Object.keys(ESPERADO).sort());
     expect(Object.keys(MENU_ANTIGO)).toHaveLength(38);
+  });
+
+  it("Prompt V: um item só de medição, que também destaca /medicaolanc e aparece para o engenheiro", () => {
+    const item = todos.find((i) => i.href === "/medicao")!;
+    expect(todos.filter((i) => /medicao/.test(i.href))).toHaveLength(1);
+    expect(item.permAlt).toBe("medicaolanc");
+    expect(isItemActive("/medicaolanc", item.href, item.tambem)).toBe(true);
+    expect(isItemActive("/medicaolanc?aba=lancadas".split("?")[0], item.href, item.tambem)).toBe(true);
+    // o engenheiro não tem `medicao.ver` (a guarda central negaria /medicao): o item dele aponta para /medicaolanc
+    expect(visibleMenu(defaultPermissions("engenheiro")).flatMap((m) => m.items.map((i) => i.href))).toEqual(["/medicaolanc"]);
+    expect(visibleMenu(defaultPermissions("admin")).flatMap((m) => m.items.filter((i) => /medicao/.test(i.href)).map((i) => i.href))).toEqual(["/medicao"]);
   });
 
   it("cada tela mantém a mesma chave de permissão", () => {
@@ -94,8 +111,12 @@ describe("NAV_MENU — nenhuma tela se perde", () => {
 /** Visibilidade pela regra de sempre, sobre a lista antiga mais as novas. */
 function visiveisAntigo(perms: PermMatrix): string[] {
   return Object.entries(ESPERADO)
-    .filter(([, perm]) => perms[perm]?.ver)
-    .map(([href]) => href)
+    .flatMap(([href, perm]) => {
+      if (perms[perm]?.ver) return [href];
+      // item fundido: só com a permissão da outra aba, a rota é a dela
+      const alt = FUNDIDAS_NO_ITEM[href];
+      return alt && perms[alt]?.ver ? [`/${alt}`] : [];
+    })
     .sort();
 }
 function visiveisNovo(perms: PermMatrix): string[] {
