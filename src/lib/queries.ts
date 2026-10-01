@@ -228,6 +228,25 @@ export async function getPermutaDoTenant(
   return row ? { permuta: row.p, projectId: row.projectId, versionLabel: row.versionLabel, locked: !!row.locked } : undefined;
 }
 
+export interface InccLinhaDaTela extends InccRow {
+  informadoPor: string | null;
+  informadoEm: string | null;
+  fonte: string | null;
+}
+
+/** Tabela INCC da obra com a origem de cada mês oficial e a variante (Prompt Q, 5.1/5.3), para a tela. */
+export async function getInccTabela(tenantId: string, projectId: string): Promise<{ linhas: InccLinhaDaTela[]; variante: string | null }> {
+  const rows = await db
+    .select()
+    .from(schema.inccRates)
+    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
+    .orderBy(asc(schema.inccRates.ordem));
+  return {
+    linhas: rows.map((r) => ({ m: r.mes, mo: Number(r.monthly), ac: Number(r.accumulated), projected: r.projected, informadoPor: r.informadoPor, informadoEm: r.informadoEm, fonte: r.fonte })),
+    variante: rows.find((r) => r.variante)?.variante ?? null,
+  };
+}
+
 /** Tabela INCC da obra — da empresa (Prompt Q, 4.2: antes filtrava só o projeto). */
 export async function getInccRows(tenantId: string, projectId: string): Promise<InccRow[]> {
   const rows = await db

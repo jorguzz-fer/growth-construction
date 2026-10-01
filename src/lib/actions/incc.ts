@@ -8,7 +8,7 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { getInccRows } from "@/lib/queries";
 import { projectIncc, type InccRow } from "@/lib/calc";
-import { diffDeIncc, mesesFuturosOficiais, ordDeHoje, ordDoMes } from "@/lib/incc-regras";
+import { diffDeIncc, ehVarianteDoIncc, mesesFuturosOficiais, ordDeHoje, ordDoMes, VARIANTES_DO_INCC } from "@/lib/incc-regras";
 
 export type ResultadoIncc = { ok: true; meses: number } | { ok: false; error: string };
 
@@ -21,13 +21,35 @@ export type ResultadoIncc = { ok: true; meses: number } | { ok: false; error: st
 
 const TELAS_DO_INCC = ["/parametros", "/caixa", "/fluxocaixa", "/projecao", "/consolidado", "/simulador"];
 
-/** Persiste (monthly, accumulated, projected) de cada linha em transação, com a auditoria dentro dela. */
-async function persistir(tenantId: string, projectId: string, rows: InccRow[], auditoria: Parameters<typeof logAudit>[0]) {
+const hojeGravado = () => {
+  const d = new Date();
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+};
+
+/**
+ * Persiste (monthly, accumulated, projected) de cada linha em transação, com
+ * a auditoria dentro dela. `origem` (5.3): o mês informado à mão ganha quem e
+ * quando; mês convertido em projeção perde a origem (não há mais índice
+ * informado ali).
+ */
+async function persistir(
+  tenantId: string,
+  projectId: string,
+  rows: InccRow[],
+  auditoria: Parameters<typeof logAudit>[0],
+  origem: { informado?: { mes: string; por: string | null; fonte: string | null }; limpar?: string[] } = {},
+) {
   await db.transaction(async (tx) => {
     for (const r of rows) {
+      const extra =
+        origem.informado?.mes === r.m
+          ? { informadoPor: origem.informado.por, informadoEm: hojeGravado(), fonte: origem.informado.fonte }
+          : origem.limpar?.includes(r.m)
+            ? { informadoPor: null, informadoEm: null, fonte: null }
+            : {};
       await tx
         .update(schema.inccRates)
-        .set({ monthly: r.mo.toString(), accumulated: r.ac.toString(), projected: !!r.projected })
+        .set({ monthly: r.mo.toString(), accumulated: r.ac.toString(), projected: !!r.projected, ...extra })
         .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId), eq(schema.inccRates.mes, r.m)));
     }
     await logAudit(auditoria, tx);
@@ -57,7 +79,7 @@ async function contexto(projectId: string): Promise<Contexto> {
  * Índice fora da faixa usual é ACEITO (o aviso é da tela, 4.3); só o
  * impossível (não finito) é recusado. Negativo existe: deflação de insumos.
  */
-export async function updateInccMonth(projectId: string, mes: string, mo: number): Promise<ResultadoIncc> {
+export async function updateInccMonth(projectId: string, mes: string, mo: number, fonte?: string | null): Promise<ResultadoIncc> {
   const c = await contexto(projectId);
   if (!c.ok) return c;
   if (typeof mo !== "number" || !Number.isFinite(mo)) return { ok: false, error: "Informe um número para a variação mensal." };
@@ -80,8 +102,9 @@ export async function updateInccMonth(projectId: string, mes: string, mo: number
       eraProjetado: !!alvo.projected,
       reprojetados: mudancas.filter((m) => m.mes !== mes),
       mesesReescritos: mudancas.filter((m) => m.mes !== mes).length,
+      fonte: fonte?.trim() || null,
     },
-  });
+  }, { informado: { mes, por: c.ctx.userEmail || c.ctx.userId || null, fonte: fonte?.trim() || null } });
   for (const t of TELAS_DO_INCC) revalidatePath(t);
   return { ok: true, meses: mudancas.length };
 }
@@ -148,7 +171,42 @@ export async function marcarComoProjecao(projectId: string, meses: string[]): Pr
       mesesReescritos: mudancas.length,
       mudancas,
     },
-  });
+  }, { limpar: convertidos });
   for (const t of TELAS_DO_INCC) revalidatePath(t);
   return { ok: true, meses: convertidos.length };
+}
+
+/**
+ * Declara a variante do índice que a tabela desta obra guarda (BQ-1, 5.1):
+ * INCC-DI, INCC-M ou INCC-10. É parâmetro, não índice: nenhum valor muda.
+ * Gravado em todas as linhas da obra (a tabela é por projeto); auditado.
+ */
+export async function definirVarianteIncc(projectId: string, variante: string): Promise<ResultadoIncc> {
+  const c = await contexto(projectId);
+  if (!c.ok) return c;
+  if (!ehVarianteDoIncc(variante)) return { ok: false, error: `Variante inválida. Use ${VARIANTES_DO_INCC.join(", ")}.` };
+  const [atual] = await db
+    .select({ variante: schema.inccRates.variante })
+    .from(schema.inccRates)
+    .where(and(eq(schema.inccRates.tenantId, c.ctx.tenant.id), eq(schema.inccRates.projectId, projectId)))
+    .limit(1);
+  if (!atual) return { ok: false, error: "Esta obra ainda não tem tabela INCC." };
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.inccRates)
+      .set({ variante })
+      .where(and(eq(schema.inccRates.tenantId, c.ctx.tenant.id), eq(schema.inccRates.projectId, projectId)));
+    await logAudit(
+      {
+        tenantId: c.ctx.tenant.id,
+        userId: c.ctx.userId,
+        action: "incc.variante",
+        entity: "incc_rate",
+        meta: { projectId, projeto: c.projeto.name, variante: { de: atual.variante ?? null, para: variante } },
+      },
+      tx,
+    );
+  });
+  revalidatePath("/parametros");
+  return { ok: true, meses: 0 };
 }
