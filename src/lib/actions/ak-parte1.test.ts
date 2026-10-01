@@ -90,11 +90,12 @@ describe.skipIf(!HAS_DB)("AK Parte 1 — as 8 ações registram no log", async (
 
   it("addReembolso → reembolso.create", async () => {
     const { addReembolso } = await import("./receitas");
-    await addReembolso(fd({ projectId: ids.project, data: "2026-09-10", valor: "1500.50" }));
+    const res = await addReembolso(fd({ projectId: ids.project, data: "09/10/2026", origem: "CEF · medição 01/2026", valor: "1500.50" }));
+    expect(res.ok).toBe(true);
     const [r] = await db.select().from(schema.reembolsos).where(eq(schema.reembolsos.tenantId, tenantId));
     expect(r.valor).toBe("1500.50");
     const [l] = await logs("reembolso.create");
-    expect(l.meta).toMatchObject({ projeto: "Projeto AK", data: "2026-09-10" });
+    expect(l.meta).toMatchObject({ projeto: "Projeto AK", data: "09/10/2026", origem: "CEF · medição 01/2026" });
   });
 
   it("addPermuta → permuta.create", async () => {

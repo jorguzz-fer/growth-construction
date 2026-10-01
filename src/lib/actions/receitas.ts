@@ -1,13 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { excelSerial } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
 import { lerValorDoAtivo, motivoDeRecusaDoAtivo, TIPOS_DOC_PERMUTA } from "@/lib/permuta-regras";
+import { lerValorDaLiberacao, motivoDeRecusaDaLiberacao } from "@/lib/liberacao-regras";
+
+const texto = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.trim() : "") || null;
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { desc } from "drizzle-orm";
@@ -34,23 +36,43 @@ async function obraDoFormulario(tenantId: string, formData: FormData) {
   return { project: r.project, version: r.trabalho };
 }
 
-export async function addReembolso(formData: FormData) {
+export type ResultadoLiberacao = { ok: true; id: string } | { ok: false; error: string };
+
+/**
+ * Lança uma liberação de obra (Prompt O, 3.1/3.2): valor maior que zero, data
+ * válida e origem obrigatória, com `{ ok, error }` legível — sem permissão,
+ * sem obra, versão congelada e lançamento inválido são mensagens na tela,
+ * nunca um `return` mudo nem um digest. Nenhum campo vira "0" por omissão.
+ * A liberação é ENTRADA DE CAIXA, não receita.
+ */
+export async function addReembolso(formData: FormData): Promise<ResultadoLiberacao> {
   const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "reembolso", "criar")) return;
-  const { project, version } = await obraDoFormulario(ctx.tenant.id, formData);
-  const data = (formData.get("data") as string) || null;
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "reembolso", "criar")) return { ok: false, error: "Sem permissão para lançar liberações de obra." };
+  let obra: Awaited<ReturnType<typeof obraDoFormulario>>;
+  try {
+    obra = await obraDoFormulario(ctx.tenant.id, formData);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Escolha o projeto." };
+  }
+  const { project, version } = obra;
+  const campos = { data: texto(formData.get("data")), origem: texto(formData.get("origem")), valor: texto(formData.get("valor")) };
+  const motivo = motivoDeRecusaDaLiberacao(campos);
+  if (motivo) return { ok: false, error: motivo };
+  const valor = lerValorDaLiberacao(campos.valor);
   const [lib] = await db.insert(schema.reembolsos).values({
     versionId: version.id,
     tenantId: ctx.tenant.id,
-    data,
-    origem: (formData.get("origem") as string) || null,
-    valor: (formData.get("valor") as string) || "0",
+    data: campos.data,
+    origem: campos.origem,
+    valor: valor.toFixed(2),
     // "%" saiu da tela (BO-2, 30/09/2026): um único uso em produção. A coluna
     // fica no banco; o que já foi gravado não muda.
     pct: null,
-    obs: (formData.get("obs") as string) || null,
-    // SERIAL = INT(Data): calculado automaticamente a partir da data real.
-    serial: excelSerial(data),
+    obs: texto(formData.get("obs")),
+    // SERIAL = INT(Data): continua gravado porque a planilha de exportação o
+    // leva e a importação o traz de volta (Prompt O, 2.2).
+    serial: excelSerial(campos.data),
     status: "Recebido",
   }).returning();
   // AK Parte 1 — sem transação aqui (1.3).
@@ -60,15 +82,14 @@ export async function addReembolso(formData: FormData) {
     action: "reembolso.create",
     entity: "reembolso",
     entityId: lib.id,
-    meta: { projeto: project.name, versao: version.label, valor: lib.valor, data: lib.data },
+    meta: { projeto: project.name, versao: version.label, valor: lib.valor, data: lib.data, origem: lib.origem },
   });
-  revalidatePath("/reembolso");
-  redirect(`/reembolso?proj=${project.id}`);
+  for (const t of ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/consolidado", "/resumo"]) revalidatePath(t);
+  return { ok: true, id: lib.id };
 }
 
 export type ResultadoPermuta = { ok: true; id: string } | { ok: false; error: string };
 
-const texto = (v: FormDataEntryValue | null) => (typeof v === "string" ? v.trim() : "") || null;
 
 /** Os campos do ativo como chegam do formulário (criar e editar leem o mesmo). */
 function lerCamposDoAtivo(formData: FormData) {

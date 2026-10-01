@@ -2,12 +2,8 @@ import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { can } from "@/lib/permissions";
-import { addReembolso } from "@/lib/actions/receitas";
 import { PageHeader } from "@/components/app/page-header";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
-import { DateField } from "@/components/ui/date-field";
+import { LiberacaoForm } from "@/components/app/liberacao-form";
 import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
@@ -49,40 +45,7 @@ export default async function NovoReembolsoPage({
         title="Nova liberação de obra"
         subtitle="Parcela do financiamento liberada após a medição. Entrada de caixa, não receita."
       />
-
-      <Card>
-        <CardContent className="p-5">
-          <form
-            action={addReembolso}
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2"
-          >
-            {/* Obra desta tela (Prompt A): a liberação vai para a versão de trabalho dela. */}
-            <input type="hidden" name="projectId" value={project.id} />
-            <div>
-              <Label>Data</Label>
-              <DateField name="data" required />
-            </div>
-            <div>
-              <Label>Origem</Label>
-              <Input name="origem" placeholder="Origem X" />
-            </div>
-            <div>
-              <Label>Valor (R$)</Label>
-              <Input name="valor" type="number" step="0.01" placeholder="0" />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Observações</Label>
-              <Input name="obs" placeholder="" />
-            </div>
-            <div className="flex items-center gap-2 sm:col-span-2">
-              <Button type="submit">Salvar liberação</Button>
-              <a href={`/reembolso?proj=${project.id}`} className={buttonVariants({ variant: "ghost" })}>
-                Cancelar
-              </a>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <LiberacaoForm projectId={project.id} />
     </>
   );
 }

@@ -103,16 +103,15 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
     expect((await unidadesDe(v.a1.id)).map((u) => u.code)).toEqual(["I-1"]);
   });
 
-  it("addReembolso grava na obra do formulário; sem obra ou obra alheia, recusa", async () => {
-    await expect(addReembolso(fd({ data: "2026-09-10", valor: "10" }))).rejects.toThrow(/Escolha o projeto/);
-    await expect(addReembolso(fd({ projectId: p.b1.id, data: "2026-09-10", valor: "10" }))).rejects.toThrow(
-      /Escolha o projeto/,
-    );
-    await addReembolso(fd({ projectId: p.a2.id, data: "2026-09-10", valor: "250.00" }));
+  it("addReembolso grava na obra do formulário; sem obra ou obra alheia, recusa com mensagem (Prompt O, 3.2)", async () => {
+    const lib = { data: "09/10/2026", origem: "CEF · medição 03/2026", valor: "250,00" };
+    expect(await addReembolso(fd({ ...lib }))).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
+    expect(await addReembolso(fd({ projectId: p.b1.id, ...lib }))).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
+    expect((await addReembolso(fd({ projectId: p.a2.id, ...lib }))).ok).toBe(true);
     const rs = await db.select().from(schema.reembolsos).where(eq(schema.reembolsos.tenantId, tA.id));
     expect(rs).toHaveLength(1);
     expect(rs[0].versionId).toBe(v.a2.id);
-    expect(redirects.at(-1)).toBe(`/reembolso?proj=${p.a2.id}`);
+    expect(rs[0].valor).toBe("250.00");
     const outro = await db.select().from(schema.reembolsos).where(eq(schema.reembolsos.versionId, v.b1.id));
     expect(outro).toHaveLength(0);
   });
@@ -128,7 +127,7 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
 
   it("versão congelada bloqueia Liberação e Permuta (decisão de 30/09/2026)", async () => {
     await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, v.a2.id));
-    await expect(addReembolso(fd({ projectId: p.a2.id, data: "2026-09-11", valor: "1" }))).rejects.toThrow(/congelada/);
+    expect(await addReembolso(fd({ projectId: p.a2.id, data: "09/11/2026", origem: "CEF", valor: "1" }))).toEqual({ ok: false, error: expect.stringMatching(/congelada/) });
     expect(await addPermuta(fd({ projectId: p.a2.id, unitCode: "U-1", cliente: "C", dataRecebimento: "09/15/2026", tipo: "Imóvel", estimado: "1" }))).toEqual({ ok: false, error: expect.stringMatching(/congelada/) });
     await db.update(schema.versions).set({ locked: false }).where(eq(schema.versions.id, v.a2.id));
   });

@@ -139,13 +139,13 @@ export async function getUnitWithProject(
   return row ? { ...row.u, projectId: row.projectId } : undefined;
 }
 
-export async function getReembolsos(
-  versionId: string,
-): Promise<ReembolsoRow[]> {
+/** Liberações de obra da versão — da empresa (Prompt O, 3.5: antes filtrava só a versão). */
+export async function getReembolsos(tenantId: string, versionId: string): Promise<ReembolsoRow[]> {
   return db
     .select()
     .from(schema.reembolsos)
-    .where(eq(schema.reembolsos.versionId, versionId));
+    .where(and(eq(schema.reembolsos.tenantId, tenantId), eq(schema.reembolsos.versionId, versionId)))
+    .orderBy(asc(chaveDataBR(schema.reembolsos.data)), asc(schema.reembolsos.id));
 }
 
 /**
@@ -1456,7 +1456,7 @@ export async function getMonthlyRevenue(
 
   const [unitRows, reembRows] = await Promise.all([
     getUnits(versao?.tenantId ?? "", versionId),
-    getReembolsos(versionId),
+    getReembolsos(versao?.tenantId ?? "", versionId),
   ]);
   const out: MonthlyProjection = {};
   // Receita da versão Atual = recebíveis das vendas (MESMA fonte da tela Contas
@@ -1760,7 +1760,7 @@ export async function getRevenueBySource(
 
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(versao?.tenantId ?? "", versionId),
-    getReembolsos(versionId),
+    getReembolsos(versao?.tenantId ?? "", versionId),
     getInccRows(projectId),
   ]);
   for (const u of unitRows) {

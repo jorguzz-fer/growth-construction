@@ -39,7 +39,7 @@ async function versionIndicadores(
   const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(version.tenantId, version.id),
     getPermutas(version.tenantId, version.id),
-    getReembolsos(version.id),
+    getReembolsos(version.tenantId, version.id),
   ]);
   const totals = calcTotals(
     unitRows.map(toCalcUnit),
@@ -150,7 +150,7 @@ export default async function ResumoPage({
   const [unitRows, permRows, reembRows, revenue] = await Promise.all([
     getUnits(version.tenantId, version.id),
     getPermutas(version.tenantId, version.id),
-    getReembolsos(version.id),
+    getReembolsos(version.tenantId, version.id),
     getMonthlyRevenue(version.id, obra.id),
   ]);
 
