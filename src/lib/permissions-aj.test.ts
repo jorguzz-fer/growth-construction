@@ -99,6 +99,9 @@ describe("11.2 — chave desligada: tudo igual a antes, fora o clamp", () => {
         const depois = effectivePermissions(role, o, { membroRestrito: false });
         for (const s of SCREENS) {
           if (TELAS_SO_ADMIN.has(s.id)) expect(depois[s.id]).toEqual(NONE);
+          // Prompt AL, Parte 3: o contador tem teto de leitura — a única
+          // diferença aceitável é a escrita negada; "ver" segue igual.
+          else if (role === "contador") expect(depois[s.id], s.id).toEqual({ ...NONE, ver: antes[s.id].ver });
           else expect(depois[s.id], s.id).toEqual(antes[s.id]);
         }
       });
