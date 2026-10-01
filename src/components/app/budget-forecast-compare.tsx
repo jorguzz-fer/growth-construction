@@ -28,8 +28,8 @@ function CompareBloco({ titulo, rows }: { titulo: string; rows: CompareRowP[] })
             <thead className="bg-[var(--color-surface2)]">
               <tr>
                 <th className="px-3 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Conta</th>
-                <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Budget</th>
-                <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Forecast</th>
+                <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Orçamento</th>
+                <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Previsão</th>
                 <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Var. R$</th>
                 <th className="px-3 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Var. %</th>
               </tr>
@@ -79,7 +79,7 @@ export function BudgetForecastCompare({
           {data.message ?? "Comparação indisponível."}
           <div className="mt-3">
             <Link href={backHref} className="text-[13px] text-[var(--color-accent2)] hover:underline">
-              ← Voltar ao Forecast
+              ← Voltar à Previsão Atualizada
             </Link>
           </div>
         </CardContent>
@@ -98,23 +98,23 @@ export function BudgetForecastCompare({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-serif)] text-2xl text-[var(--color-ink)]">
-            Comparação Budget × Forecast
+            Comparação Orçamento × Previsão Atualizada
           </h1>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-ink3)]">
-            Budget <strong>{data.budgetLabel}</strong> × Forecast <strong>{data.forecastLabel}</strong>
+            Orçamento <strong>{data.budgetLabel}</strong> × Previsão <strong>{data.forecastLabel}</strong>
           </p>
         </div>
         <Link
           href={backHref}
           className="rounded-[8px] border border-[var(--color-accent2)]/30 px-3 py-1.5 text-[13px] text-[var(--color-accent2)] hover:bg-[var(--color-accent2)]/8"
         >
-          ← Voltar ao Forecast
+          ← Voltar à Previsão Atualizada
         </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><div className="text-[12px] text-[var(--color-ink3)]">Resultado — Budget</div><div className="mt-1 font-[family-name:var(--font-mono)] text-[18px] font-semibold">{brl0(resB)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-[12px] text-[var(--color-ink3)]">Resultado — Forecast</div><div className="mt-1 font-[family-name:var(--font-mono)] text-[18px] font-semibold">{brl0(resF)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-[12px] text-[var(--color-ink3)]">Resultado — Orçamento</div><div className="mt-1 font-[family-name:var(--font-mono)] text-[18px] font-semibold">{brl0(resB)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-[12px] text-[var(--color-ink3)]">Resultado — Previsão</div><div className="mt-1 font-[family-name:var(--font-mono)] text-[18px] font-semibold">{brl0(resF)}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-[12px] text-[var(--color-ink3)]">Variação do resultado</div><div className="mt-1 font-[family-name:var(--font-mono)] text-[18px] font-semibold" style={{ color: tone(resF - resB) }}>{brl0(resF - resB)}</div></CardContent></Card>
       </div>
 

@@ -7,7 +7,7 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { monthValue } from "@/lib/planning";
-import { RECEITAS_PROJETO_KEY } from "@/lib/budget/config";
+import { RECEITAS_PROJETO_KEY, defaultDreCategory } from "@/lib/budget/config";
 import { getBudgetPlanning, getChartAccounts } from "@/lib/queries";
 import { naturezaDoGrupo } from "@/lib/natureza-grupo";
 import { recusaDaInclusao, recusaDaRemocao, resumoDaRemocao, totalReceitasDoProjeto, type GrupoDoPlano } from "@/lib/orcamento-regras";
@@ -206,7 +206,7 @@ async function copyPlanningData(
 
 /* ─── incluir / excluir linha da grade (Prompt D, 4-A) ───────────────── */
 
-export type ResultadoLinha = { ok: true; aviso?: string } | { ok: false; error: string };
+export type ResultadoLinha = { ok: true; aviso?: string; linha?: { rowKey: string; label: string; dreCategory: string | null } } | { ok: false; error: string };
 
 /** Grupos do Plano de Contas com natureza e "ativo" derivados dos subitens. */
 async function gruposDoPlano(tenantId: string): Promise<GrupoDoPlano[]> {
@@ -278,7 +278,7 @@ export async function incluirLinhaDoOrcamento(versionId: string, bloco: "receita
     await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "budget.linha.incluir", entity: "version", entityId: versionId, meta: { bloco, rowKey, grupo: grupo!.groupName } }, tx);
   });
   revalidatePath("/budget");
-  return { ok: true };
+  return { ok: true, linha: { rowKey, label: grupo!.groupName, dreCategory: bloco === "receita" ? "Receita" : defaultDreCategory(grupo!.kind) } };
 }
 
 /**

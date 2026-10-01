@@ -14,7 +14,7 @@ import {
 } from "./calc/projection";
 import { expandUnitReceivables } from "./calc/receivables";
 import { naturezaDoGrupo } from "./natureza-grupo";
-import { linhasDoBloco, totalReceitasDoProjeto, type GrupoDoPlano } from "./orcamento-regras";
+import { gruposDisponiveis, linhasDoBloco, totalReceitasDoProjeto, type GrupoDoPlano } from "./orcamento-regras";
 import {
   calcBdi,
   calcEvolucao,
@@ -1499,6 +1499,8 @@ export async function getBudgetPlanning(
       receitaDoCadastro: project ? totalReceitasDoProjeto(project) : null,
     },
     selecao: { receita: false, despesa: false },
+    disponiveis: { receita: [], despesa: [] },
+    ultimaReplicacao: null,
     hasPeriod: months.length > 0,
     months,
     versions,
@@ -1583,11 +1585,24 @@ export async function getBudgetPlanning(
       totalDoCadastro: totalReceitasDoProjeto(project),
     });
 
+  const receitas = build("receita");
+  const despesas = build("despesa");
+  const disponiveisDe = (nat: "receita" | "despesa", rows: import("./planning").PlanningAccountRow[]) =>
+    gruposDisponiveis(grupos, nat, rows.map((r) => r.rowKey)).map((g) => ({ code: g.groupCode, name: g.groupName }));
+  // 2.6: a data da última replicação do Atual vem do log (nada novo é gravado).
+  const [rep] = await db
+    .select({ em: schema.auditLog.createdAt })
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "budget.replicateFromAtual"), eq(schema.auditLog.entityId, selected.id)))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(1);
   return {
     ...emptyData,
     selecao: { receita: selecaoDe("receita") != null, despesa: selecaoDe("despesa") != null },
-    receitas: build("receita"),
-    despesas: build("despesa"),
+    disponiveis: { receita: disponiveisDe("receita", receitas), despesa: disponiveisDe("despesa", despesas) },
+    ultimaReplicacao: rep?.em ? new Date(rep.em).toISOString() : null,
+    receitas,
+    despesas,
   };
 }
 
