@@ -102,7 +102,12 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
           Evolução da obra e liberação
           {!ind.temMedicao && (
-            <Badge tone="warning">sem medição lançada</Badge>
+            // Prompt V (BV-1, provisório): estes KPIs leem a medição POR SERVIÇO
+            // (medicao_servico), que não está em uso — as medições por grupo da
+            // tela Medição de Obra não alimentam estes números.
+            <Badge tone="neutral" title="Os KPIs de evolução física leem a medição por serviço (PLS), que o sistema ainda não usa. As medições por grupo CEF lançadas em Medição de Obra não entram aqui.">
+              medição por serviço não está em uso
+            </Badge>
           )}
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
