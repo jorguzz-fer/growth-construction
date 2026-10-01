@@ -56,24 +56,27 @@ describe.skipIf(!HAS_DB)("Exclusões — integridade (Prompt I, §12 e §24)", a
     if (tenantId) await db.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));
   });
 
+  // Prompt S, 2.3 — a exclusão passou a exigir o PED digitado.
+  const ped = async (id: string) => (await db.select().from(schema.despesas).where(eq(schema.despesas.id, id)))[0]?.numDoc ?? "EXCLUIR";
+
   it("§12 despesa: sem vínculo apaga; com pagamento, recusa e a despesa fica", async () => {
     const r0 = await addDespesa(fd(base()));
     const id = (r0 as { id: string }).id;
     expect((await pagarDespesa({ despesaId: id, dataPagamento: "09/10/2026", valorPago: 100, idempotencyKey: "x1" })).ok).toBe(true);
-    const r = await deleteDespesa(id);
+    const r = await deleteDespesa(id, await ped(id));
     expect(r.ok).toBe(false);
     expect((r as { error: string }).error).toMatch(/1 pagamento\(s\)/);
     expect(await despesaExiste(id)).toBe(true);
     const r1 = await addDespesa(fd({ ...base(), valor: "7" }));
     const id2 = (r1 as { id: string }).id;
-    expect((await deleteDespesa(id2)).ok).toBe(true);
+    expect((await deleteDespesa(id2, await ped(id2))).ok).toBe(true);
     expect(await despesaExiste(id2)).toBe(false);
   });
 
   it("§12 despesa: nota fiscal ou anexo também travam (a cascata os apagaria)", async () => {
     const r0 = await addDespesa(fd({ ...base(), docTipo: "NFE", docNumero: "123" }));
     const id = (r0 as { id: string }).id;
-    const r = await deleteDespesa(id);
+    const r = await deleteDespesa(id, await ped(id));
     expect(r.ok).toBe(false);
     expect((r as { error: string }).error).toMatch(/documento\(s\) fiscal/);
     expect(await despesaExiste(id)).toBe(true);

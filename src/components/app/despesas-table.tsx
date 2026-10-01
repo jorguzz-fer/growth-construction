@@ -4,11 +4,11 @@ import { useState, useTransition, useRef } from "react";
 import { statusExibido, tomDoStatus } from "@/lib/despesa-status";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  deleteDespesa,
   cancelarDespesa,
   pagarDespesa,
 } from "@/lib/actions/despesas";
 import { brl0, dateBR } from "@/lib/utils";
+import { ConfirmarExclusaoDespesa } from "@/components/app/confirmar-exclusao-despesa";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -236,27 +236,23 @@ function Row({
   const stDisplay = displayStatus(d);
   const isPago = d.status === "Pago";
 
+  // Prompt S, seção 2 — exclusão informada: inventário e PED digitado no
+  // painel; a action recusa com dependência e audita na mesma transação.
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   const remove = () => {
-    if (
-      !window.confirm(
-        `Excluir a despesa ${d.numDoc ?? ""} (${brl0(Number(d.valor))})? Esta ação não pode ser desfeita.`,
-      )
-    )
-      return;
     setError(null);
-    start(async () => {
-      try {
-        const r = await deleteDespesa(d.id);
-        if (!r.ok) {
-          setError(r.error);
-          return;
-        }
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao excluir.");
-      }
-    });
+    setConfirmandoExclusao(true);
   };
+
+  if (confirmandoExclusao) {
+    return (
+      <TR>
+        <TD colSpan={(showActions ? 8 : 7) + (showOrigem ? 1 : 0)}>
+          <ConfirmarExclusaoDespesa despesaId={d.id} onCancelar={() => setConfirmandoExclusao(false)} onExcluida={() => { setConfirmandoExclusao(false); router.refresh(); }} />
+        </TD>
+      </TR>
+    );
+  }
 
   if (paying) {
     return (

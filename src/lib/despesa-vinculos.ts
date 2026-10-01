@@ -1,4 +1,4 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { VinculosDaDespesa } from "@/lib/despesa-regras";
 
@@ -50,4 +50,34 @@ export async function vinculosDaDespesa(exec: Exec, tenantId: string, despesaId:
     n(exec.select({ n: count }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.despesaId, despesaId)))),
   ]);
   return { parcelas, parcelasPagas, pagamentos, acertos, restituicoes, caixaConciliado, terceiros, documentosFiscais, anexos };
+}
+
+/**
+ * Prompt S, 2.2 / 2.4 — o inventário do que a exclusão levaria junto (ou do
+ * que a impede): os vínculos, o total já saído do caixa pelos pagamentos, os
+ * acertos (pelo PED) e a obrigação com terceiro. Só leitura; serve à tela
+ * (antes de confirmar) e à auditoria (depois de apagar).
+ */
+export interface InventarioDaDespesa extends VinculosDaDespesa {
+  totalPago: number;
+  acertosNumDoc: string[];
+}
+
+export async function inventarioDaDespesa(exec: Exec, tenantId: string, despesaId: string): Promise<InventarioDaDespesa> {
+  const vinculos = await vinculosDaDespesa(exec, tenantId, despesaId);
+  const [pago] = await exec
+    .select({ total: sql<string>`coalesce(sum(${schema.pagamentos.valorTotalPago}), 0)` })
+    .from(schema.pagamentos)
+    .where(and(eq(schema.pagamentos.tenantId, tenantId), eq(schema.pagamentos.despesaId, despesaId)));
+  const itens = vinculos.acertos
+    ? await exec
+        .select({ acertoId: schema.acertoItens.acertoId })
+        .from(schema.acertoItens)
+        .where(and(eq(schema.acertoItens.tenantId, tenantId), eq(schema.acertoItens.despesaId, despesaId)))
+    : [];
+  const ids = [...new Set(itens.map((i) => i.acertoId).filter((x): x is string => !!x))];
+  const acertos = ids.length
+    ? await exec.select({ numDoc: schema.acertos.numDoc }).from(schema.acertos).where(inArray(schema.acertos.id, ids))
+    : [];
+  return { ...vinculos, totalPago: Number(pago?.total ?? 0), acertosNumDoc: acertos.map((a) => a.numDoc ?? "(sem número)") };
 }
