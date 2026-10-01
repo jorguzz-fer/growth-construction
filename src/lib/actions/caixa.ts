@@ -12,6 +12,7 @@ import {
 } from "@/lib/context";
 import { registroCasa } from "@/lib/busca";
 import { can } from "@/lib/permissions";
+import { gravarRecebimento } from "@/lib/conta-receber-recebimento";
 import { logAudit } from "@/lib/audit";
 import {
   getDespesas,
@@ -626,15 +627,17 @@ export async function conciliarContaReceber(input: {
   if (!ctx || !can(ctx.perms, "caixa", "editar")) {
     throw new Error("Sem permissão para conciliar.");
   }
+  // Prompt K (K-2): a conciliação vira um RECEBIMENTO com valor por vínculo
+  // (até o que falta na conta e até o que o movimento ainda tem livre), pela
+  // mesma regra da tela de Contas a Receber. Os campos antigos do movimento
+  // (rec, conciliado_conta_receber_id) continuam sendo gravados (4.5).
   const [mov] = await db
     .select()
     .from(schema.cashEntries)
     .where(and(eq(schema.cashEntries.id, input.cashEntryId), eq(schema.cashEntries.tenantId, ctx.tenant.id)))
     .limit(1);
   if (!mov) throw new Error("Movimento não encontrado.");
-  if (mov.rec || mov.conciliadoDespesaId || mov.conciliadoContaReceberId) {
-    throw new Error("Este movimento já está processado.");
-  }
+  if (mov.conciliadoDespesaId) throw new Error("Este movimento já está processado.");
   const [cr] = await db
     .select()
     .from(schema.contasReceber)
@@ -644,39 +647,45 @@ export async function conciliarContaReceber(input: {
   if (cr.cancelado || cr.status === "Recebido") {
     throw new Error("Esta conta a receber já está recebida ou cancelada.");
   }
-  const valorMov = Math.abs(Number(mov.valor));
-  const novoReceb = Number(cr.valorRecebido) + valorMov;
-  const total = Number(cr.valor);
-  const status = novoReceb + 0.01 >= total ? "Recebido" : "Parcialmente recebido";
-  const agora = new Date().toISOString();
-  await db
-    .update(schema.contasReceber)
-    .set({
-      valorRecebido: String(novoReceb),
-      status,
-      dataRecebimento: mov.data,
-      bancoId: mov.bankAccountId ?? cr.bancoId,
-    })
-    .where(eq(schema.contasReceber.id, cr.id));
-  await db
-    .update(schema.cashEntries)
-    .set({
-      rec: true,
-      conciliadoContaReceberId: cr.id,
-      conciliadoPor: ctx.userEmail || ctx.userId || null,
-      conciliadoEm: agora,
-    })
-    .where(eq(schema.cashEntries.id, mov.id));
+  const quem = { tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail };
+  const livre = await disponivelDoMovimento(quem.tenantId, mov.id);
+  if (livre <= 0) throw new Error("Este movimento já está processado.");
+  const saldo = Math.max(0, Number(cr.valor) - Number(cr.valorRecebido));
+  const valor = Math.min(livre, saldo);
+  const r = await gravarRecebimento(quem, {
+    contaReceberId: cr.id,
+    valor,
+    data: mov.data,
+    forma: "Extrato bancário",
+    justificativa: null,
+    cashEntryId: mov.id,
+  });
+  if (!r.ok) throw new Error(r.error);
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "conciliacao.receber",
     entity: "cash_entry",
     entityId: mov.id,
-    meta: { contaReceberId: cr.id, valor: valorMov, status },
+    meta: { contaReceberId: cr.id, valor, recebimentoId: r.id },
   });
   revalidatePath("/caixa");
   revalidatePath("/contasreceber");
+}
+
+/** Quanto uma entrada do extrato ainda tem livre para vínculos com contas a receber (4.2). */
+async function disponivelDoMovimento(tenantId: string, cashEntryId: string): Promise<number> {
+  const [mov] = await db
+    .select({ valor: schema.cashEntries.valor })
+    .from(schema.cashEntries)
+    .where(and(eq(schema.cashEntries.id, cashEntryId), eq(schema.cashEntries.tenantId, tenantId)))
+    .limit(1);
+  if (!mov) return 0;
+  const vinc = await db
+    .select({ valor: schema.contaReceberRecebimentos.valor })
+    .from(schema.contaReceberRecebimentos)
+    .where(and(eq(schema.contaReceberRecebimentos.cashEntryId, cashEntryId), eq(schema.contaReceberRecebimentos.tenantId, tenantId), eq(schema.contaReceberRecebimentos.estornado, false)));
+  return Math.round((Number(mov.valor) - vinc.reduce((a, v) => a + Number(v.valor), 0)) * 100) / 100;
 }
 
 /**

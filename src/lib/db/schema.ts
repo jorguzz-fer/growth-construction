@@ -1301,6 +1301,38 @@ export const contasReceber = pgTable("conta_receber", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
+/**
+ * Recebimento de uma conta a receber (Prompt K, seções 3 e 4; migração 0048):
+ * baixa manual (espécie, repasse, outro — com justificativa) ou conciliação
+ * (com `cashEntryId`, valor por vínculo). O estado da conta é DERIVADO destas
+ * linhas (`conta-receber-estado.ts`); `conta_receber.status`/`valor_recebido`
+ * são só o cache dessa derivação. Estorno é lógico (4.3).
+ */
+export const contaReceberRecebimentos = pgTable("conta_receber_recebimento", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  contaReceberId: uuid("conta_receber_id")
+    .notNull()
+    .references(() => contasReceber.id, { onDelete: "cascade" }),
+  valor: numeric("valor", { precision: 15, scale: 2 }).notNull().default("0"),
+  /** "MM/DD/YYYY". */
+  data: text("data"),
+  /** Extrato bancário | Espécie | Repasse de terceiro | Outro. */
+  forma: text("forma").notNull().default("Extrato bancário"),
+  /** Linha do extrato conciliada (presente = conciliado). */
+  cashEntryId: uuid("cash_entry_id").references(() => cashEntries.id, { onDelete: "set null" }),
+  justificativa: text("justificativa"),
+  estornado: boolean("estornado").notNull().default(false),
+  estornadoEm: text("estornado_em"),
+  estornadoPor: text("estornado_por"),
+  motivoEstorno: text("motivo_estorno"),
+  idempotencyKey: text("idempotency_key"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 /** Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6. */
 export const inccRates = pgTable(
   "incc_rate",

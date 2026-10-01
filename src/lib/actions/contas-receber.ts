@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -8,13 +8,8 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
-import {
-  ehStatusEditavel,
-  lerValor,
-  motivoDeRecusa,
-  valorRecebidoValido,
-  type StatusDeContaReceber,
-} from "@/lib/conta-receber-regras";
+import { lerValor, motivoDeRecusa } from "@/lib/conta-receber-regras";
+import { estornarRecebimentoDb, gravarRecebimento } from "@/lib/conta-receber-recebimento";
 
 /** Resultado legível (Prompt K, CR-09): em produção, erro lançado vira digest sem texto. */
 export type ResultadoContaReceber = { ok: true; id: string } | { ok: false; error: string };
@@ -86,24 +81,45 @@ export async function updateContaReceber(formData: FormData): Promise<ResultadoC
   if (motivo) return falha(motivo);
   const projectId = clean(formData.get("projectId")) ?? "";
   if (projectId && !ctx.projects.some((p) => p.id === projectId)) return falha("Projeto inválido.");
-  const statusBruto = clean(formData.get("status")) ?? "A receber";
-  if (!ehStatusEditavel(statusBruto)) return falha("Status inválido.");
-  const status: StatusDeContaReceber = statusBruto;
-  const recebidoTexto = formData.get("valorRecebido") as string | null;
-  const valorRecebido = recebidoTexto && recebidoTexto.trim() ? lerValor(recebidoTexto) : 0;
-  if (!valorRecebidoValido(valorRecebido, valor)) return falha("Valor recebido deve ficar entre zero e o valor da conta.");
+
+  // 3.2 — status, valor recebido e data de recebimento NÃO vêm do formulário:
+  // são derivados dos recebimentos registrados (baixa e conciliação).
+  const [atual] = await db
+    .select({ valor: schema.contasReceber.valor, vencimento: schema.contasReceber.vencimento, valorRecebido: schema.contasReceber.valorRecebido })
+    .from(schema.contasReceber)
+    .where(and(eq(schema.contasReceber.id, id), eq(schema.contasReceber.tenantId, ctx.tenant.id), eq(schema.contasReceber.cancelado, false)))
+    .limit(1);
+  if (!atual) return falha("Conta não encontrada ou já cancelada.");
+  const vencimento = clean(formData.get("vencimento"));
+  // 5.1 — trava por dependência: conta com recebimento conciliado não muda
+  // valor nem vencimento sem estorno do vínculo (espelha a despesa paga).
+  const mudaValor = Math.abs(Number(atual.valor) - valor) >= 0.005;
+  const mudaVencimento = (atual.vencimento ?? null) !== vencimento;
+  if (mudaValor || mudaVencimento) {
+    const [conciliado] = await db
+      .select({ id: schema.contaReceberRecebimentos.id })
+      .from(schema.contaReceberRecebimentos)
+      .where(
+        and(
+          eq(schema.contaReceberRecebimentos.contaReceberId, id),
+          eq(schema.contaReceberRecebimentos.tenantId, ctx.tenant.id),
+          eq(schema.contaReceberRecebimentos.estornado, false),
+          isNotNull(schema.contaReceberRecebimentos.cashEntryId),
+        ),
+      )
+      .limit(1);
+    if (conciliado) return falha("Conta conciliada com o extrato: para mudar valor ou vencimento, estorne o vínculo antes.");
+  }
+  if (valor + 0.005 < Number(atual.valorRecebido)) return falha("O valor não pode ficar abaixo do que já foi recebido.");
 
   const set: Partial<typeof schema.contasReceber.$inferInsert> = {
     tipo,
     descricao,
     valor: String(valor),
-    vencimento: clean(formData.get("vencimento")),
+    vencimento,
     unitCode: clean(formData.get("unitCode")),
     clienteId: clean(formData.get("clienteId")),
     bancoId: clean(formData.get("bancoId")),
-    dataRecebimento: clean(formData.get("dataRecebimento")),
-    valorRecebido: String(valorRecebido),
-    status,
   };
   if (projectId) set.projectId = projectId;
   const [row] = await db
@@ -130,6 +146,12 @@ export async function cancelarContaReceber(formData: FormData): Promise<Resultad
   if (!ctx || !can(ctx.perms, "contasreceber", "excluir")) return falha("Sem permissão para cancelar contas a receber.");
   const id = clean(formData.get("id")) ?? "";
   if (!id) return falha("Conta não informada.");
+  const [recebida] = await db
+    .select({ id: schema.contaReceberRecebimentos.id })
+    .from(schema.contaReceberRecebimentos)
+    .where(and(eq(schema.contaReceberRecebimentos.contaReceberId, id), eq(schema.contaReceberRecebimentos.tenantId, ctx.tenant.id), eq(schema.contaReceberRecebimentos.estornado, false)))
+    .limit(1);
+  if (recebida) return falha("Conta com recebimento registrado: estorne os recebimentos antes de cancelar.");
   const [row] = await db
     .update(schema.contasReceber)
     .set({ cancelado: true, status: "Cancelada" })
@@ -235,4 +257,58 @@ export async function deleteContaReceberDoc(documentId: string): Promise<Resulta
   });
   revalidatePath("/contasreceber");
   return { ok: true, id: doc.id };
+}
+
+// ── Baixa, conciliação e estorno (Prompt K, seções 3 e 4) ─────────────────
+
+export interface RecebimentoInput {
+  contaReceberId: string;
+  valor: number;
+  /** "MM/DD/YYYY". */
+  data: string;
+  forma: string;
+  justificativa?: string | null;
+  /** Linha do extrato (obrigatória para "Extrato bancário"). */
+  cashEntryId?: string | null;
+  idempotencyKey?: string | null;
+}
+
+/**
+ * Registra um recebimento: baixa manual (espécie, repasse de terceiro, outro —
+ * com justificativa, 3.3/3.4) ou conciliação com uma linha do extrato, com
+ * valor por vínculo (4.1/4.2). O estado da conta é derivado (3.2).
+ */
+export async function registrarRecebimento(input: RecebimentoInput): Promise<ResultadoContaReceber> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "contasreceber", "editar")) return falha("Sem permissão para registrar recebimentos.");
+  return gravarRecebimento(
+    { tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail },
+    {
+      contaReceberId: input.contaReceberId,
+      valor: Number(input.valor),
+      data: (input.data ?? "").trim() || null,
+      forma: input.forma,
+      justificativa: input.justificativa ?? null,
+      cashEntryId: input.cashEntryId || null,
+      idempotencyKey: input.idempotencyKey ?? null,
+    },
+  ).then((r) => {
+    if (r.ok) {
+      revalidatePath("/contasreceber");
+      revalidatePath("/caixa");
+    }
+    return r;
+  });
+}
+
+/** 4.3 — desfaz um recebimento por estorno lógico, com motivo. */
+export async function estornarRecebimento(recebimentoId: string, motivo: string): Promise<ResultadoContaReceber> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "contasreceber", "editar")) return falha("Sem permissão para estornar recebimentos.");
+  const r = await estornarRecebimentoDb({ tenantId: ctx.tenant.id, userId: ctx.userId, userEmail: ctx.userEmail }, recebimentoId, motivo ?? "");
+  if (r.ok) {
+    revalidatePath("/contasreceber");
+    revalidatePath("/caixa");
+  }
+  return r;
 }
