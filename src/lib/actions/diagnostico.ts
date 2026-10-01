@@ -18,6 +18,7 @@ import {
   type Motivo,
   type Pulada,
 } from "@/lib/conferencia-regras";
+import { analisarConferencia, type AnaliseDaConferencia, type LinhaAnalisada } from "@/lib/conferencia-analise";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
 /**
@@ -305,4 +306,49 @@ export async function reclassificarItens(
   revalidatePath("/despesas");
   revalidatePath("/dre");
   return { ok: true, selecionadas: alvos.length, alteradas, puladas };
+}
+
+/**
+ * Prompt AN, Parte 7 — linhas para o assistente da Conferência: o conjunto
+ * inteiro das pendências (não a página), com o tipo da versão e quem lançou
+ * (pelo log de criação). SOMENTE LEITURA. Filtro de tenant explícito, e quem
+ * não vê Despesas não recebe nada — nem agregado (7.3).
+ */
+export async function getAnaliseConferencia(): Promise<AnaliseDaConferencia | null> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "despesas", "ver")) return null;
+  const d = schema.despesas;
+  const linhas = await db
+    .select({
+      d,
+      versao: schema.versions.kind,
+      fornecedorNome: schema.stakeholders.nome,
+      autor: sql<string | null>`(
+        select coalesce(u.name, u.email) from ${schema.auditLog} a
+          left join ${schema.users} u on u.id = a.user_id
+         where a.tenant_id = ${ctx.tenant.id} and a.action = 'despesa.create' and a.entity_id = ${d.id}::text
+         order by a.created_at asc limit 1)`,
+    })
+    .from(d)
+    .innerJoin(schema.versions, eq(d.versionId, schema.versions.id))
+    .leftJoin(schema.stakeholders, eq(d.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(d.tenantId, ctx.tenant.id), condicoesSuspeitas()));
+  const out: LinhaAnalisada[] = [];
+  for (const r of linhas) {
+    const motivos = motivosDaDespesa(r.d);
+    if (!motivos) continue;
+    out.push({
+      id: r.d.id,
+      fornecedorId: r.d.fornecedorId,
+      fornecedorNome: r.fornecedorNome,
+      contaCef: r.d.contaCef,
+      competencia: r.d.competencia,
+      valor: Number(r.d.valor),
+      versao: r.versao,
+      motivos: motivos.map((m) => m.codigo),
+      criadoEm: r.d.createdAt,
+      autor: r.autor,
+    });
+  }
+  return analisarConferencia(out);
 }

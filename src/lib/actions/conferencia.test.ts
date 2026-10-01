@@ -32,7 +32,7 @@ vi.mock("server-only", () => ({}));
 describe.skipIf(!HAS_DB)("Prompt AN — Conferência de lançamentos", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
-  const { getDespesasSuspeitas, reclassificarDespesas, reclassificarItens } = await import("./diagnostico");
+  const { getAnaliseConferencia, getDespesasSuspeitas, reclassificarDespesas, reclassificarItens } = await import("./diagnostico");
   let tenantId = "";
   let projA = "";
   let projB = "";
@@ -185,10 +185,21 @@ describe.skipIf(!HAS_DB)("Prompt AN — Conferência de lançamentos", async () 
     expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/duas categorias/) });
   });
 
+  it("7.3 — o assistente lê o conjunto inteiro do tenant e não grava nada", async () => {
+    const antes = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tenantId));
+    const a = (await getAnaliseConferencia())!;
+    const p = await getDespesasSuspeitas();
+    const ativas = p.rows.filter((r) => !r.motivos.some((m) => m.codigo === "cancelado")).length;
+    expect(a.total).toBe(ativas);
+    const depois = await db.select().from(schema.despesas).where(eq(schema.despesas.tenantId, tenantId));
+    expect(depois).toEqual(antes);
+  });
+
   it("sem permissão de ver Despesas, nada sai", async () => {
     const antes = ctxRef.current;
     ctxRef.current = { ...(antes as object), role: "engenheiro", perms: defaultPermissions("engenheiro") };
     const p = await getDespesasSuspeitas();
+    expect(await getAnaliseConferencia()).toBeNull();
     ctxRef.current = antes;
     expect(p.rows).toEqual([]);
     expect(p.totalGeral).toBe(0);
