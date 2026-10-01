@@ -64,3 +64,9 @@ o consolidado da empresa"). A troca por seleção explícita é do Prompt A.
 **Nota — o log para o contador:** o `/acoes` mostra metadado e o `de → para` dos
 campos; os campos pessoais de comprador já saem mascarados para quem não é
 owner/admin (decisão 3.8, `audit-mask.ts`).
+
+## Atualização — Prompt AL (01/10/2026)
+
+A seção 4 perdeu o objeto: a tela `/contabilidade` saiu do sistema. O defeito
+de contexto global que ela tinha saiu junto com ela. Os três números existem
+na DRE.

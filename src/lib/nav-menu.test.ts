@@ -72,12 +72,14 @@ const TELAS_NOVAS: Record<string, string> = {
  * `medicaolanc` — o engenheiro continua vendo o módulo Obra.
  */
 const FUNDIDAS_NO_ITEM: Record<string, string> = { "/medicao": "medicaolanc" };
-const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => href !== "/medicaolanc"));
+/** Prompt AL: /contabilidade saiu do sistema (virou redirecionamento para /usuarios). */
+const SAIRAM = new Set(["/medicaolanc", "/contabilidade"]);
+const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => !SAIRAM.has(href)));
 
 const todos = NAV_MENU.flatMap((m) => m.items);
 
 describe("NAV_MENU — nenhuma tela se perde", () => {
-  it("tem as 38 telas do menu antigo (40 menos /fechamento e /ponto) menos /medicaolanc (fundida, Prompt V), mais as novas declaradas, sem duplicata", () => {
+  it("tem as 38 telas do menu antigo (40 menos /fechamento e /ponto) menos /medicaolanc (fundida, Prompt V) e /contabilidade (removida, Prompt AL), mais as novas declaradas, sem duplicata", () => {
     const hrefs = todos.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect([...hrefs].sort()).toEqual(Object.keys(ESPERADO).sort());

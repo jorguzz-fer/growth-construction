@@ -22,7 +22,14 @@ const nextConfig: NextConfig = {
   // Rolling Forecast foi descontinuado: URLs antigas /rolling redirecionam
   // para /forecast (o enforcement de permissão da rota-destino continua valendo).
   async redirects() {
-    return [{ source: "/rolling", destination: "/forecast", permanent: true }];
+    return [
+      { source: "/rolling", destination: "/forecast", permanent: true },
+      // Prompt AL (BAL-3): telas removidas viram redirecionamento com aviso de
+      // uma linha na tela de destino (src/lib/telas-removidas.ts; o teste de
+      // lá confere que esta lista bate). 307, não 308: o navegador não grava.
+      { source: "/contabilidade", destination: "/usuarios?de=contabilidade", permanent: false },
+      { source: "/contabilidade/:path*", destination: "/usuarios?de=contabilidade", permanent: false },
+    ];
   },
   experimental: {
     // Uploads (logo da empresa até 2 MB, documentos de despesas até 10 MB)

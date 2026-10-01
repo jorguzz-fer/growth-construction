@@ -15,6 +15,7 @@ import { MemberActions } from "@/components/app/member-actions";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PAPEIS_CRIACAO } from "@/lib/papeis";
 import { AccessDenied } from "@/components/app/access-denied";
+import { avisoDeTelaRemovida } from "@/lib/telas-removidas";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,11 @@ const roleTone: Record<string, "accent" | "info" | "neutral" | "warning"> = {
   engenheiro: "info",
 };
 
-export default async function UsuariosPage() {
+export default async function UsuariosPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ de?: string }>;
+}) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
@@ -35,6 +40,8 @@ export default async function UsuariosPage() {
   if (!can(ctx.perms, "usuarios", "ver")) return <AccessDenied />;
 
   const members = await getMembers(ctx.tenant.id);
+  // Prompt AL (BAL-3): quem chegou pela URL de uma tela que saiu lê o porquê.
+  const avisoRemovida = avisoDeTelaRemovida((await searchParams)?.de);
   const podeCriar = can(ctx.perms, "usuarios", "criar");
   const podeEditar = can(ctx.perms, "usuarios", "editar");
   const podeExcluir = can(ctx.perms, "usuarios", "excluir");
@@ -47,6 +54,11 @@ export default async function UsuariosPage() {
         title="Usuários & Acessos"
         subtitle={`${members.length} membros · seu papel: ${ctx.role}`}
       />
+      {avisoRemovida && (
+        <p role="status" className="mb-4 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-surface2)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+          {avisoRemovida}
+        </p>
+      )}
 
       {podeCriar && (
         <Card className="mb-6">

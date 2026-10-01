@@ -67,7 +67,7 @@ exatamente as mesmas, sem duplicata.
 | Auditoria | `/acoes` | `acoes` | Configurações |
 | Numeração de despesas | `/numeracao` | `numeracao` | Configurações |
 | Backup | `/backup` | `backup` | Configurações |
-| Acesso do contador | `/contabilidade` | `contabilidade` | Configurações |
+| ~~Acesso do contador~~ | ~~`/contabilidade`~~ | ~~`contabilidade`~~ | **saiu no Prompt AL** — ver nota no fim |
 | Conferência de lançamentos | `/diagnostico/categorias-invertidas` | `despesas` | Configurações |
 | Conferência de planos | `/diagnostico/planos-recebiveis` | `unidades` | Configurações |
 
@@ -189,3 +189,12 @@ var(--font-sans) }` do `globals.css` não pega. Não corrigi porque mudaria a ti
 telas de uma vez (o mesmo problema do B8). A moldura usa a Inter direto
 (`var(--font-inter)`), que resolve. As telas passam para a Inter no restyle de
 cada uma.
+
+## Atualização — Prompt AL (01/10/2026)
+
+A tela **Acesso do contador** (`/contabilidade`) **deixou de existir**. Ela
+não administrava acesso: mostrava três números de um projeto e tinha um
+formulário de convite igual ao da tela Usuários. Manter um segundo caminho de
+concessão de acesso, fora da trava de owner e admin da Gestão de Acessos,
+contrariava o Prompt AJ. A URL antiga redireciona para `/usuarios` com um
+aviso de uma linha. O que o contador vê agora se ajusta em Gestão de Acessos.

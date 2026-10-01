@@ -86,7 +86,8 @@ export const SCREENS: Screen[] = [
   { id: "usuarios", label: "Usuários & Acessos", modulo: "Config" },
   { id: "acessos", label: "Gestão de Acessos", modulo: "Config" },
   { id: "acoes", label: "Log de Auditoria", modulo: "Config" },
-  { id: "contabilidade", label: "Acesso Contabilidade", modulo: "Config" },
+  // Prompt AL: "contabilidade" saiu (a tela virou redirecionamento para
+  // Usuários). Override gravado com essa chave fica no banco, inerte (AJ 2.4).
   { id: "empresa", label: "Empresa", modulo: "Config" },
   { id: "projeto", label: "Projetos", modulo: "Config" },
   { id: "numeracao", label: "Numeração de Despesas", modulo: "Config" },
