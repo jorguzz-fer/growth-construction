@@ -10,24 +10,13 @@ import { SaldosCaixa } from "@/components/app/saldos-caixa";
 import { hojeISO } from "@/lib/despesa-status";
 import {
   getBankAccounts,
+  getBaixadoSemConciliar,
   getCash,
   getConciliacaoData,
   getDailyClosings,
-  getInccRows,
-  getPermutas,
-  getReembolsos,
-  getUnits,
-  permToResale,
-  reembToCalc,
-  toCalcUnit,
+  getAutoresDosAjustes,
 } from "@/lib/queries";
 import { ConciliacaoReview } from "@/components/app/conciliacao-review";
-import {
-  calcProjection,
-  permutaCashByMonth,
-  reembursementsByMonth,
-  type MonthlyProjection,
-} from "@/lib/calc";
 import { isPluggyConfigured as pluggyCfg } from "@/lib/openfinance/pluggy";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { can } from "@/lib/permissions";
@@ -40,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConciliarToggle } from "@/components/app/conciliar-toggle";
 import { ImportExtratoButton } from "@/components/app/import-extrato";
-import { CaixaEntryForm } from "@/components/app/caixa-entry-form";
+import { AjustesCaixa, type AjusteLinha } from "@/components/app/ajustes-caixa";
 import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import {
   VersionCompareTable,
@@ -51,11 +40,14 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "conciliacao" | "previstas";
+// Prompt L, 3-A.4 — duas abas: Conciliação (com a tabela de movimentos) e
+// Ajustes (o único lançamento desta tela). "Lançamentos" e "Previstas" saíram:
+// receita e despesa são lançadas nas telas delas; o previsto está em Contas a
+// Pagar e Contas a Receber.
+type Tab = "conciliacao" | "ajustes";
 const TABS: { key: Tab; label: string }[] = [
-  { key: "lancamentos", label: "Lançamentos" },
   { key: "conciliacao", label: "Conciliação" },
-  { key: "previstas", label: "Previstas" },
+  { key: "ajustes", label: "Ajustes" },
 ];
 
 export default async function CaixaPage({
@@ -68,6 +60,7 @@ export default async function CaixaPage({
     vs?: string;
     proj?: string;
     project?: string;
+      conta?: string;
   }>;
 }) {
   // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
@@ -81,7 +74,7 @@ export default async function CaixaPage({
 
   const sp = await searchParams;
   const aiConfigured = isAiConfigured();
-  const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
+  const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "conciliacao";
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
 
@@ -164,14 +157,13 @@ export default async function CaixaPage({
         <PageHeader
           title="Controle de Caixa"
           subtitle="Comparativo de versões · movimentação real de caixa no período"
-          actions={
-            <div className="flex flex-wrap items-end gap-3">
-              {projectPicker}
-              <DateRangeFilter de={de} ate={ate} />
-              {versionSelect}
-            </div>
-          }
+          actions={projectPicker}
         />
+        {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
+        <div className="mb-5 flex flex-wrap items-end gap-3">
+          <DateRangeFilter de={de} ate={ate} />
+          {versionSelect}
+        </div>
         <LembrarProjeto projectId={project.id} />
         <VersionCompareTable
           firstColLabel="Indicador"
@@ -227,19 +219,50 @@ export default async function CaixaPage({
   const movHoje = hojeNaCadeia ?? { entradas: 0, saidas: 0 };
   const saldoHoje = movHoje.entradas - movHoje.saidas;
 
+  // Prompt L, 4.2.4 — ajustes (o único lançamento desta tela), com o total
+  // sempre à vista; 6.4 — o baixado sem conciliar, com idade.
+  const todosAjustes = cashAll.filter((c) => c.cat === "ajuste");
+  const totalAjustes = { valor: Math.round(todosAjustes.reduce((a, c) => a + Number(c.valor), 0) * 100) / 100, n: todosAjustes.length };
+  const baixado = await getBaixadoSemConciliar(ctx.tenant.id);
+  const contaFiltro = sp.conta ?? "";
+  const ajustesFiltrados = todosAjustes.filter((c) => (!de && !ate ? true : dateInRange(c.data, de, ate))).filter((c) => !contaFiltro || c.bankAccountId === contaFiltro);
+  const autores = tab === "ajustes" ? await getAutoresDosAjustes(ctx.tenant.id, ajustesFiltrados.map((c) => c.id)) : new Map<string, { autor: string | null; quando: string | null }>();
+  // Saldo conciliado antes/depois: cadeia estendida até o ajuste mais antigo do filtro.
+  const diasDoAjusteMaisAntigo = ajustesFiltrados.reduce((max, c) => {
+    const iso = c.data ? `${c.data.slice(6)}-${c.data.slice(0, 2)}-${c.data.slice(3, 5)}` : null;
+    const d = iso ? Math.round((Date.parse(hoje) - Date.parse(iso)) / 86_400_000) : 0;
+    return Math.max(max, d);
+  }, 0);
+  const cadeiaLonga = tab === "ajustes" && ajustesFiltrados.length > 0 ? cadeiaDeSaldo({ movimentos, saldoEmContaAtual: saldoTotal, fechamentos, hojeISO: hoje, diasPassados: Math.min(diasDoAjusteMaisAntigo, 3660), diasFuturos: 0 }) : null;
+  const ajustesLinhas: AjusteLinha[] = ajustesFiltrados.map((c) => {
+    const iso = c.data ? `${c.data.slice(6)}-${c.data.slice(0, 2)}-${c.data.slice(3, 5)}` : null;
+    const dia = iso ? cadeiaLonga?.dias.find((d) => d.dia === iso) : undefined;
+    const conta = contas.find((k) => k.id === c.bankAccountId);
+    return {
+      id: c.id,
+      data: c.data,
+      conta: conta ? `${conta.banco}${conta.cc ? " · " + conta.cc : ""}` : null,
+      valor: Number(c.valor),
+      motivo: c.descricao,
+      autor: autores.get(c.id)?.autor ?? null,
+      quando: autores.get(c.id)?.quando ?? null,
+      saldoAntes: dia ? Math.round((dia.conciliado.final - dia.ajustes) * 100) / 100 : null,
+      saldoDepois: dia ? dia.conciliado.final : null,
+    };
+  });
+
   return (
     <>
       <PageHeader
         title="Controle de Caixa"
-        subtitle="Lançamentos reais + conciliação · role a faixa para ver até uma semana à frente"
-        actions={
-          <div className="flex flex-wrap items-end gap-3">
-            {projectPicker}
-            <DateRangeFilter de={de} ate={ate} />
-            {versionSelect}
-          </div>
-        }
+        subtitle="Conciliação do extrato com os lançamentos · role a faixa para ver até uma semana à frente"
+        actions={projectPicker}
       />
+      {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <DateRangeFilter de={de} ate={ate} />
+        {versionSelect}
+      </div>
       <LembrarProjeto projectId={project.id} />
 
       {/* Resumo do dia (hoje) */}
@@ -293,6 +316,8 @@ export default async function CaixaPage({
           />
         }
         openFinance={{ configurado: pluggyCfg(), podeConfigurar: can(ctx.perms, "contas", "editar") }}
+        totalAjustes={totalAjustes}
+        baixadoSemConciliar={{ ...baixado, dias: baixado.maisAntigoISO ? Math.max(0, Math.round((Date.parse(hoje) - Date.parse(baixado.maisAntigoISO)) / 86_400_000)) : null }}
       />
 
       {/* Prompt L, 1.4-A — cadeia de saldo com inicial e final, em conta e conciliado. */}
@@ -316,40 +341,18 @@ export default async function CaixaPage({
         ))}
       </div>
 
-      {tab === "lancamentos" && (
-        <Lancamentos cash={cash} contas={contas} projectId={project.id} />
-      )}
       {tab === "conciliacao" && (
         <Conciliacao
           cash={cash}
           conciliados={conciliados}
           conciliacaoData={conciliacaoData}
           canDesfazer={canDesfazerConc}
+          projectId={project.id}
         />
       )}
-      {tab === "previstas" && <Previstas tenantId={version.tenantId} versionId={version.id} projectId={project.id} />}
-    </>
-  );
-}
-
-function Lancamentos({
-  cash,
-  contas,
-  projectId,
-}: {
-  cash: Awaited<ReturnType<typeof getCash>>;
-  contas: Awaited<ReturnType<typeof getBankAccounts>>;
-  /** obra da tela: os lançamentos vão para a versão de trabalho dela. */
-  projectId: string;
-}) {
-  return (
-    <>
-      {/* Importar extrato subiu para o topo da tela (Prompt L, 1.0.3). */}
-      <CaixaEntryForm
-        contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))}
-        projectId={projectId}
-      />
-      <CashTable cash={cash} withToggle={false} />
+      {tab === "ajustes" && (
+        <AjustesCaixa ajustes={ajustesLinhas} contas={contas.map((c) => ({ id: c.id, banco: c.banco, cc: c.cc }))} contaFiltro={contaFiltro} projectId={project.id} canAjustar={can(ctx.perms, "conciliacao", "criar")} de={de} ate={ate} />
+      )}
     </>
   );
 }
@@ -359,11 +362,13 @@ function Conciliacao({
   conciliados,
   conciliacaoData,
   canDesfazer,
+  projectId,
 }: {
   cash: Awaited<ReturnType<typeof getCash>>;
   conciliados: number;
   conciliacaoData: ConciliacaoData;
   canDesfazer: boolean;
+  projectId: string;
 }) {
   return (
     <>
@@ -381,6 +386,7 @@ function Conciliacao({
         pendentesEntrada={conciliacaoData.pendentesEntrada}
         conciliados={conciliacaoData.conciliados}
         canDesfazer={canDesfazer}
+        projectId={projectId}
       />
 
       <div className="mt-6">
@@ -390,79 +396,6 @@ function Conciliacao({
         <CashTable cash={cash} withToggle />
       </div>
     </>
-  );
-}
-
-async function Previstas({
-  tenantId,
-  versionId,
-  projectId,
-}: {
-  tenantId: string;
-  versionId: string;
-  projectId: string;
-}) {
-  const [unitRows, reembRows, incc, permutas] = await Promise.all([
-    getUnits(tenantId, versionId),
-    getReembolsos(tenantId, versionId),
-    getInccRows(tenantId, projectId),
-    getPermutas(tenantId, versionId),
-  ]);
-  const monthly: MonthlyProjection = {};
-  for (const r of unitRows) {
-    const p = calcProjection(toCalcUnit(r), incc);
-    for (const [mm, v] of Object.entries(p)) monthly[mm] = (monthly[mm] || 0) + v;
-  }
-  const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  const permCash = permutaCashByMonth(permToResale(permutas));
-  const all = new Set([
-    ...Object.keys(monthly),
-    ...Object.keys(reemb),
-    ...Object.keys(permCash),
-  ]);
-  const now = new Date();
-  const cur = now.getFullYear() * 12 + now.getMonth();
-  const rows = [...all]
-    .map((mm) => {
-      const [m, y] = mm.split("/").map(Number);
-      return {
-        mm,
-        ord: y * 12 + (m - 1),
-        total: (monthly[mm] || 0) + (reemb[mm] || 0) + (permCash[mm] || 0),
-      };
-    })
-    .filter((r) => r.total > 0 && r.ord >= cur)
-    .sort((a, b) => a.ord - b.ord)
-    .slice(0, 12);
-
-  return (
-    <Table>
-      <THead>
-        <tr>
-          <TH>Mês</TH>
-          <TH className="text-right">Entradas previstas</TH>
-        </tr>
-      </THead>
-      <tbody>
-        {rows.map((r) => (
-          <TR key={r.mm}>
-            <TD className="font-[family-name:var(--font-mono)] font-medium text-[var(--color-ink)]">
-              {r.mm}
-            </TD>
-            <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">
-              {brl0(r.total)}
-            </TD>
-          </TR>
-        ))}
-        {rows.length === 0 && (
-          <TR>
-            <TD colSpan={2} className="py-6 text-center text-[var(--color-ink3)]">
-              Sem entradas previstas a partir deste mês.
-            </TD>
-          </TR>
-        )}
-      </tbody>
-    </Table>
   );
 }
 

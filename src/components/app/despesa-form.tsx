@@ -133,6 +133,8 @@ export interface PrefillDespesa {
   cartaoId?: string | null;
   cartaoDataCompra?: string | null;
   obs?: string | null;
+  /** Prompt L, 3-A.2 — movimento do extrato que originou o lançamento: fica reservado e é conciliado ao gravar. */
+  cashEntryId?: string | null;
   /** vencimento "MM/DD/YYYY". */
   vencimento?: string | null;
   /** competência "MM/YYYY". */
@@ -672,6 +674,8 @@ export function DespesaForm({
     // A grade completa vai para o servidor: cada parcela leva sua forma, seu
     // cheque, seu banco e seu status (item 2.1/2.5).
     if (parcelas.length > 0 && !noCartao) fd.set("parcelasJson", JSON.stringify(parcelas));
+    // Prompt L, 3-A.2 — veio do extrato: o movimento é conciliado com este lançamento ao gravar.
+    if (!isEdit && prefill?.cashEntryId) fd.set("cashEntryId", prefill.cashEntryId);
     // Prompt U — compra no cartão: o servidor calcula as faturas pelo ciclo.
     if (noCartao) {
       fd.set("cartaoId", cartaoId);
@@ -778,6 +782,12 @@ export function DespesaForm({
         {isEdit && parcelaDeOrigem && (
           <p role="status" className="rounded-[8px] border border-[var(--color-warning)]/40 bg-[#fef3c7]/60 px-3 py-2 text-[12.5px] text-[#92400e]">
             Você veio da <strong>parcela {parcelaDeOrigem}</strong> em Contas a Pagar. Este formulário edita o <strong>cabeçalho</strong> da despesa (valor total, datas e campos comuns), não a parcela isolada.
+          </p>
+        )}
+        {/* Prompt L, 3-A.2 — lançamento encaminhado do extrato. */}
+        {!isEdit && prefill?.cashEntryId && (
+          <p role="status" className="rounded-[8px] border border-[var(--color-accent2)]/30 bg-[var(--color-accent4)] px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+            Veio do extrato: data, valor e histórico já vieram preenchidos. Complete a competência, a categoria e o documento fiscal; ao lançar, o movimento do extrato é conciliado com esta despesa.
           </p>
         )}
         {/* Prompt U — compra no cartão: valor, vencimento, forma e status seguem a fatura. */}
