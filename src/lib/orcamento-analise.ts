@@ -53,6 +53,16 @@ export function revisarOrcamento(data: BudgetPlanningData): Apontamento[] {
     const legadas = data.receitas.filter((r) => !r.fromChart && !r.fixa);
     out.push({ nivel: "info", texto: `O total de receitas (${brl0(totalReceitas)}) difere do valor do cadastro (${brl0(doCadastro)})${legadas.length ? ` — ${legadas.length} linha(s) legada(s) somam ${brl0(legadas.reduce((a, r) => a + r.total, 0))}` : ""}. Nenhum valor é alterado por isso.` });
   }
+  // Prompt F, 8: total herdado × total atual do Orçamento de origem, por conta
+  if (data.totaisDaOrigem) {
+    for (const [bloco, rows] of [["receita", data.receitas], ["despesa", data.despesas]] as const) {
+      for (const r of rows) {
+        if (r.fixa) continue;
+        const hoje = data.totaisDaOrigem[bloco][r.rowKey];
+        if (hoje != null && Math.abs(hoje - r.total) > 0.005) out.push({ nivel: "info", texto: `“${r.label}”: a previsão herdou ${brl0(r.total)} e o Orçamento hoje tem ${brl0(hoje)}. Nada é recalculado; se quiser o valor novo, crie uma revisão a partir do Orçamento.` });
+      }
+    }
+  }
   // despesas vazias com receita lançada
   const totalDespesas = data.despesas.reduce((a, r) => a + r.total, 0);
   if (totalReceitas > 0 && totalDespesas <= 0.005) out.push({ nivel: "atencao", texto: "Há receita lançada e nenhuma despesa: o card “Resultado” mostra receita sem custo, que não é margem." });
