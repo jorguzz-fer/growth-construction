@@ -11,13 +11,19 @@ import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-ab
 import { getInccRows, getVersionsDoProjeto } from "@/lib/queries";
 import { calendarYearWindows } from "@/lib/planning";
 import { aggregateInputs, emptyInputs, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
-import { versionInputsByMonth } from "@/lib/dre-inputs";
+import { foraDaCascataDaVersao, versionInputsByMonth } from "@/lib/dre-inputs";
 import {
   ROTULO_CENARIO,
   TETO_CELULAS_MENSAL,
   TETO_VERSOES,
   cenariosDaUrl,
+  eixoDeMeses,
   ehCopia,
+  frasesDoRodape,
+  janelaDoProjeto,
+  linhaTemLancamento,
+  somarForaDaCascata,
+  type ForaDaCascata,
   ordenarMeses,
   pctDaReceita,
   resolverCenario,
@@ -28,6 +34,8 @@ import {
   textoDaCobertura,
 } from "@/lib/dre";
 import { brl0, pct1 } from "@/lib/utils";
+import Link from "next/link";
+import { NO_COMP } from "@/lib/calc/dre-cascata";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { DreControls } from "@/components/app/dre-controls";
@@ -46,6 +54,8 @@ interface Serie {
   color?: string;
   /** Inputs por mês de cada projeto que compõe a série (1 na visão de projeto). */
   porProjeto: Record<string, Inputs>[];
+  /** Ids das versões que compõem a série (para o rodapé, Parte 4). */
+  versoes: string[];
 }
 
 /** Soma os meses de várias séries de projeto num mapa só. */
@@ -111,17 +121,6 @@ export default async function DREPage({
     escopo.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, escopo.projeto.id) : null;
   const versoesDaObra = daObra?.versions ?? [];
 
-  // Eixo a partir da tabela INCC dos projetos selecionados (Parte 7 muda isso).
-  const inccAll = await Promise.all(selectedProjects.map((p) => getInccRows(p.tenantId, p.id)));
-  const axis = ordenarMeses(new Set(inccAll.flat().map((r) => r.m)));
-  // Recortes por ano-calendário: 2025, 2026, … até o ano atual + 5.
-  const years = calendarYearWindows(axis, new Date().getFullYear());
-  const periodo = sp.periodo ?? "acum";
-  const customDe = (sp.de ?? "").trim();
-  const customAte = (sp.ate ?? "").trim();
-  // 1.6 — o período é UM SÓ para todas as colunas.
-  const { periodMonths, label: periodLabel } = resolverPeriodo(periodo, customDe, customAte, axis, years);
-
   const scopeLabel =
     escopo.tipo === "projeto"
       ? escopo.projeto.name
@@ -146,7 +145,7 @@ export default async function DREPage({
     );
     selecionadas.forEach((v, i) => {
       const r = rotuloDaColuna(v);
-      series.push({ key: v.id, titulo: r.titulo, complemento: r.complemento, color: v.color, porProjeto: [porVersao[i]] });
+      series.push({ key: v.id, titulo: r.titulo, complemento: r.complemento, color: v.color, porProjeto: [porVersao[i]], versoes: [v.id] });
     });
   } else {
     // 1.2 — Empresa toda compara CENÁRIOS: para cada cenário e cada projeto,
@@ -160,12 +159,30 @@ export default async function DREPage({
       const res = resolverCenario(c, projetos, true);
       const texto = textoDaCobertura(c, res);
       if (texto) cobertura.push(texto);
+      const usadas = res.filter((r) => r.versao);
       const porProjeto = await Promise.all(
-        res.filter((r) => r.versao).map((r) => versionInputsByMonth(ctx.tenant.id, r.versao!.id, r.projetoId)),
+        usadas.map((r) => versionInputsByMonth(ctx.tenant.id, r.versao!.id, r.projetoId)),
       );
-      series.push({ key: c, titulo: ROTULO_CENARIO[c], porProjeto });
+      series.push({ key: c, titulo: ROTULO_CENARIO[c], porProjeto, versoes: usadas.map((r) => r.versao!.id) });
     }
   }
+
+  // Parte 7 — o eixo mostrado vem da JANELA dos projetos (start/end, Prompt I
+  // 55) unida às competências com lançamento; a tabela INCC deixa de
+  // governar. O eixo INCC só continua servindo ao período personalizado com
+  // limite aberto, para esse total não mudar (a regra nova vai na chave, AC-3).
+  const inccAll = await Promise.all(selectedProjects.map((p) => getInccRows(p.tenantId, p.id)));
+  const axisIncc = ordenarMeses(new Set(inccAll.flat().map((r) => r.m)));
+  const comLancamento = new Set(series.flatMap((x) => x.porProjeto.flatMap((bm) => Object.keys(bm))).filter((m) => m !== NO_COMP));
+  const axis = eixoDeMeses(selectedProjects.map(janelaDoProjeto), comLancamento);
+  // Recortes por ano-calendário: 2025, 2026, … até o ano atual + 5.
+  const years = calendarYearWindows(ordenarMeses(new Set([...axis, ...axisIncc])), new Date().getFullYear());
+  const periodo = sp.periodo ?? "acum";
+  const customDe = (sp.de ?? "").trim();
+  const customAte = (sp.ate ?? "").trim();
+  // 1.6 — o período é UM SÓ para todas as colunas.
+  const { periodMonths, label: periodLabel } = resolverPeriodo(periodo, customDe, customAte, axisIncc, years);
+
 
   const multi = series.length > 1;
   const nomesDasColunas = series.map((s) => s.titulo).join(", ");
@@ -181,6 +198,15 @@ export default async function DREPage({
   const porMesDaSerie = new Map(series.map((s) => [s.key, somarPorMes(s.porProjeto)]));
   const mesDe = (s: Serie, mm: string) => waterfall([porMesDaSerie.get(s.key)![mm] ?? emptyInputs()]);
   const totais = series.map(totalDe);
+  const agregados = series.map((s) => s.porProjeto.map((bm) => aggregateInputs(bm, periodMonths)));
+  // Parte 4/5 — o que fica fora da cascata, por coluna (só conta).
+  const foraPorVersao = new Map<string, ForaDaCascata>();
+  await Promise.all(
+    [...new Set(series.flatMap((x) => x.versoes))].map(async (id) => foraPorVersao.set(id, await foraDaCascataDaVersao(id))),
+  );
+  const rodape = series
+    .map((x) => ({ titulo: x.titulo, frases: frasesDoRodape(somarForaDaCascata(x.versoes.map((id) => foraPorVersao.get(id)!)), periodMonths == null, brl0) }))
+    .filter((x) => x.frases.length > 0);
   const linhas = (totais[0] ?? waterfall([emptyInputs()])).rows;
 
   const semVersao = escopo.tipo === "projeto" && versoesDaObra.length === 0;
@@ -334,16 +360,19 @@ export default async function DREPage({
               <tbody>
                 {linhas.map((lbl, ri) => {
                   const isSub = lbl.kind !== "item";
-                  const cel = (v: number, key: string, extra = "") => (
+                  const cel = (v: number, key: string, extra = "", presente = true) => (
                     <td
+                      title={presente ? undefined : "Sem nenhum lançamento nesta linha"}
                       key={key}
                       className={`whitespace-nowrap px-2 py-2 text-right font-[family-name:var(--font-mono)] ${extra} ${isSub ? "font-semibold" : ""} ${
                         v < 0 ? "text-[var(--color-danger)]" : lbl.kind === "final" || lbl.kind === "sub" ? "text-[var(--color-success)]" : "text-[var(--color-ink)]"
                       }`}
                     >
-                      {brl0(v)}
+                      {presente ? brl0(v) : <span className="text-[var(--color-ink4)]">—</span>}
                     </td>
                   );
+                  const temNoMes = (x: Serie, mm: string) => linhaTemLancamento(lbl.label, [porMesDaSerie.get(x.key)![mm]].filter(Boolean));
+                  const temNoTotal = (i: number) => linhaTemLancamento(lbl.label, agregados[i]);
                   return (
                     <tr key={lbl.label} className={`border-b border-[var(--color-line)] ${isSub ? "bg-[var(--color-surface2)]" : ""}`}>
                       <td
@@ -354,14 +383,14 @@ export default async function DREPage({
                         {lbl.label}
                       </td>
                       {monthly && multi && !mensalAcimaDoTeto
-                        ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : ""))),
-                           ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : ""))]
+                        ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoMes(s, mm)))),
+                           ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoTotal(i)))]
                         : monthly && !multi
-                          ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm)), cel(totais[0].rows[ri].value, "tot")]
+                          ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm, "", temNoMes(series[0], mm))), cel(totais[0].rows[ri].value, "tot", "", temNoTotal(0))]
                           : series.flatMap((s, i) => {
                               const p = pctDaReceita(totais[i].rows[ri].value, totais[i].R);
                               return [
-                                cel(totais[i].rows[ri].value, s.key),
+                                cel(totais[i].rows[ri].value, s.key, "", temNoTotal(i)),
                                 <td key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
                                   {p == null ? "—" : pct1(p)}
                                 </td>,
@@ -373,6 +402,33 @@ export default async function DREPage({
               </tbody>
             </table>
           </div>
+          {monthly && meses.length === 0 && (
+            <p className="mt-2 text-[12px] text-[var(--color-warning)]">
+              Sem datas de início e fim no cadastro do projeto e sem lançamento com competência: não há meses para mostrar. Informe as datas em Projetos.
+            </p>
+          )}
+          {/* Partes 4 e 5 — o que não entra na cascata, fora dela (nunca somado em outra linha). */}
+          {rodape.length > 0 && (
+            <div className="mt-3 rounded-[8px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/5 px-3 py-2 text-[12px] text-[var(--color-ink2)]" data-rodape>
+              {rodape.map((r) => (
+                <div key={r.titulo}>
+                  {rodape.length > 1 || multi ? <strong className="text-[var(--color-ink)]">{r.titulo}: </strong> : null}
+                  {r.frases.join(" ")}
+                </div>
+              ))}
+              <Link href="/conferencia" className="mt-1 inline-block text-[var(--color-accent2)] hover:underline">
+                Ver os lançamentos na Conferência →
+              </Link>
+            </div>
+          )}
+          {/* 3.2 e 6.2 — a tela declara o regime de cada bloco e o que a cascata inclui. */}
+          <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--color-ink3)]" data-regime>
+            Regime de cada bloco: despesas por <strong>competência</strong>; receita da venda e contas a receber pelo{" "}
+            <strong>vencimento</strong> das parcelas; liberações de obra e permutas pela data de <strong>liquidação</strong>;
+            encargos financeiros (multa, juros) pela data de <strong>pagamento</strong>. Retiradas, Investimentos e Empréstimos
+            estão incluídos na cascata, como hoje — a classificação contábil dessas três linhas aguarda decisão.
+            “—” numa célula: a linha não teve nenhum lançamento; “R$ 0” é soma que deu zero.
+          </p>
           {!monthly && totais.some((t) => t.R <= 0) && (
             <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
               “—” em % Receita: a coluna não tem receita positiva para servir de base.

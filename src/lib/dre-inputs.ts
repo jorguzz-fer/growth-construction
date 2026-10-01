@@ -11,6 +11,7 @@ import { getBudgetLines, getExpenseRows, getMonthlyRevenue, getPermutas, permToR
 import { permutaRevenueByMonth } from "@/lib/calc";
 import { getEncargosByVersion } from "@/lib/actions/pagamentos";
 import { aggregateInputs, emptyInputs, NO_COMP, type Inputs } from "@/lib/calc/dre-cascata";
+import { resumirForaDaCascata, type ForaDaCascata } from "@/lib/dre";
 
 export async function defaultVersionId(projectId: string): Promise<string | null> {
   return versionIdOfKind(projectId, "atual");
@@ -67,6 +68,10 @@ export async function versionInputsByMonth(
     const b = bucket(d.competencia);
     b.byCat[d.categoriaDre] = (b.byCat[d.categoriaDre] || 0) + Number(d.valor);
     // Receita/Custo Variável lançados como despesa entram na linha própria.
+    // Prompt AC, 5.3: `byCat["Receita"]` e `byCat["Custo Variável"]` NÃO são
+    // somados pela cascata (ela usa `receita` e `custoVar`); servem só para a
+    // tela saber que a linha teve lançamento (Parte 9). Quem passar a ler
+    // `cat("Custo Variável")` na cascata DUPLICA o custo.
     if (d.categoriaDre === "Receita") b.receita += Number(d.valor);
     if (d.categoriaDre === "Custo Variável") b.custoVar += Number(d.valor);
   }
@@ -146,4 +151,14 @@ export async function getOrcadoRealizado(tenantId: string, projectId: string): P
     versaoBudgetId: budget?.id ?? null,
     versaoAtualId: atual?.id ?? null,
   };
+}
+
+/**
+ * Prompt AC, Partes 4 e 5 — o que a DRE desta versão NÃO soma na cascata: sem
+ * categoria, categoria fora da lista, e (só no Acumulado) sem competência.
+ * Lê as MESMAS linhas que `versionInputsByMonth` (`getExpenseRows`) e só
+ * conta: não muda nenhum número.
+ */
+export async function foraDaCascataDaVersao(vid: string): Promise<ForaDaCascata> {
+  return resumirForaDaCascata(await getExpenseRows(vid));
 }

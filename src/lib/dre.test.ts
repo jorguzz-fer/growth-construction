@@ -93,3 +93,50 @@ describe("Prompt AC · Parte 1 — comparação", () => {
     expect(pctDaReceita(50, -10)).toBeNull();
   });
 });
+
+import { CHAVE_DA_LINHA, eixoDeMeses, frasesDoRodape, janelaDoProjeto, linhaTemLancamento, resumirForaDaCascata, somarForaDaCascata } from "./dre";
+import { emptyInputs, waterfall } from "./calc/dre-cascata";
+import { brl0 } from "./utils";
+
+describe("Prompt AC · Partes 4, 5, 7 e 9", () => {
+  const rows = [
+    { categoriaDre: null, competencia: "01/2026", valor: 100 },
+    { categoriaDre: null, competencia: null, valor: 50 },
+    { categoriaDre: "Custo Fixo", competencia: null, valor: 30 },
+    { categoriaDre: "Custo Fixo", competencia: " ", valor: 20 },
+    { categoriaDre: "Custo variavel", competencia: "01/2026", valor: 7 },
+    { categoriaDre: "Despesa Fixa", competencia: "01/2026", valor: 999 },
+  ];
+
+  it("13/14/15 — sem categoria, sem competência e fora da lista: contados, com a grafia", () => {
+    const f = resumirForaDaCascata(rows);
+    expect(f.semCategoria).toEqual({ qtd: 2, valor: 150 });
+    expect(f.semCompetencia).toEqual({ qtd: 2, valor: 50 });
+    expect(f.foraDaLista).toEqual([{ categoria: "Custo variavel", qtd: 1, valor: 7 }]);
+    const ac = frasesDoRodape(f, true, brl0);
+    expect(ac[0]).toMatch(/em 2 lançamento\(s\) sem categoria não entram/);
+    expect(ac[1]).toMatch(/estão somados neste Acumulado/);
+    expect(ac[2]).toMatch(/“Custo variavel”, fora da lista/);
+    expect(frasesDoRodape(f, false, brl0)[1]).toMatch(/não estão nesta visão: só entram no Acumulado/);
+    expect(somarForaDaCascata([f, f]).semCategoria).toEqual({ qtd: 4, valor: 300 });
+    expect(frasesDoRodape(resumirForaDaCascata([rows[5]]), true, brl0)).toEqual([]);
+  });
+
+  it("18/19 — eixo pela janela do projeto unida às competências com lançamento; sem datas, nunca inventado", () => {
+    expect(janelaDoProjeto({ startDate: "11/15/2025", endDate: "02/01/2026" })).toEqual(["11/2025", "12/2025", "01/2026", "02/2026"]);
+    expect(janelaDoProjeto({ startDate: null, endDate: "02/01/2026" })).toBeNull();
+    expect(eixoDeMeses([["12/2025", "01/2026"], null], ["05/2026", " ", "01/2026"])).toEqual(["12/2025", "01/2026", "05/2026"]);
+    expect(eixoDeMeses([null], [])).toEqual([]);
+  });
+
+  it("5.2/20 — toda linha de item da cascata tem chave; sem lançamento ≠ zero calculado", () => {
+    const labels = waterfall([emptyInputs()]).rows.filter((r) => r.kind === "item").map((r) => r.label);
+    for (const l of labels) expect(CHAVE_DA_LINHA, l).toHaveProperty([l]);
+    expect(CHAVE_DA_LINHA["(−) Investimentos"]).toBe("Investimento");
+    const vazio = emptyInputs();
+    expect(linhaTemLancamento("(−) Custo Fixo", [vazio])).toBe(false);
+    expect(linhaTemLancamento("(−) Custo Fixo", [{ ...vazio, byCat: { "Custo Fixo": 0 } }])).toBe(true);
+    expect(linhaTemLancamento("Receita", [{ ...vazio, receita: 10 }])).toBe(true);
+    expect(linhaTemLancamento("= EBITDA", [vazio])).toBe(true);
+  });
+});
