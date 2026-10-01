@@ -1976,6 +1976,106 @@ export async function getDespesasCandidatasAFolha(tenantId: string): Promise<{ i
   return rows.map((r) => ({ id: r.id, numDoc: r.numDoc, competencia: r.competencia, valor: Number(r.valor), texto: [r.obs, r.fornecedor, r.categoria].filter(Boolean).join(" · ") }));
 }
 
+/* ───────────── Prompt Z — Equipes ───────────── */
+
+export interface MembroDaEquipe {
+  id: string;
+  projectId: string;
+  origem: "autonomo" | "clt" | "socio";
+  stakeholderId: string | null;
+  funcionarioId: string | null;
+  nome: string;
+  funcaoId: string | null;
+  funcaoNome: string | null;
+  valorDiaria: number | null;
+  entrada: string | null;
+  saida: string | null;
+  situacao: string;
+  obs: string | null;
+}
+/** 3.2 — a equipe da obra, referenciando o cadastro de origem (nome vem do cadastro, nunca copiado). */
+export async function getEquipeDoProjeto(tenantId: string, projectId: string): Promise<MembroDaEquipe[]> {
+  const { origemDoStakeholder } = await import("@/lib/equipe-regras");
+  const rows = await db
+    .select({ e: schema.equipesProjeto, sNome: schema.stakeholders.nome, sPapeis: schema.stakeholders.papeis, fNome: schema.funcionarios.nome, funcaoNome: schema.funcoesEquipe.nome })
+    .from(schema.equipesProjeto)
+    .leftJoin(schema.stakeholders, eq(schema.equipesProjeto.stakeholderId, schema.stakeholders.id))
+    .leftJoin(schema.funcionarios, eq(schema.equipesProjeto.funcionarioId, schema.funcionarios.id))
+    .leftJoin(schema.funcoesEquipe, eq(schema.equipesProjeto.funcaoId, schema.funcoesEquipe.id))
+    .where(and(eq(schema.equipesProjeto.tenantId, tenantId), eq(schema.equipesProjeto.projectId, projectId)));
+  const lista: MembroDaEquipe[] = rows.map((r) => ({
+    id: r.e.id,
+    projectId: r.e.projectId,
+    origem: r.e.funcionarioId ? "clt" : (origemDoStakeholder(r.sPapeis ?? []) ?? "autonomo"),
+    stakeholderId: r.e.stakeholderId,
+    funcionarioId: r.e.funcionarioId,
+    nome: r.fNome ?? r.sNome ?? "—",
+    funcaoId: r.e.funcaoId,
+    funcaoNome: r.funcaoNome,
+    valorDiaria: r.e.valorDiaria == null ? null : Number(r.e.valorDiaria),
+    entrada: r.e.entrada,
+    saida: r.e.saida,
+    situacao: r.e.situacao,
+    obs: r.e.obs,
+  }));
+  // ativas primeiro, depois por nome (o nome vem de dois cadastros diferentes)
+  return lista.sort((a, b) => (a.situacao === b.situacao ? a.nome.localeCompare(b.nome) : a.situacao === "ativa" ? -1 : 1));
+}
+
+export interface Alocavel {
+  id: string;
+  nome: string;
+  origem: "autonomo" | "clt" | "socio";
+  detalhe: string | null;
+}
+/** 3.3 — quem pode ser alocado: autônomos e sócios (stakeholder ativo com o papel) e CLT ativo (funcionario). O seletor mostra a origem. */
+export async function getAlocaveis(tenantId: string): Promise<Alocavel[]> {
+  const { origemDoStakeholder } = await import("@/lib/equipe-regras");
+  const [sts, fs] = await Promise.all([
+    db.select({ id: schema.stakeholders.id, nome: schema.stakeholders.nome, papeis: schema.stakeholders.papeis, tipo: schema.stakeholders.tipo }).from(schema.stakeholders).where(and(eq(schema.stakeholders.tenantId, tenantId), eq(schema.stakeholders.ativo, true))),
+    db.select({ id: schema.funcionarios.id, nome: schema.funcionarios.nome, cargo: schema.funcionarios.cargo }).from(schema.funcionarios).where(and(eq(schema.funcionarios.tenantId, tenantId), isNull(schema.funcionarios.desligamento))),
+  ]);
+  const out: Alocavel[] = [];
+  for (const s of sts) {
+    const origem = origemDoStakeholder(s.papeis ?? []);
+    if (origem) out.push({ id: s.id, nome: s.nome, origem, detalhe: `${s.tipo} · ${(s.papeis ?? []).join(", ")}` });
+  }
+  for (const f of fs) out.push({ id: f.id, nome: f.nome, origem: "clt", detalhe: f.cargo });
+  return out.sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+export interface DiaDaEquipe {
+  id: string;
+  data: string;
+  obs: string | null;
+  documentos: number;
+  diarias: { id: string; equipeProjetoId: string; quantidade: number; valor: number | null; obs: string | null; despesaId: string | null }[];
+}
+/** 3.5 — os dias registrados da obra, com as diárias e a contagem de documentos (por dia, 3.6.5). Período ISO opcional. */
+export async function getDiasDaEquipe(tenantId: string, projectId: string, de?: string | null, ate?: string | null): Promise<DiaDaEquipe[]> {
+  const conds = [eq(schema.equipeDias.tenantId, tenantId), eq(schema.equipeDias.projectId, projectId)];
+  if (de) conds.push(gte(chaveDataBR(schema.equipeDias.data), de.replace(/-/g, "")));
+  if (ate) conds.push(lte(chaveDataBR(schema.equipeDias.data), ate.replace(/-/g, "")));
+  const dias = await db
+    .select({ d: schema.equipeDias, documentos: sql<number>`(select count(*)::int from document x where x.equipe_dia_id = ${schema.equipeDias.id})` })
+    .from(schema.equipeDias)
+    .where(and(...conds))
+    .orderBy(desc(chaveDataBR(schema.equipeDias.data)));
+  if (dias.length === 0) return [];
+  const diarias = await db.select().from(schema.diarias).where(inArray(schema.diarias.equipeDiaId, dias.map((x) => x.d.id)));
+  return dias.map((x) => ({
+    id: x.d.id,
+    data: x.d.data,
+    obs: x.d.obs,
+    documentos: x.documentos,
+    diarias: diarias.filter((r) => r.equipeDiaId === x.d.id).map((r) => ({ id: r.id, equipeProjetoId: r.equipeProjetoId, quantidade: Number(r.quantidade), valor: r.valor == null ? null : Number(r.valor), obs: r.obs, despesaId: r.despesaId })),
+  }));
+}
+export async function getDocumentsByEquipeDias(tenantId: string, ids: readonly string[]): Promise<DocumentRow[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.equipeDiaId, [...ids]))).orderBy(desc(schema.documents.uploadedAt));
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */

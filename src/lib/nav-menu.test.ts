@@ -64,6 +64,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/chaves": "chaves", // V2-BLOQUEIOS B4
   "/cartoes": "cartoes", // Prompt U, seção 1
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
+  "/equipes": "equipes", // Prompt Z, Parte 3
 };
 const ESPERADO = { ...MENU_ANTIGO, ...TELAS_NOVAS };
 

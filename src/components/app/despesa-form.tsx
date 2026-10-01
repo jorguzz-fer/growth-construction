@@ -135,6 +135,9 @@ export interface PrefillDespesa {
   obs?: string | null;
   /** Prompt L, 3-A.2 — movimento do extrato que originou o lançamento: fica reservado e é conciliado ao gravar. */
   cashEntryId?: string | null;
+  /** Prompt Z, BZ-1 — proposta vinda de Equipes: fornecedor (autônomo) e as diárias que passam a apontar para a despesa. */
+  fornecedorId?: string | null;
+  diariasIds?: string | null;
   /** vencimento "MM/DD/YYYY". */
   vencimento?: string | null;
   /** competência "MM/YYYY". */
@@ -189,7 +192,7 @@ export function DespesaForm({
   const [erroLeitura, setErroLeitura] = useState<string | null>(null);
 
   const [projeto, setProjeto] = useState(edit?.projectId ?? projetoId);
-  const [fornecedorId, setFornecedorId] = useState(edit?.fornecedorId ?? "");
+  const [fornecedorId, setFornecedorId] = useState(edit?.fornecedorId ?? prefill?.fornecedorId ?? "");
   const [contaCef, setContaCef] = useState(edit?.contaCef ?? "");
   // Item 1.3 — o default era `categorias[0]`, e a primeira categoria da lista é
   // "Receita": toda despesa nova nascia classificada como receita, inflando
@@ -676,6 +679,7 @@ export function DespesaForm({
     if (parcelas.length > 0 && !noCartao) fd.set("parcelasJson", JSON.stringify(parcelas));
     // Prompt L, 3-A.2 — veio do extrato: o movimento é conciliado com este lançamento ao gravar.
     if (!isEdit && prefill?.cashEntryId) fd.set("cashEntryId", prefill.cashEntryId);
+    if (!isEdit && prefill?.diariasIds) fd.set("diariasIds", prefill.diariasIds);
     // Prompt U — compra no cartão: o servidor calcula as faturas pelo ciclo.
     if (noCartao) {
       fd.set("cartaoId", cartaoId);
