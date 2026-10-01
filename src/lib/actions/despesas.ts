@@ -362,7 +362,9 @@ async function lancarDespesa(
         action: "despesa.create",
         entity: "despesa",
         entityId: row.id,
-        meta: { valor: row.valor, contaCef: row.contaCef },
+        // Prompt S, 8.2 — origem do lançamento: assistente (leitura por IA,
+        // conferida pelo usuário) ou manual.
+        meta: { valor: row.valor, contaCef: row.contaCef, origem: formData.get("origemIa") === "1" ? "assistente" : "manual" },
       },
       tx,
     );

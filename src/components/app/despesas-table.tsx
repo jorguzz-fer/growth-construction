@@ -45,6 +45,8 @@ export interface DespesaDTO {
   anexoCount?: number;
   /** Sem documento fiscal registrado (item 1.2) — pendência, não impedimento. */
   semNf?: boolean;
+  /** Prompt S, 4.1 — o que falta no documento fiscal (texto do selo). */
+  pendenciaNf?: string | null;
 }
 
 /** §16 — status exibido pela mesma função de Contas a Pagar ("Vencida" derivada da data). */
@@ -321,7 +323,8 @@ function Row({
               href={d.anexoUrl}
               target="_blank"
               rel="noopener"
-              title={`Abrir anexo${(d.anexoCount ?? 0) > 1 ? ` (${d.anexoCount} arquivos)` : ""}`}
+              // 4.3 — o clipe é o ARQUIVO anexado; a nota (registro fiscal) é o selo ao lado.
+              title={`Abrir anexo${(d.anexoCount ?? 0) > 1 ? ` (${d.anexoCount} arquivos)` : ""} — arquivo anexado; não é o registro da nota fiscal`}
               className="text-[13px] text-[var(--color-accent2)] hover:opacity-70"
               onClick={(e) => e.stopPropagation()}
             >
@@ -332,10 +335,13 @@ function Row({
               visível, sem impedir nada. */}
           {d.semNf && (
             <span
-              title="Pendente de documento fiscal — a nota ainda não foi informada"
+              // 4.2 / 4.3 — o selo é da NOTA (registro fiscal); o clipe ao lado é
+              // do ARQUIVO. O título diz o que falta, não só que falta.
+              title={d.pendenciaNf ?? "Pendente de documento fiscal — a nota ainda não foi informada"}
               className="text-[11px] text-[var(--color-warning)]"
             >
               ⚠ Sem NF
+              {d.pendenciaNf && <span className="ml-1 text-[10px] text-[var(--color-ink3)]">· {d.pendenciaNf.split(":")[0]}</span>}
             </span>
           )}
         </span>

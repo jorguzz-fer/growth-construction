@@ -131,3 +131,19 @@ export function pendenteDeDocumento(
   // Basta um documento com número — ou uma declaração explícita de que não há.
   return !docs.some((d) => d.tipo === "SEM_DOC" || (exigeNumero(d.tipo) && !!d.numero?.trim()));
 }
+
+/**
+ * Prompt S, 4.1 — o selo "Sem NF" cobria quatro situações com o mesmo texto.
+ * Esta função diz QUAL é: nenhum registro; tipo escolhido sem número; tipo
+ * que não exige número e não é a declaração "sem documento"; tipo inválido.
+ * `null` quando não há pendência. Mesma base de `pendenteDeDocumento`.
+ */
+export function pendenciaFiscal(docs: { tipo: string | null; numero: string | null }[]): string | null {
+  if (!pendenteDeDocumento(docs)) return null;
+  if (docs.length === 0) return "Nenhum documento fiscal registrado: informe a nota ou declare \"sem documento\".";
+  const invalido = docs.find((d) => !ehTipoDocumento(d.tipo));
+  if (invalido) return `Tipo de documento inválido: "${invalido.tipo ?? "vazio"}". Escolha um tipo da lista.`;
+  const semNumero = docs.find((d) => exigeNumero(d.tipo) && !d.numero?.trim());
+  if (semNumero) return `${rotuloTipoDocumento(semNumero.tipo)} escolhido, sem o número: falta informar o número.`;
+  return `${docs.map((d) => rotuloTipoDocumento(d.tipo)).join(", ")} sem declaração de documento: informe a nota ou declare "sem documento".`;
+}

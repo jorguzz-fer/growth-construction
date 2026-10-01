@@ -147,3 +147,14 @@ describe("pendência de documento fiscal", () => {
     ).toBe(false);
   });
 });
+
+describe("pendenciaFiscal (Prompt S, 4.1) — o selo diz o que falta", () => {
+  it("as quatro situações têm texto próprio; sem pendência devolve null", async () => {
+    const { pendenciaFiscal } = await import("./documento-fiscal");
+    expect(pendenciaFiscal([])).toMatch(/Nenhum documento fiscal registrado/);
+    expect(pendenciaFiscal([{ tipo: "RECIBO", numero: "" }])).toMatch(/Recibo escolhido, sem o número/);
+    expect(pendenciaFiscal([{ tipo: "XPTO", numero: "1" }])).toMatch(/Tipo de documento inválido: "XPTO"/);
+    expect(pendenciaFiscal([{ tipo: "SEM_DOC", numero: null }])).toBeNull();
+    expect(pendenciaFiscal([{ tipo: "NFE", numero: "123" }])).toBeNull();
+  });
+});

@@ -1276,6 +1276,16 @@ export async function getDocuments(tenantId: string): Promise<DocumentRow[]> {
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Prompt S, 7.1 — documentos das despesas em tela (mais recentes primeiro). */
+export async function getDocumentsByDespesaIds(tenantId: string, despesaIds: string[]): Promise<DocumentRow[]> {
+  if (despesaIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.despesaId, despesaIds)))
+    .orderBy(desc(schema.documents.uploadedAt));
+}
+
 /** Documentos anexados a uma despesa específica (mais recentes primeiro). */
 export async function getDocumentsByDespesa(
   tenantId: string,
@@ -2753,17 +2763,16 @@ export async function getRepositorio(tenantId: string): Promise<RepositorioRow[]
       projectId: schema.projects.id,
       projectName: schema.projects.name,
       fornecedorNome: schema.stakeholders.nome,
-      numeroFiscal: schema.documentosFiscais.numero,
+      // Prompt S, 6.1 / BS-3 — o join com documento_fiscal multiplicava a linha
+      // do arquivo quando a despesa tinha mais de uma nota. Uma subconsulta
+      // traz só a mais recente: um arquivo, uma linha.
+      numeroFiscal: sql<string | null>`(select f.numero from documento_fiscal f where f.despesa_id = ${schema.despesas.id} order by f.created_at desc limit 1)`,
     })
     .from(schema.documents)
     .leftJoin(schema.despesas, eq(schema.documents.despesaId, schema.despesas.id))
     .leftJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
     .leftJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
     .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
-    .leftJoin(
-      schema.documentosFiscais,
-      eq(schema.documentosFiscais.despesaId, schema.despesas.id),
-    )
     .where(eq(schema.documents.tenantId, tenantId))
     .orderBy(desc(schema.documents.uploadedAt));
 
