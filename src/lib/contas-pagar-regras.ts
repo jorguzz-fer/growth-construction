@@ -29,3 +29,55 @@ export function totalPendente(contas: readonly ContaComSaldo[]): number {
 export function ehVersaoAtual(kind: string | null | undefined): boolean {
   return kind === "atual";
 }
+
+/**
+ * Prompt R, 1.2 — a tela lista por OBRIGAÇÃO QUE VENCE: despesa sem
+ * parcelamento entra como está; despesa parcelada vira uma linha por parcela,
+ * cada uma com seu número, vencimento, saldo (valor − pago) e cheque (1.3).
+ * Parcela paga entra como "Pago" (mesma ordenação das despesas pagas).
+ * Linhas de obrigação com terceiro não mudam (1.5). Puro.
+ */
+export interface ParcelaParaLinha {
+  despesaId: string;
+  numero: number;
+  vencimento: string | null;
+  valorOriginal: number;
+  valorPago: number;
+  status: string;
+  dataPagamento: string | null;
+  chequeNumero: string | null;
+  bomPara: string | null;
+}
+
+export function linhasPorObrigacao<T extends { id: string; origem?: string; valor: number; saldo?: number; status: string | null; vencimento: string | null; dataPagamento: string | null; descricao: string | null }>(
+  contas: readonly T[],
+  parcelas: readonly ParcelaParaLinha[],
+): (T & { despesaId?: string; parcela?: { numero: number; total: number; chequeNumero: string | null; bomPara: string | null } })[] {
+  const porDespesa = new Map<string, ParcelaParaLinha[]>();
+  for (const p of parcelas) porDespesa.set(p.despesaId, [...(porDespesa.get(p.despesaId) ?? []), p]);
+  const out: (T & { despesaId?: string; parcela?: { numero: number; total: number; chequeNumero: string | null; bomPara: string | null } })[] = [];
+  for (const c of contas) {
+    const ps = c.origem === "obrigacao" ? undefined : porDespesa.get(c.id);
+    if (!ps || ps.length === 0) {
+      out.push(c);
+      continue;
+    }
+    const total = ps.length;
+    for (const p of [...ps].sort((a, b) => a.numero - b.numero)) {
+      const saldo = Math.max(0, Math.round((p.valorOriginal - p.valorPago) * 100) / 100);
+      const paga = p.status === "Pago" || saldo === 0;
+      out.push({
+        ...c,
+        id: `${c.id}#${p.numero}`,
+        despesaId: c.id,
+        parcela: { numero: p.numero, total, chequeNumero: p.chequeNumero, bomPara: p.bomPara },
+        valor: p.valorOriginal,
+        saldo,
+        status: paga ? "Pago" : p.status === "Pago parcialmente" ? "Parcialmente paga" : c.status === "Pago" ? "Pago" : c.status,
+        vencimento: p.vencimento ?? c.vencimento,
+        dataPagamento: p.dataPagamento ?? (paga ? c.dataPagamento : null),
+      });
+    }
+  }
+  return out;
+}

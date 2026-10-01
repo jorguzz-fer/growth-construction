@@ -143,6 +143,7 @@ export function DespesaForm({
   aiConfigured,
   r2Configured,
   canExcluir = false,
+  parcelaDeOrigem = null,
   edit = null,
   prefill = null,
 }: {
@@ -157,6 +158,8 @@ export function DespesaForm({
   r2Configured: boolean;
   /** Habilita cancelar/excluir a despesa a partir da tela de edição. */
   canExcluir?: boolean;
+  /** Prompt R, 1.4 — nº da parcela de que se veio (Contas a Pagar); o formulário edita o cabeçalho. */
+  parcelaDeOrigem?: string | null;
   /** Quando presente, o formulário abre em modo EDIÇÃO da despesa informada. */
   edit?: EditDespesa | null;
   /** Pré-preenchimento de nova despesa (ignorado em modo edição). */
@@ -740,6 +743,13 @@ export function DespesaForm({
               {edit?.projectNome}
             </span>
           </div>
+        )}
+        {/* Prompt R, 1.4 — quem veio de uma parcela em Contas a Pagar precisa
+            saber que aqui se edita o cabeçalho, não a parcela. */}
+        {isEdit && parcelaDeOrigem && (
+          <p role="status" className="rounded-[8px] border border-[var(--color-warning)]/40 bg-[#fef3c7]/60 px-3 py-2 text-[12.5px] text-[#92400e]">
+            Você veio da <strong>parcela {parcelaDeOrigem}</strong> em Contas a Pagar. Este formulário edita o <strong>cabeçalho</strong> da despesa (valor total, datas e campos comuns), não a parcela isolada.
+          </p>
         )}
         {/* Anexos da despesa — permite visualizar/baixar o documento original. */}
         {isEdit && (

@@ -1,6 +1,7 @@
 import { getTenantContext } from "@/lib/context";
 import Link from "next/link";
-import { getContasPagar, getContasPagarEmPlanejamento, type ContaPagarRow } from "@/lib/queries";
+import { getContasPagar, getContasPagarEmPlanejamento, getParcelasContasPagar, type ContaPagarRow } from "@/lib/queries";
+import { linhasPorObrigacao } from "@/lib/contas-pagar-regras";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,8 +24,11 @@ export default async function ContasPagarPage() {
   // §10 — prévia da chave: só quem administra chaves vê as linhas de
   // planejamento que deixam de aparecer quando ela liga.
   const podeVerPrevia = can(ctx.perms, "chaves", "ver");
-  const [despesas, obrigacoes, soAtual, planejamento] = await Promise.all([
+  const [despesas, parcelas, obrigacoes, soAtual, planejamento] = await Promise.all([
     getContasPagar(ctx.tenant.id),
+    // Prompt R, seção 1 — consulta própria da tela: `getContasPagar` não muda
+    // para Dashboard, Fechamento e conciliação.
+    getParcelasContasPagar(ctx.tenant.id),
     podeVerObrigacoes
       ? getObrigacoesTerceiroPendentes(ctx.tenant.id)
       : Promise.resolve([]),
@@ -63,14 +67,17 @@ export default async function ContasPagarPage() {
     obrigacaoId: o.obrigacaoId,
   }));
 
-  const rows: ContaPagarRow[] = [...despesas, ...linhasObrigacao];
+  // Prompt R, 1.2 — despesa parcelada vira uma linha por parcela (nº,
+  // vencimento, saldo, cheque); sem parcelamento, uma linha como hoje (1.5:
+  // as obrigações com terceiro não têm parcela e não mudam).
+  const rows: ContaPagarRow[] = [...linhasPorObrigacao(despesas, parcelas), ...linhasObrigacao];
 
   return (
     <>
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Contas a Pagar"
-        subtitle="Obrigações de todas as obras — filtre por período, fornecedor, cliente, projeto, categoria e status. Clique no cabeçalho para ordenar."
+        subtitle="Uma linha por obrigação que vence: despesa, parcela ou restituição. Filtre por período, fornecedor, cliente, projeto, categoria e status; clique no cabeçalho para ordenar."
       />
       <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} />
       {podeVerPrevia && <PreviaPlanejamento linhas={planejamento} chaveLigada={soAtual} />}

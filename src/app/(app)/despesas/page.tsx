@@ -55,8 +55,7 @@ export default async function DespesasPage({
     pf_valor?: string;
     pf_venc?: string;
     pf_comp?: string;
-    pf_doc?: string;
-  }>;
+    pf_doc?: string; parcela?: string }>;
 }) {
   // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
   // global (Prompt A). Sem obra na URL, a tela pede a escolha.
@@ -349,7 +348,7 @@ export default async function DespesasPage({
       {tab === "lancamentos" && (
         <>
           {editData ? (
-            <DespesaForm key={`edit-${editData.id}`} {...despesaFormProps} edit={editData} />
+            <DespesaForm key={`edit-${editData.id}`} {...despesaFormProps} edit={editData} parcelaDeOrigem={sp.parcela ?? null} />
           ) : (
             canEdit && (
               <DespesaForm
