@@ -70,7 +70,7 @@ export function RestituicaoLote({
 
   const carregarPreview = () => {
     if (!f.terceiroId || !(Number(f.valor) > 0)) {
-      setErro("Escolha o terceiro e informe o valor da restituição.");
+      setErro("Escolha o terceiro e informe o valor do ressarcimento.");
       return;
     }
     setErro(null);
@@ -99,12 +99,12 @@ export function RestituicaoLote({
         idempotencyKey: chave.current,
       });
       if (!res.ok) {
-        setErro(res.error ?? "Falha ao registrar a restituição.");
+        setErro(res.error ?? "Falha ao registrar o ressarcimento.");
         return;
       }
       chave.current = novaChave();
       setMsg(
-        `Restituição ${res.numDoc ?? ""} registrada — ${res.abatidos} PED(s) abatido(s). Uma única saída de caixa.`,
+        `Ressarcimento ${res.numDoc ?? ""} registrado — ${res.abatidos} PED(s) abatido(s). Uma única saída de caixa.`,
       );
       setPreview(null);
       setF({ ...f, valor: "", comprovante: "", obs: "" });
@@ -150,7 +150,7 @@ export function RestituicaoLote({
       <Card>
         <CardContent className="p-5">
           <h2 className="mb-1 text-sm font-semibold text-[var(--color-ink)]">
-            Restituição em lote
+            Ressarcimento em lote
           </h2>
           <p className="mb-4 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
             Pague um valor único e o sistema distribui entre os PEDs em aberto do
@@ -178,7 +178,7 @@ export function RestituicaoLote({
               </Select>
             </div>
             <div>
-              <Label>Valor da restituição</Label>
+              <Label>Valor do ressarcimento</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -225,7 +225,7 @@ export function RestituicaoLote({
             </Button>
             {preview && preview.linhas.length > 0 && (
               <Button onClick={confirmar} disabled={pending || !f.dataRestituicao}>
-                {pending ? "Registrando…" : "Confirmar restituição"}
+                {pending ? "Registrando…" : "Confirmar ressarcimento"}
               </Button>
             )}
           </div>
@@ -332,7 +332,7 @@ export function RestituicaoLote({
                 >
                   <strong className="text-[var(--color-ink)]">{s.terceiro}</strong>
                   <span className="text-[var(--color-ink3)]">
-                    a restituir{" "}
+                    a ressarcir{" "}
                     <span className="font-[family-name:var(--font-mono)] text-[var(--color-warning)]">
                       {brl0(s.saldoARestituir)}
                     </span>

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, ilike, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, ne, sql } from "drizzle-orm";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { montarContaCorrente, type ContaCorrenteTerceiro } from "@/lib/calc/conta-corrente";
 import { chaveDataBR } from "@/lib/db/ordem-data";
@@ -11,7 +11,7 @@ import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
 import { statusRestituicao } from "@/lib/calc";
-import { restituicaoCabe } from "@/lib/calc/restituicao";
+import { restituicaoCabe, sufixoNumericoDoPed } from "@/lib/calc/restituicao";
 import { validarCategoriaDespesa } from "@/lib/calc/natureza-dre";
 import type { CategoriaDRE } from "@/lib/calc/constants";
 
@@ -47,6 +47,7 @@ export async function buscarDespesasPorPed(termo: string): Promise<DespesaPorPed
   if (!ctx || !can(ctx.perms, "restituicoes", "ver")) return [];
   const q = termo.trim();
   if (q.length < 2) return [];
+  const numero = sufixoNumericoDoPed(q);
 
   const rows = await db
     .select({
@@ -71,11 +72,12 @@ export async function buscarDespesasPorPed(termo: string): Promise<DespesaPorPed
     .where(
       and(
         eq(schema.despesas.tenantId, ctx.tenant.id),
-        or(
-          ilike(schema.despesas.numDoc, `%${q}%`),
-          // Permite colar só o número ("70") ou o PED completo ("PED-000070").
-          ilike(schema.despesas.obs, `%${q}%`),
-        ),
+        // Prompt T, 5 — só no PED, nunca na observação (lá "100" casava com
+        // valores e com rateios escritos à mão). "70", "000070" e "PED-000070"
+        // são a mesma busca: compara o sufixo numérico.
+        numero != null
+          ? sql`(regexp_match(${schema.despesas.numDoc}, '(\\d+)\\s*$'))[1]::bigint = ${numero}`
+          : ilike(schema.despesas.numDoc, `%${q}%`),
       ),
     )
     .orderBy(desc(schema.despesas.createdAt))
@@ -744,6 +746,8 @@ export interface DespesaTerceiroView {
   id: string;
   numDoc: string | null;
   pagador: string | null;
+  projectId: string;
+  projectName: string;
   valorTotal: number;
   valorRestituido: number;
   saldoPendente: number;
@@ -752,19 +756,29 @@ export interface DespesaTerceiroView {
   status: string;
 }
 
-/** Lista as obrigações (paga por terceiro) da versão ativa, com pagador. */
+/**
+ * Lista as obrigações (paga por terceiro) da EMPRESA, com pagador e obra
+ * (Prompt T, 6): a dívida com um terceiro é da empresa e não some porque o
+ * usuário trocou de obra — o mesmo escopo da conta corrente. O filtro por obra
+ * é da tela. `versionId` (opcional) mantém a leitura antiga por versão para
+ * quem ainda a usar.
+ */
 export async function getDespesaTerceiros(
   tenantId: string,
-  versionId: string,
+  versionId?: string | null,
 ): Promise<DespesaTerceiroView[]> {
   const rows = await db
     .select({
       dt: schema.despesaTerceiros,
       numDoc: schema.despesas.numDoc,
       pagador: schema.stakeholders.nome,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
     })
     .from(schema.despesaTerceiros)
     .innerJoin(schema.despesas, eq(schema.despesaTerceiros.despesaId, schema.despesas.id))
+    .innerJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
     .leftJoin(
       schema.stakeholders,
       eq(schema.despesaTerceiros.pagadorTerceiroId, schema.stakeholders.id),
@@ -772,7 +786,7 @@ export async function getDespesaTerceiros(
     .where(
       and(
         eq(schema.despesaTerceiros.tenantId, tenantId),
-        eq(schema.despesas.versionId, versionId),
+        versionId ? eq(schema.despesas.versionId, versionId) : undefined,
       ),
     )
     .orderBy(desc(schema.despesaTerceiros.createdAt));
@@ -783,6 +797,8 @@ export async function getDespesaTerceiros(
       id: r.dt.id,
       numDoc: r.numDoc,
       pagador: r.pagador,
+      projectId: r.projectId,
+      projectName: r.projectName,
       valorTotal: total,
       valorRestituido: rest,
       saldoPendente: Math.max(0, total - rest),

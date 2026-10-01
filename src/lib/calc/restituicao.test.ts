@@ -28,9 +28,10 @@ describe("rótulo do status na tela (§12)", () => {
     expect(rotuloStatusObrigacao("Aguardando restituição")).toBe("Pendente");
   });
   it("os demais status são exibidos como estão", () => {
-    for (const s of ["Parcialmente restituído", "Restituído", "Cancelado"]) {
-      expect(rotuloStatusObrigacao(s)).toBe(s);
-    }
+    // Prompt T, 0 — "restituído" vira "ressarcido" só no texto; "Cancelado" segue igual.
+    expect(rotuloStatusObrigacao("Parcialmente restituído")).toBe("Parcialmente ressarcido");
+    expect(rotuloStatusObrigacao("Restituído")).toBe("Ressarcido");
+    expect(rotuloStatusObrigacao("Cancelado")).toBe("Cancelado");
   });
   it("status desconhecido não é escondido nem reescrito", () => {
     expect(rotuloStatusObrigacao("Status legado qualquer")).toBe("Status legado qualquer");
@@ -127,5 +128,32 @@ describe.skipIf(!HAS_DB)("Restituição — invariantes contábeis (integração
     } finally {
       await db.delete(schema.tenants).where(eq(schema.tenants.id, t.id));
     }
+  });
+});
+
+describe("Prompt T — Dias, busca por PED e rótulos", () => {
+  it("8 — situacaoDosDias distingue atraso, a vencer, hoje e sem data", async () => {
+    const { situacaoDosDias, textoDosDias } = await import("./restituicao");
+    expect(situacaoDosDias("09/20/2026", "2026-09-30")).toEqual({ tipo: "atraso", dias: 10 });
+    expect(situacaoDosDias("10/05/2026", "2026-09-30")).toEqual({ tipo: "a vencer", dias: 5 });
+    expect(situacaoDosDias("09/30/2026", "2026-09-30")).toEqual({ tipo: "hoje" });
+    expect(situacaoDosDias(null, "2026-09-30")).toEqual({ tipo: "sem data" });
+    expect(textoDosDias({ tipo: "atraso", dias: 10 })).toBe("10 d em atraso");
+    expect(textoDosDias({ tipo: "a vencer", dias: 5 })).toBe("em 5 d");
+    expect(textoDosDias({ tipo: "sem data" })).toBe("—");
+  });
+  it("4 — '70', '000070' e 'PED-000070' são o mesmo número; sem dígitos, null", async () => {
+    const { sufixoNumericoDoPed } = await import("./restituicao");
+    expect(sufixoNumericoDoPed("70")).toBe(70);
+    expect(sufixoNumericoDoPed("000070")).toBe(70);
+    expect(sufixoNumericoDoPed("PED-000070")).toBe(70);
+    expect(sufixoNumericoDoPed("abc")).toBeNull();
+  });
+  it("0 — rótulos de status trocam o texto sem reclassificar", async () => {
+    const { rotuloStatusObrigacao } = await import("./restituicao");
+    expect(rotuloStatusObrigacao("Aguardando restituição")).toBe("Pendente");
+    expect(rotuloStatusObrigacao("Restituído")).toBe("Ressarcido");
+    expect(rotuloStatusObrigacao("Parcialmente restituído")).toBe("Parcialmente ressarcido");
+    expect(rotuloStatusObrigacao("Cancelado")).toBe("Cancelado");
   });
 });

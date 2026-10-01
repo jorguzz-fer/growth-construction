@@ -58,7 +58,7 @@ export default async function ContasPagarPage() {
     vencimento: o.dataPrevista,
     competencia: o.competencia,
     dataPagamento: null,
-    formaPagamento: "Restituição",
+    formaPagamento: "Ressarcimento",
     status: rotuloStatusObrigacao(o.status),
     projectId: o.projectId,
     projectName: o.projectName,
@@ -78,7 +78,7 @@ export default async function ContasPagarPage() {
       <PageHeader
         eyebrow={ctx.tenant.name}
         title="Contas a Pagar"
-        subtitle="Uma linha por obrigação que vence: despesa, parcela ou restituição. Filtre por período, fornecedor, cliente, projeto, categoria e status; clique no cabeçalho para ordenar."
+        subtitle="Uma linha por obrigação que vence: despesa, parcela ou ressarcimento. Filtre por período, fornecedor, cliente, projeto, categoria e status; clique no cabeçalho para ordenar."
       />
       {/* Prompt R, 4.5 — hoje vem do servidor: o relógio do navegador não decide o que está vencido. */}
       <ContasPagarTable rows={rows} canEditar={can(ctx.perms, "despesas", "editar")} hoje={hojeISO()} />

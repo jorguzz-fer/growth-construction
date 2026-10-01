@@ -11,7 +11,7 @@ import {
   type DespesaPorPed,
   type DespesaTerceiroView,
 } from "@/lib/actions/restituicoes";
-import { rotuloStatusObrigacao } from "@/lib/calc/restituicao";
+import { rotuloStatusObrigacao, textoDosDias, type SituacaoDosDias } from "@/lib/calc/restituicao";
 import { categoriasDeDespesa } from "@/lib/calc/natureza-dre";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,6 +52,7 @@ function novaChave(): string {
 
 export function RestituicoesManager({
   rows,
+  obraDaTela,
   stakeholders,
   pagadores,
   contas,
@@ -64,7 +65,9 @@ export function RestituicoesManager({
 }: {
   /** obra da tela (Prompt A): despesa nova e saída de caixa vão para a versão de trabalho dela. */
   projectId: string;
-  rows: (DespesaTerceiroView & { diasEmAberto: number })[];
+  rows: (DespesaTerceiroView & { dias: SituacaoDosDias })[];
+  /** obra da tela: filtro inicial da lista (que é da empresa — Prompt T, 6). */
+  obraDaTela: string;
   /** beneficiário original: cadastros ativos (Prompt W, 4.2). */
   stakeholders: Opt[];
   /** quem desembolsou: só quem tem o papel "Pagador por Terceiro" (Prompt W, 1.5). */
@@ -113,7 +116,9 @@ export function RestituicoesManager({
     });
   };
 
-  const filtrados = filtro ? rows.filter((r) => r.status === filtro) : rows;
+  // Prompt T, 6 — a lista é da empresa; a obra da tela é só o filtro inicial.
+  const [obra, setObra] = useState<string>(obraDaTela);
+  const filtrados = rows.filter((r) => (!filtro || r.status === filtro) && (!obra || r.projectId === obra));
 
   return (
     <div className="space-y-6">
@@ -239,7 +244,7 @@ export function RestituicoesManager({
                 <DateField name="dataPagamentoOriginal" />
               </div>
               <div>
-                <Label>Restituição prevista para</Label>
+                <Label>Ressarcimento previsto para</Label>
                 <DateField name="dataPrevistaRestituicao" />
               </div>
               <div className="sm:col-span-3">
@@ -267,8 +272,15 @@ export function RestituicoesManager({
         </Card>
       )}
 
-      <div className="flex items-center gap-2">
-        <Label className="mb-0">Filtrar status:</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label className="mb-0">Obra:</Label>
+        <Select value={obra} onChange={(e) => setObra(e.target.value)} className="h-8 w-auto" aria-label="Filtrar por obra">
+          <option value="">Todas as obras</option>
+          {projetos.map((p) => (
+            <option key={p.id} value={p.id}>{p.nome}</option>
+          ))}
+        </Select>
+        <Label className="mb-0 ml-2">Filtrar status:</Label>
         {/* O `value` é o status GRAVADO; o texto é o rótulo da tela. */}
         <Select value={filtro} onChange={(e) => setFiltro(e.target.value)} className="h-8 w-auto">
           <option value="">Todos</option>
@@ -284,8 +296,9 @@ export function RestituicoesManager({
           <tr>
             <TH>Documento</TH>
             <TH>Terceiro</TH>
+            <TH>Obra</TH>
             <TH className="text-right">Valor</TH>
-            <TH className="text-right">Restituído</TH>
+            <TH className="text-right">Ressarcido</TH>
             <TH className="text-right">Saldo</TH>
             <TH>Prevista</TH>
             <TH className="text-right">Dias</TH>
@@ -298,12 +311,14 @@ export function RestituicoesManager({
             <TR key={r.id}>
               <TD className="font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">{r.numDoc ?? "—"}</TD>
               <TD>{r.pagador ?? "—"}</TD>
+              <TD className="whitespace-nowrap text-[var(--color-ink3)]">{r.projectName}</TD>
               <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(r.valorTotal)}</TD>
               <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">{brl0(r.valorRestituido)}</TD>
               <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-warning)]">{brl0(r.saldoPendente)}</TD>
               <TD className="font-[family-name:var(--font-mono)]">{dateBR(r.dataPrevistaRestituicao)}</TD>
-              <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                {r.saldoPendente > 0 ? r.diasEmAberto : "—"}
+              {/* Prompt T, 8 — atraso, a vencer, hoje ou sem previsão; nunca um zero ambíguo. */}
+              <TD className={`text-right font-[family-name:var(--font-mono)] ${r.dias.tipo === "atraso" && r.saldoPendente > 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink3)]"}`}>
+                {r.saldoPendente > 0 ? textoDosDias(r.dias) : "—"}
               </TD>
               {/* Rótulo "Pendente" para o status gravado "Aguardando
                   restituição": só o texto na tela muda; nenhum registro é
@@ -313,7 +328,7 @@ export function RestituicoesManager({
                 <TD className="text-right">
                   {r.saldoPendente > 0 && r.status !== "Cancelado" ? (
                     <button onClick={() => setSel(r)} className="text-sm text-[var(--color-accent2)] hover:underline">
-                      Registrar restituição
+                      Registrar ressarcimento
                     </button>
                   ) : null}
                 </TD>
@@ -322,8 +337,8 @@ export function RestituicoesManager({
           ))}
           {filtrados.length === 0 && (
             <TR>
-              <TD colSpan={canEditar ? 9 : 8} className="py-6 text-center text-[var(--color-ink3)]">
-                Nenhuma despesa paga por terceiro.
+              <TD colSpan={canEditar ? 10 : 9} className="py-6 text-center text-[var(--color-ink3)]">
+                Nenhuma despesa paga por terceiro nesta empresa.
               </TD>
             </TR>
           )}
@@ -529,7 +544,7 @@ function RestituicaoModal({
         idempotencyKey: chave.current,
       });
       if (!res.ok) {
-        setError(res.error ?? "Falha ao registrar restituição.");
+        setError(res.error ?? "Falha ao registrar o ressarcimento.");
         return;
       }
       onClose();
@@ -541,13 +556,13 @@ function RestituicaoModal({
     <div onClick={onClose} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
       <Card className="w-full max-w-md">
         <CardContent className="p-6" onClick={(e) => e.stopPropagation()}>
-          <h2 className="mb-1 text-lg font-semibold text-[var(--color-ink)]">Registrar restituição</h2>
+          <h2 className="mb-1 text-lg font-semibold text-[var(--color-ink)]">Registrar ressarcimento</h2>
           <p className="mb-4 text-[12px] text-[var(--color-ink3)]">
             {dt.pagador} · saldo pendente {brl0(dt.saldoPendente)}
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Valor a restituir</Label>
+              <Label>Valor a ressarcir</Label>
               <Input type="number" step="0.01" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} />
             </div>
             <div>

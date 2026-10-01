@@ -187,7 +187,7 @@ export function ContasPagarTable({
             className="text-[var(--color-ink3)]"
             title="Saldo devido a terceiros que pagaram fornecedores pela empresa. Não é despesa nova — a despesa já está listada acima."
           >
-            A restituir{" "}
+            A ressarcir{" "}
             <strong className="font-[family-name:var(--font-mono)] text-[var(--color-accent2)]">
               {brl0(totalRestituir)}
             </strong>
@@ -294,7 +294,7 @@ export function ContasPagarTable({
                             href="/restituicoes"
                             className="text-sm text-[var(--color-accent2)] hover:underline"
                           >
-                            Restituir
+                            Ressarcir
                           </Link>
                         ) : (
                           <Link
