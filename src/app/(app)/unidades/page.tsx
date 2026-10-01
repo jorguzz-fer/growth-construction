@@ -8,6 +8,8 @@ import { calcUnitTotal } from "@/lib/calc";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { contagemDeUnidades, saldoFecha, saldoFormatado, vgvFormatado } from "@/lib/unidade-exibicao";
+import { analisarUnidades } from "@/lib/unidade-analise";
+import { AssistenteUnidades } from "@/components/app/assistente-unidades";
 import { PageHeader } from "@/components/app/page-header";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { Badge, unitStatusTone } from "@/components/ui/badge";
@@ -52,6 +54,14 @@ export default async function UnidadesPage({
   const rows = filter ? allRows.filter((r) => r.status === filter) : allRows;
 
   const vgv = allRows.reduce((a, r) => a + Number(r.valor), 0);
+  // 6.4 — as análises do painel são contas sobre estas mesmas linhas, aqui
+  // no servidor: nenhum id vem do cliente e nada sai do sistema.
+  const analise = analisarUnidades(
+    allRows.map((r) => {
+      const u = toCalcUnit(r);
+      return { id: r.id, code: r.code, status: r.status, valor: u.valor, mesVenda: r.mesVenda, total: calcUnitTotal(u) };
+    }),
+  );
   const countOf = (s: string) => allRows.filter((r) => r.status === s).length;
 
   const blocos = [
@@ -107,6 +117,9 @@ export default async function UnidadesPage({
       />
 
       <LembrarProjeto projectId={project.id} />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {/* 5.1 — salvar ou excluir sem retorno visível é indistinguível de falhar. */}
       {(sp.salva || sp.excluida) && (
         <p
@@ -258,6 +271,9 @@ export default async function UnidadesPage({
           )}
         </tbody>
       </Table>
+      </div>
+      <AssistenteUnidades usuario={ctx.userId ?? ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
