@@ -26,7 +26,7 @@ export default async function NovoReembolsoPage({
   if (!can(ctx.perms, "reembolso", "criar")) {
     return (
       <p className="text-sm text-[var(--color-warning)]">
-        Sem permissão para criar reembolsos.
+        Sem permissão para lançar liberações de obra.
       </p>
     );
   }
@@ -38,7 +38,7 @@ export default async function NovoReembolsoPage({
   const escolhido =
     selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
   if (!escolhido?.trabalho) {
-    return <PedirProjeto titulo="Nova Liberação de Obra" projetos={ctx.projects} oQue="lançar a liberação de obra" />;
+    return <PedirProjeto titulo="Nova liberação de obra" projetos={ctx.projects} oQue="lançar a liberação de obra" />;
   }
   const { project, trabalho: version } = escolhido;
 
@@ -46,8 +46,8 @@ export default async function NovoReembolsoPage({
     <>
       <PageHeader
         eyebrow={`${project.name} · ${version.label}`}
-        title="Nova Liberação de Obra"
-        subtitle="A data deve ser uma DATA REAL — o SERIAL é calculado automaticamente via INT(Data)."
+        title="Nova liberação de obra"
+        subtitle="Parcela do financiamento liberada após a medição. Entrada de caixa, não receita."
       />
 
       <Card>

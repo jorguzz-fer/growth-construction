@@ -57,7 +57,7 @@ export const SCREENS: Screen[] = [
   // O `id` continua "reembolso" DE PROPÓSITO: ele é a chave gravada em
   // `membership.permissions` e o primeiro segmento da rota. Trocar o id
   // órfãozaria toda permissão já salva — o rótulo é o que mudou de nome.
-  { id: "reembolso", label: "Liberação de Obra", modulo: "Receitas" },
+  { id: "reembolso", label: "Liberações de Obra", modulo: "Receitas" },
   { id: "permuta", label: "Inventário de Permuta", modulo: "Receitas" },
   { id: "parametros", label: "Parâmetros / INCC", modulo: "Receitas" },
   { id: "despesas", label: "Lançamentos de Despesas", modulo: "Despesas" },

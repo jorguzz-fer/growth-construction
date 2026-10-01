@@ -62,7 +62,7 @@ async function versionIndicadores(
     { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
     { label: "Permuta por Materiais", value: permByTipo("material") },
     { label: "Permuta por Serviços de Terceiros", value: permByTipo("servi") },
-    { label: "Reembolso (aba própria)", value: totals.reemb },
+    { label: "Liberações de Obra", value: totals.reemb },
   ];
 }
 
@@ -192,7 +192,7 @@ export default async function ResumoPage({
     { label: "Permuta Vendidos (rec. projetada)", value: totals.permVend },
     { label: "Permuta por Materiais", value: permMateriais },
     { label: "Permuta por Serviços de Terceiros", value: permServicos },
-    { label: "Reembolso (aba própria)", value: totals.reemb },
+    { label: "Liberações de Obra", value: totals.reemb },
   ];
 
   return (
