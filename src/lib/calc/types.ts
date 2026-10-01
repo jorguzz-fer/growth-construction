@@ -93,6 +93,8 @@ export interface CalcReembolso {
   /** "MM/DD/YYYY" */
   data: string;
   valor: number;
+  /** Só lido por `calcTotals` com a chave do Resumo (Prompt AE, 2.7). */
+  status?: string | null;
 }
 
 /** Permuta (subconjunto usado nos agregados). */

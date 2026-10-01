@@ -9,6 +9,7 @@ import { getPlanejamentoNaoAprovado } from "@/lib/queries";
 import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
 import { previaFluxoDefinicaoNova } from "@/lib/fluxo-caixa";
 import { previaDashboardDefinicaoNova } from "@/lib/dashboard-previa";
+import { previaResumoDefinicaoNova } from "@/lib/resumo-previa";
 import { getBankAccounts } from "@/lib/queries";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { brl, pct1 } from "@/lib/utils";
@@ -48,6 +49,8 @@ export default async function ChavesPage() {
   const previaFluxo = await previaFluxoDefinicaoNova(ctx.tenant.id, ctx.projects, saldoDisponivel(await getBankAccounts(ctx.tenant.id)));
   // Prompt AA, 10.3: prévia da chave "dashboard_definicao_nova" (só leitura).
   const previaDashboard = await previaDashboardDefinicaoNova(ctx.tenant.id, ctx.projects);
+  // Prompt AE, 6.2: prévia da chave "resumo_definicao_nova" (só leitura).
+  const previaResumo = await previaResumoDefinicaoNova(ctx.tenant.id, ctx.projects);
   // A chave do membro também liga pela variável de ambiente, de antes do B4.
   const peloAmbiente: Record<string, boolean> = {
     membro_padrao_restrito: membroRestritoPorAmbiente(ctx.tenant.id),
@@ -314,6 +317,56 @@ export default async function ChavesPage() {
                           <td className="py-1.5 pr-3 text-right tabular-nums">{f(l.nova)}</td>
                           <td className={`py-1.5 text-right tabular-nums ${dif ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink4)]"}`}>
                             {dif == null ? (l.hoje == null && l.nova == null ? "—" : "vira “—”") : dif === 0 ? "igual" : `${dif > 0 ? "+" : "−"}${l.tipo === "pct" ? pct1(Math.abs(dif)) : brl(Math.abs(dif))}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-resumo">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · Resumo Executivo pela definição nova</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Por obra (versão Atual): cada indicador hoje e pela definição nova. Mudam os sinais (S1, S2 e S3 passam a multiplicar
+            pela quantidade), a permuta e a liberação canceladas (saem), a permuta por tipo (compara com o cadastro e ganha &ldquo;outros
+            tipos&rdquo;) e o total de unidades (passa a contar as Permutadas). Com a chave ligada, a tela troca a tabela pelos blocos
+            Vendas, Exposição e Atenção. Nada é gravado.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[12.5px]" aria-label="Prévia do Resumo Executivo pela definição nova">
+              <thead>
+                <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                  <th className="py-1.5 pr-3">Obra · indicador</th>
+                  <th className="py-1.5 pr-3 text-right">Hoje</th>
+                  <th className="py-1.5 pr-3 text-right">Definição nova</th>
+                  <th className="py-1.5 text-right">Diferença</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaResumo.map((o) => (
+                  <Fragment key={o.projeto}>
+                    <tr className="border-b border-[var(--color-line)] bg-[var(--color-surface2)]">
+                      <td colSpan={4} className="py-1.5 pr-3 font-semibold text-[var(--color-ink)]">
+                        {o.projeto}
+                        {!o.temAtual && <span className="ml-1 text-[11px] font-normal text-[var(--color-warning)]">sem versão Atual: nada a comparar</span>}
+                      </td>
+                    </tr>
+                    {o.linhas.map((l) => {
+                      const contagem = l.label.startsWith("Total de unidades");
+                      const f = (n: number | null) => (n == null ? "—" : contagem ? String(n) : brl(n));
+                      const dif = l.hoje != null && l.nova != null ? l.nova - l.hoje : null;
+                      return (
+                        <tr key={l.label} className="border-b border-[var(--color-line)]/60" data-previa-resumo={l.label}>
+                          <td className="py-1.5 pr-3 pl-3">{l.label}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{f(l.hoje)}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{f(l.nova)}</td>
+                          <td className={`py-1.5 text-right tabular-nums ${dif ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink4)]"}`}>
+                            {dif == null ? (l.hoje == null && l.nova == null ? "—" : l.hoje == null ? "linha nova" : "vira “—”") : dif === 0 ? "igual" : `${dif > 0 ? "+" : "−"}${contagem ? Math.abs(dif) : brl(Math.abs(dif))}`}
                           </td>
                         </tr>
                       );
