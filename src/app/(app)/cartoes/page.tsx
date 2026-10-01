@@ -1,5 +1,7 @@
 import { getTenantContext } from "@/lib/context";
-import { getBankAccounts, getCartoes, getComprasDaFatura, getComprasDoCartao, getEstornosDoCartao, getExtratoCartao, getFaturasCartao, getVinculosDosCartoes } from "@/lib/queries";
+import { getBankAccounts, getCartoes, getComprasDaFatura, getComprasDoCartao, getComprasDosCartoes, getEstornosDoCartao, getExtratoCartao, getFaturasCartao, getVinculosDosCartoes } from "@/lib/queries";
+import { analisarCartoes } from "@/lib/cartao-analise";
+import { AssistenteCartoes } from "@/components/app/assistente-cartoes";
 import { conferirExtrato } from "@/lib/calc/conferencia-cartao";
 import { ExtratoCartao } from "@/components/app/extrato-cartao";
 import { can } from "@/lib/permissions";
@@ -46,6 +48,15 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
     ? await Promise.all([getExtratoCartao(ctx.tenant.id, cartaoExtrato.id), getComprasDoCartao(ctx.tenant.id, cartaoExtrato.id), getEstornosDoCartao(ctx.tenant.id, cartaoExtrato.id)])
     : [[], [], []];
   const conferencia = cartaoExtrato ? conferirExtrato(itensExtrato, comprasCartao, estornos, cartaoExtrato) : null;
+  // Seção 7 — assistente somente leitura, em código puro, sobre o que a
+  // página carregou (apelido e quatro últimos; nenhum número de cartão).
+  const analise = analisarCartoes(
+    cartoes,
+    faturas,
+    await getComprasDosCartoes(ctx.tenant.id),
+    cartaoExtrato && conferencia ? { cartao: `${cartaoExtrato.apelido}${cartaoExtrato.ultimos4 ? " •••• " + cartaoExtrato.ultimos4 : ""}`, resultado: conferencia } : null,
+    hoje,
+  );
   const contaDoCartao: Record<string, string | null> = Object.fromEntries(cartoes.map((c) => [c.id, c.bankAccountId]));
 
   return (
@@ -57,11 +68,17 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
           A <strong>compra</strong> é despesa comum, lançada em <strong>Despesas</strong> com a forma &quot;Cartão de crédito&quot;, na competência informada. Nenhuma saída de caixa acontece na compra: ela fica vinculada à <strong>fatura</strong> do ciclo, e o caixa sai só no <strong>pagamento da fatura</strong>, pela conta cadastrada aqui.
         </p>
       </div>
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {can(ctx.perms, "cartoes", "criar") && <CartaoForm contas={contas} />}
       <CartoesManager cartoes={cartoes} contas={contas} usado={usado} vinculos={vinculos} hoje={hoje} canEditar={can(ctx.perms, "cartoes", "editar")} canExcluir={can(ctx.perms, "cartoes", "excluir")} />
       <ProjecaoCartao cartoes={cartoes} faturas={faturas} hoje={hoje} />
       <ExtratoCartao cartoes={cartoes.map((c) => ({ id: c.id, nome: `${c.apelido}${c.ultimos4 ? " •••• " + c.ultimos4 : ""}` }))} cartaoId={cartaoExtrato?.id ?? null} conferencia={conferencia} compras={comprasCartao} projetos={projetos} canEditar={can(ctx.perms, "cartoes", "editar")} />
       <FaturasCartao faturas={faturas} hoje={hoje} aberta={faturaAberta} compras={compras} pagamentos={pagamentos} contas={contas} projetos={projetos} contaDoCartao={contaDoCartao} canPagar={can(ctx.perms, "cartoes", "editar")} />
+      </div>
+      <AssistenteCartoes usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }

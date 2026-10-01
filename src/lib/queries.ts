@@ -812,6 +812,20 @@ export async function getComprasDoCartao(tenantId: string, cartaoId: string): Pr
   }));
 }
 
+/** Prompt U, 7 — as compras de todos os cartões do tenant (para o assistente; sem número de cartão). */
+export async function getComprasDosCartoes(tenantId: string): Promise<{ despesaId: string; numDoc: string | null; descricao: string | null; projectId: string | null; projectName: string | null; fornecedorNome: string | null; valor: number; numero: number; total: number; faturaFechamento: string; cartaoId: string }[]> {
+  const rows = await db
+    .select({ p: schema.despesaParcelas, d: schema.despesas, fornecedorNome: schema.stakeholders.nome, projectId: schema.projects.id, projectName: schema.projects.name, fechamento: schema.faturasCartao.fechamento, cartaoId: schema.faturasCartao.cartaoId })
+    .from(schema.despesaParcelas)
+    .innerJoin(schema.faturasCartao, eq(schema.despesaParcelas.faturaId, schema.faturasCartao.id))
+    .innerJoin(schema.despesas, eq(schema.despesaParcelas.despesaId, schema.despesas.id))
+    .leftJoin(schema.versions, eq(schema.despesas.versionId, schema.versions.id))
+    .leftJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(schema.despesaParcelas.tenantId, tenantId), eq(schema.despesas.cancelado, false)));
+  return rows.map((r) => ({ despesaId: r.d.id, numDoc: r.d.numDoc, descricao: r.d.obs, projectId: r.projectId ?? null, projectName: r.projectName ?? null, fornecedorNome: r.fornecedorNome, valor: Number(r.p.valorOriginal), numero: r.p.numeroParcela, total: r.d.qtdParcelas ?? 1, faturaFechamento: r.fechamento, cartaoId: r.cartaoId }));
+}
+
 /** Prompt U, 5 — itens do extrato subido de um cartão. */
 export async function getExtratoCartao(tenantId: string, cartaoId: string): Promise<{ id: string; data: string | null; descricao: string | null; valor: number }[]> {
   const rows = await db
