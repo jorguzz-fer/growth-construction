@@ -1276,6 +1276,12 @@ export const documents = pgTable("document", {
   stockMovementId: uuid("stock_movement_id").references((): AnyPgColumn => stockMovements.id, {
     onDelete: "set null",
   }),
+  /** Prompt Z (0061): documentos do funcionário, do dia da equipe e da folha. */
+  funcionarioId: uuid("funcionario_id").references((): AnyPgColumn => funcionarios.id, { onDelete: "set null" }),
+  equipeDiaId: uuid("equipe_dia_id").references((): AnyPgColumn => equipeDias.id, { onDelete: "set null" }),
+  folhaId: uuid("folha_id").references((): AnyPgColumn => folhasCompetencia.id, { onDelete: "set null" }),
+  /** Prompt Z, 2.2-A.7: validade do documento (ASO, CNH), ISO YYYY-MM-DD. */
+  validade: text("validade"),
   /** chave do objeto no bucket R2. */
   storageKey: text("storage_key").notNull(),
   filename: text("filename").notNull(),
@@ -1824,4 +1830,148 @@ export const stockMovements = pgTable("stock_movement", {
   estornoDeId: uuid("estorno_de_id").references((): AnyPgColumn => stockMovements.id, {
     onDelete: "set null",
   }),
+});
+
+/* ───────────────────────── Prompt Z — Módulo Pessoas (0061) ───────────────────────── */
+
+/**
+ * Funcionário CLT (ficha do art. 41 da CLT, arquivo de apoio — não substitui
+ * o eSocial). Registro, não folha: nada aqui calcula encargo. CPF, PIS,
+ * endereço, salário e banco são dado pessoal: servidos só a quem tem a
+ * permissão de campo (`funcionariosdados`), nunca em log em claro.
+ */
+export const funcionarios = pgTable("funcionario", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  nome: text("nome").notNull(),
+  nascimento: text("nascimento"),
+  nacionalidade: text("nacionalidade"),
+  estadoCivil: text("estado_civil"),
+  nomeMae: text("nome_mae"),
+  fotoDocumentId: uuid("foto_document_id"),
+  cpf: text("cpf"),
+  rg: text("rg"),
+  rgOrgao: text("rg_orgao"),
+  rgUf: text("rg_uf"),
+  ctpsNumero: text("ctps_numero"),
+  ctpsSerie: text("ctps_serie"),
+  pis: text("pis"),
+  tituloEleitor: text("titulo_eleitor"),
+  reservista: text("reservista"),
+  cnh: text("cnh"),
+  cnhCategoria: text("cnh_categoria"),
+  cnhValidade: text("cnh_validade"),
+  endereco: text("endereco"),
+  numero: text("numero"),
+  complemento: text("complemento"),
+  bairro: text("bairro"),
+  cidade: text("cidade"),
+  estado: text("estado"),
+  cep: text("cep"),
+  admissao: text("admissao"),
+  cargo: text("cargo"),
+  setor: text("setor"),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  tipoContrato: text("tipo_contrato"),
+  prazoContrato: text("prazo_contrato"),
+  jornada: text("jornada"),
+  salario: numeric("salario", { precision: 15, scale: 2 }),
+  desligamento: text("desligamento"),
+  motivoDesligamento: text("motivo_desligamento"),
+  bancoNome: text("banco_nome"),
+  bancoAgencia: text("banco_agencia"),
+  bancoConta: text("banco_conta"),
+  bancoTipoConta: text("banco_tipo_conta"),
+  pixTipo: text("pix_tipo"),
+  pixChave: text("pix_chave"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const funcionarioDependentes = pgTable("funcionario_dependente", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  funcionarioId: uuid("funcionario_id").notNull().references(() => funcionarios.id, { onDelete: "cascade" }),
+  nome: text("nome").notNull(),
+  nascimento: text("nascimento"),
+  parentesco: text("parentesco"),
+  dependenteIr: boolean("dependente_ir").notNull().default(false),
+  salarioFamilia: boolean("salario_familia").notNull().default(false),
+});
+
+/** BZ-3 — lista fechada de funções, por tenant, editável. */
+export const funcoesEquipe = pgTable("funcao_equipe", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  nome: text("nome").notNull(),
+  ativo: boolean("ativo").notNull().default(true),
+  ordem: integer("ordem").notNull().default(0),
+});
+
+/**
+ * Alocação numa obra (3.2): referencia o cadastro de origem — `stakeholder`
+ * (autônomo, sócio) OU `funcionario` (CLT); nunca os dois (CHECK no banco).
+ * O valor da diária é DA ALOCAÇÃO (3.5.4) e nulo para CLT e sócio.
+ */
+export const equipesProjeto = pgTable("equipe_projeto", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  stakeholderId: uuid("stakeholder_id").references((): AnyPgColumn => stakeholders.id, { onDelete: "restrict" }),
+  funcionarioId: uuid("funcionario_id").references(() => funcionarios.id, { onDelete: "restrict" }),
+  funcaoId: uuid("funcao_id").references(() => funcoesEquipe.id, { onDelete: "set null" }),
+  valorDiaria: numeric("valor_diaria", { precision: 15, scale: 2 }),
+  entrada: text("entrada"),
+  saida: text("saida"),
+  situacao: text("situacao").notNull().default("ativa"),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** O dia da equipe numa obra (3.6.5): folha de ponto e fotos anexam-se aqui, não por membro. */
+export const equipeDias = pgTable("equipe_dia", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  /** "MM/DD/YYYY" */
+  data: text("data").notNull(),
+  obs: text("obs"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Diária executada (3.5): quantidade 1 ou 0,5; o VALOR é gravado no registro (3.5.4). */
+export const diarias = pgTable("diaria", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  equipeDiaId: uuid("equipe_dia_id").notNull().references(() => equipeDias.id, { onDelete: "cascade" }),
+  equipeProjetoId: uuid("equipe_projeto_id").notNull().references(() => equipesProjeto.id, { onDelete: "restrict" }),
+  quantidade: numeric("quantidade", { precision: 4, scale: 2 }).notNull().default("1"),
+  valor: numeric("valor", { precision: 15, scale: 2 }),
+  obs: text("obs"),
+  /** BZ-1 — a despesa lançada em /despesas a partir da proposta (rastro; nada é gerado aqui). */
+  despesaId: uuid("despesa_id").references(() => despesas.id, { onDelete: "set null" }),
+  registradoPor: text("registrado_por"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Folha por competência (2.2-B): documento da empresa, um registro por mês; vínculo com a despesa que a pagou. */
+export const folhasCompetencia = pgTable("folha_competencia", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  /** "MM/YYYY" */
+  competencia: text("competencia").notNull(),
+  obs: text("obs"),
+  despesaId: uuid("despesa_id").references(() => despesas.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** 7.3-A — quem abriu um ASO e quando (dado de saúde: acesso registrado). */
+export const asoAcessos = pgTable("aso_acesso", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  funcionarioId: uuid("funcionario_id").notNull().references(() => funcionarios.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id"),
+  usuario: text("usuario"),
+  acessadoEm: timestamp("acessado_em", { mode: "date" }).notNull().defaultNow(),
 });

@@ -40,6 +40,19 @@ export const CAMPOS_PROTEGIDOS = [
   "saldoFgts",
   "scoreCredito",
   "restricoes",
+  // Prompt Z (7.3): dado pessoal de trabalhador
+  "cpf",
+  "pis",
+  "ctpsNumero",
+  "ctpsSerie",
+  "rg",
+  "salario",
+  "jornada",
+  "endereco",
+  "cep",
+  "bancoConta",
+  "bancoAgencia",
+  "pixChave",
 ] as const;
 
 /** Marca que substitui o valor protegido fora de uma entrada `de → para`. */

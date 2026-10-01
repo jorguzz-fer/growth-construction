@@ -21,6 +21,7 @@ export type Modulo =
   | "Receitas"
   | "Despesas"
   | "Conciliação de Caixa"
+  | "Pessoas"
   | "Reports"
   | "Backup"
   | "Config";
@@ -74,7 +75,13 @@ export const SCREENS: Screen[] = [
   // rota: é chave de permissão (sem página própria).
   { id: "conciliacao", label: "Conciliação — ajustar e desfazer", modulo: "Conciliação de Caixa" },
   { id: "estoque", label: "Controle de Estoques", modulo: "Despesas" },
-  { id: "ponto", label: "Controle de Ponto", modulo: "Despesas" },
+  // Prompt Z — módulo Pessoas. "ponto" saiu (tela extinta; a chave gravada em
+  // permissões antigas sobra no JSON sem efeito). As duas telas "dados" são
+  // permissão de CAMPO (BM-3): nascem só com owner/admin — ver TELAS_SENSIVEIS.
+  { id: "funcionarios", label: "Funcionários", modulo: "Pessoas" },
+  { id: "funcionariosdados", label: "Funcionários — endereço, salário, jornada, banco e dependentes", modulo: "Pessoas" },
+  { id: "funcionariosaso", label: "Funcionários — ASO (dado de saúde)", modulo: "Pessoas" },
+  { id: "equipes", label: "Equipes de Projetos", modulo: "Pessoas" },
   { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },
   { id: "usuarios", label: "Usuários & Acessos", modulo: "Config" },
   { id: "acessos", label: "Gestão de Acessos", modulo: "Config" },
@@ -146,7 +153,7 @@ export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
  * admin").
  */
-export const TELAS_SENSIVEIS = new Set(["clientesdados"]);
+export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso"]);
 
 export interface OpcoesPermissao {
   /**
