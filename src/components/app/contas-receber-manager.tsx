@@ -214,7 +214,7 @@ function ContaRow({
   };
   if (edit) {
     return (
-      <TR>
+      <TR id={`conta-${c.id}`}>
         <TD colSpan={7}>
           <form
             onSubmit={(e) => {
@@ -275,7 +275,7 @@ function ContaRow({
   }
   return (
     <>
-    <TR>
+    <TR id={`conta-${c.id}`}>
       <TD className="whitespace-nowrap">{c.projectName}</TD>
       <TD>{c.tipo}</TD>
       <TD className="max-w-[220px] truncate">{c.descricao ?? c.unitCode ?? "—"}</TD>

@@ -137,7 +137,7 @@ export function ymdNumero(s: string | null | undefined): number | null {
   return Number(m[3]) * 10000 + Number(m[1]) * 100 + Number(m[2]);
 }
 
-function diasEntre(deYmd: number, ateYmd: number): number {
+export function diasEntre(deYmd: number, ateYmd: number): number {
   const d = (n: number) => new Date(Date.UTC(Math.floor(n / 10000), Math.floor((n % 10000) / 100) - 1, n % 100));
   return Math.max(0, Math.round((d(ateYmd).getTime() - d(deYmd).getTime()) / 86400000));
 }
