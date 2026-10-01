@@ -3387,7 +3387,8 @@ export async function getIndicadoresObra(
     ? await db
         .select()
         .from(schema.servicos)
-        .where(eq(schema.servicos.projectId, projectId))
+        // Prompt AA, 8.3: tenant explícito no SQL (antes vinha só pelo projeto).
+        .where(and(eq(schema.servicos.tenantId, tenantId), eq(schema.servicos.projectId, projectId)))
         .orderBy(asc(schema.servicos.ordem))
     : [];
   const servicoIds = servicoRows.map((s) => s.id);
@@ -3396,7 +3397,9 @@ export async function getIndicadoresObra(
       ? await db
           .select()
           .from(schema.medicaoServicos)
-          .where(eq(schema.medicaoServicos.tenantId, tenantId))
+          // Prompt AA, 8.2/8.4: só as medições DESTES serviços, no SQL — antes
+          // vinha a tabela inteira do tenant e o filtro era em memória.
+          .where(and(eq(schema.medicaoServicos.tenantId, tenantId), inArray(schema.medicaoServicos.servicoId, servicoIds)))
       : [];
 
   const num = (v: unknown) => Number(v) || 0;
@@ -3564,6 +3567,25 @@ export interface StatusProjeto {
   metragem: number;
   custoPorM2: number;
   receitaPorM2: number;
+  /**
+   * Prompt AA (2.3.3, 4-B): o que os números acima somam, para o cartão
+   * DECLARAR — nenhum número muda por causa destes campos.
+   */
+  composicao: {
+    /** Quantas versões Orçamento entram no denominador de "Executado". */
+    orcamentos: number;
+    /** Entradas de caixa de versões que NÃO são a Atual, já somadas em "recebido". */
+    caixaForaDaAtual: number;
+    /** Projetos sem versão Atual (não entram em executado nem na margem). */
+    semAtual: number;
+  };
+  /** 4-B.5: a leitura do Orçamento falhou — "Executado" não tem denominador. */
+  erroOrcamento: boolean;
+}
+
+/** Prompt AA, 8.5 — razão com o guard de sempre (denominador ≤ 0 → 0). */
+export function razao(n: number, d: number): number {
+  return d > 0 ? n / d : 0;
 }
 
 /**
@@ -3572,6 +3594,10 @@ export interface StatusProjeto {
  *
  * Quando `projectIds` traz mais de um projeto, os valores são somados e os
  * percentuais recalculados a partir dos totais — nunca somando percentuais.
+ *
+ * Prompt AA, 8.2/8.3: tudo é filtrado NO SQL, com o tenant explícito — antes
+ * vinham `project`, `version`, `cash_entry` e `despesa` do tenant inteiro e o
+ * recorte era em memória. Os resultados são os mesmos (teste-oráculo).
  */
 export async function getStatusProjeto(
   tenantId: string,
@@ -3584,62 +3610,72 @@ export async function getStatusProjeto(
       margemContribuicao: 0, pctMargem: 0,
       receitaAtual: 0, custoVariavel: 0, despesaVariavel: 0,
       metragem: 0, custoPorM2: 0, receitaPorM2: 0,
+      composicao: { orcamentos: 0, caixaForaDaAtual: 0, semAtual: 0 },
+      erroOrcamento: false,
     };
   }
 
-  const [projs, versoes] = await Promise.all([
-    db.select().from(schema.projects).where(eq(schema.projects.tenantId, tenantId)),
-    db.select().from(schema.versions).where(eq(schema.versions.tenantId, tenantId)),
+  const [projs, versoesProj] = await Promise.all([
+    db.select().from(schema.projects)
+      .where(and(eq(schema.projects.tenantId, tenantId), inArray(schema.projects.id, projectIds))),
+    db.select().from(schema.versions)
+      .where(and(eq(schema.versions.tenantId, tenantId), inArray(schema.versions.projectId, projectIds))),
   ]);
-  const doProjeto = <T extends { projectId: string }>(xs: T[]) =>
-    xs.filter((x) => projectIds.includes(x.projectId));
 
   const num = (v: unknown) => Number(v) || 0;
 
   // Receita prevista = valor global de venda informado no cadastro do projeto.
-  const receitaPrevista = projs
-    .filter((p) => projectIds.includes(p.id))
-    .reduce((a, p) => a + num(p.valorConstrucao) + num(p.valorTerreno), 0);
+  const receitaPrevista = projs.reduce((a, p) => a + num(p.valorConstrucao) + num(p.valorTerreno), 0);
 
-  const versoesProj = doProjeto(versoes);
   const idsAtual = versoesProj.filter((v) => v.kind === "atual").map((v) => v.id);
   const idsBudget = versoesProj.filter((v) => v.kind === "budget").map((v) => v.id);
   const todosIds = versoesProj.map((v) => v.id);
 
+  // 4-B.5: a falha do Orçamento não vira zero em silêncio — vira estado.
+  let erroOrcamento = false;
   const [cashRows, despRows, budgetRows] = await Promise.all([
     todosIds.length
       ? db.select({ valor: schema.cashEntries.valor, versionId: schema.cashEntries.versionId })
           .from(schema.cashEntries)
-          .where(eq(schema.cashEntries.tenantId, tenantId))
+          .where(and(eq(schema.cashEntries.tenantId, tenantId), inArray(schema.cashEntries.versionId, todosIds)))
       : Promise.resolve([]),
-    db.select({
-        valor: schema.despesas.valor,
-        categoriaDre: schema.despesas.categoriaDre,
-        cancelado: schema.despesas.cancelado,
-        versionId: schema.despesas.versionId,
-      })
-      .from(schema.despesas)
-      .where(eq(schema.despesas.tenantId, tenantId)),
-    db.select({ valor: schema.budgetLines.valor, versionId: schema.budgetLines.versionId })
-      .from(schema.budgetLines)
-      .where(and(eq(schema.budgetLines.tenantId, tenantId), eq(schema.budgetLines.kind, "despesa")))
-      .catch(() => []),
+    idsAtual.length
+      ? db.select({
+          valor: schema.despesas.valor,
+          categoriaDre: schema.despesas.categoriaDre,
+          cancelado: schema.despesas.cancelado,
+          versionId: schema.despesas.versionId,
+        })
+        .from(schema.despesas)
+        .where(and(eq(schema.despesas.tenantId, tenantId), inArray(schema.despesas.versionId, idsAtual)))
+      : Promise.resolve([]),
+    idsBudget.length
+      ? db.select({ valor: schema.budgetLines.valor, versionId: schema.budgetLines.versionId })
+          .from(schema.budgetLines)
+          .where(and(
+            eq(schema.budgetLines.tenantId, tenantId),
+            eq(schema.budgetLines.kind, "despesa"),
+            inArray(schema.budgetLines.versionId, idsBudget),
+          ))
+          .catch((e: unknown) => {
+            console.error("[dashboard] falha ao ler o Orçamento (budget_line)", e);
+            erroOrcamento = true;
+            return [] as { valor: string; versionId: string }[];
+          })
+      : Promise.resolve([]),
   ]);
 
   // Recebido = entradas de caixa das versões do projeto.
-  const recebido = cashRows
-    .filter((c) => todosIds.includes(c.versionId) && num(c.valor) > 0)
-    .reduce((a, c) => a + num(c.valor), 0);
+  const entradas = cashRows.filter((c) => num(c.valor) > 0);
+  const recebido = entradas.reduce((a, c) => a + num(c.valor), 0);
+  const atuais = new Set(idsAtual);
+  const caixaForaDaAtual = entradas.filter((c) => !atuais.has(c.versionId)).reduce((a, c) => a + num(c.valor), 0);
 
   // Despesa prevista = planejamento da versão Budget.
-  const despesaPrevista = budgetRows
-    .filter((b) => idsBudget.includes(b.versionId))
-    .reduce((a, b) => a + num(b.valor), 0);
+  const despesaPrevista = budgetRows.reduce((a, b) => a + num(b.valor), 0);
 
   // Executado = despesas lançadas na versão Atual, exceto canceladas.
-  const daAtual = despRows.filter(
-    (d) => idsAtual.includes(d.versionId) && !d.cancelado,
-  );
+  const daAtual = despRows.filter((d) => !d.cancelado);
   const executado = daAtual.reduce((a, d) => a + num(d.valor), 0);
   const porCat = (cat: string) =>
     daAtual.filter((d) => d.categoriaDre === cat).reduce((a, d) => a + num(d.valor), 0);
@@ -3648,9 +3684,13 @@ export async function getStatusProjeto(
 
   // Receita realizada da versão Atual (mesma fonte da DRE).
   let receitaAtual = 0;
+  let semAtual = 0;
   for (const pid of projectIds) {
     const vid = versoesProj.find((v) => v.projectId === pid && v.kind === "atual")?.id;
-    if (!vid) continue;
+    if (!vid) {
+      if (projs.some((p) => p.id === pid)) semAtual++;
+      continue;
+    }
     const mensal = await getMonthlyRevenue(vid, pid);
     receitaAtual += Object.values(mensal).reduce((a, v) => a + v, 0);
   }
@@ -3658,12 +3698,9 @@ export async function getStatusProjeto(
   // Definição de negócio confirmada pelo cliente:
   // Margem de Contribuição = Receita − Custo Variável − Despesa Variável.
   const margemContribuicao = receitaAtual - custoVariavel - despesaVariavel;
-  const razao = (n: number, d: number) => (d > 0 ? n / d : 0);
 
   // Metragem total dos projetos selecionados (cadastro do projeto).
-  const metragem = projs
-    .filter((p) => projectIds.includes(p.id))
-    .reduce((a, p) => a + num(p.metragem), 0);
+  const metragem = projs.reduce((a, p) => a + num(p.metragem), 0);
 
   return {
     receitaPrevista,
@@ -3681,6 +3718,8 @@ export async function getStatusProjeto(
     metragem,
     custoPorM2: razao(executado, metragem),
     receitaPorM2: razao(receitaAtual, metragem),
+    composicao: { orcamentos: idsBudget.length, caixaForaDaAtual, semAtual },
+    erroOrcamento,
   };
 }
 

@@ -50,21 +50,51 @@ function KPI({
  * painel diz o que falta em vez de exibir valor inventado.
  */
 export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
+  // Prompt AA, 3.2/3.5: sem serviço cadastrado, nada de zero — estado próprio.
+  const semServico = ind.qtdServicos === 0;
+  const SEM_SERVICO = "depende do cadastro de serviços (medição por serviço, ainda não usada — Prompt V)";
+  const semFinanciamento = ind.financiamentoConstrucao === 0 && ind.financiamentoTerreno === 0;
   return (
     <div className="mt-6 space-y-4">
+      {/* Prompt AA, 2.3.3: o painel declara o próprio recorte. */}
+      <p className="text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="obra">
+        <strong className="text-[var(--color-ink2)]">Indicadores da obra</strong>: cadastro do projeto e medição por serviço. Não seguem o
+        seletor de versão nem o de período.
+      </p>
       {/* Aquisição e financiamento */}
       <div>
         <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
           Aquisição e financiamento
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KPI label="Financiado — construção" value={brl0(ind.financiamentoConstrucao)} />
-          <KPI label="Financiado — terreno" value={brl0(ind.financiamentoTerreno)} />
-          <KPI label="Total da aquisição" value={brl0(ind.totalAquisicao)} />
+          <KPI
+            label="Financiado — construção"
+            value={ind.financiamentoConstrucao > 0 ? brl0(ind.financiamentoConstrucao) : "—"}
+            hint={ind.financiamentoConstrucao > 0 ? "cadastro do projeto" : "informe no cadastro do projeto"}
+            tone={ind.financiamentoConstrucao > 0 ? "normal" : "muted"}
+          />
+          <KPI
+            label="Financiado — terreno"
+            value={ind.financiamentoTerreno > 0 ? brl0(ind.financiamentoTerreno) : "—"}
+            hint={ind.financiamentoTerreno > 0 ? "cadastro do projeto" : "informe no cadastro do projeto"}
+            tone={ind.financiamentoTerreno > 0 ? "normal" : "muted"}
+          />
+          <KPI
+            label="Total da aquisição"
+            value={semFinanciamento ? "—" : brl0(ind.totalAquisicao)}
+            hint={semFinanciamento ? "informe no cadastro do projeto" : "construção + terreno, do cadastro"}
+            tone={semFinanciamento ? "muted" : "normal"}
+          />
           <KPI
             label="Saldo de financiamento"
-            value={brl0(ind.saldoFinanciamento)}
-            hint="ainda não liberado"
+            value={semFinanciamento && !ind.temMedicao ? "—" : brl0(ind.saldoFinanciamento)}
+            hint={
+              ind.temMedicao
+                ? "ainda não liberado"
+                : semFinanciamento
+                  ? "informe no cadastro do projeto"
+                  : "sem medição: é o financiamento da construção do cadastro, não um saldo apurado"
+            }
             tone={ind.saldoFinanciamento > 0 ? "normal" : "muted"}
           />
         </div>
@@ -83,8 +113,9 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KPI
             label="Custo total dos serviços"
-            value={brl0(ind.custoTotalServicos)}
-            hint={`${ind.qtdServicos} serviço(s)`}
+            value={semServico ? "—" : brl0(ind.custoTotalServicos)}
+            hint={semServico ? SEM_SERVICO : `${ind.qtdServicos} serviço(s)`}
+            tone={semServico ? "muted" : "normal"}
           />
           <KPI
             label="BDI"
@@ -92,8 +123,8 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
             hint={ind.pctBdi > 0 ? undefined : "informe no cadastro do projeto"}
             tone={ind.pctBdi > 0 ? "normal" : "muted"}
           />
-          <KPI label="Valor do BDI" value={brl0(ind.valorBdi)} />
-          <KPI label="Custo total com BDI" value={brl0(ind.custoTotalComBdi)} />
+          <KPI label="Valor do BDI" value={semServico ? "—" : brl0(ind.valorBdi)} hint={semServico ? SEM_SERVICO : undefined} tone={semServico ? "muted" : "normal"} />
+          <KPI label="Custo total com BDI" value={semServico ? "—" : brl0(ind.custoTotalComBdi)} hint={semServico ? SEM_SERVICO : undefined} tone={semServico ? "muted" : "normal"} />
         </div>
       </div>
 
@@ -128,8 +159,15 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
           />
           <KPI
             label="Liberação acumulada"
-            value={brl0(ind.liberacaoAcumulada)}
-            hint={`${pct(ind.pctRecebido * 100)} do financiado`}
+            value={semFinanciamento && !ind.temMedicao ? "—" : brl0(ind.liberacaoAcumulada)}
+            hint={
+              ind.temMedicao
+                ? `${pct(ind.pctRecebido * 100)} do financiado`
+                : semFinanciamento
+                  ? "informe no cadastro do projeto"
+                  : "sem medição: é o financiamento do terreno do cadastro, não uma liberação registrada"
+            }
+            tone={ind.temMedicao ? "normal" : "muted"}
           />
           <KPI
             label="Custo estimado do mês"
@@ -147,7 +185,7 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
           />
           <KPI
             label="Custo referencial"
-            value={brl0(ind.custoReferencial)}
+            value={ind.custoReferencial > 0 ? brl0(ind.custoReferencial) : "—"}
             hint={
               ind.cub > 0
                 ? `CUB ${brl0(ind.cub)} × ${ind.metragem} m²`
@@ -157,9 +195,9 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
           />
           <KPI
             label="Serviços fora dos limites"
-            value={String(ind.servicosForaDosLimites)}
-            hint="incidência fora da faixa aceitável"
-            tone={ind.servicosForaDosLimites > 0 ? "warn" : "good"}
+            value={semServico ? "—" : String(ind.servicosForaDosLimites)}
+            hint={semServico ? SEM_SERVICO : "incidência fora da faixa aceitável"}
+            tone={semServico ? "muted" : ind.servicosForaDosLimites > 0 ? "warn" : "good"}
           />
         </div>
       </div>
@@ -177,35 +215,62 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
  *   %MC = MC ÷ Receita Total do Projeto (valor global do cadastro)
  */
 export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
+  const { orcamentos, caixaForaDaAtual } = st.composicao;
+  const deOrcamento =
+    orcamentos === 0
+      ? "a obra não tem Orçamento"
+      : orcamentos === 1
+        ? `de ${brl0(st.despesaPrevista)} no Orçamento`
+        : `de ${brl0(st.despesaPrevista)} — soma de ${orcamentos} Orçamentos`;
   return (
     <div className="mt-6 space-y-4">
+      {/* Prompt AA, 2.3.3 e 4-B.4: o painel e cada cartão declaram a base. */}
+      <p className="text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="status">
+        <strong className="text-[var(--color-ink2)]">Status e margem</strong>: não seguem o seletor de versão nem o de período. Somam,
+        do começo da obra até hoje, as entradas de caixa de todas as versões, as despesas da Atual e o Orçamento; os percentuais
+        de entradas e de margem são sobre a receita do <strong>cadastro</strong> do projeto (construção + terreno).
+      </p>
       <div>
         <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">
           Status atual
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KPI
-            label="Recebido"
+            label="Entradas de caixa"
             value={brl0(st.recebido)}
-            hint={`de ${brl0(st.receitaPrevista)} previstos`}
+            hint={`regime de caixa, toda entrada (não só venda), conciliada ou não${
+              caixaForaDaAtual > 0 ? ` · inclui ${brl0(caixaForaDaAtual)} gravados em versões que não são a Atual` : ""
+            }`}
           />
           <KPI
-            label="% recebido"
+            label="% entradas de caixa"
             value={st.receitaPrevista > 0 ? pct(st.pctRecebido * 100) : "—"}
-            hint="sobre a receita do cadastro"
+            hint={st.receitaPrevista > 0 ? `sobre ${brl0(st.receitaPrevista)} da receita do cadastro` : "receita do cadastro não informada"}
             tone={st.receitaPrevista > 0 ? "good" : "muted"}
           />
           <KPI
             label="Executado"
             value={brl0(st.executado)}
-            hint={`de ${brl0(st.despesaPrevista)} no Budget`}
+            hint={`despesas da Atual, sem canceladas · ${st.erroOrcamento ? "não foi possível ler o Orçamento" : deOrcamento}`}
           />
           <KPI
             label="% executado"
-            value={st.despesaPrevista > 0 ? pct(st.pctExecutado * 100) : "—"}
-            hint="sobre a despesa planejada"
+            value={st.erroOrcamento ? "erro" : st.despesaPrevista > 0 ? pct(st.pctExecutado * 100) : "—"}
+            hint={
+              st.erroOrcamento
+                ? "falha ao ler o Orçamento — não é zero; recarregue a página"
+                : orcamentos > 1
+                  ? `sobre a soma de ${orcamentos} Orçamentos`
+                  : orcamentos === 0
+                    ? "a obra não tem Orçamento"
+                    : st.despesaPrevista === 0
+                      ? "o Orçamento não tem despesa planejada"
+                      : "sobre a despesa planejada no Orçamento"
+            }
             tone={
-              st.despesaPrevista === 0
+              st.erroOrcamento
+                ? "warn"
+                : st.despesaPrevista === 0
                 ? "muted"
                 : st.pctExecutado > 1
                   ? "warn"
@@ -223,13 +288,13 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
           <KPI
             label="Margem de contribuição"
             value={brl0(st.margemContribuicao)}
-            hint="receita − custo var. − despesa var."
+            hint="receita da Atual (vencimento, todo o horizonte) − custo e despesa variáveis lançados na Atual (qualquer competência)"
             tone={st.margemContribuicao >= 0 ? "good" : "warn"}
           />
           <KPI
             label="% margem de contribuição"
             value={st.receitaPrevista > 0 ? pct(st.pctMargem * 100) : "—"}
-            hint="sobre a receita total do projeto"
+            hint={st.receitaPrevista > 0 ? "sobre a receita do cadastro do projeto" : "receita do cadastro não informada"}
             tone={
               st.receitaPrevista === 0
                 ? "muted"
@@ -241,13 +306,13 @@ export function StatusProjetoPanel({ st }: { st: StatusProjeto }) {
           <KPI
             label="Custo por m²"
             value={st.metragem > 0 ? brl0(st.custoPorM2) : "—"}
-            hint={st.metragem > 0 ? `${st.metragem} m²` : "informe a metragem"}
+            hint={st.metragem > 0 ? `despesas da Atual ÷ ${st.metragem} m² do cadastro` : "informe a metragem"}
             tone={st.metragem > 0 ? "normal" : "muted"}
           />
           <KPI
             label="Receita por m²"
             value={st.metragem > 0 ? brl0(st.receitaPorM2) : "—"}
-            hint={st.metragem > 0 ? `${st.metragem} m²` : "informe a metragem"}
+            hint={st.metragem > 0 ? `receita da Atual ÷ ${st.metragem} m² do cadastro` : "informe a metragem"}
             tone={st.metragem > 0 ? "normal" : "muted"}
           />
         </div>

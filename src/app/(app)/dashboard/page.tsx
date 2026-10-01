@@ -1,10 +1,18 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { totalPendente } from "@/lib/contas-pagar-regras";
 import { db, schema } from "@/lib/db";
 import { getTenantContext, type Version } from "@/lib/context";
 import { avisoNoSeletor } from "@/lib/situacao-versao";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { somarResumos, type Summary } from "@/lib/dashboard-resumo";
+import {
+  DEFINICAO_DO_KPI,
+  MAX_VERSOES_DASHBOARD,
+  ROTULO_DA_NATUREZA,
+  rotuloDaVersao,
+  selecaoDoDashboard,
+  textoDoRecorte,
+} from "@/lib/dashboard-tela";
 import {
   TODOS_OS_PROJETOS,
   lerEscopoDeRelatorio,
@@ -50,7 +58,8 @@ async function versionSummary(
     db
       .select({ valor: schema.cashEntries.valor, data: schema.cashEntries.data })
       .from(schema.cashEntries)
-      .where(eq(schema.cashEntries.versionId, version.id)),
+      // Prompt AA, 8.3: tenant explícito no SQL.
+      .where(and(eq(schema.cashEntries.tenantId, version.tenantId), eq(schema.cashEntries.versionId, version.id))),
   ]);
   // Filtro de período (item 3): receita por mês e realizado por data.
   const revenue = hasRange
@@ -123,11 +132,15 @@ export default async function DashboardPage({
   // Uma obra: as versões DELA, selecionáveis. Escopo: uma coluna por TIPO de
   // versão, somando as obras do escopo (decisão de 30/09).
   const versoes = project ? await getVersionsDoProjeto(ctx.tenant.id, project.id) : [];
+  // Prompt AA, 1.2: padrão = Atual + o Orçamento e a Previsão MAIS RECENTES
+  // que não são cópia (antes: as três mais antigas). 1.4: o que passa do
+  // limite é informado, não descartado em silêncio.
   const wanted = (sp.vs ?? "").split(",").filter(Boolean);
-  const validWanted = versoes.filter((v) => wanted.includes(v.id)).slice(0, 3);
-  const selected = validWanted.length > 0 ? validWanted : versoes.slice(0, 3);
+  const { selecionadas: selected, descartadas } = selecaoDoDashboard(versoes, wanted);
 
   let summaries: Summary[];
+  // Consolidado: em quantas obras cada coluna é feita (1.6 / cobertura).
+  const obrasPorTipo: Record<string, number> = {};
   if (project) {
     summaries = await Promise.all(selected.map((v) => versionSummary(project.id, v, de, ate)));
   } else {
@@ -136,6 +149,7 @@ export default async function DashboardPage({
     );
     const colunas = await Promise.all(
       TIPOS_CONSOLIDADOS.map(async (kind) => {
+        obrasPorTipo[kind] = versoesPorObra.filter(({ vs }) => vs.some((x) => x.kind === kind)).length;
         const resumos = await Promise.all(
           versoesPorObra.flatMap(({ p, vs }) => {
             // A mais antiga do tipo, como nas demais telas.
@@ -207,16 +221,35 @@ export default async function DashboardPage({
   }
 
   const kpis = [
-    { icon: "🏢", label: "VGV total", get: (s: Summary) => brlk(s.vgv) },
-    { icon: "↗", label: "Realizado acum.", get: (s: Summary) => brlk(s.realizado) },
-    { icon: "⏱", label: "A receber", get: (s: Summary) => brlk(s.aReceber) },
+    { icon: "🏢", label: "VGV total", def: DEFINICAO_DO_KPI.vgv, get: (s: Summary) => brlk(s.vgv) },
+    { icon: "↗", label: "Realizado acum.", def: DEFINICAO_DO_KPI.realizado, get: (s: Summary) => brlk(s.realizado) },
+    { icon: "⏱", label: "A receber", def: DEFINICAO_DO_KPI.aReceber, get: (s: Summary) => brlk(s.aReceber) },
     {
       icon: "⬇",
       label: "A pagar",
+      def: DEFINICAO_DO_KPI.aPagar,
       // Contas a pagar são exclusivas da versão Atual (caixa real).
       get: (s: Summary) => (s.version.kind === "atual" ? brlk(s.aPagar) : "—"),
     },
   ];
+  // 4.1 — cada coluna declara a sua definição: só as das naturezas em tela.
+  const temAtual = summaries.some((s) => s.version.kind === "atual");
+  const temPlanejamento = summaries.some((s) => s.version.kind !== "atual");
+  // 1.1 — natureza como título; o nome digitado como complemento.
+  const cabecalho = (s: Summary) =>
+    project
+      ? rotuloDaVersao(s.version)
+      : { titulo: ROTULO_DA_NATUREZA[s.version.kind] ?? s.version.kind, complemento: `soma de ${obrasPorTipo[s.version.kind] ?? 0} obra(s)`, copia: false };
+  const recorte = textoDoRecorte({
+    projetos: projetosDaTela.length,
+    nomeDoProjeto: project?.name,
+    versoes: summaries.map((s) => {
+      const c = cabecalho(s);
+      return project ? `${c.titulo} (“${c.complemento}”)` : `${c.titulo} (${c.complemento})`;
+    }),
+    de,
+    ate,
+  });
 
   return (
     <>
@@ -227,11 +260,7 @@ export default async function DashboardPage({
             : `${rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados")} · ${ctx.tenant.name}`
         }
         title="Dashboard"
-        subtitle={
-          project
-            ? "Visão geral do projeto — independente da versão ativa"
-            : `Visão geral consolidada — ${projetosDaTela.length} projeto(s) somado(s), por tipo de versão`
-        }
+        subtitle={project ? "Visão geral do projeto" : "Visão geral consolidada, por tipo de versão"}
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <ProjectPicker
@@ -243,16 +272,27 @@ export default async function DashboardPage({
               scopeOptions
             />
             <DateRangeFilter de={de} ate={ate} />
-            {project && (
-              <VersionMultiSelect
-                versions={versoes.map((v) => ({ id: v.id, label: v.label, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora) }))}
-                selected={selected.map((v) => v.id)}
-              />
-            )}
           </div>
         }
       />
       {project && <LembrarProjeto projectId={project.id} />}
+      {/* Prompt AA, 1.6 — o recorte escrito, e o seletor de versões logo abaixo do título. */}
+      <div className="mb-4 space-y-2">
+        <p className="text-[13px] text-[var(--color-ink2)]" data-recorte>
+          {recorte}
+        </p>
+        {project && versoes.length > 0 && (
+          <VersionMultiSelect
+            versions={versoes.map((v) => {
+              const r = rotuloDaVersao(v);
+              return { id: v.id, label: `${r.titulo} · ${v.label}`, color: v.color, aviso: avisoNoSeletor(v, rascunhoFora), marca: r.copia ? "cópia" : null };
+            })}
+            selected={selected.map((v) => v.id)}
+            max={MAX_VERSOES_DASHBOARD}
+            noLimite="avisar"
+          />
+        )}
+      </div>
       {doEscopo && doEscopo.semSituacao > 0 && (
         <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
           {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as
@@ -270,6 +310,21 @@ export default async function DashboardPage({
       ) : (
       <>
 
+      {descartadas > 0 && (
+        <p className="mb-3 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]" role="status">
+          {descartadas} versão(ões) pedida(s) ficaram fora: o cartão mostra no máximo {MAX_VERSOES_DASHBOARD}.
+        </p>
+      )}
+      {/* Prompt AA, 1.3 — projeto sem versões: a ausência é declarada. */}
+      {project && versoes.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-center text-[var(--color-ink3)]" data-sem-versoes>
+            {project.name} não possui versões: os quatro indicadores por versão não são montados. Nenhuma versão de outro projeto
+            é usada no lugar.
+          </CardContent>
+        </Card>
+      ) : (
+      <>
       {/* KPIs por versão */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
@@ -284,9 +339,11 @@ export default async function DashboardPage({
                     <div
                       className="font-[family-name:var(--font-mono)] text-[10px]"
                       style={{ color: s.version.color }}
+                      title={cabecalho(s).complemento}
                     >
-                      {s.version.label}
+                      {cabecalho(s).titulo}
                     </div>
+                    <div className="text-[10px] text-[var(--color-ink4)]">{cabecalho(s).complemento}</div>
                     <div
                       className="text-lg font-semibold"
                       style={{ color: s.version.color }}
@@ -296,10 +353,19 @@ export default async function DashboardPage({
                   </div>
                 ))}
               </div>
+              <div className="mt-2 space-y-0.5 text-[10.5px] leading-snug text-[var(--color-ink4)]" data-definicao>
+                {temAtual && <p>{k.def.atual}</p>}
+                {temPlanejamento && <p>{k.def.planejamento}</p>}
+              </div>
             </CardContent>
           </Card>
         ))}
       </section>
+      <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="kpis">
+        <strong className="text-[var(--color-ink2)]">Os quatro de cima</strong> seguem o seletor de versão e o de período.
+      </p>
+      </>
+      )}
 
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />
