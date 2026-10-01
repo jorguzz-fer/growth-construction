@@ -19,6 +19,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { UnitActions } from "@/components/app/unit-actions";
 import { UnidadesImportExport } from "@/components/app/unidades-import-export";
 import { AccessDenied } from "@/components/app/access-denied";
+import { avisoDeTelaRemovida } from "@/lib/telas-removidas";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ const STATUS_FILTERS = ["Disponivel", "Reservado", "Vendido"] as const;
 export default async function UnidadesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; proj?: string; project?: string; salva?: string; excluida?: string }>;
+  searchParams: Promise<{ status?: string; proj?: string; project?: string; salva?: string; excluida?: string; de?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -41,10 +42,20 @@ export default async function UnidadesPage({
 
   // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
   // escolhida ou a tela pede a escolha — nunca o primeiro projeto.
+  // Prompt AN (Parte 6): quem chegou pela URL da Conferência de planos lê o porquê.
+  const avisoRemovida = avisoDeTelaRemovida(sp.de);
+  const linhaDoAviso = avisoRemovida ? (
+    <p role="status" className="mb-4 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-surface2)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+      {avisoRemovida}
+    </p>
+  ) : null;
   const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
   if (selecao.tipo !== "projeto") {
     return (
-      <PedirProjeto titulo="Unidades" projetos={ctx.projects} oQue="ver as unidades" />
+      <>
+        {linhaDoAviso}
+        <PedirProjeto titulo="Unidades" projetos={ctx.projects} oQue="ver as unidades" />
+      </>
     );
   }
   const project = selecao.projeto;
@@ -95,6 +106,7 @@ export default async function UnidadesPage({
 
   return (
     <>
+      {linhaDoAviso}
       <PageHeader
         eyebrow={`${project.name} · Atual`}
         title="Unidades"

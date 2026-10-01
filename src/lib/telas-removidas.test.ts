@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { TELAS_REMOVIDAS, avisoDeTelaRemovida, redirecionamentosDeTelasRemovidas } from "./telas-removidas";
-import { SCREEN_IDS, defaultPermissions, effectivePermissions, screenIdOfPath, type PermMatrix } from "./permissions";
+import { SCREEN_IDS, defaultPermissions, effectivePermissions, overridesDivergentes, screenIdOfPath, type PermMatrix } from "./permissions";
 import { NAV_MENU } from "./nav-menu";
 
 describe("Prompt AL · Parte 1 — a tela Acesso Contabilidade sai", () => {
@@ -10,7 +10,12 @@ describe("Prompt AL · Parte 1 — a tela Acesso Contabilidade sai", () => {
     for (const r of redirecionamentosDeTelasRemovidas()) {
       expect(cfg).toContain(`{ source: "${r.source}", destination: "${r.destination}", permanent: false }`);
     }
-    expect(redirecionamentosDeTelasRemovidas().map((r) => r.source)).toEqual(["/contabilidade", "/contabilidade/:path*"]);
+    expect(redirecionamentosDeTelasRemovidas().map((r) => r.source)).toEqual([
+      "/contabilidade",
+      "/contabilidade/:path*",
+      "/diagnostico/planos-recebiveis",
+      "/diagnostico/planos-recebiveis/:path*",
+    ]);
     expect(avisoDeTelaRemovida("contabilidade")).toMatch(/Acesso Contabilidade saiu/);
     expect(avisoDeTelaRemovida(["contabilidade"])).toBe(TELAS_REMOVIDAS.contabilidade.aviso);
     expect(avisoDeTelaRemovida(undefined)).toBeNull();
@@ -58,5 +63,49 @@ describe("Prompt AL · Parte 1 — a tela Acesso Contabilidade sai", () => {
       const p = defaultPermissions(role);
       expect(Object.keys(p).sort()).toEqual([...SCREEN_IDS].sort());
     }
+  });
+});
+
+describe("Prompt AN · Partes 5 e 6 — Conferência com id próprio; a de planos sai", () => {
+  it("16a — /diagnostico/planos-recebiveis não existe mais, redireciona para Unidades com o aviso, e nenhum menu aponta para ela", () => {
+    expect(existsSync("src/app/(app)/diagnostico/planos-recebiveis/page.tsx")).toBe(false);
+    expect(avisoDeTelaRemovida("planos-recebiveis")).toMatch(/Conferência de planos saiu.*plano de pagamento da unidade/);
+    expect(NAV_MENU.flatMap((m) => m.items).some((i) => i.href.startsWith("/diagnostico/"))).toBe(false);
+  });
+
+  it("17 — a Conferência mora em /conferencia, tem id em SCREENS e passa pelo enforcement central; a URL antiga redireciona", () => {
+    expect(existsSync("src/app/(app)/conferencia/page.tsx")).toBe(true);
+    expect(existsSync("src/app/(app)/diagnostico/categorias-invertidas/page.tsx")).toBe(false);
+    expect(screenIdOfPath("/conferencia")).toBe("conferencia");
+    expect(readFileSync("next.config.ts", "utf8")).toContain('{ source: "/diagnostico/categorias-invertidas", destination: "/conferencia", permanent: false }');
+  });
+
+  it("18 — a checagem própria continua: a página exige conferencia E despesas", () => {
+    const src = readFileSync("src/app/(app)/conferencia/page.tsx", "utf8");
+    expect(src).toContain('can(ctx.perms, "conferencia", "ver")');
+    expect(src).toContain('can(ctx.perms, "despesas", "ver")');
+  });
+
+  it("19 — quem alcançava continua alcançando: conferencia = despesas, célula a célula, para todo papel e override", () => {
+    const overrides: (PermMatrix | null)[] = [
+      null,
+      { despesas: { ver: false, criar: false, editar: false, excluir: false } },
+      { despesas: { ver: true, criar: false, editar: false, excluir: false } },
+      { despesas: { ver: true, criar: true, editar: true, excluir: true } },
+      // override gravado na própria chave não vale
+      { conferencia: { ver: true, criar: true, editar: true, excluir: true }, despesas: { ver: false, criar: false, editar: false, excluir: false } },
+    ];
+    for (const role of ["owner", "admin", "membro", "contador", "engenheiro"] as const)
+      for (const restrito of [false, true])
+        for (const o of overrides) {
+          const e = effectivePermissions(role, o, { membroRestrito: restrito });
+          expect(e.conferencia, `${role} ${JSON.stringify(o)}`).toEqual(e.despesas);
+        }
+  });
+
+  it("a tela que acompanha outra não é gravada como override", () => {
+    const m = defaultPermissions("membro");
+    m.conferencia = { ver: false, criar: false, editar: false, excluir: false };
+    expect(overridesDivergentes("membro", m)).not.toHaveProperty("conferencia");
   });
 });

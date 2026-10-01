@@ -68,8 +68,8 @@ exatamente as mesmas, sem duplicata.
 | Numeração de despesas | `/numeracao` | `numeracao` | Configurações |
 | Backup | `/backup` | `backup` | Configurações |
 | ~~Acesso do contador~~ | ~~`/contabilidade`~~ | ~~`contabilidade`~~ | **saiu no Prompt AL** — ver nota no fim |
-| Conferência de lançamentos | `/diagnostico/categorias-invertidas` | `despesas` | Configurações |
-| Conferência de planos | `/diagnostico/planos-recebiveis` | `unidades` | Configurações |
+| Conferência de lançamentos | `/conferencia` (era `/diagnostico/categorias-invertidas`) | `conferencia`, acompanha `despesas` (Prompt AN) | Configurações |
+| ~~Conferência de planos~~ | ~~`/diagnostico/planos-recebiveis`~~ | — | **saiu no Prompt AN**: a data impossível virou aviso no cadastro da unidade |
 
 As chaves de permissão são **as mesmas do menu antigo**, item a item (inclusive
 as três que não coincidem com a rota: Acerto e as duas conferências). O

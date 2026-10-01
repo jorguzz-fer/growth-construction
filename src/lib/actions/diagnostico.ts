@@ -19,7 +19,6 @@ import {
   type Pulada,
 } from "@/lib/conferencia-regras";
 import type { CategoriaDRE } from "@/lib/calc/constants";
-import { intervaloMeses } from "@/lib/calc/carencia";
 
 /**
  * Diagnóstico de lançamentos que violam as regras NOVAS.
@@ -287,6 +286,8 @@ export async function reclassificarItens(
             action: "despesa.reclassificar",
             entity: "despesa",
             entityId: d.id,
+            // A origem continua com o nome antigo de propósito: é o identificador
+            // que os registros já gravados usam (a tela agora mora em /conferencia).
             meta: { changes, origem: "diagnostico/categorias-invertidas", numDoc: d.numDoc },
           },
           tx,
@@ -300,131 +301,8 @@ export async function reclassificarItens(
     return { ok: false, error: "A reclassificação falhou e foi desfeita por inteiro: nenhum lançamento foi alterado. Tente de novo." };
   }
 
-  revalidatePath("/diagnostico/categorias-invertidas");
+  revalidatePath("/conferencia");
   revalidatePath("/despesas");
   revalidatePath("/dre");
   return { ok: true, selecionadas: alvos.length, alteradas, puladas };
-}
-
-export interface PlanoSuspeito {
-  unitId: string;
-  unitCode: string;
-  projectName: string;
-  status: string;
-  /** Data-base do plano: o "Ato" (ou o primeiro bloco preenchido). */
-  dataBase: string | null;
-  labelBase: string;
-  /** Vencimento da primeira parcela do bloco periódico seguinte. */
-  primeiraParcela: string | null;
-  labelPrimeira: string;
-  /** Meses entre a data-base e a primeira parcela. */
-  intervaloMeses: number;
-  /** Datas que o expansor produziria fora do calendário (ex.: 31 em abril). */
-  datasInvalidas: string[];
-}
-
-/**
- * Planos de pagamento cujo intervalo entre a data-base e a primeira mensal é
- * maior que a carência esperada (item 6.3), e planos cujo dia de vencimento não
- * existe em algum mês da série (item 6.2 / 2.4).
- *
- * Diagnóstico puro: **nenhuma data de recebível contratado é alterada aqui.**
- */
-export async function getPlanosSuspeitos(
-  carenciaEsperadaMeses = 1,
-): Promise<PlanoSuspeito[]> {
-  const ctx = await getTenantContext();
-  if (!ctx || !can(ctx.perms, "unidades", "ver")) return [];
-
-  const rows = await db
-    .select({
-      u: schema.units,
-      projectName: schema.projects.name,
-    })
-    .from(schema.units)
-    .innerJoin(schema.versions, eq(schema.units.versionId, schema.versions.id))
-    .innerJoin(schema.projects, eq(schema.versions.projectId, schema.projects.id))
-    .where(
-      and(eq(schema.units.tenantId, ctx.tenant.id), eq(schema.versions.kind, "atual")),
-    );
-
-  const out: PlanoSuspeito[] = [];
-  for (const r of rows) {
-    if (r.u.status !== "Vendido" || !r.u.paymentPlan) continue;
-    const p = r.u.paymentPlan as unknown as Record<string, Record<string, unknown>>;
-    const sec = (k: string) => p[k] ?? {};
-    const venc = (k: string) => {
-      const v = sec(k).venc;
-      return typeof v === "string" && v.trim() ? v : null;
-    };
-    const val = (k: string) => Number(sec(k).val) || 0;
-    const qtd = (k: string) => Math.max(1, Number(sec(k).n) || 1);
-
-    // Data-base: o primeiro bloco de entrada preenchido (Ato, depois Sinais).
-    const basesPossiveis: [string, string][] = [
-      ["AS", "Ato"],
-      ["S1", "Sinal 1"],
-      ["S2", "Sinal 2"],
-      ["S3", "Sinal 3"],
-    ];
-    let dataBase: string | null = null;
-    let labelBase = "";
-    for (const [k, label] of basesPossiveis) {
-      if (venc(k) && val(k) > 0) {
-        dataBase = venc(k);
-        labelBase = label;
-        break;
-      }
-    }
-    const primeira = venc("Mensais") && val("Mensais") > 0 ? venc("Mensais") : null;
-
-    const meses = dataBase && primeira ? intervaloMeses(dataBase, primeira) : 0;
-
-    // Dia de vencimento inexistente em algum mês da série periódica.
-    const datasInvalidas: string[] = [];
-    for (const [k, label, passo] of [
-      ["Mensais", "Mensal", 1],
-      ["Semestrais", "Semestral", 6],
-      ["Anuais", "Anual", 12],
-    ] as [string, string, number][]) {
-      const base = venc(k);
-      if (!base || val(k) <= 0) continue;
-      const partes = base.split("/");
-      if (partes.length !== 3) continue;
-      const dia = Number(partes[1]);
-      if (dia <= 28) continue; // 1..28 existe em todo mês
-      const mo = Number(partes[0]);
-      const yr = Number(partes[2]);
-      for (let i = 0; i < qtd(k); i++) {
-        const total = mo - 1 + i * passo;
-        const m = (total % 12) + 1;
-        const y = yr + Math.floor(total / 12);
-        const ultimoDia = new Date(Date.UTC(y, m, 0)).getUTCDate();
-        if (dia > ultimoDia) {
-          datasInvalidas.push(
-            `${label} #${i + 1}: dia ${dia} não existe em ${String(m).padStart(2, "0")}/${y}`,
-          );
-        }
-      }
-    }
-
-    const forcaCarencia = dataBase && primeira && meses > carenciaEsperadaMeses;
-    if (!forcaCarencia && datasInvalidas.length === 0) continue;
-
-    out.push({
-      unitId: r.u.id,
-      unitCode: r.u.code,
-      projectName: r.projectName,
-      status: r.u.status,
-      dataBase,
-      labelBase,
-      primeiraParcela: primeira,
-      labelPrimeira: "Mensal #1",
-      intervaloMeses: meses,
-      // Um plano pode ter dezenas de parcelas; mostrar as primeiras já basta
-      // para a conferência entender o padrão.
-      datasInvalidas: datasInvalidas.slice(0, 6),
-    });
-  }
-  return out.sort((a, b) => b.intervaloMeses - a.intervaloMeses);
 }

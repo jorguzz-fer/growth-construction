@@ -65,6 +65,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/cartoes": "cartoes", // Prompt U, seção 1
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
   "/equipes": "equipes", // Prompt Z, Parte 3
+  "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
 };
 /**
  * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única
@@ -73,7 +74,13 @@ const TELAS_NOVAS: Record<string, string> = {
  */
 const FUNDIDAS_NO_ITEM: Record<string, string> = { "/medicao": "medicaolanc" };
 /** Prompt AL: /contabilidade saiu do sistema (virou redirecionamento para /usuarios). */
-const SAIRAM = new Set(["/medicaolanc", "/contabilidade"]);
+const SAIRAM = new Set([
+  "/medicaolanc",
+  "/contabilidade",
+  // Prompt AN: a Conferência de lançamentos mudou para /conferencia; a de planos saiu.
+  "/diagnostico/categorias-invertidas",
+  "/diagnostico/planos-recebiveis",
+]);
 const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => !SAIRAM.has(href)));
 
 const todos = NAV_MENU.flatMap((m) => m.items);
@@ -186,11 +193,9 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
     expect(isItemActive("/medicao", "/medicaolanc")).toBe(false);
   });
 
-  it("cada conferência destaca só a si", () => {
-    const a = "/diagnostico/categorias-invertidas";
-    const b = "/diagnostico/planos-recebiveis";
-    expect(isItemActive(a, a)).toBe(true);
-    expect(isItemActive(a, b)).toBe(false);
+  it("a Conferência destaca só a si", () => {
+    expect(isItemActive("/conferencia", "/conferencia")).toBe(true);
+    expect(isItemActive("/conferencia", "/contas")).toBe(false);
   });
 
   it("nenhum par de itens do menu se destaca ao mesmo tempo", () => {
@@ -209,7 +214,7 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
     expect(activeModuleId("/projeto")).toBe("planejamento");
     expect(activeModuleId("/unidades/nova")).toBe("receitas");
     expect(activeModuleId("/diagnosticoia")).toBe("bi");
-    expect(activeModuleId("/diagnostico/planos-recebiveis")).toBe("config");
+    expect(activeModuleId("/conferencia")).toBe("config");
   });
 });
 

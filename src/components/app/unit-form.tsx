@@ -14,6 +14,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { Badge } from "@/components/ui/badge";
 import { CampoIA, ResumoLeituraIA, SeloAlerta } from "@/components/ui/campo-ia";
+import { avisoDeDiaInexistente } from "@/lib/plano-vencimento";
 
 export interface UnitFormValue {
   id?: string;
@@ -351,19 +352,19 @@ export function UnitForm({
           );
         })}
 
-        <SourceGroup title="Mensais">
+        <SourceGroup title="Mensais" aviso={avisoDeDiaInexistente(plan.Mensais.venc, plan.Mensais.n, 1, "mensal")}>
           <Money label="Valor" value={plan.Mensais.val} onChange={(x) => setSrc("Mensais", "val", x)} />
           <Dt label="1º Vencimento" value={plan.Mensais.venc} onChange={(x) => setSrc("Mensais", "venc", x)} />
           <Num label="Parcelas" value={plan.Mensais.n} onChange={(x) => setSrc("Mensais", "n", x)} />
           <Flag label="Usar Semestrais" value={plan.Mensais.usarSem} onChange={(b) => setSrc("Mensais", "usarSem", b)} />
         </SourceGroup>
-        <SourceGroup title="Semestrais">
+        <SourceGroup title="Semestrais" aviso={avisoDeDiaInexistente(plan.Semestrais.venc, plan.Semestrais.n, 6, "semestral")}>
           <Money label="Valor" value={plan.Semestrais.val} onChange={(x) => setSrc("Semestrais", "val", x)} />
           <Dt label="1º Vencimento" value={plan.Semestrais.venc} onChange={(x) => setSrc("Semestrais", "venc", x)} />
           <Num label="Parcelas" value={plan.Semestrais.n} onChange={(x) => setSrc("Semestrais", "n", x)} />
           <Flag label="Usar Anuais" value={plan.Semestrais.usarAnu} onChange={(b) => setSrc("Semestrais", "usarAnu", b)} />
         </SourceGroup>
-        <SourceGroup title="Anuais">
+        <SourceGroup title="Anuais" aviso={avisoDeDiaInexistente(plan.Anuais.venc, plan.Anuais.n, 12, "anual")}>
           <Money label="Valor" value={plan.Anuais.val} onChange={(x) => setSrc("Anuais", "val", x)} />
           <Dt label="1º Vencimento" value={plan.Anuais.venc} onChange={(x) => setSrc("Anuais", "venc", x)} />
           <Num label="Parcelas" value={plan.Anuais.n} onChange={(x) => setSrc("Anuais", "n", x)} />
@@ -477,17 +478,25 @@ function SourceGroup({
   title,
   enabled,
   onToggle,
+  aviso,
   children,
 }: {
   title: string;
   enabled?: boolean;
   onToggle?: (b: boolean) => void;
+  /** Prompt AN, 6.3 — dia de vencimento que não existe em algum mês da série. */
+  aviso?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <details className="rounded-[12px] border border-[var(--color-accent2)]/12 bg-white">
       <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-[var(--color-ink)]">
         {title}
+        {aviso && (
+          <span className="rounded-full bg-[var(--color-warning)]/15 px-2 py-0.5 text-[11px] font-normal text-[var(--color-ink2)]">
+            vencimento a conferir
+          </span>
+        )}
         {onToggle && (
           <label
             className="ml-auto flex items-center gap-1.5 text-xs font-normal text-[var(--color-ink2)]"
@@ -501,6 +510,11 @@ function SourceGroup({
       <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-accent2)]/8 p-4 sm:grid-cols-4">
         {children}
       </div>
+      {aviso && (
+        <p role="status" className="mx-4 mb-4 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+          {aviso}
+        </p>
+      )}
     </details>
   );
 }

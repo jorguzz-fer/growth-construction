@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Role } from "@/lib/context";
 import {
   CONTADOR_VE,
+  HERDA_DE,
   SCREENS,
   TELAS_SO_ADMIN,
   defaultPermissions,
@@ -23,7 +24,9 @@ const FULL = { ver: true, criar: true, editar: true, excluir: true };
  */
 function antesDoAL(role: Role, overrides: PermMatrix | null, membroRestrito = false): PermMatrix {
   const base = defaultPermissions(role, { membroRestrito });
-  if (overrides) for (const s of SCREENS) if (overrides[s.id]) base[s.id] = { ...base[s.id], ...overrides[s.id] };
+  if (overrides) for (const s of SCREENS) if (overrides[s.id] && !HERDA_DE[s.id]) base[s.id] = { ...base[s.id], ...overrides[s.id] };
+  // Prompt AN (posterior ao AL): `conferencia` acompanha Despesas.
+  for (const [filha, mae] of Object.entries(HERDA_DE)) base[filha] = { ...base[mae] };
   const total = role === "owner" || role === "admin";
   for (const s of SCREENS) {
     if (total) base[s.id] = { ...FULL };
@@ -50,7 +53,7 @@ describe("Prompt AL · Partes 2 a 4 — contador configurável com teto de leitu
     expect([...CONTADOR_VE].sort()).toEqual(["acoes", "consolidado", "despesas", "dre", "fluxocaixa", "medicao", "planocontas", "resumo"]);
     const p = defaultPermissions("contador");
     for (const s of SCREENS) {
-      expect(p[s.id], s.id).toEqual({ ver: CONTADOR_VE.has(s.id), criar: false, editar: false, excluir: false });
+      expect(p[s.id], s.id).toEqual({ ver: CONTADOR_VE.has(HERDA_DE[s.id] ?? s.id), criar: false, editar: false, excluir: false });
     }
   });
 
@@ -66,7 +69,7 @@ describe("Prompt AL · Partes 2 a 4 — contador configurável com teto de leitu
 
   it("10 — trocar alguém para contador sem override aplica o padrão do papel, não matriz vazia", () => {
     const e = effectivePermissions("contador", null);
-    expect(SCREENS.filter((s) => e[s.id].ver).map((s) => s.id).sort()).toEqual([...CONTADOR_VE].sort());
+    expect(SCREENS.filter((s) => e[s.id].ver && !HERDA_DE[s.id]).map((s) => s.id).sort()).toEqual([...CONTADOR_VE].sort());
   });
 
   it("11/13 — o teto roda DEPOIS do merge: override com escrita vira só Ver", () => {

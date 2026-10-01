@@ -14,6 +14,14 @@ export const TELAS_REMOVIDAS = {
     aviso:
       "A tela Acesso Contabilidade saiu. Convide o contador aqui, com o papel “contador”; o que ele vê se ajusta em Gestão de Acessos.",
   },
+  // Prompt AN, Parte 6: a carência saiu (detectava a operação normal); a data
+  // impossível virou aviso no cadastro do plano de pagamento da unidade.
+  "planos-recebiveis": {
+    rotaAntiga: "/diagnostico/planos-recebiveis",
+    destino: "/unidades",
+    aviso:
+      "A Conferência de planos saiu. O dia de vencimento que não existe em algum mês (o 31 em fevereiro) agora é avisado no plano de pagamento da unidade, ao preencher o 1º vencimento.",
+  },
 } as const;
 
 export type TelaRemovida = keyof typeof TELAS_REMOVIDAS;
