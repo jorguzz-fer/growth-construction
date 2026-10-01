@@ -1,5 +1,5 @@
 import { getTenantContext } from "@/lib/context";
-import { getClientes, getDocuments } from "@/lib/queries";
+import { getClientes, getDocumentsByProjects } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { PageHeader } from "@/components/app/page-header";
@@ -28,23 +28,23 @@ export default async function ProjetoPage({
     selecionado === "all" ? null : ctx.projects.find((p) => p.id === selecionado) ?? null;
 
   const r2 = isR2Configured();
-  const [clientes, docs] = await Promise.all([
+  const [clientes, projDocs] = await Promise.all([
     getClientes(ctx.tenant.id),
-    getDocuments(ctx.tenant.id),
+    // Só os documentos de projeto (Prompt B, 13) — e não todos os da empresa.
+    getDocumentsByProjects(ctx.tenant.id),
   ]);
-  // Documentos vinculados a projetos, com URL assinada (item 4).
-  const projDocs = docs.filter((d) => d.projectId);
+  // URLs assinadas em paralelo, não uma a uma.
+  const urls = await Promise.all(projDocs.map((d) => (r2 ? readUrl(d.storageKey) : Promise.resolve(null))));
   const docsByProject: Record<string, ProjetoDoc[]> = {};
-  for (const d of projDocs) {
-    const url = r2 ? await readUrl(d.storageKey) : null;
+  projDocs.forEach((d, i) => {
     (docsByProject[d.projectId!] ??= []).push({
       id: d.id,
       filename: d.filename,
       tipo: d.tipo,
-      url,
+      url: urls[i],
       uploadedAt: d.uploadedAt ? new Date(d.uploadedAt).toISOString() : null,
     });
-  }
+  });
 
   return (
     <>

@@ -6,8 +6,8 @@ import {
   createProject,
   updateProject,
   setProjectSituacao,
-  deleteProject,
 } from "@/lib/actions/projects";
+import { ExcluirProjeto } from "@/components/app/excluir-projeto";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -167,19 +167,25 @@ function NewProjectForm({
   const [endDate, setEndDate] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const submit = () => {
     const clean = name.trim();
     if (!clean) return;
     const months = duration.trim() ? Number(duration) : null;
     start(async () => {
-      await createProject(clean, months, {
+      const r = await createProject(clean, months, {
         kind: "proj",
         status,
         startDate,
         endDate,
         clienteId,
       });
+      if (!r.ok) {
+        setMsg({ ok: false, texto: r.error });
+        return;
+      }
+      setMsg({ ok: true, texto: `"${clean}" criado.` });
       setName("");
       setDuration("");
       setStatus("Planejamento");
@@ -256,6 +262,7 @@ function NewProjectForm({
             </Button>
           </div>
         </div>
+        {msg && <p role="status" className={`mt-2 text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</p>}
       </CardContent>
     </Card>
   );
@@ -264,12 +271,18 @@ function NewProjectForm({
 function NewOfficeForm() {
   const [name, setName] = useState("");
   const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const submit = () => {
     const clean = name.trim();
     if (!clean) return;
     start(async () => {
-      await createProject(clean, null, { kind: "office" });
+      const r = await createProject(clean, null, { kind: "office" });
+      if (!r.ok) {
+        setMsg({ ok: false, texto: r.error });
+        return;
+      }
+      setMsg({ ok: true, texto: `"${clean}" criado.` });
       setName("");
     });
   };
@@ -294,6 +307,7 @@ function NewOfficeForm() {
             Adicionar
           </Button>
         </div>
+        {msg && <p role="status" className={`mt-2 text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</p>}
       </CardContent>
     </Card>
   );
@@ -357,31 +371,27 @@ function SituacaoControl({
 }
 
 function DeleteButton({
+  projectId,
   name,
-  onDelete,
   pending,
 }: {
+  projectId: string;
   name: string;
-  onDelete: () => void;
   pending: boolean;
 }) {
-  const remove = () => {
-    if (
-      !window.confirm(
-        `Excluir "${name}"? Todas as versões e dados vinculados serão removidos. Esta ação não pode ser desfeita.`,
-      )
-    )
-      return;
-    onDelete();
-  };
+  const [aberto, setAberto] = useState(false);
   return (
-    <button
-      disabled={pending}
-      onClick={remove}
-      className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
-    >
-      Excluir
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => setAberto(true)}
+        className="ml-auto text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
+      >
+        Excluir…
+      </button>
+      <ExcluirProjeto projectId={projectId} nome={name} aberto={aberto} onFechar={() => setAberto(false)} />
+    </>
   );
 }
 
@@ -530,9 +540,10 @@ function ProjectRow({
     terrDirty ||
     fiscDirty;
 
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const save = () =>
-    start(() =>
-      updateProject(project.id, {
+    start(async () => {
+      const r = await updateProject(project.id, {
         name,
         durationMonths: duration.trim() ? Number(duration) : null,
         status,
@@ -554,8 +565,9 @@ function ProjectRow({
         ufObra: fisc.ufObra || null,
         codigoObra: fisc.codigoObra || null,
         art: fisc.art || null,
-      }),
-    );
+      });
+      setMsg(r.ok ? { ok: true, texto: r.aviso ?? "Salvo." } : { ok: false, texto: r.error });
+    });
 
   return (
     <Card>
@@ -780,18 +792,15 @@ function ProjectRow({
 
         <ProjetoDocs projectId={project.id} docs={docs} canEdit={canEdit} r2={r2} />
 
-        <div className="flex flex-wrap items-center gap-2 pb-1.5">
+        <div className="flex flex-wrap items-center gap-2 pb-1.5 sm:col-span-3">
           {canEdit && (
             <Button size="sm" disabled={pending || !dirty} onClick={save}>
               Salvar
             </Button>
           )}
+          {msg && <span role="status" className={`text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</span>}
           {canDelete && (
-            <DeleteButton
-              name={project.name}
-              pending={pending}
-              onDelete={() => start(() => deleteProject(project.id))}
-            />
+            <DeleteButton projectId={project.id} name={project.name} pending={pending} />
           )}
         </div>
       </CardContent>
@@ -810,9 +819,14 @@ function OfficeRow({
 }) {
   const [name, setName] = useState(project.name);
   const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const dirty = name.trim() !== project.name;
 
-  const save = () => start(() => updateProject(project.id, { name }));
+  const save = () =>
+    start(async () => {
+      const r = await updateProject(project.id, { name });
+      setMsg(r.ok ? { ok: true, texto: r.aviso ?? "Salvo." } : { ok: false, texto: r.error });
+    });
 
   return (
     <Card>
@@ -837,12 +851,9 @@ function OfficeRow({
               Salvar
             </Button>
           )}
+          {msg && <span role="status" className={`text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>{msg.texto}</span>}
           {canDelete && (
-            <DeleteButton
-              name={project.name}
-              pending={pending}
-              onDelete={() => start(() => deleteProject(project.id))}
-            />
+            <DeleteButton projectId={project.id} name={project.name} pending={pending} />
           )}
         </div>
       </CardContent>

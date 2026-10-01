@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { uploadProjetoDoc, deleteProjetoDoc } from "@/lib/actions/projects";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
@@ -22,9 +24,10 @@ const TIPOS = [
 ];
 
 /**
- * Área de documentos do projeto (item 4): anexar múltiplos arquivos (contratos,
- * propostas, documentos jurídicos), listar, abrir e remover. Reusa a tabela
- * `documents` (project_id) e o R2. Preservados em edições do projeto.
+ * Área de documentos do projeto (Prompt B, 13): anexar múltiplos arquivos
+ * (contratos, propostas, documentos jurídicos), listar, abrir e remover. Reusa
+ * a tabela `documents` (project_id) e o R2. Preservados em edições do projeto.
+ * As actions devolvem `{ ok, error }` e a mensagem aparece aqui (38).
  */
 export function ProjetoDocs({
   projectId,
@@ -37,6 +40,29 @@ export function ProjetoDocs({
   canEdit: boolean;
   r2: boolean;
 }) {
+  const router = useRouter();
+  const form = useRef<HTMLFormElement>(null);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const anexar = (fd: FormData) =>
+    start(async () => {
+      const r = await uploadProjetoDoc(fd);
+      setMsg(r.ok ? { ok: true, texto: "Documento anexado." } : { ok: false, texto: r.error });
+      if (r.ok) {
+        form.current?.reset();
+        router.refresh();
+      }
+    });
+  const remover = (id: string, filename: string) =>
+    start(async () => {
+      const fd = new FormData();
+      fd.set("id", id);
+      const r = await deleteProjetoDoc(fd);
+      setMsg(r.ok ? { ok: true, texto: `"${filename}" removido.` } : { ok: false, texto: r.error });
+      if (r.ok) router.refresh();
+    });
+
   return (
     <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-4 sm:col-span-3">
       <h3 className="mb-2 text-[13px] font-semibold text-[var(--color-ink)]">
@@ -48,13 +74,14 @@ export function ProjetoDocs({
 
       {canEdit && r2 && (
         <form
-          action={uploadProjetoDoc}
+          ref={form}
+          action={anexar}
           className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-end"
         >
           <input type="hidden" name="projectId" value={projectId} />
           <div className="sm:col-span-1">
             <Label>Tipo</Label>
-            <Select name="tipo" defaultValue="Contrato">
+            <Select name="tipo" defaultValue="Contrato" disabled={pending}>
               {TIPOS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -64,11 +91,11 @@ export function ProjetoDocs({
           </div>
           <div className="sm:col-span-2">
             <Label>Arquivo (até {LIMITE_UPLOAD_MB} MB)</Label>
-            <input type="file" name="file" required className="text-xs" />
+            <input type="file" name="file" required className="text-xs" disabled={pending} />
           </div>
           <div>
-            <Button type="submit" size="sm" className="w-full">
-              Anexar
+            <Button type="submit" size="sm" className="w-full" disabled={pending}>
+              {pending ? "Enviando…" : "Anexar"}
             </Button>
           </div>
         </form>
@@ -76,6 +103,11 @@ export function ProjetoDocs({
       {!r2 && (
         <p className="mb-2 text-[12px] text-[var(--color-warning)]">
           Configure as variáveis R2_* para habilitar o anexo de documentos.
+        </p>
+      )}
+      {msg && (
+        <p role="status" className={`mb-2 text-[12px] ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+          {msg.texto}
         </p>
       )}
 
@@ -103,15 +135,14 @@ export function ProjetoDocs({
                   </a>
                 )}
                 {canEdit && (
-                  <form action={deleteProjetoDoc}>
-                    <input type="hidden" name="id" value={d.id} />
-                    <button
-                      type="submit"
-                      className="text-[12px] text-[var(--color-danger)] hover:underline"
-                    >
-                      Remover
-                    </button>
-                  </form>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => remover(d.id, d.filename)}
+                    className="text-[12px] text-[var(--color-danger)] hover:underline disabled:opacity-50"
+                  >
+                    Remover
+                  </button>
                 )}
               </span>
             </li>

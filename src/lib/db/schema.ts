@@ -290,6 +290,8 @@ export const projects = pgTable("project", {
   terrenoForaCaixa: boolean("terreno_fora_caixa").notNull().default(true),
   // ── Localização da obra (controle de ponto georreferenciado) ────────────
   endereco: text("endereco"),
+  /** CEP da obra (Prompt B, 17) — só dígitos ou "00000-000"; apresentação. */
+  cep: text("cep"),
   latitude: numeric("latitude", { precision: 10, scale: 7 }),
   longitude: numeric("longitude", { precision: 10, scale: 7 }),
   // ── Dados fiscais da obra (emissão de NFS-e) ────────────────────────────
