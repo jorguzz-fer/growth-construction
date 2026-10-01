@@ -6,6 +6,8 @@ import { montarContaCorrente, type ContaCorrenteTerceiro } from "@/lib/calc/cont
 import { chaveDataBR } from "@/lib/db/ordem-data";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
+import { agingDasObrigacoes, type FaixasAging, type ObrigacaoParaAging } from "@/lib/calc/aging";
+import { hojeISO } from "@/lib/despesa-status";
 import { getProjectContext, getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
@@ -862,6 +864,7 @@ export interface SaldoTerceiroView {
 }
 
 export type { ContaCorrenteTerceiro, MovimentoTerceiro } from "@/lib/calc/conta-corrente";
+export type ContaCorrenteComAging = ContaCorrenteTerceiro & { aging: FaixasAging | null };
 
 /**
  * Conta corrente completa de cada terceiro/sócio do tenant (§13, §26).
@@ -875,7 +878,7 @@ export type { ContaCorrenteTerceiro, MovimentoTerceiro } from "@/lib/calc/conta-
  */
 export async function getContaCorrenteTerceiros(
   tenantId: string,
-): Promise<ContaCorrenteTerceiro[]> {
+): Promise<ContaCorrenteComAging[]> {
   const [obrigacoes, restituicoes, recebimentos, repasses, compensacoes] = await Promise.all([
     db
       .select({
@@ -897,7 +900,17 @@ export async function getContaCorrenteTerceiros(
     db.select().from(schema.repasses).where(eq(schema.repasses.tenantId, tenantId)),
     db.select().from(schema.compensacoes).where(eq(schema.compensacoes.tenantId, tenantId)),
   ]);
-  return montarContaCorrente({
+  // Prompt T, 2-A — aging por terceiro, mesma função e mesma base do preview.
+  const hoje = hojeISO();
+  const agingPorPagador = new Map<string, FaixasAging>();
+  const grupos = new Map<string, ObrigacaoParaAging[]>();
+  for (const o of obrigacoes) {
+    if (o.dt.status === "Cancelado") continue;
+    const k = o.pagadorId ?? "—";
+    grupos.set(k, [...(grupos.get(k) ?? []), { saldo: Math.max(0, Number(o.dt.valorTotal) - Number(o.dt.valorRestituido)), dataPrevistaRestituicao: o.dt.dataPrevistaRestituicao, dataPagamentoOriginal: o.dt.dataPagamentoOriginal }]);
+  }
+  for (const [k, lista] of grupos) agingPorPagador.set(k, agingDasObrigacoes(lista, hoje));
+  const contas = montarContaCorrente({
     obrigacoes: obrigacoes.map((o) => ({
       id: o.dt.id,
       pagadorId: o.pagadorId ?? null,
@@ -927,6 +940,7 @@ export async function getContaCorrenteTerceiros(
     repasses: repasses.map((p) => ({ id: p.id, recebimentoId: p.recebimentoTerceiroId, valor: Number(p.valor), data: p.dataRepasse })),
     compensacoes: compensacoes.map((k) => ({ id: k.id, terceiroId: k.terceiroId, valor: Number(k.valor), data: k.data, numDoc: k.numDoc })),
   });
+  return contas.map((c) => ({ ...c, aging: agingPorPagador.get(c.pagadorId ?? "—") ?? null }));
 }
 
 /**
@@ -1004,4 +1018,35 @@ export async function getRestituicoesPendentesByVersion(
     if (mm && saldo > 0) saidas[mm] = (saidas[mm] || 0) + saldo;
   }
   return { despesaIds, saidasPrevistas: saidas };
+}
+
+/** Prompt T, 7 — as compensações gravadas, lidas de volta: data, terceiro, valor, saldos de antes, documento. Só leitura. */
+export interface CompensacaoView {
+  id: string;
+  numDoc: string | null;
+  terceiro: string | null;
+  valor: number;
+  data: string | null;
+  saldoRestituirAntes: number;
+  saldoRepassarAntes: number;
+  obs: string | null;
+}
+
+export async function getCompensacoes(tenantId: string): Promise<CompensacaoView[]> {
+  const rows = await db
+    .select({ k: schema.compensacoes, terceiro: schema.stakeholders.nome })
+    .from(schema.compensacoes)
+    .leftJoin(schema.stakeholders, eq(schema.compensacoes.terceiroId, schema.stakeholders.id))
+    .where(eq(schema.compensacoes.tenantId, tenantId))
+    .orderBy(desc(schema.compensacoes.createdAt));
+  return rows.map((r) => ({
+    id: r.k.id,
+    numDoc: r.k.numDoc,
+    terceiro: r.terceiro,
+    valor: Number(r.k.valor),
+    data: r.k.data,
+    saldoRestituirAntes: Number(r.k.saldoRestituirAntes ?? 0),
+    saldoRepassarAntes: Number(r.k.saldoRepassarAntes ?? 0),
+    obs: r.k.obs ?? null,
+  }));
 }

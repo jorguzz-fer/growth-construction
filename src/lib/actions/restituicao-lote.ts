@@ -7,7 +7,9 @@ import { getTenantContext, getWorkingVersion } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { reserveDespesaNumber } from "@/lib/db/numbering";
-import { abaterFifo, abaterManual, calcularAging } from "@/lib/calc/acerto";
+import { abaterFifo, abaterManual } from "@/lib/calc/acerto";
+import { agingDasObrigacoes, diasEmAberto } from "@/lib/calc/aging";
+import { hojeISO } from "@/lib/despesa-status";
 import { statusRestituicao } from "@/lib/calc";
 import { valorCompensavel } from "@/lib/calc/recebimento-terceiro";
 
@@ -38,16 +40,6 @@ export interface ObrigacaoEmAberto {
   diasEmAberto: number;
 }
 
-/** Dias entre uma data interna e hoje (nunca negativo). */
-function diasDesde(base: string | null): number {
-  const p = (base ?? "").split("/");
-  if (p.length !== 3) return 0;
-  const d = Date.UTC(Number(p[2]), Number(p[0]) - 1, Number(p[1]));
-  if (!Number.isFinite(d)) return 0;
-  const hoje = new Date();
-  const h = Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate());
-  return Math.max(0, Math.round((h - d) / 86_400_000));
-}
 
 /** Extrato consolidado de um terceiro, com aging (item 4.1). */
 export async function getExtratoTerceiro(terceiroId: string) {
@@ -84,7 +76,9 @@ export async function getExtratoTerceiro(terceiroId: string) {
     saldo: Math.round((Number(r.dt.valorTotal) - Number(r.dt.valorRestituido)) * 100) / 100,
     dataPagamentoOriginal: r.dt.dataPagamentoOriginal,
     dataPrevistaRestituicao: r.dt.dataPrevistaRestituicao,
-    diasEmAberto: diasDesde(r.dt.dataPagamentoOriginal),
+    // Prompt T, 2-A.3 — mesma data-base da coluna Dias e da conta corrente:
+    // previsão de ressarcimento, senão o desembolso.
+    diasEmAberto: diasEmAberto(r.dt.dataPrevistaRestituicao ?? r.dt.dataPagamentoOriginal, hojeISO()),
   }));
 
   const totalDevido = obrigacoes.reduce((a, o) => a + o.valorTotal, 0);
@@ -94,7 +88,7 @@ export async function getExtratoTerceiro(terceiroId: string) {
     totalDevido: Math.round(totalDevido * 100) / 100,
     totalRestituido: Math.round(totalRestituido * 100) / 100,
     saldo: Math.round((totalDevido - totalRestituido) * 100) / 100,
-    aging: calcularAging(obrigacoes),
+    aging: agingDasObrigacoes(obrigacoes.map((o) => ({ saldo: o.saldo, dataPrevistaRestituicao: o.dataPrevistaRestituicao, dataPagamentoOriginal: o.dataPagamentoOriginal })), hojeISO()),
   };
 }
 

@@ -538,6 +538,15 @@ export const stakeholders = pgTable("stakeholder", {
   cidade: text("cidade"),
   estado: text("estado"),
   cep: text("cep"),
+  // Prompt T, BT-2 — dados de recebimento do pagador terceiro (ressarcir é
+  // transferir). Sensíveis: só na tela; nunca no assistente nem em claro no log.
+  bancoNome: text("banco_nome"),
+  bancoAgencia: text("banco_agencia"),
+  bancoConta: text("banco_conta"),
+  bancoTipoConta: text("banco_tipo_conta"),
+  bancoTitular: text("banco_titular"),
+  pixTipo: text("pix_tipo"),
+  pixChave: text("pix_chave"),
   /** cadastro ativo? Inativação lógica preserva histórico e vínculos. */
   ativo: boolean("ativo").notNull().default(true),
 });

@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateStakeholder, setStakeholderAtivo, deleteStakeholder } from "@/lib/actions/stakeholders";
-import { filtrarCadastros, papeisForaDaLista, sinaisDoCadastro, type SinaisDoCadastro } from "@/lib/stakeholder-regras";
+import { filtrarCadastros, papeisForaDaLista, sinaisDoCadastro, TIPOS_DE_CHAVE_PIX, TIPOS_DE_CONTA, type SinaisDoCadastro } from "@/lib/stakeholder-regras";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -27,6 +27,13 @@ export interface StakeholderView {
   cidade: string | null;
   estado: string | null;
   cep: string | null;
+  bancoNome: string | null;
+  bancoAgencia: string | null;
+  bancoConta: string | null;
+  bancoTipoConta: string | null;
+  bancoTitular: string | null;
+  pixTipo: string | null;
+  pixChave: string | null;
 }
 
 export function FornecedoresTable({
@@ -220,6 +227,31 @@ function StakeholderRow({
               <div><Label>Cidade</Label><Input name="cidade" defaultValue={s.cidade ?? ""} /></div>
               <div><Label>Estado</Label><Input name="estado" defaultValue={s.estado ?? ""} maxLength={2} /></div>
               <div><Label>CEP</Label><Input name="cep" defaultValue={s.cep ?? ""} /></div>
+              {/* Prompt T, BT-2 — dados para ressarcimento; o log registra que mudaram, não o valor. */}
+              <div className="sm:col-span-4 mt-1 text-[11px] font-medium text-[var(--color-ink3)]">Dados para ressarcimento (banco / PIX)</div>
+              <div><Label>Banco</Label><Input name="bancoNome" defaultValue={s.bancoNome ?? ""} /></div>
+              <div><Label>Agência</Label><Input name="bancoAgencia" defaultValue={s.bancoAgencia ?? ""} /></div>
+              <div><Label>Conta</Label><Input name="bancoConta" defaultValue={s.bancoConta ?? ""} /></div>
+              <div>
+                <Label>Tipo de conta</Label>
+                <Select name="bancoTipoConta" defaultValue={s.bancoTipoConta ?? ""}>
+                  <option value="">—</option>
+                  {TIPOS_DE_CONTA.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="sm:col-span-2"><Label>Titular (se diferente)</Label><Input name="bancoTitular" defaultValue={s.bancoTitular ?? ""} /></div>
+              <div>
+                <Label>Tipo de chave PIX</Label>
+                <Select name="pixTipo" defaultValue={s.pixTipo ?? ""}>
+                  <option value="">—</option>
+                  {TIPOS_DE_CHAVE_PIX.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </Select>
+              </div>
+              <div><Label>Chave PIX</Label><Input name="pixChave" defaultValue={s.pixChave ?? ""} autoComplete="off" /></div>
             </div>
             <div className="mt-2">
               <Label>Papéis (uma pessoa pode ter vários)</Label>

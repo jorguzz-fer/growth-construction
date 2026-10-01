@@ -12,6 +12,8 @@ import { mascararDocumento } from "@/lib/clientes-sensivel";
 import { confirmacaoConfere } from "@/lib/clientes-regras";
 import {
   PAPEL_PAGADOR_TERCEIRO,
+  CAMPOS_DE_RECEBIMENTO,
+  changesSemValorDeRecebimento,
   avisoDeDuplicidade,
   avisoDeTipoIncompativel,
   bloqueiosDeExclusaoDoStakeholder,
@@ -99,6 +101,14 @@ export async function addStakeholder(formData: FormData): Promise<ResultadoStake
       cidade: ouNulo(texto(formData, "cidade")),
       estado: ouNulo(texto(formData, "estado")),
       cep: ouNulo(texto(formData, "cep")),
+      // BT-2 — dados de recebimento (sensíveis; nunca em claro no log)
+      bancoNome: ouNulo(texto(formData, "bancoNome")),
+      bancoAgencia: ouNulo(texto(formData, "bancoAgencia")),
+      bancoConta: ouNulo(texto(formData, "bancoConta")),
+      bancoTipoConta: ouNulo(texto(formData, "bancoTipoConta")),
+      bancoTitular: ouNulo(texto(formData, "bancoTitular")),
+      pixTipo: ouNulo(texto(formData, "pixTipo")),
+      pixChave: ouNulo(texto(formData, "pixChave")),
     })
     .returning();
 
@@ -126,7 +136,7 @@ export async function addStakeholder(formData: FormData): Promise<ResultadoStake
     action: "stakeholder.create",
     entity: "stakeholder",
     entityId: row.id,
-    meta: { nome: row.nome, tipo, doc: mascararDocumento(doc), papeis, comDocumento: !!(file && file.size > 0), avisos },
+    meta: { nome: row.nome, tipo, doc: mascararDocumento(doc), papeis, comDocumento: !!(file && file.size > 0), comDadosDeRecebimento: !!(row.pixChave || row.bancoConta), avisos },
   });
   revalidatePath("/fornecedores");
   return { ok: true, id: row.id, avisos };
@@ -185,6 +195,8 @@ export async function updateStakeholder(formData: FormData): Promise<ResultadoSt
   };
   if (enderecoEnviado) for (const k of CAMPOS_ENDERECO) novo[k] = ouNulo(texto(formData, k));
   for (const k of ["nomeFantasia", "contato", "whatsapp", "site"] as const) if (formData.has(k)) novo[k] = ouNulo(texto(formData, k));
+  // BT-2 — só grava o que o formulário enviou; o log registra que mudou, não o valor.
+  for (const k of CAMPOS_DE_RECEBIMENTO) if (formData.has(k)) novo[k] = ouNulo(texto(formData, k));
 
   const antesAud = Object.fromEntries(Object.keys(novo).map((k) => [k, (atual as Record<string, unknown>)[k] ?? null]));
   const changes = diffAudit(antesAud, novo as Record<string, unknown>);
@@ -201,7 +213,7 @@ export async function updateStakeholder(formData: FormData): Promise<ResultadoSt
       action: "stakeholder.update",
       entity: "stakeholder",
       entityId: id,
-      meta: { nome, papeis, changes, avisos },
+      meta: { nome, papeis, changes: changesSemValorDeRecebimento(changes), avisos },
     });
   }
   revalidatePath("/fornecedores");

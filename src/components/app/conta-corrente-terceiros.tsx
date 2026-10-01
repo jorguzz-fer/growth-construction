@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cancelarRestituicao } from "@/lib/actions/restituicoes";
-import { rotuloDoMovimento, type ContaCorrenteTerceiro } from "@/lib/calc/conta-corrente";
+import { rotuloDoMovimento } from "@/lib/calc/conta-corrente";
+import { somarAging } from "@/lib/calc/aging";
+import type { ContaCorrenteComAging } from "@/lib/actions/restituicoes";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +29,7 @@ export function ContaCorrenteTerceiros({
   projectId,
   podeCancelar = false,
 }: {
-  contas: ContaCorrenteTerceiro[];
+  contas: ContaCorrenteComAging[];
   /** obra da tela: onde cai o estorno de caixa (chave "segue a despesa" desligada). */
   projectId?: string;
   /** Prompt T, 9 — `cancelarRestituicao` não tinha porta de interface; esta é ela. */
@@ -53,6 +55,16 @@ export function ContaCorrenteTerceiros({
   if (contas.length === 0) return null;
 
   const totalDevido = contas.reduce((a, c) => a + c.saldoDevido, 0);
+  // Prompt T, 2-A — o total do topo ganha a mesma quebra por idade das linhas.
+  const agingTotal = somarAging(contas.map((c) => c.aging).filter((a): a is NonNullable<typeof a> => !!a));
+  const faixas = (a: NonNullable<ContaCorrenteComAging["aging"]>) => (
+    <span className="inline-flex flex-wrap gap-1">
+      <Badge tone="neutral">0–30: {brl0(a.ate30)}</Badge>
+      <Badge tone="neutral">31–60: {brl0(a.de31a60)}</Badge>
+      <Badge tone="warning">61–90: {brl0(a.de61a90)}</Badge>
+      <Badge tone="danger">90+: {brl0(a.acima90)}</Badge>
+    </span>
+  );
 
   return (
     <Card className="mb-5">
@@ -73,6 +85,11 @@ export function ContaCorrenteTerceiros({
           <span className="text-[11.5px] text-[var(--color-ink4)]">
             obrigação com terceiros — não é saldo bancário disponível
           </span>
+          {totalDevido > 0 && (
+            <span className="flex items-center gap-1 text-[11px] text-[var(--color-ink3)]" title="Idade do saldo em aberto: previsão de ressarcimento, senão a data do desembolso. Mesmo cálculo do ressarcimento em lote.">
+              em aberto há: {faixas(agingTotal)}
+            </span>
+          )}
         </div>
 
         <div className="tbl-scroll overflow-x-auto">
@@ -86,6 +103,7 @@ export function ContaCorrenteTerceiros({
                 <th className="px-2 py-2 text-right">Compensado</th>
                 <th className="px-2 py-2 text-right">Saldo devido</th>
                 <th className="px-2 py-2 text-right">A repassar</th>
+                <th className="px-2 py-2">Em aberto há</th>
                 <th className="px-2 py-2 text-right">Extrato</th>
               </tr>
             </thead>
@@ -133,6 +151,7 @@ export function ContaCorrenteTerceiros({
                       >
                         {brl0(c.saldoARepassar)}
                       </td>
+                      <td className="px-2 py-2 text-[11px]">{c.aging && c.saldoDevido > 0 ? faixas(c.aging) : <span className="text-[var(--color-ink4)]">—</span>}</td>
                       <td className="px-2 py-2 text-right">
                         <button
                           onClick={() => setAberta(aberto ? null : chave)}
@@ -144,7 +163,7 @@ export function ContaCorrenteTerceiros({
                     </tr>
                     {aberto && (
                       <tr key={`${chave}-ext`} className="border-b border-[var(--color-accent2)]/8">
-                        <td colSpan={8} className="bg-[var(--color-surface2)]/60 px-2 py-3">
+                        <td colSpan={9} className="bg-[var(--color-surface2)]/60 px-2 py-3">
                           <table className="w-full border-collapse text-[12.5px]">
                             <thead>
                               <tr className="text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink4)]">
