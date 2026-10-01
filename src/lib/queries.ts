@@ -1288,8 +1288,9 @@ export type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 export interface CompareRowP {
   rowKey: string;
   label: string;
-  budget: number;
-  forecast: number;
+  /** null = a conta não existe nessa versão (ausente ≠ zero, Prompt F 5.3). */
+  budget: number | null;
+  forecast: number | null;
 }
 export interface ForecastComparisonData {
   ok: boolean;
@@ -1301,6 +1302,17 @@ export interface ForecastComparisonData {
   despesas: CompareRowP[];
   budgetByMonth: Record<string, number>;
   forecastByMonth: Record<string, number>;
+  /** Prompt F, FC-07: a previsão não tem origem registrada; a tela oferece a escolha. */
+  semOrigem?: boolean;
+  /** Orçamentos do projeto, para a escolha explícita (só quando `semOrigem`). */
+  orcamentos?: { id: string; label: string }[];
+  /** true quando o Orçamento comparado foi escolhido pelo usuário (`?base=`), não a origem. */
+  baseEscolhida?: boolean;
+  /** 5.2: o que está sendo comparado. */
+  forecastCriadaEm?: string | null;
+  regime?: string;
+  /** 5.0.4: data da última replicação do Atual em cada lado (retrato do índice), ou null. */
+  replicacao?: { budget: string | null; forecast: string | null };
 }
 
 /**
@@ -1311,6 +1323,7 @@ export interface ForecastComparisonData {
 export async function getForecastComparison(
   tenantId: string,
   forecastVersionId: string,
+  baseVersionId?: string | null,
 ): Promise<ForecastComparisonData> {
   const empty: ForecastComparisonData = {
     ok: false,
@@ -1335,13 +1348,20 @@ export async function getForecastComparison(
     .limit(1);
   if (!fv) return { ...empty, message: "Forecast não encontrado." };
 
+  // FC-07: sem origem registrada a comparação NÃO escolhe um Orçamento
+  // sozinha — devolve a lista para a escolha explícita (`?base=`), validada
+  // aqui contra o projeto e o tenant.
+  const budgets = await getProjectVersionsByKind(tenantId, fv.projectId, "budget");
   let budgetVersionId = fv.sourceVersionId;
-  if (!budgetVersionId) {
-    const budgets = await getProjectVersionsByKind(tenantId, fv.projectId, "budget");
-    budgetVersionId = budgets[0]?.id ?? null;
+  let baseEscolhida = false;
+  if (baseVersionId) {
+    if (!budgets.some((b) => b.id === baseVersionId)) return { ...empty, forecastLabel: fv.label, message: "O Orçamento escolhido não é deste projeto." };
+    budgetVersionId = baseVersionId;
+    baseEscolhida = baseVersionId !== fv.sourceVersionId;
   }
   if (!budgetVersionId) {
-    return { ...empty, forecastLabel: fv.label, message: "Projeto sem Budget para comparar." };
+    if (budgets.length === 0) return { ...empty, forecastLabel: fv.label, message: "Projeto sem Orçamento para comparar." };
+    return { ...empty, forecastLabel: fv.label, semOrigem: true, orcamentos: budgets.map((b) => ({ id: b.id, label: b.label })), message: "Esta previsão não tem Orçamento de origem registrado. Escolha com qual Orçamento comparar." };
   }
   const [bv] = await db
     .select({ label: schema.versions.label })
@@ -1359,13 +1379,14 @@ export async function getForecastComparison(
     bRows: import("./planning").PlanningAccountRow[],
     fRows: import("./planning").PlanningAccountRow[],
   ): CompareRowP[] => {
+    // 5.3: conta de um lado só fica `null` do outro — ausente, não zero.
     const map = new Map<string, CompareRowP>();
     for (const r of bRows)
-      map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: r.total, forecast: 0 });
+      map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: r.total, forecast: null });
     for (const r of fRows) {
       const cur = map.get(r.rowKey);
       if (cur) cur.forecast = r.total;
-      else map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: 0, forecast: r.total });
+      else map.set(r.rowKey, { rowKey: r.rowKey, label: r.label, budget: null, forecast: r.total });
     }
     return [...map.values()];
   };
@@ -1379,24 +1400,33 @@ export async function getForecastComparison(
     }
     return out;
   };
-  const sumMonthly = (a: Record<string, number>, b: Record<string, number>) => {
+  // Prompt F, FC-09: o mês a mês é o RESULTADO (receitas − despesas) por
+  // competência — antes somava os dois blocos, número sem significado.
+  const resultadoMensal = (receitas: Record<string, number>, despesas: Record<string, number>) => {
     const out: Record<string, number> = {};
-    for (const m of months) out[m] = (a[m] || 0) + (b[m] || 0);
+    for (const m of months) out[m] = Math.round(((receitas[m] || 0) - (despesas[m] || 0)) * 100) / 100;
     return out;
   };
 
   return {
     ok: true,
     forecastLabel: fv.label,
-    budgetLabel: bv?.label ?? "Budget",
+    budgetLabel: bv?.label ?? "Orçamento",
     months,
+    semOrigem: false,
+    baseEscolhida,
+    forecastCriadaEm: new Date(fv.createdAt).toISOString(),
+    regime: "competência",
+    // 5.0.4: os dois lados são retrato (budget_line); a data da replicação
+    // diz de quando é o índice de cada um.
+    replicacao: { budget: budgetData.ultimaReplicacao, forecast: forecastData.ultimaReplicacao },
     receitas: merge(budgetData.receitas, forecastData.receitas),
     despesas: merge(budgetData.despesas, forecastData.despesas),
-    budgetByMonth: sumMonthly(
+    budgetByMonth: resultadoMensal(
       monthlyTotals(budgetData.receitas),
       monthlyTotals(budgetData.despesas),
     ),
-    forecastByMonth: sumMonthly(
+    forecastByMonth: resultadoMensal(
       monthlyTotals(forecastData.receitas),
       monthlyTotals(forecastData.despesas),
     ),
@@ -1456,13 +1486,23 @@ export async function getBudgetPlanning(
     .where(and(eq(schema.projects.id, projectId), eq(schema.projects.tenantId, tenantId)))
     .limit(1);
 
+  // Previsão: da mais recente para a mais antiga (Prompt F, 2.1).
   const versionRows = project
     ? await db
         .select()
         .from(schema.versions)
         .where(and(eq(schema.versions.projectId, projectId), eq(schema.versions.kind, kind)))
-        .orderBy(asc(schema.versions.createdAt))
+        .orderBy(kind === "forecast" ? desc(schema.versions.createdAt) : asc(schema.versions.createdAt))
     : [];
+  // Origem de cada versão (2.2): rótulo e tipo da versão apontada.
+  const origemIds = [...new Set(versionRows.map((v) => v.sourceVersionId).filter((x): x is string => !!x))];
+  const origens = origemIds.length
+    ? await db
+        .select({ id: schema.versions.id, label: schema.versions.label, kind: schema.versions.kind })
+        .from(schema.versions)
+        .where(and(eq(schema.versions.tenantId, tenantId), inArray(schema.versions.id, origemIds)))
+    : [];
+  const origemDe = new Map(origens.map((o) => [o.id, o]));
   const versions = versionRows.map((v) => ({
     id: v.id,
     label: v.label,
@@ -1471,6 +1511,9 @@ export async function getBudgetPlanning(
     isDefault: v.isDefault,
     locked: v.locked,
     sourceVersionId: v.sourceVersionId,
+    sourceLabel: v.sourceVersionId ? origemDe.get(v.sourceVersionId)?.label ?? null : null,
+    sourceKind: v.sourceVersionId ? origemDe.get(v.sourceVersionId)?.kind ?? null : null,
+    createdAt: new Date(v.createdAt).toISOString(),
   }));
   const selected =
     versions.find((v) => v.id === wantedVersionId) ??
@@ -1501,6 +1544,7 @@ export async function getBudgetPlanning(
     selecao: { receita: false, despesa: false },
     disponiveis: { receita: [], despesa: [] },
     ultimaReplicacao: null,
+    totaisDaOrigem: null,
     hasPeriod: months.length > 0,
     months,
     versions,
@@ -1596,11 +1640,24 @@ export async function getBudgetPlanning(
     .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "budget.replicateFromAtual"), eq(schema.auditLog.entityId, selected.id)))
     .orderBy(desc(schema.auditLog.createdAt))
     .limit(1);
+  // Prompt F, 6.2: totais atuais do Orçamento de origem (só Previsão com origem).
+  let totaisDaOrigem: import("./planning").BudgetPlanningData["totaisDaOrigem"] = null;
+  if (kind === "forecast" && selected.sourceVersionId) {
+    const contasOrigem = await db
+      .select({ kind: schema.budgetAccounts.kind, rowKey: schema.budgetAccounts.rowKey, total: schema.budgetAccounts.total })
+      .from(schema.budgetAccounts)
+      .where(and(eq(schema.budgetAccounts.tenantId, tenantId), eq(schema.budgetAccounts.versionId, selected.sourceVersionId)));
+    totaisDaOrigem = { receita: {}, despesa: {} };
+    for (const c of contasOrigem) {
+      if (c.kind === "receita" || c.kind === "despesa") totaisDaOrigem[c.kind][c.rowKey] = Number(c.total);
+    }
+  }
   return {
     ...emptyData,
     selecao: { receita: selecaoDe("receita") != null, despesa: selecaoDe("despesa") != null },
     disponiveis: { receita: disponiveisDe("receita", receitas), despesa: disponiveisDe("despesa", despesas) },
     ultimaReplicacao: rep?.em ? new Date(rep.em).toISOString() : null,
+    totaisDaOrigem,
     receitas,
     despesas,
   };

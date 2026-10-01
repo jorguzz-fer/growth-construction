@@ -116,6 +116,11 @@ export interface PlanningVersion {
   isDefault: boolean;
   locked: boolean;
   sourceVersionId: string | null;
+  /** Prompt F, 2.2: rótulo e tipo da versão de origem (null sem origem). */
+  sourceLabel: string | null;
+  sourceKind: string | null;
+  /** ISO. */
+  createdAt: string;
 }
 
 export interface BudgetPlanningData {
@@ -135,6 +140,12 @@ export interface BudgetPlanningData {
   disponiveis: { receita: { code: string; name: string }[]; despesa: { code: string; name: string }[] };
   /** 2.6: quando a replicação do Atual rodou pela última vez nesta versão (ISO), ou null. */
   ultimaReplicacao: string | null;
+  /**
+   * Prompt F, 6.2 (só Previsão com origem): totais atuais do Orçamento de
+   * origem por bloco e chave, para apontar divergência sem bloquear. null
+   * em Orçamentos ou Previsão sem origem.
+   */
+  totaisDaOrigem: { receita: Record<string, number>; despesa: Record<string, number> } | null;
   /** true quando o período está definido no cadastro do projeto. */
   hasPeriod: boolean;
   months: string[];

@@ -16,11 +16,15 @@ import {
 } from "@/lib/actions/planning";
 import type { BudgetPlanningData, PlanningAccountRow } from "@/lib/planning";
 import { recusaDaRemocao, resumoDaRemocao, textoDaRemocao } from "@/lib/orcamento-regras";
+import { avisoDeDivergencia, isoParaInterna, rotuloDaOrigem } from "@/lib/previsao-regras";
+import { BudgetForecastCompare } from "@/components/app/budget-forecast-compare";
+import type { ForecastComparisonData } from "@/lib/queries";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
-import { brl, brl0 } from "@/lib/utils";
+import { brl, brl0, dateBR } from "@/lib/utils";
 
 interface RowState {
   rowKey: string;
@@ -60,6 +64,7 @@ export function BudgetPlanningScreen({
   canEdit,
   budgetVersions = [],
   canCreateForecast = false,
+  comparacao,
 }: {
   data: BudgetPlanningData;
   kind: "budget" | "forecast";
@@ -67,6 +72,8 @@ export function BudgetPlanningScreen({
   canEdit: boolean;
   budgetVersions?: { id: string; label: string }[];
   canCreateForecast?: boolean;
+  /** Prompt F, FC-11: modo comparação dentro da moldura da tela (cabeçalho, seletores, barra). */
+  comparacao?: ForecastComparisonData | null;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -77,6 +84,8 @@ export function BudgetPlanningScreen({
   // só a redistribuição mensal (%) é editável.
   const totalReadOnly = kind === "forecast";
 
+  const versaoSel = data.versions.find((v) => v.id === data.versionId) ?? null;
+  const origem = versaoSel ? { label: versaoSel.sourceLabel, criadaEm: versaoSel.createdAt } : null;
   const go = (patch: Record<string, string>) => {
     const params = new URLSearchParams(sp.toString());
     for (const [k, v] of Object.entries(patch)) {
@@ -140,7 +149,9 @@ export function BudgetPlanningScreen({
           onCompare={() => go({ cmp: "1" })}
         />
       )}
-      {kind === "forecast" && !data.versionId ? null : (
+      {kind === "forecast" && comparacao ? (
+        <BudgetForecastCompare data={comparacao} backHref={`/forecast?proj=${data.project.id}${data.versionId ? `&v=${data.versionId}` : ""}`} />
+      ) : kind === "forecast" && !data.versionId ? null : (
         <>
           {data.ultimaReplicacao && (
             <p className="mb-3 text-[11.5px] text-[var(--color-ink3)]">
@@ -162,6 +173,8 @@ export function BudgetPlanningScreen({
             totalReadOnly={totalReadOnly}
             podeSelecionar={kind === "budget"}
             disponiveis={data.disponiveis.receita}
+            origem={origem}
+            totaisDaOrigem={data.totaisDaOrigem?.receita ?? null}
           />
           <div className="h-5" />
           <Bloco
@@ -178,6 +191,8 @@ export function BudgetPlanningScreen({
             totalReadOnly={totalReadOnly}
             podeSelecionar={kind === "budget"}
             disponiveis={data.disponiveis.despesa}
+            origem={origem}
+            totaisDaOrigem={data.totaisDaOrigem?.despesa ?? null}
           />
         </>
       )}
@@ -204,6 +219,7 @@ function ForecastToolbar({
   const [nome, setNome] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   if (budgetVersions.length === 0) {
     return (
@@ -215,30 +231,29 @@ function ForecastToolbar({
     );
   }
 
+  // Prompt F, 3.2–3.4: nome obrigatório; limite e erros chegam legíveis.
   const criar = () => {
     if (!canCreate || !baseId) return;
     setError(null);
+    setAviso(null);
     start(async () => {
-      try {
-        const id = await createForecastFromBudget(projectId, baseId, nome);
-        setNome("");
-        onCreated(id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao criar a Previsão.");
-      }
+      const r = await createForecastFromBudget(projectId, baseId, nome);
+      if (!r.ok) return setError(r.error);
+      setNome("");
+      if (r.aviso) setAviso(r.aviso);
+      onCreated(r.id);
     });
   };
   const duplicar = () => {
     if (!canCreate || !currentForecastId) return;
     setError(null);
+    setAviso(null);
     start(async () => {
-      try {
-        const id = await duplicateForecast(currentForecastId, nome);
-        setNome("");
-        onCreated(id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao duplicar a Previsão.");
-      }
+      const r = await duplicateForecast(currentForecastId, nome);
+      if (!r.ok) return setError(r.error);
+      setNome("");
+      if (r.aviso) setAviso(r.aviso);
+      onCreated(r.id);
     });
   };
 
@@ -265,19 +280,21 @@ function ForecastToolbar({
             <Input
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              placeholder="Nome da Previsão (ex.: Revisão 01)"
-              className="h-9 w-56"
+              placeholder="Nome da Previsão (obrigatório, ex.: Revisão 01 · maio)"
+              aria-label="Nome da Previsão"
+              className="h-9 w-64"
               disabled={!canCreate || pending}
             />
-            <Button type="button" disabled={!canCreate || pending || !baseId} onClick={criar}>
+            <Button type="button" disabled={!canCreate || pending || !baseId || !nome.trim()} onClick={criar}>
               Criar Previsão
             </Button>
             {currentForecastId && (
               <Button
                 type="button"
                 variant="outline"
-                disabled={!canCreate || pending}
+                disabled={!canCreate || pending || !nome.trim()}
                 onClick={duplicar}
+                title="Duplica a previsão aberta com o nome informado"
               >
                 Duplicar atual
               </Button>
@@ -289,7 +306,8 @@ function ForecastToolbar({
             )}
           </div>
         </div>
-        {error && <span className="text-[12px] text-[var(--color-danger)]">{error}</span>}
+        {error && <span role="alert" className="text-[12px] text-[var(--color-danger)]">{error}</span>}
+        {aviso && !error && <span role="status" className="text-[12px] text-[#92400e]">{aviso}</span>}
       </CardContent>
     </Card>
   );
@@ -387,6 +405,11 @@ function TopBar({
         <span className="rounded-[6px] bg-[var(--color-accent2)]/15 px-2.5 py-1 text-[12px] text-[var(--color-accent2)]">
           {data.months.length} competências
         </span>
+        {version && !ehOrcamento && (
+          <span className="text-[12px] text-[var(--color-ink2)]" data-origem>
+            {rotuloDaOrigem(version)}
+          </span>
+        )}
         {version && (
           <Select
             value={version.status}
@@ -408,6 +431,13 @@ function TopBar({
             <option>Concluído</option>
             <option>Aprovado</option>
           </Select>
+        )}
+        {version && (
+          // BF-2: a situação é documental e não bloqueia; a trava é outra coisa.
+          <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-ink3)]" title="Rascunho → Concluído (revisão fechada pelo autor) → Aprovado. A situação não bloqueia a edição; a trava é feita em Configuração da Versão.">
+            <Badge tone={version.locked ? "warning" : "neutral"}>{version.locked ? "travada" : "não travada"}</Badge>
+            situação não bloqueia a edição
+          </span>
         )}
       </div>
       <p className="mb-4 text-[11px] text-[var(--color-ink3)]">
@@ -454,6 +484,8 @@ function Bloco({
   totalReadOnly = false,
   podeSelecionar = false,
   disponiveis: disponiveisIniciais = [],
+  origem = null,
+  totaisDaOrigem = null,
 }: {
   titulo: string;
   descricao: string;
@@ -468,6 +500,9 @@ function Bloco({
   /** Orçamentos: incluir/excluir linha (4-A). A Previsão herda (BD-7). */
   podeSelecionar?: boolean;
   disponiveis?: { code: string; name: string }[];
+  /** Prompt F, 6: de onde o total herdado veio e os totais atuais do Orçamento (divergência). */
+  origem?: { label: string | null; criadaEm: string } | null;
+  totaisDaOrigem?: Record<string, number> | null;
 }) {
   const [rows, setRows] = useState<RowState[]>(() =>
     initialRows.map((r) => toRowState(r, months)),
@@ -628,6 +663,7 @@ function Bloco({
       const next = rows.map((r) => ({ ...r, pct: { ...r.pct } }));
       let matched = 0;
       let ignored = 0;
+      let totaisIgnorados = 0;
       const fora = new Set<string>();
       for (let i = 1; i < aoa.length; i++) {
         const row = aoa[i];
@@ -639,8 +675,11 @@ function Bloco({
           ignored++;
           continue;
         }
+        // BF-3: na Previsão o total é herdado e a planilha não o altera; a
+        // linha fixa idem (total vem do cadastro).
         if (idxTotal >= 0 && row[idxTotal] != null && row[idxTotal] !== "") {
-          next[ri].total = String(Number(row[idxTotal]) || 0);
+          if (totalReadOnly || next[ri].fixa) totaisIgnorados++;
+          else next[ri].total = String(Number(row[idxTotal]) || 0);
         }
         for (const mc of monthCols) {
           if (!monthSet.has(mc.mes)) {
@@ -656,6 +695,7 @@ function Bloco({
       const parts = [`${matched} conta(s) atualizada(s)`];
       if (ignored) parts.push(`${ignored} ignorada(s) (código não está no Plano de Contas)`);
       if (fora.size) parts.push(`meses fora do período ignorados: ${[...fora].join(", ")}`);
+      if (totaisIgnorados) parts.push(`${totaisIgnorados} total(is) ignorado(s): ${totalReadOnly ? "na Previsão o total é herdado do Orçamento" : "o total de “Receitas do Projeto” vem do cadastro"}`);
       setImportMsg(parts.join(" · ") + ". Revise a prévia e clique em Salvar.");
     } catch {
       setImportMsg("Não foi possível ler a planilha.");
@@ -817,13 +857,18 @@ function Bloco({
                         </div>
                       ) : canEdit && !totalReadOnly ? (
                         <MoneyInput value={r.total} onChange={(v) => setTotal(i, v)} className="h-8 w-[120px] text-right text-xs" />
-                      ) : (
-                        <div
-                          className="text-right font-[family-name:var(--font-mono)] text-xs"
-                          title={totalReadOnly ? "Total herdado do Budget (somente leitura)" : undefined}
-                        >
-                          {brl0(rc.total)}
+                      ) : totalReadOnly ? (
+                        // Prompt F, 6.1–6.2: herdado, com a origem declarada e a divergência visível.
+                        <div className="text-right" title={origem ? `Herdado do Orçamento “${origem.label ?? "?"}” em ${dateBR(isoParaInterna(origem.criadaEm))} (somente leitura)` : "Herdado na criação da previsão (somente leitura)"}>
+                          <div className="font-[family-name:var(--font-mono)] text-xs">{brl0(rc.total)}</div>
+                          <div className="text-[9.5px] leading-tight text-[var(--color-ink4)]">herdado{origem?.criadaEm ? ` em ${dateBR(isoParaInterna(origem.criadaEm))}` : ""}</div>
+                          {(() => {
+                            const d = avisoDeDivergencia(rc.total, totaisDaOrigem ? (totaisDaOrigem[r.rowKey] ?? 0) : null);
+                            return d && totaisDaOrigem ? <div className="text-[9.5px] leading-tight text-[#92400e]" data-divergencia>{d}</div> : null;
+                          })()}
                         </div>
+                      ) : (
+                        <div className="text-right font-[family-name:var(--font-mono)] text-xs">{brl0(rc.total)}</div>
                       )}
                     </td>
                     {months.map((m) => (
