@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ContaPagarRow } from "@/lib/queries";
-import { brl0, dateBR } from "@/lib/utils";
+import { brl0, cn, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SortTH, useOrdenacaoTabela } from "@/components/app/sortable-th";
 import type { ColunaOrdenavel } from "@/lib/tabela-ordenacao";
 import { dataBRParaISO as toISO, statusExibido, STATUS_VENCIDA, tomDoStatus } from "@/lib/despesa-status";
-import { pendenteDaConta, totalPendente } from "@/lib/contas-pagar-regras";
+import { CLIENTE_PROPRIO, filtrarContasPagar, pendenteDaConta, totalPendente } from "@/lib/contas-pagar-regras";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 /**
  * §16 — um status só para exibir, filtrar, ordenar e contar. A obrigação de
@@ -34,11 +35,13 @@ export function ContasPagarTable({
   hoje: string;
 }) {
   const hojeISO = hoje;
-  const [fornecedor, setFornecedor] = useState("");
-  const [cliente, setCliente] = useState("");
-  const [projeto, setProjeto] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [status, setStatus] = useState("");
+  // Prompt R, seção 5 — seleção múltipla: "ou" dentro do filtro, "e" entre
+  // filtros; nenhum marcado = todos. As datas continuam intervalo de vencimento.
+  const [fornecedor, setFornecedor] = useState<string[]>([]);
+  const [cliente, setCliente] = useState<string[]>([]);
+  const [projeto, setProjeto] = useState<string[]>([]);
+  const [categoria, setCategoria] = useState<string[]>([]);
+  const [status, setStatus] = useState<string[]>([]);
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
 
@@ -53,7 +56,7 @@ export function ContasPagarTable({
     for (const r of rows) if (!porId.has(r.projectId)) porId.set(r.projectId, r.projectName);
     return {
       fornecedores: uniq(rows.map((r) => r.fornecedorNome)),
-      clientes: uniq(rows.map((r) => r.clienteNome ?? "Empreendimento próprio")),
+      clientes: uniq(rows.map((r) => r.clienteNome ?? CLIENTE_PROPRIO)),
       projetos: [...porId]
         .map(([id, nome]) => ({ id, nome }))
         .sort((a, b) => a.nome.localeCompare(b.nome)),
@@ -64,19 +67,13 @@ export function ContasPagarTable({
   }, [rows, hojeISO]);
 
   const filtered = useMemo(() => {
-    const out = rows.filter((r) => {
-      if (fornecedor && r.fornecedorNome !== fornecedor) return false;
-      const cli = r.clienteNome ?? "Empreendimento próprio";
-      if (cliente && cli !== cliente) return false;
-      // Filtro por ID real do projeto (não pelo nome) — isola obras/filiais.
-      if (projeto && r.projectId !== projeto) return false;
-      if (categoria && r.categoriaDre !== categoria) return false;
-      if (status && statusDaLinha(r, hojeISO) !== status) return false;
-      const iso = toISO(r.vencimento);
-      if (de && (!iso || iso < de)) return false;
-      if (ate && (!iso || iso > ate)) return false;
-      return true;
-    });
+    // Filtro por ID real do projeto (não pelo nome) — isola obras/filiais.
+    const out = filtrarContasPagar(
+      rows,
+      { fornecedores: fornecedor, clientes: cliente, projetos: projeto, categorias: categoria, status, de: de || undefined, ate: ate || undefined },
+      (r) => statusDaLinha(r, hojeISO),
+      toISO,
+    );
     // Ordenação por vencimento usando datas reais (ISO), não strings BR:
     //  1) vencidas (mais antiga → recente), 2) a vencer (mais próxima → distante),
     //  3) pagas (por data de pagamento). Sem data vão para o fim do grupo.
@@ -142,8 +139,8 @@ export function ContasPagarTable({
   const totalRestituir = obrigacoesFiltradas.reduce((a, r) => a + r.valor, 0);
 
   const limpar = () => {
-    setFornecedor(""); setCliente(""); setProjeto("");
-    setCategoria(""); setStatus(""); setDe(""); setAte("");
+    setFornecedor([]); setCliente([]); setProjeto([]);
+    setCategoria([]); setStatus([]); setDe(""); setAte("");
   };
 
   return (
@@ -158,19 +155,11 @@ export function ContasPagarTable({
             <Label>Até</Label>
             <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} />
           </div>
-          <FilterSelect label="Fornecedor" value={fornecedor} onChange={setFornecedor} options={opts.fornecedores} />
-          <FilterSelect label="Cliente" value={cliente} onChange={setCliente} options={opts.clientes} />
-          <div>
-            <Label>Projeto</Label>
-            <Select value={projeto} onChange={(e) => setProjeto(e.target.value)}>
-              <option value="">Todos os projetos</option>
-              {opts.projetos.map((p) => (
-                <option key={p.id} value={p.id}>{p.nome}</option>
-              ))}
-            </Select>
-          </div>
-          <FilterSelect label="Categoria" value={categoria} onChange={setCategoria} options={opts.categorias} />
-          <FilterSelect label="Status" value={status} onChange={setStatus} options={opts.status} />
+          <MultiSelect label="Fornecedor" value={fornecedor} onChange={setFornecedor} options={opts.fornecedores.map((o) => ({ value: o, label: o }))} />
+          <MultiSelect label="Cliente" value={cliente} onChange={setCliente} options={opts.clientes.map((o) => ({ value: o, label: o }))} />
+          <MultiSelect label="Projeto" value={projeto} onChange={setProjeto} options={opts.projetos.map((p) => ({ value: p.id, label: p.nome }))} />
+          <MultiSelect label="Categoria" value={categoria} onChange={setCategoria} options={opts.categorias.map((o) => ({ value: o, label: o }))} />
+          <MultiSelect label="Status" value={status} onChange={setStatus} options={opts.status.map((o) => ({ value: o, label: o }))} />
         </CardContent>
       </Card>
 
@@ -220,7 +209,8 @@ export function ContasPagarTable({
           >
             <THead className="sticky top-0 z-10">
                 <tr>
-                  <SortTH coluna="fornecedor" estado={estado} onSort={onSort}>Fornecedor</SortTH>
+                  {/* 6.1 — identificação fixa à esquerda ao rolar horizontalmente */}
+                  <SortTH coluna="fornecedor" estado={estado} onSort={onSort} className="sticky left-0 z-20 bg-[var(--color-surface2)]">Fornecedor</SortTH>
                   <SortTH coluna="descricao" estado={estado} onSort={onSort}>Descrição</SortTH>
                   <SortTH coluna="parcela" estado={estado} onSort={onSort}>Parcela</SortTH>
                   <SortTH coluna="categoria" estado={estado} onSort={onSort}>Categoria</SortTH>
@@ -241,10 +231,11 @@ export function ContasPagarTable({
                   return (
                   // 4.3 — linha vencida com evidência discreta (borda à esquerda e fundo leve)
                   <TR key={r.id} className={vencida ? "border-l-2 border-l-[var(--color-danger)] bg-[var(--color-danger)]/[0.04]" : undefined}>
-                    <TD className="whitespace-nowrap font-medium text-[var(--color-ink)]">
+                    <TD className={cn("sticky left-0 z-10 whitespace-nowrap font-medium text-[var(--color-ink)]", vencida ? "bg-[#fef5f5]" : "bg-white")}>
                       {r.fornecedorNome ?? "—"}
                     </TD>
-                    <TD className="max-w-[240px] truncate">{r.descricao ?? "—"}</TD>
+                    {/* 6.2 — sem observação, estado vazio (o PED já está na linha) */}
+                    <TD className="max-w-[240px] truncate">{r.descricao && r.descricao !== r.numDoc ? r.descricao : "—"}</TD>
                     <TD className="whitespace-nowrap font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">
                       {r.parcela ? (
                         <>
@@ -331,30 +322,6 @@ export function ContasPagarTable({
           </Table>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-}) {
-  return (
-    <div>
-      <Label>{label}</Label>
-      <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Todos</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </Select>
     </div>
   );
 }

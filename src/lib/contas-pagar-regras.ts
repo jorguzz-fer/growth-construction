@@ -81,3 +81,41 @@ export function linhasPorObrigacao<T extends { id: string; origem?: string; valo
   }
   return out;
 }
+
+/**
+ * Prompt R, seção 5 — filtros com seleção múltipla: dentro de um filtro é
+ * "ou" (qualquer dos marcados), entre filtros é "e"; nenhum marcado = todos.
+ * `statusDe` é o status EXIBIDO da linha (com "Vencida"). Puro.
+ */
+export interface FiltrosContasPagar {
+  fornecedores: readonly string[];
+  clientes: readonly string[];
+  projetos: readonly string[];
+  categorias: readonly string[];
+  status: readonly string[];
+  /** ISO, inclusive */
+  de?: string;
+  ate?: string;
+}
+
+export const CLIENTE_PROPRIO = "Empreendimento próprio";
+
+export function filtrarContasPagar<T extends { fornecedorNome: string | null; clienteNome: string | null; projectId: string; categoriaDre: string | null; vencimento: string | null }>(
+  rows: readonly T[],
+  f: FiltrosContasPagar,
+  statusDe: (r: T) => string,
+  vencimentoISO: (v: string | null) => string,
+): T[] {
+  const ok = (lista: readonly string[], v: string | null | undefined) => lista.length === 0 || lista.includes(v ?? "");
+  return rows.filter((r) => {
+    if (!ok(f.fornecedores, r.fornecedorNome)) return false;
+    if (!ok(f.clientes, r.clienteNome ?? CLIENTE_PROPRIO)) return false;
+    if (!ok(f.projetos, r.projectId)) return false;
+    if (!ok(f.categorias, r.categoriaDre)) return false;
+    if (!ok(f.status, statusDe(r))) return false;
+    const iso = vencimentoISO(r.vencimento);
+    if (f.de && (!iso || iso < f.de)) return false;
+    if (f.ate && (!iso || iso > f.ate)) return false;
+    return true;
+  });
+}
