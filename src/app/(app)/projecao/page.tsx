@@ -149,7 +149,7 @@ export default async function ProjecaoPage({
   const version = compareVersions[0];
   const [unitRows, reembRows, incc] = await Promise.all([
     getUnits(version.tenantId, version.id),
-    getReembolsos(version.id),
+    getReembolsos(version.tenantId, version.id),
     getInccRows(obra.id),
   ]);
 

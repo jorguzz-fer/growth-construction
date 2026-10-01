@@ -549,7 +549,7 @@ export async function replicateFromAtual(targetVersionId: string) {
 
   const [units, reembRows, incc, despesas] = await Promise.all([
     getUnits(ctx.tenant.id, atual.id),
-    getReembolsos(atual.id),
+    getReembolsos(ctx.tenant.id, atual.id),
     getInccRows(target.projectId),
     getDespesas(atual.id),
   ]);

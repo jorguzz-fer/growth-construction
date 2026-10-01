@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function ReembolsoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ proj?: string; project?: string }>;
+  searchParams: Promise<{ proj?: string; project?: string; salva?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -35,7 +35,7 @@ export default async function ReembolsoPage({
     return <PedirProjeto titulo="Liberações de Obra" projetos={ctx.projects} oQue="ver as liberações de obra" />;
   }
   const { project, trabalho: version } = escolhido;
-  const rows = await getReembolsos(version.id);
+  const rows = await getReembolsos(ctx.tenant.id, version.id);
   const total = rows.reduce((a, r) => a + Number(r.valor ?? 0), 0);
   const canCriar = can(ctx.perms, "reembolso", "criar");
 
@@ -63,6 +63,11 @@ export default async function ReembolsoPage({
         }
       />
       <LembrarProjeto projectId={project.id} />
+      {sp.salva && (
+        <p role="status" className="mb-4 rounded-[10px] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-4 py-2.5 text-sm text-[var(--color-ink)]">
+          Liberação lançada.
+        </p>
+      )}
 
       <p className="mb-4 text-sm text-[var(--color-ink3)]">
         Total:{" "}
