@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addPermuta } from "@/lib/actions/receitas";
+import { addPermuta, updatePermuta } from "@/lib/actions/receitas";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -16,33 +16,60 @@ import { DateField } from "@/components/ui/date-field";
  * Os valores usam `MoneyInput` (vírgula decimal); a validação de verdade é a
  * do servidor, a mesma para criar e, na P-2, para editar.
  */
+export interface PermutaInicial {
+  id: string;
+  unitCode: string | null;
+  clienteId: string | null;
+  cliente: string | null;
+  dataRecebimento: string | null;
+  tipo: string | null;
+  descricao: string | null;
+  estimado: string | null;
+  status: string | null;
+  dataVenda: string | null;
+  valorVenda: string | null;
+  tipoPermuta: string | null;
+  formaVenda: string | null;
+  parcelas: number | null;
+  periodicidade: string | null;
+  dataPrimParcela: string | null;
+  obs: string | null;
+}
+
 export function PermutaForm({
   projectId,
   unidades,
   clientes,
   tipos,
+  initial,
 }: {
   projectId: string;
   unidades: string[];
   clientes: { id: string; nome: string }[];
   tipos: readonly string[];
+  /** Presente = edição (2.2): os campos vêm preenchidos e a action é `updatePermuta`. */
+  initial?: PermutaInicial;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [aviso, setAviso] = useState<string | null>(null);
-  const [estimado, setEstimado] = useState("");
-  const [valorVenda, setValorVenda] = useState("");
-  const [status, setStatus] = useState("Disponivel");
-  const [forma, setForma] = useState("avista");
+  const [estimado, setEstimado] = useState(initial?.estimado ?? "");
+  const [valorVenda, setValorVenda] = useState(initial?.valorVenda && Number(initial.valorVenda) > 0 ? initial.valorVenda : "");
+  const [status, setStatus] = useState(initial?.status ?? "Disponivel");
+  const [forma, setForma] = useState(initial?.formaVenda ?? "avista");
   const formRef = useRef<HTMLFormElement>(null);
   const vendido = status === "Vendido";
+  // 3.6 — registro antigo só com o nome: a opção aparece marcada como
+  // "gravado por nome" e continua valendo até alguém escolher do cadastro.
+  const nomeLegado = initial && !initial.clienteId && initial.cliente ? initial.cliente : null;
+  const unidadesComALegada = initial?.unitCode && !unidades.includes(initial.unitCode) ? [initial.unitCode, ...unidades] : unidades;
 
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     setAviso(null);
     start(async () => {
-      const r = await addPermuta(fd);
+      const r = initial ? await updatePermuta(fd) : await addPermuta(fd);
       if (!r.ok) {
         setAviso(r.error);
         return;
@@ -57,11 +84,13 @@ export function PermutaForm({
         <form ref={formRef} onSubmit={enviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {/* Obra desta tela (Prompt A): o ativo vai para a versão de trabalho dela. */}
           <input type="hidden" name="projectId" value={projectId} />
+          {initial && <input type="hidden" name="id" value={initial.id} />}
+          {nomeLegado && <input type="hidden" name="cliente" value={nomeLegado} />}
           <div>
             <Label>Unidade de origem *</Label>
-            <Select name="unitCode" defaultValue="" required>
+            <Select name="unitCode" defaultValue={initial?.unitCode ?? ""} required>
               <option value="">— selecione —</option>
-              {unidades.map((c) => (
+              {unidadesComALegada.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -70,10 +99,10 @@ export function PermutaForm({
           </div>
           <div>
             <Label>Cliente *</Label>
-            <Select name="cliente" defaultValue="" required>
-              <option value="">— selecione —</option>
+            <Select name="clienteId" defaultValue={initial?.clienteId ?? ""} required={!nomeLegado}>
+              <option value="">{nomeLegado ? `${nomeLegado} (gravado por nome)` : "— selecione —"}</option>
               {clientes.map((c) => (
-                <option key={c.id} value={c.nome}>
+                <option key={c.id} value={c.id}>
                   {c.nome}
                 </option>
               ))}
@@ -81,11 +110,11 @@ export function PermutaForm({
           </div>
           <div>
             <Label>Data de recebimento *</Label>
-            <DateField name="dataRecebimento" required />
+            <DateField name="dataRecebimento" defaultValue={initial?.dataRecebimento ?? ""} required />
           </div>
           <div>
             <Label>Tipo do bem / serviço *</Label>
-            <Select name="tipo" defaultValue={tipos[0] ?? ""}>
+            <Select name="tipo" defaultValue={initial?.tipo ?? tipos[0] ?? ""}>
               {tipos.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -95,7 +124,7 @@ export function PermutaForm({
           </div>
           <div className="lg:col-span-2">
             <Label>Descrição</Label>
-            <Input name="descricao" placeholder="" />
+            <Input name="descricao" defaultValue={initial?.descricao ?? ""} placeholder="" />
           </div>
           <div>
             <Label>Valor estimado (R$) *</Label>
@@ -110,7 +139,7 @@ export function PermutaForm({
           </div>
           <div>
             <Label>Data da venda / escambo{vendido ? " *" : ""}</Label>
-            <DateField name="dataVenda" />
+            <DateField name="dataVenda" defaultValue={initial?.dataVenda ?? ""} />
           </div>
           <div>
             <Label>Valor da venda (R$){vendido ? " *" : ""}</Label>
@@ -128,11 +157,11 @@ export function PermutaForm({
             <>
               <div>
                 <Label>Parcelas{vendido ? " *" : ""}</Label>
-                <Input name="parcelas" type="number" min="1" step="1" placeholder="Ex.: 12" />
+                <Input name="parcelas" type="number" min="1" step="1" defaultValue={initial?.parcelas ?? ""} placeholder="Ex.: 12" />
               </div>
               <div>
                 <Label>Periodicidade</Label>
-                <Select name="periodicidade" defaultValue="mensal">
+                <Select name="periodicidade" defaultValue={initial?.periodicidade ?? "mensal"}>
                   <option value="mensal">Mensal</option>
                   <option value="semestral">Semestral</option>
                   <option value="anual">Anual</option>
@@ -140,17 +169,17 @@ export function PermutaForm({
               </div>
               <div>
                 <Label>Vencimento da 1ª parcela</Label>
-                <DateField name="dataPrimParcela" />
+                <DateField name="dataPrimParcela" defaultValue={initial?.dataPrimParcela ?? ""} />
               </div>
             </>
           )}
           <div>
             <Label>Tipo permuta</Label>
-            <Input name="tipoPermuta" placeholder="Ex.: materiais, serviços" />
+            <Input name="tipoPermuta" defaultValue={initial?.tipoPermuta ?? ""} placeholder="Ex.: materiais, serviços" />
           </div>
           <div className="lg:col-span-2">
             <Label>Observações</Label>
-            <Input name="obs" placeholder="" />
+            <Input name="obs" defaultValue={initial?.obs ?? ""} placeholder="" />
           </div>
           {aviso && (
             <p role="status" className="text-[13px] text-[var(--color-danger)] sm:col-span-2 lg:col-span-3">
@@ -159,7 +188,7 @@ export function PermutaForm({
           )}
           <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
             <Button type="submit" disabled={pending}>
-              {pending ? "Gravando…" : "Salvar ativo"}
+              {pending ? "Gravando…" : initial ? "Salvar alterações" : "Salvar ativo"}
             </Button>
             <a href={`/permuta?proj=${projectId}`} className={buttonVariants({ variant: "ghost" })}>
               Cancelar
