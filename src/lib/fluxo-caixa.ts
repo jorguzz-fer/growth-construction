@@ -9,7 +9,9 @@ import {
   getVersionsDoProjeto,
   permToResale,
 } from "@/lib/queries";
-import { eixoDoFluxo, linhasDoFluxo, mesCorrente, partidaDaObra } from "@/lib/fluxo-tela";
+import { eixoDoFluxo, linhasDoFluxo, mesCorrente, partidaDaObra, type Mapas } from "@/lib/fluxo-tela";
+import type { LadoDoCenario } from "@/lib/fluxo-analise";
+import { ROTULO_CENARIO, resolverCenario } from "@/lib/dre";
 import { permutaCashByMonth } from "@/lib/calc";
 import { isBudgetVersion } from "@/lib/budget/config";
 import { getRestituicoesPendentesByVersion } from "@/lib/actions/restituicoes";
@@ -205,6 +207,92 @@ export async function previaFluxoDefinicaoNova(
       acumuladoNovo: ultimo(linhasDoFluxo(eixo, eixo, previsto, realizado, partidaNova, { mesAtual: mesCorrente() })),
       permutaNoPlanejamento,
       caixaForaDaAtual,
+    });
+  }
+  return out;
+}
+
+/**
+ * Prompt AD, Parte 4 — os dois lados de cada cenário para o assistente.
+ * SOMENTE LEITURA, pelas MESMAS funções da tabela (`flowMaps`,
+ * `flowMapsRealizado`). Os projetos vêm do contexto do servidor (já do
+ * tenant); as versões, de `getVersionsDoProjeto` com o tenant explícito.
+ *
+ * Projeto sem o cenário NÃO entra com zero (4.5.3): fica fora dos DOIS lados
+ * e entra na contagem de ausência. O realizado é sempre da Atual (4.6).
+ * Projeto com dois do mesmo cenário: o mais antigo, como na DRE.
+ */
+export async function ladosDoFluxo(
+  tenantId: string,
+  projetos: readonly { id: string; name: string }[],
+  definicaoNova: boolean,
+): Promise<LadoDoCenario[]> {
+  const versoes = await Promise.all(projetos.map(async (p) => ({ ...p, versoes: await getVersionsDoProjeto(tenantId, p.id) })));
+  const somar = (alvo: Mapas, m: Mapas) => {
+    for (const [mm, v] of Object.entries(m.entradas)) alvo.entradas[mm] = (alvo.entradas[mm] || 0) + v;
+    for (const [mm, v] of Object.entries(m.saidas)) alvo.saidas[mm] = (alvo.saidas[mm] || 0) + v;
+  };
+  const umProjeto = projetos.length === 1;
+  const out: LadoDoCenario[] = [];
+  for (const cenario of ["budget", "forecast"] as const) {
+    const nome = ROTULO_CENARIO[cenario];
+    const resolvidos = resolverCenario(cenario, versoes, false);
+    const plano: Mapas = { entradas: {}, saidas: {} };
+    const realizado: Mapas = { entradas: {}, saidas: {} };
+    const previstoAtual: Mapas = { entradas: {}, saidas: {} };
+    let entram = 0;
+    let semCenario = 0;
+    let semAtual = 0;
+    for (const r of resolvidos) {
+      const p = versoes.find((x) => x.id === r.projetoId)!;
+      const atual = p.versoes.find((v) => v.kind === "atual") ?? null;
+      if (!r.versao) {
+        semCenario++;
+        continue;
+      }
+      if (!atual) {
+        semAtual++;
+        continue;
+      }
+      const [pl, re, pa] = await Promise.all([
+        flowMaps(r.versao, p.id, { definicaoNova }),
+        flowMapsRealizado(atual.id),
+        flowMaps(atual, p.id, { definicaoNova }),
+      ]);
+      somar(plano, pl);
+      somar(realizado, re);
+      somar(previstoAtual, pa);
+      entram++;
+    }
+    const total = projetos.length;
+    let ausente: string | null = null;
+    if (entram === 0) {
+      ausente = umProjeto
+        ? semCenario
+          ? `${projetos[0].name} não tem ${nome}.`
+          : `${projetos[0].name} não tem versão Atual — sem ela não há caixa realizado.`
+        : `nenhum dos ${total} projeto(s) tem ${nome} e Atual ao mesmo tempo.`;
+    }
+    const partes: string[] = [];
+    if (!umProjeto && entram > 0 && entram < total) {
+      partes.push(`${nome}: ${entram} de ${total} projeto(s) entram`);
+      if (semCenario) partes.push(`${semCenario} sem ${nome} ficam fora dos dois lados`);
+      if (semAtual) partes.push(`${semAtual} sem versão Atual ficam fora dos dois lados`);
+    }
+    const versao = umProjeto
+      ? (resolvidos[0]?.versao ? `“${resolvidos[0].versao.label}”` : null)
+      : entram > 0
+        ? `de cada projeto, ${entram} de ${total}`
+        : null;
+    out.push({
+      cenario,
+      nome,
+      versao,
+      cobertura: partes.length ? partes.join("; ") + "." : null,
+      ausente,
+      plano: ausente ? null : plano,
+      realizado: ausente ? null : realizado,
+      previstoAtual: ausente ? null : previstoAtual,
     });
   }
   return out;
