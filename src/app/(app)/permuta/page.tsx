@@ -7,6 +7,8 @@ import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import { getPermutasDaTela, permToRevenda } from "@/lib/queries";
 import { previaDaRevenda, resultadoDaRevenda } from "@/lib/calc/permuta-ganho";
 import { PermutaActions } from "@/components/app/permuta-actions";
+import { PermutaImportExport } from "@/components/app/permuta-import-export";
+import { inventario, totaisPorTipo } from "@/lib/permuta-inventario";
 import { can } from "@/lib/permissions";
 import { brl0, dateBR } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -61,6 +63,13 @@ export default async function PermutaPage({
   const canCriar = can(ctx.perms, "permuta", "criar");
   const canEditar = can(ctx.perms, "permuta", "editar");
   const canExcluir = can(ctx.perms, "permuta", "excluir");
+  // Seção 5 — inventário: o que ainda está em estoque, com tempo parado e
+  // totais por tipo. "Hoje" vem do servidor em São Paulo.
+  const hojeYmd = Number(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replace(/-/g, ""),
+  );
+  const emEstoque = inventario(rows, hojeYmd);
+  const porTipo = totaisPorTipo(emEstoque);
 
   return (
     <>
@@ -107,6 +116,30 @@ export default async function PermutaPage({
           valor cheio ({brl0(previa.valorCheio)}). A DRE continua mostrando o valor cheio até a chave de reconhecimento ser ligada.
         </p>
       )}
+
+      <div className="mb-4">
+        <PermutaImportExport
+          projectId={project.id}
+          projectName={project.name}
+          canImport={canCriar}
+          ativos={rows.map((p) => ({
+            id: p.id,
+            unitCode: p.unitCode,
+            clienteNome: p.clienteNome,
+            dataRecebimento: p.dataRecebimento,
+            tipo: p.tipo,
+            descricao: p.descricao,
+            estimado: p.estimado,
+            status: p.status,
+            dataVenda: p.dataVenda,
+            valorVenda: p.valorVenda,
+            formaVenda: p.formaVenda,
+            tipoPermuta: p.tipoPermuta,
+            obs: p.obs,
+            cancelado: p.cancelado,
+          }))}
+        />
+      </div>
 
       <Table>
         <THead>
@@ -210,6 +243,72 @@ export default async function PermutaPage({
       {/* Prompt P, 1.3/1.4 — o aviso "VENDIDO … atualiza o campo Permuta em
           Dados_de_Venda" saiu: nada no sistema escreve a linha Permuta do
           plano a partir desta tabela, e induzia a contar o bem duas vezes. */}
+
+      {/* Seção 5 — inventário: ativos em estoque, tempo parado, totais por tipo. */}
+      <section className="mt-8" aria-labelledby="inventario-titulo">
+        <h2 id="inventario-titulo" className="mb-1 text-[15px] font-bold text-[var(--color-ink)]">
+          Inventário · em estoque
+        </h2>
+        <p className="mb-3 text-[12.5px] text-[var(--color-ink3)]">
+          Bens recebidos e ainda não vendidos. O tempo em estoque conta da data de recebimento até hoje. &quot;no Estoque&quot; marca o bem que também entrou como
+          insumo no módulo Estoque (quantidade e custo lá; o valor do ativo aqui).
+        </p>
+        {porTipo.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {porTipo.map((t) => (
+              <span key={t.tipo} className="rounded-[10px] border border-[var(--color-line)] bg-white px-3 py-1.5 text-[12.5px]">
+                <strong className="text-[var(--color-ink)]">{t.tipo}</strong> · {t.quantidade} · <span className="font-[family-name:var(--font-mono)]">{brl0(t.estimado)}</span>
+              </span>
+            ))}
+            <span className="rounded-[10px] border border-[var(--color-accent2)]/30 bg-[var(--color-surface2)] px-3 py-1.5 text-[12.5px]">
+              <strong className="text-[var(--color-ink)]">Total</strong> · {emEstoque.length} · <span className="font-[family-name:var(--font-mono)]">{brl0(emEstoque.reduce((a, l) => a + l.estimado, 0))}</span>
+            </span>
+          </div>
+        )}
+        <Table>
+          <THead>
+            <tr>
+              <TH>Tipo</TH>
+              <TH>Descrição</TH>
+              <TH>Unidade</TH>
+              <TH>Cliente</TH>
+              <TH>Recebido em</TH>
+              <TH className="text-right">Estimado</TH>
+              <TH className="text-right">Tempo em estoque</TH>
+            </tr>
+          </THead>
+          <tbody>
+            {emEstoque.length === 0 ? (
+              <TR>
+                <TD colSpan={7} className="py-6 text-center text-[var(--color-ink4)]">
+                  Nenhum ativo em estoque nesta versão.
+                </TD>
+              </TR>
+            ) : (
+              emEstoque.map((l) => (
+                <TR key={l.id}>
+                  <TD>
+                    <Badge tone={tipoTone(l.tipo)}>{l.tipo}</Badge>
+                    {l.noEstoque && (
+                      <Badge tone="info" className="ml-1">
+                        no Estoque
+                      </Badge>
+                    )}
+                  </TD>
+                  <TD>{l.descricao || "—"}</TD>
+                  <TD className="font-medium text-[var(--color-ink)]">{l.unitCode ?? "—"}</TD>
+                  <TD>{l.clienteNome || "—"}</TD>
+                  <TD className="font-[family-name:var(--font-mono)]">{dateBR(l.dataRecebimento)}</TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)]">{brl0(l.estimado)}</TD>
+                  <TD className={`text-right font-[family-name:var(--font-mono)] ${l.diasEmEstoque != null && l.diasEmEstoque > 180 ? "text-[var(--color-warning)]" : ""}`}>
+                    {l.diasEmEstoque == null ? "sem data" : `${l.diasEmEstoque} dia${l.diasEmEstoque === 1 ? "" : "s"}`}
+                  </TD>
+                </TR>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </section>
     </>
   );
 }
