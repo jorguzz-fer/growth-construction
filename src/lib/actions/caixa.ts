@@ -928,7 +928,8 @@ export async function matchCandidatosMovimento(
   } else {
     const contas = await getContasReceber(ctx.tenant.id);
     for (const c of contas) {
-      if (c.status === "Recebido" || c.status === "Cancelado") continue;
+      // Domínio fixado na K-1: o cancelamento grava "Cancelada" (e getContasReceber já exclui canceladas).
+      if (c.status === "Recebido" || c.status === "Cancelada") continue;
       const restante = Number(c.valor) - Number(c.valorRecebido || 0);
       const cand = avaliar(
         c.id,

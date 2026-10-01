@@ -4,7 +4,7 @@ import {
   getReceivables,
   getClientes,
   getBankAccounts,
-  getUnitCodesByTenant,
+  getUnidadesAtuaisPorObra,
 } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
@@ -26,26 +26,23 @@ export default async function ContasReceberPage({
 
   const sp = await searchParams;
 
-  const [contasAll, receivablesAll, clientes, bancos, unidades] = await Promise.all([
-    getContasReceber(ctx.tenant.id),
-    getReceivables(ctx.tenant.id),
+  // Filtro por projeto (?proj=): "all" mostra todos. CR-06 — a obra filtra na
+  // consulta; a página não carrega a empresa inteira para descartar depois.
+  const isAll = !sp.proj || sp.proj === "all";
+  const projSel = isAll ? null : (ctx.projects.find((p) => p.id === sp.proj) ?? null);
+  const filtroObra = projSel?.id;
+
+  const [contas, receivables, clientes, bancos, unidadesPorObra] = await Promise.all([
+    getContasReceber(ctx.tenant.id, filtroObra),
+    getReceivables(ctx.tenant.id, filtroObra),
     getClientes(ctx.tenant.id),
     getBankAccounts(ctx.tenant.id),
-    getUnitCodesByTenant(ctx.tenant.id),
+    // CR-07 — o seletor de unidade só oferece as unidades da obra escolhida.
+    getUnidadesAtuaisPorObra(ctx.tenant.id),
   ]);
 
-  // Filtro por projeto (?proj=): "all" mostra todos. As DUAS listagens — contas
-  // lançadas e recebíveis das vendas — respeitam o projeto escolhido.
-  const isAll = !sp.proj || sp.proj === "all";
-  const projSel = isAll
-    ? null
-    : (ctx.projects.find((p) => p.id === sp.proj) ?? null);
-  const contas = projSel ? contasAll.filter((c) => c.projectId === projSel.id) : contasAll;
-  const receivables = projSel
-    ? receivablesAll.filter((r) => r.projectId === projSel.id)
-    : receivablesAll;
-
-  // Lista unificada para a busca (contas lançadas + recebíveis das vendas).
+  // Lista unificada para a busca (contas lançadas + recebíveis das vendas),
+  // já só da obra escolhida.
   const receitasBuscaveis: ReceitaBuscavel[] = [
     ...contas.map((c) => ({
       id: c.id,
@@ -87,19 +84,21 @@ export default async function ContasReceberPage({
         }
         subtitle="Recebíveis das vendas (Unidades) e contas a receber lançadas manualmente — vinculadas a um projeto."
       />
-      {/* Busca de receitas: cobre as duas origens da tela — contas a receber
-          lançadas e recebíveis derivados dos planos de venda. */}
       <div className="mb-3">
         <ReceitaSearch rows={receitasBuscaveis} />
       </div>
 
       <ContasReceberManager
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
+        projetoSelecionado={projSel?.id ?? null}
         clientes={clientes.map((c) => ({ id: c.id, nome: c.nomeCompleto }))}
         bancos={bancos.map((b) => ({ id: b.id, nome: `${b.banco}${b.cc ? " · " + b.cc : ""}` }))}
-        unidades={unidades}
+        unidadesPorObra={unidadesPorObra}
         contas={contas}
         unitReceb={receivables.map((r) => ({
+          // CR-08 — o identificador do recebível (unidade:índice da parcela)
+          // chega à tabela; é a chave de qualquer vínculo futuro.
+          refId: r.refId,
           unitCode: r.unitCode,
           projectName: r.projectName,
           clienteNome: r.clienteNome,

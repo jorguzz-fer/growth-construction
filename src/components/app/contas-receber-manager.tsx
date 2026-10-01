@@ -1,14 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   createContaReceber,
   updateContaReceber,
   cancelarContaReceber,
+  type ResultadoContaReceber,
 } from "@/lib/actions/contas-receber";
-
-/** Tipos de receita (definido no client — não pode vir de módulo "use server"). */
-const TIPOS_RECEITA = ["Sinal", "Parcela mensal", "Outros", "Outras Receitas"] as const;
+import { STATUS_EDITAVEIS, TIPOS_DE_RECEITA as TIPOS_RECEITA } from "@/lib/conta-receber-regras";
 import type { ContaReceberRow } from "@/lib/queries";
 import { brl0, dateBR } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +25,8 @@ interface Opt {
   nome: string;
 }
 export interface UnitReceb {
+  /** CR-08 — unidade:índice da parcela, produzido por `getReceivables`. */
+  refId: string;
   unitCode: string;
   projectName: string;
   clienteNome: string | null;
@@ -46,25 +47,50 @@ const statusTone = (s: string) =>
 /** Formulário de criação (client por causa do campo condicional "Outras Receitas"). */
 function NovaConta({
   projetos,
+  projetoSelecionado,
   clientes,
   bancos,
-  unidades,
+  unidadesPorObra,
 }: {
   projetos: Opt[];
+  projetoSelecionado: string | null;
   clientes: Opt[];
   bancos: Opt[];
-  unidades: string[];
+  unidadesPorObra: Record<string, string[]>;
 }) {
   const [tipo, setTipo] = useState<string>("Sinal");
   const [valor, setValor] = useState("");
+  const [projectId, setProjectId] = useState(projetoSelecionado ?? projetos[0]?.id ?? "");
+  const [pending, start] = useTransition();
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  // CR-07 — só as unidades da obra escolhida no próprio formulário.
+  const unidades = unidadesPorObra[projectId] ?? [];
+  const enviar = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    setAviso(null);
+    start(async () => {
+      const r = await createContaReceber(fd);
+      // CR-09 — a action devolve { ok, error }; a mensagem chega inteira.
+      if (!r.ok) {
+        setAviso({ ok: false, texto: r.error });
+        return;
+      }
+      setAviso({ ok: true, texto: "Conta a receber lançada." });
+      formRef.current?.reset();
+      setValor("");
+      setTipo("Sinal");
+    });
+  };
   return (
     <Card className="mb-5">
       <CardContent className="p-5">
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-ink)]">Nova conta a receber</h3>
-        <form action={createContaReceber} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <form ref={formRef} onSubmit={enviar} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div>
             <Label>Projeto *</Label>
-            <Select name="projectId" defaultValue={projetos[0]?.id ?? ""} required>
+            <Select name="projectId" value={projectId} onChange={(e) => setProjectId(e.target.value)} required>
               {projetos.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
@@ -136,10 +162,15 @@ function NovaConta({
             </Select>
           </div>
           <div className="flex items-end">
-            <Button type="submit" className="w-full">
-              Adicionar
+            <Button type="submit" className="w-full" disabled={pending}>
+              {pending ? "Salvando…" : "Adicionar"}
             </Button>
           </div>
+          {aviso && (
+            <p role="status" className={`sm:col-span-4 text-sm ${aviso.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+              {aviso.texto}
+            </p>
+          )}
         </form>
       </CardContent>
     </Card>
@@ -162,11 +193,31 @@ function ContaRow({
   const [tipo, setTipo] = useState(c.tipo);
   const [valor, setValor] = useState(String(c.valor));
   const [recebido, setRecebido] = useState(String(c.valorRecebido));
+  const [pending, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  // CR-09 — as actions devolvem { ok, error }; a mensagem aparece na linha.
+  const executar = (fd: FormData, acao: (fd: FormData) => Promise<ResultadoContaReceber>, aoConcluir?: () => void) => {
+    setErro(null);
+    start(async () => {
+      const r = await acao(fd);
+      if (!r.ok) {
+        setErro(r.error);
+        return;
+      }
+      aoConcluir?.();
+    });
+  };
   if (edit) {
     return (
       <TR>
         <TD colSpan={7}>
-          <form action={updateContaReceber} className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              executar(new FormData(e.currentTarget), updateContaReceber, () => setEdit(false));
+            }}
+            className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-4"
+          >
             <input type="hidden" name="id" value={c.id} />
             <div>
               <Label>Projeto</Label>
@@ -203,9 +254,9 @@ function ContaRow({
             <div>
               <Label>Status</Label>
               <Select name="status" defaultValue={c.status}>
-                <option>A receber</option>
-                <option>Parcialmente recebido</option>
-                <option>Recebido</option>
+                {STATUS_EDITAVEIS.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
               </Select>
             </div>
             <div>
@@ -220,12 +271,13 @@ function ContaRow({
             <input type="hidden" name="clienteId" value={c.clienteId ?? ""} />
             <input type="hidden" name="bancoId" value={c.bancoId ?? ""} />
             <div className="flex items-end gap-2 sm:col-span-4">
-              <Button type="submit" size="sm">
-                Salvar
+              <Button type="submit" size="sm" disabled={pending}>
+                {pending ? "Salvando…" : "Salvar"}
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setEdit(false)}>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setEdit(false)} disabled={pending}>
                 Cancelar
               </Button>
+              {erro && <span className="text-xs text-[var(--color-danger)]">{erro}</span>}
             </div>
           </form>
         </TD>
@@ -252,13 +304,21 @@ function ContaRow({
             </button>
           )}
           {canExcluir && (
-            <form action={cancelarContaReceber}>
-              <input type="hidden" name="id" value={c.id} />
-              <button type="submit" className="text-sm text-[var(--color-danger)] hover:underline">
-                Cancelar
-              </button>
-            </form>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                if (!window.confirm(`Cancelar a conta a receber de ${brl0(c.valor)}? Ela sai das listas e dos relatórios, mas fica no histórico.`)) return;
+                const fd = new FormData();
+                fd.set("id", c.id);
+                executar(fd, cancelarContaReceber);
+              }}
+              className="text-sm text-[var(--color-danger)] hover:underline disabled:opacity-50"
+            >
+              {pending ? "…" : "Cancelar"}
+            </button>
           )}
+          {erro && <span className="text-xs text-[var(--color-danger)]">{erro}</span>}
         </div>
       </TD>
     </TR>
@@ -267,9 +327,10 @@ function ContaRow({
 
 export function ContasReceberManager({
   projetos,
+  projetoSelecionado,
   clientes,
   bancos,
-  unidades,
+  unidadesPorObra,
   contas,
   unitReceb,
   canCriar,
@@ -277,9 +338,10 @@ export function ContasReceberManager({
   canExcluir,
 }: {
   projetos: Opt[];
+  projetoSelecionado: string | null;
   clientes: Opt[];
   bancos: Opt[];
-  unidades: string[];
+  unidadesPorObra: Record<string, string[]>;
   contas: ContaReceberRow[];
   unitReceb: UnitReceb[];
   canCriar: boolean;
@@ -315,17 +377,20 @@ export function ContasReceberManager({
     ],
     [],
   );
-  // Recebíveis não têm ID próprio (são derivados do plano de pagamento); a
-  // chave estável é unidade + data + valor, suficiente para desempate fixo.
-  const recebOrd = useOrdenacaoTabela(
-    unitReceb,
-    colReceb,
-    (r) => `${r.unitCode}|${r.dia}|${r.valor}|${r.descricao}`,
-  );
+  // CR-08 — o recebível tem identificador (unidade:índice da parcela).
+  const recebOrd = useOrdenacaoTabela(unitReceb, colReceb, (r) => r.refId);
 
   return (
     <div>
-      {canCriar && <NovaConta projetos={projetos} clientes={clientes} bancos={bancos} unidades={unidades} />}
+      {canCriar && (
+        <NovaConta
+          projetos={projetos}
+          projetoSelecionado={projetoSelecionado}
+          clientes={clientes}
+          bancos={bancos}
+          unidadesPorObra={unidadesPorObra}
+        />
+      )}
 
       <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
         <Badge tone="neutral">{contas.length} lançadas</Badge>
@@ -382,8 +447,8 @@ export function ContasReceberManager({
                 </tr>
               </THead>
               <tbody>
-                {recebOrd.rows.map((r, i) => (
-                  <TR key={i}>
+                {recebOrd.rows.map((r) => (
+                  <TR key={r.refId}>
                     <TD className="font-medium">{r.unitCode}</TD>
                     <TD className="whitespace-nowrap">{r.projectName}</TD>
                     <TD className="text-[var(--color-ink3)]">{r.clienteNome ?? "—"}</TD>
