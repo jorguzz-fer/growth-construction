@@ -60,7 +60,10 @@ export default async function DespesasPage({
     pf_valor?: string;
     pf_venc?: string;
     pf_comp?: string;
-    pf_doc?: string; parcela?: string }>;
+    pf_doc?: string;
+    /** Prompt Z, BZ-1 — proposta de lançamento das diárias: fornecedor (autônomo) e as diárias que ficam vinculadas. */
+    pf_fornecedor?: string;
+    pf_diarias?: string; parcela?: string }>;
 }) {
   // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
   // global (Prompt A). Sem obra na URL, a tela pede a escolha.
@@ -381,6 +384,9 @@ export default async function DespesasPage({
                         obs: sp.pf_obs ?? null,
                         // Prompt L, 3-A.2 — movimento do extrato reservado para conciliação.
                         cashEntryId: sp.pf_cash ?? null,
+                        // Prompt Z, BZ-1 — diárias da equipe: a despesa nasce aqui, com o autônomo como fornecedor.
+                        fornecedorId: sp.pf_fornecedor ?? null,
+                        diariasIds: sp.pf_diarias ?? null,
                       }
                     : null
                 }

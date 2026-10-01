@@ -131,7 +131,10 @@ export const NAV_MENU: NavModule[] = [
     id: "pessoas",
     label: "Pessoas",
     icon: "pessoas",
-    items: [{ href: "/funcionarios", label: "Funcionários" }],
+    items: [
+      { href: "/funcionarios", label: "Funcionários" },
+      { href: "/equipes", label: "Equipes de Projetos" },
+    ],
   },
   {
     id: "config",

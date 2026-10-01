@@ -567,6 +567,13 @@ async function lancarDespesa(
   // Prompt L, 3-A.2 — veio do extrato: o movimento reservado é conciliado com
   // este lançamento (vínculo com valor), sem saída de caixa nova. Falha aqui
   // não desfaz a despesa: vira aviso, e a conciliação fica para a tela do Caixa.
+  // Prompt Z, BZ-1 — diárias da equipe que originaram esta despesa passam a apontar para ela (rastro; nada é gerado aqui).
+  const diariasIds = ((formData.get("diariasIds") as string | null) || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (diariasIds.length > 0) {
+    const { vincularDiariasADespesa } = await import("@/lib/actions/equipes");
+    const n = await vincularDiariasADespesa(ctx.tenant.id, diariasIds, row.id);
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "equipe.diarias.lancadas", entity: "despesa", entityId: row.id, meta: { diarias: n, pedidas: diariasIds.length } });
+  }
   const cashEntryId = (formData.get("cashEntryId") as string | null) || null;
   let avisoConciliacao: string | null = null;
   if (cashEntryId) {
