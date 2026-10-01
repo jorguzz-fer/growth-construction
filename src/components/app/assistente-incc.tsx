@@ -74,7 +74,8 @@ export function AssistenteIncc({ usuario, rows, variante, analise }: { usuario: 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[15px] font-bold text-[var(--color-ink)]">
             Assistente IA
-            <Badge tone="warning">Propõe, você confirma</Badge>
+            {/* Prompt E, 6.1: o painel não grava nada (só mostra o efeito), então o selo é este. */}
+            <Badge tone="neutral">Somente leitura</Badge>
           </div>
           <div className="text-[12px] text-[var(--color-ink2)]">Tabela INCC · {variante ?? "variante a confirmar"}</div>
         </div>

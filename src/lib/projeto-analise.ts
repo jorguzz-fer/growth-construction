@@ -67,7 +67,8 @@ const vazio = (v: string | number | null | undefined) => v === null || v === und
 /** O que falta no cadastro de uma obra (cliente nulo = próprio, não falta). */
 export function camposFaltando(p: ProjetoParaAnalise): string[] {
   const f: string[] = [];
-  if (vazio(p.startDate) || vazio(p.endDate)) f.push("datas de início e fim");
+  // Prompt E, 2.3: sem as datas, Orçamentos e Previsão não têm meses para distribuir.
+  if (vazio(p.startDate) || vazio(p.endDate)) f.push("datas de início e fim (sem elas, Orçamentos e Previsão não têm meses para distribuir)");
   if (vazio(p.valorConstrucao) && vazio(p.valorTerreno)) f.push("valores (receitas)");
   if (vazio(p.custoConstrucao) && vazio(p.custoTerreno)) f.push("custos");
   if (vazio(p.endereco)) f.push("endereço");
