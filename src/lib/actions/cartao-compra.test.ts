@@ -30,9 +30,10 @@ describe.skipIf(!HAS_DB)("Compra no cartão de crédito (Prompt U, 2)", async ()
     for (const [k, v] of Object.entries(campos)) f.set(k, v);
     return f;
   };
+  // Só o tenant deste teste: contar o banco inteiro variava com outros testes rodando em paralelo (intermitente).
   const contar = async () => ({
-    pagamentos: (await db.select().from(schema.pagamentos)).length,
-    caixa: (await db.select().from(schema.cashEntries)).length,
+    pagamentos: (await db.select().from(schema.pagamentos).where(eq(schema.pagamentos.tenantId, tenantId))).length,
+    caixa: (await db.select().from(schema.cashEntries).where(eq(schema.cashEntries.tenantId, tenantId))).length,
   });
 
   beforeAll(async () => {

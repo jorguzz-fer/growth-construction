@@ -6,7 +6,11 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { isR2Configured, putObject } from "@/lib/storage/r2";
+import { getObjectBytes, isR2Configured, putObject } from "@/lib/storage/r2";
+import { AI_ACCEPTED_MIME, AI_MAX_DOCS, isAiConfigured } from "@/lib/ai/despesa-extract";
+import { lerFolhaDePontoComIA } from "@/lib/ai/folha-ponto";
+import { casarNomesComEquipe, type PropostaDeDiaria } from "@/lib/pessoas-analise";
+import { getEquipeDoProjeto } from "@/lib/queries";
 import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { origemDoStakeholder, recusaDaAlocacao, recusaDoRegistro, TIPOS_DOC_EQUIPE_DIA, valorDaDiaria, type OrigemMembro } from "@/lib/equipe-regras";
 import { numeroDoCampo } from "@/lib/estoque-regras";
@@ -281,4 +285,37 @@ export async function vincularDiariasADespesa(tenantId: string, diariasIds: read
   if (diariasIds.length === 0) return 0;
   const rows = await db.update(schema.diarias).set({ despesaId }).where(and(eq(schema.diarias.tenantId, tenantId), inArray(schema.diarias.id, [...diariasIds]), isNull(schema.diarias.despesaId))).returning({ id: schema.diarias.id });
   return rows.length;
+}
+
+/* ───────────── 6.2 — ler a folha de ponto anexada (propõe, não grava) ───────────── */
+
+export type ResultadoFolhaPonto = { ok: true; data: string; casados: PropostaDeDiaria[]; semPar: string[]; observacoes: string[] } | { ok: false; error: string };
+
+/**
+ * Lê SÓ os documentos do tipo "Folha de ponto assinada" do dia (nunca
+ * documento de funcionário — 6.3) e propõe os registros casados com a
+ * equipe. A gravação é da pessoa, por `registrarDiariasDoDia`.
+ */
+export async function lerFolhaDePonto(equipeDiaId: string): Promise<ResultadoFolhaPonto> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, TELA, "ver")) return { ok: false, error: "Sem permissão para ver equipes." };
+  if (!isAiConfigured()) return { ok: false, error: "Leitura por IA não configurada (ANTHROPIC_API_KEY)." };
+  if (!isR2Configured()) return { ok: false, error: "Storage (R2) não configurado — a folha não pode ser lida." };
+  const [dia] = await db.select().from(schema.equipeDias).where(and(eq(schema.equipeDias.id, equipeDiaId), eq(schema.equipeDias.tenantId, ctx.tenant.id))).limit(1);
+  if (!dia) return { ok: false, error: "Dia não encontrado." };
+  const docs = await db.select().from(schema.documents).where(and(eq(schema.documents.tenantId, ctx.tenant.id), eq(schema.documents.equipeDiaId, dia.id), eq(schema.documents.tipo, "Folha de ponto assinada"))).orderBy(desc(schema.documents.uploadedAt));
+  const legiveis = docs.filter((d) => (AI_ACCEPTED_MIME as readonly string[]).includes(d.contentType ?? "")).slice(0, AI_MAX_DOCS);
+  if (legiveis.length === 0) return { ok: false, error: "O dia não tem folha de ponto assinada (PDF ou imagem) anexada." };
+  const equipe = await getEquipeDoProjeto(ctx.tenant.id, dia.projectId);
+  try {
+    const paraLeitura = await Promise.all(legiveis.map(async (d) => ({ bytes: await getObjectBytes(d.storageKey), mime: d.contentType ?? "application/pdf", filename: d.filename })));
+    const lido = await lerFolhaDePontoComIA(paraLeitura, equipe.filter((m) => m.situacao === "ativa").map((m) => m.nome));
+    const r = casarNomesComEquipe(lido.linhas.map((l) => ({ nome: l.nome, quantidade: l.quantidade })), equipe);
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "equipe.ia.folha_ponto", entity: "equipe_dia", entityId: dia.id, meta: { data: dia.data, documentos: legiveis.length, casados: r.casados.length, semPar: r.semPar.length } });
+    return { ok: true, data: dia.data, casados: r.casados, semPar: r.semPar, observacoes: lido.observacoes };
+  } catch (e) {
+    console.error("[equipes] falha na leitura da folha de ponto:", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao ler a folha de ponto." };
+  }
 }

@@ -2076,6 +2076,27 @@ export async function getDocumentsByEquipeDias(tenantId: string, ids: readonly s
   return db.select().from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.equipeDiaId, [...ids]))).orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** 6.1 / 6.2 — alocações ativas do tenant com obra e nome (sem documento). */
+export async function getAlocacoesAtivas(tenantId: string): Promise<{ funcionarioId: string | null; stakeholderId: string | null; projectId: string; projectName: string; funcaoId: string | null; nome: string }[]> {
+  const rows = await db
+    .select({ funcionarioId: schema.equipesProjeto.funcionarioId, stakeholderId: schema.equipesProjeto.stakeholderId, projectId: schema.equipesProjeto.projectId, projectName: schema.projects.name, funcaoId: schema.equipesProjeto.funcaoId, sNome: schema.stakeholders.nome, fNome: schema.funcionarios.nome })
+    .from(schema.equipesProjeto)
+    .innerJoin(schema.projects, eq(schema.equipesProjeto.projectId, schema.projects.id))
+    .leftJoin(schema.stakeholders, eq(schema.equipesProjeto.stakeholderId, schema.stakeholders.id))
+    .leftJoin(schema.funcionarios, eq(schema.equipesProjeto.funcionarioId, schema.funcionarios.id))
+    .where(and(eq(schema.equipesProjeto.tenantId, tenantId), eq(schema.equipesProjeto.situacao, "ativa")));
+  return rows.map((r) => ({ funcionarioId: r.funcionarioId, stakeholderId: r.stakeholderId, projectId: r.projectId, projectName: r.projectName, funcaoId: r.funcaoId, nome: r.fNome ?? r.sNome ?? "—" }));
+}
+/** 6.1 — SÓ tipo e validade dos documentos (nunca o arquivo): o assistente sabe que tipo existe, não o que está dentro. */
+export async function getTiposDeDocPorFuncionario(tenantId: string): Promise<{ funcionarioId: string; tipo: string | null; validade: string | null }[]> {
+  const rows = await db.select({ funcionarioId: schema.documents.funcionarioId, tipo: schema.documents.tipo, validade: schema.documents.validade, versao: schema.documents.versao }).from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), isNotNull(schema.documents.funcionarioId))).orderBy(asc(schema.documents.versao));
+  return rows.filter((r): r is typeof r & { funcionarioId: string } => !!r.funcionarioId).map((r) => ({ funcionarioId: r.funcionarioId, tipo: r.tipo, validade: r.validade }));
+}
+/** 6.1 — para a análise NO SERVIDOR (o CPF é comparado aqui e nunca sai no resultado). */
+export async function getFuncionariosParaAnalise(tenantId: string): Promise<{ id: string; nome: string; cpf: string | null; cargo: string | null; admissao: string | null; desligamento: string | null }[]> {
+  return db.select({ id: schema.funcionarios.id, nome: schema.funcionarios.nome, cpf: schema.funcionarios.cpf, cargo: schema.funcionarios.cargo, admissao: schema.funcionarios.admissao, desligamento: schema.funcionarios.desligamento }).from(schema.funcionarios).where(eq(schema.funcionarios.tenantId, tenantId));
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */

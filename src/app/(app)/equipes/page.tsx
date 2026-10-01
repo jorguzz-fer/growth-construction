@@ -1,6 +1,9 @@
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
-import { getAlocaveis, getDiasDaEquipe, getDocumentsByEquipeDias, getEquipeDoProjeto } from "@/lib/queries";
+import { getAlocacoesAtivas, getAlocaveis, getDiasDaEquipe, getDocumentsByEquipeDias, getEquipeDoProjeto } from "@/lib/queries";
+import { analisarEquipes } from "@/lib/pessoas-analise";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { AssistenteEquipes } from "@/components/app/assistente-equipes";
 import { garantirFuncoesPadrao } from "@/lib/equipes-db";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
@@ -33,7 +36,21 @@ export default async function EquipesPage({ searchParams }: { searchParams: Prom
   const ate = sp.ate ?? "";
   const [equipe, alocaveis, funcoes, dias] = await Promise.all([getEquipeDoProjeto(ctx.tenant.id, project.id), getAlocaveis(ctx.tenant.id), garantirFuncoesPadrao(ctx.tenant.id), getDiasDaEquipe(ctx.tenant.id, project.id, de || null, ate || null)]);
   const r2 = isR2Configured();
+  // 6.2 — o assistente: proposta do dia a partir da equipe, e as análises; só nomes, datas e quantidades.
+  const hoje = (() => {
+    const d = new Date();
+    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  })();
+  const [todosOsDias, alocacoesAtivas] = await Promise.all([de || ate ? getDiasDaEquipe(ctx.tenant.id, project.id) : Promise.resolve(dias), getAlocacoesAtivas(ctx.tenant.id)]);
+  const analise = analisarEquipes({
+    equipe: equipe.map((m) => ({ id: m.id, nome: m.nome, origem: m.origem, stakeholderId: m.stakeholderId, funcionarioId: m.funcionarioId, funcaoId: m.funcaoId, valorDiaria: m.valorDiaria, situacao: m.situacao })),
+    diarias: todosOsDias.flatMap((d) => d.diarias),
+    alocacoesAtivas,
+    projetos: ctx.projects.map((p) => ({ id: p.id, name: p.name })),
+    diaJaRegistrado: todosOsDias.some((d) => d.data === hoje),
+  });
   const docs = await getDocumentsByEquipeDias(ctx.tenant.id, dias.map((d) => d.id));
+  const diasComFolha = dias.filter((d) => docs.some((x) => x.equipeDiaId === d.id && x.tipo === "Folha de ponto assinada")).map((d) => ({ id: d.id, data: d.data }));
   const docsPorDia: Record<string, DocDoDia[]> = {};
   for (const d of docs) {
     if (!d.equipeDiaId) continue;
@@ -48,6 +65,8 @@ export default async function EquipesPage({ searchParams }: { searchParams: Prom
         actions={<ProjectPicker projects={pickerProjetos} selected={project.id} />}
       />
       <LembrarProjeto projectId={project.id} />
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       <EquipesManager
         projectId={project.id}
         projectName={project.name}
@@ -63,6 +82,9 @@ export default async function EquipesPage({ searchParams }: { searchParams: Prom
         canExcluir={can(ctx.perms, "equipes", "excluir")}
         r2={r2}
       />
+      </div>
+      <AssistenteEquipes usuario={ctx.userEmail ?? "anon"} projectId={project.id} hojeInterno={hoje} analise={analise} diasComFolha={diasComFolha} canCriar={can(ctx.perms, "equipes", "criar")} aiConfigurada={isAiConfigured()} />
+      </div>
     </>
   );
 }
