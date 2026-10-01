@@ -1930,6 +1930,52 @@ export async function contarAlocacoesDoFuncionario(tenantId: string, funcionario
   return r?.n ?? 0;
 }
 
+/**
+ * Documentos do funcionário (2.2-A). Sem `comAso`, os ASO NÃO SAEM do servidor
+ * (16c): quem não tem a permissão não recebe nem a existência deles.
+ */
+export async function getDocumentsByFuncionario(tenantId: string, funcionarioId: string, comAso: boolean): Promise<DocumentRow[]> {
+  const { tipoEhAso } = await import("@/lib/funcionario-docs-regras");
+  const rows = await db
+    .select()
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), eq(schema.documents.funcionarioId, funcionarioId)))
+    .orderBy(desc(schema.documents.uploadedAt));
+  return comAso ? rows : rows.filter((d) => !tipoEhAso(d.tipo));
+}
+
+export type FolhaRow = typeof schema.folhasCompetencia.$inferSelect;
+export interface FolhaLista extends FolhaRow {
+  documentos: number;
+  despesaNumDoc: string | null;
+  despesaValor: number | null;
+}
+/** 2.2-B — folhas por competência, com a contagem de documentos e a despesa vinculada. */
+export async function getFolhas(tenantId: string): Promise<FolhaLista[]> {
+  const rows = await db
+    .select({ f: schema.folhasCompetencia, despesaNumDoc: schema.despesas.numDoc, despesaValor: schema.despesas.valor, documentos: sql<number>`(select count(*)::int from document d where d.folha_id = ${schema.folhasCompetencia.id})` })
+    .from(schema.folhasCompetencia)
+    .leftJoin(schema.despesas, eq(schema.folhasCompetencia.despesaId, schema.despesas.id))
+    .where(eq(schema.folhasCompetencia.tenantId, tenantId))
+    .orderBy(desc(chaveCompetencia(schema.folhasCompetencia.competencia)));
+  return rows.map((r) => ({ ...r.f, documentos: r.documentos, despesaNumDoc: r.despesaNumDoc, despesaValor: r.despesaValor == null ? null : Number(r.despesaValor) }));
+}
+export async function getDocumentsByFolhas(tenantId: string, folhaIds: readonly string[]): Promise<DocumentRow[]> {
+  if (folhaIds.length === 0) return [];
+  return db.select().from(schema.documents).where(and(eq(schema.documents.tenantId, tenantId), inArray(schema.documents.folhaId, [...folhaIds]))).orderBy(desc(schema.documents.uploadedAt));
+}
+/** Despesas candidatas a folha/encargo (texto), para vincular e conferir (2.2-B.4 / 2.2-B.5). Só leitura. */
+export async function getDespesasCandidatasAFolha(tenantId: string): Promise<{ id: string; numDoc: string | null; competencia: string | null; valor: number; texto: string }[]> {
+  const rows = await db
+    .select({ id: schema.despesas.id, numDoc: schema.despesas.numDoc, competencia: schema.despesas.competencia, valor: schema.despesas.valor, obs: schema.despesas.obs, fornecedor: schema.stakeholders.nome, categoria: schema.despesas.categoriaDre })
+    .from(schema.despesas)
+    .leftJoin(schema.stakeholders, eq(schema.despesas.fornecedorId, schema.stakeholders.id))
+    .where(and(eq(schema.despesas.tenantId, tenantId), eq(schema.despesas.cancelado, false)))
+    .orderBy(desc(schema.despesas.createdAt))
+    .limit(1000);
+  return rows.map((r) => ({ id: r.id, numDoc: r.numDoc, competencia: r.competencia, valor: Number(r.valor), texto: [r.obs, r.fornecedor, r.categoria].filter(Boolean).join(" · ") }));
+}
+
 export type RecebimentoRow = typeof schema.contaReceberRecebimentos.$inferSelect;
 
 /** Recebimentos (ativos e estornados) das contas listadas (Prompt K, seção 3). */
