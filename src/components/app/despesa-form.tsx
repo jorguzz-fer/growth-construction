@@ -9,7 +9,6 @@ import {
   extractDespesaFromDoc,
   addDespesaDocs,
   deleteDespesaDoc,
-  deleteDespesa,
   cancelarDespesa,
 } from "@/lib/actions/despesas";
 import {
@@ -37,6 +36,7 @@ import {
   type DuplicidadeDocumento,
 } from "@/lib/actions/documento-fiscal";
 import { dateBR } from "@/lib/utils";
+import { ConfirmarExclusaoDespesa } from "@/components/app/confirmar-exclusao-despesa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -338,34 +338,15 @@ export function DespesaForm({
   }
 
   /**
-   * Exclusão FÍSICA: apaga a despesa definitivamente. Irreversível, por isso a
-   * confirmação é explícita e mostra o que está sendo apagado.
+   * Exclusão FÍSICA (Prompt S, seção 2): abre o painel que mostra o inventário
+   * do que está vinculado e pede o PED digitado. A action recusa com
+   * dependência (Prompt I, §12), apaga e audita na mesma transação.
    */
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   function excluirDespesa() {
     if (!edit) return;
-    const anexos = edit.documentos?.length ?? 0;
-    const aviso =
-      `Excluir DEFINITIVAMENTE a despesa ${edit.numDoc ?? ""} ` +
-      `(${Number(edit.valor).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-      })})?` +
-      (anexos > 0 ? `\n\nOs ${anexos} anexo(s) vinculados também serão desvinculados.` : "") +
-      `\n\nEsta ação NÃO pode ser desfeita. Para manter o histórico, use "Cancelar despesa".`;
-    if (!window.confirm(aviso)) return;
     setError(null);
-    startSaving(async () => {
-      try {
-        const r = await deleteDespesa(edit.id);
-        if (!r.ok) {
-          setError(r.error);
-          return;
-        }
-        voltarParaLista();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao excluir a despesa.");
-      }
-    });
+    setConfirmandoExclusao(true);
   }
 
   async function removerAnexo(documentId: string, filename: string) {
@@ -1570,6 +1551,9 @@ export function DespesaForm({
               </div>
             )}
           </div>
+          {isEdit && canExcluir && confirmandoExclusao && edit && (
+            <ConfirmarExclusaoDespesa despesaId={edit.id} onCancelar={() => setConfirmandoExclusao(false)} onExcluida={voltarParaLista} />
+          )}
         </div>
 
         {notice && (

@@ -7,6 +7,7 @@ import { getProjectContext, getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, putObject } from "@/lib/storage/r2";
 import { logAudit } from "@/lib/audit";
+import { confirmacaoConfere } from "@/lib/clientes-regras";
 import { diffAudit, houveMudanca } from "@/lib/audit-diff";
 import {
   bloqueiosDeExclusaoDespesa,
@@ -17,7 +18,7 @@ import {
   recusaDeStatusParcela,
   recusaDeValor,
 } from "@/lib/despesa-regras";
-import { vinculosDaDespesa } from "@/lib/despesa-vinculos";
+import { inventarioDaDespesa, vinculosDaDespesa, type InventarioDaDespesa } from "@/lib/despesa-vinculos";
 import { principalDoPagamento, recusaDePagamento, statusDaDespesaPorAcumulado } from "@/lib/pagamento-regras";
 import { mensagemColisaoNumDoc, reserveDespesaNumber } from "@/lib/db/numbering";
 import { FORMAS_PAGAMENTO, gerarParcelas } from "@/lib/calc";
@@ -618,11 +619,28 @@ export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Re
 }
 
 /**
- * Exclui uma despesa (§12): só sem dependência — pagamento, parcela paga,
- * acerto, restituição, terceiro, caixa conciliado, nota fiscal ou anexo.
- * Versão congelada bloqueia (11.7).
+ * Prompt S, 2.2 — o que a exclusão removeria junto (ou o que a impede), para
+ * a tela mostrar ANTES de pedir a confirmação. Só leitura.
  */
-export async function deleteDespesa(id: string): Promise<Resultado> {
+export async function inventarioDeExclusao(id: string): Promise<{ ok: true; numDoc: string | null; valor: string; inventario: InventarioDaDespesa; bloqueios: string[] } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "despesas", "excluir")) return { ok: false, error: "Sem permissão para excluir despesas." };
+  const alvo = await despesaDoTenant(ctx.tenant.id, id);
+  if (!alvo) return { ok: false, error: "Despesa não encontrada." };
+  const inventario = await inventarioDaDespesa(db, ctx.tenant.id, id);
+  return { ok: true, numDoc: alvo.d.numDoc, valor: String(alvo.d.valor), inventario, bloqueios: bloqueiosDeExclusaoDespesa(inventario) };
+}
+
+/**
+ * Exclui uma despesa (§12 do Prompt I; seção 2 do Prompt S): só registro sem
+ * dependência — com pagamento, parcela paga, acerto, restituição, terceiro,
+ * caixa conciliado, nota fiscal ou anexo, a exclusão é recusada dizendo o
+ * quê (o caminho é o cancelamento, que preserva o histórico). Exige o PED
+ * digitado (2.3; sem PED, a palavra EXCLUIR). Apaga e audita na MESMA
+ * transação (2.5): se o log falhar, nada é apagado. A auditoria guarda o
+ * inventário completo (2.4). Versão congelada bloqueia (11.7).
+ */
+export async function deleteDespesa(id: string, confirmacao?: string | null): Promise<Resultado> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "despesas", "excluir")) {
     return { ok: false, error: "Sem permissão para excluir despesas." };
@@ -631,22 +649,47 @@ export async function deleteDespesa(id: string): Promise<Resultado> {
   if (!alvo) return { ok: false, error: "Despesa não encontrada." };
   if (alvo.locked) return { ok: false, error: "Versão congelada — exclusão bloqueada." };
   const existing = alvo.d;
-  // §12 — só registro sem dependência é apagado; com fato financeiro, nota ou
-  // anexo, o caminho é o cancelamento, que preserva o histórico.
-  const bloqueios = bloqueiosDeExclusaoDespesa(await vinculosDaDespesa(db, ctx.tenant.id, id));
-  if (bloqueios.length) {
-    return { ok: false, error: `Não é possível excluir: ${bloqueios.join("; ")}. Use "Cancelar despesa".` };
+  const esperado = existing.numDoc?.trim() || "EXCLUIR";
+  if (!confirmacaoConfere(confirmacao, esperado)) {
+    return { ok: false, error: existing.numDoc ? `Para excluir, digite o PED ${existing.numDoc} exatamente como está.` : "Para excluir, digite EXCLUIR." };
   }
-
-  await db.delete(schema.despesas).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
-  await logAudit({
-    tenantId: ctx.tenant.id,
-    userId: ctx.userId,
-    action: "despesa.delete",
-    entity: "despesa",
-    entityId: id,
-    meta: { valor: existing.valor, numDoc: existing.numDoc },
-  });
+  try {
+    await db.transaction(async (tx) => {
+      const inventario = await inventarioDaDespesa(tx, ctx.tenant.id, id);
+      const bloqueios = bloqueiosDeExclusaoDespesa(inventario);
+      if (bloqueios.length) throw new Recusa(`Não é possível excluir: ${bloqueios.join("; ")}. Use "Cancelar despesa".`);
+      const [forn] = existing.fornecedorId
+        ? await tx.select({ nome: schema.stakeholders.nome }).from(schema.stakeholders).where(eq(schema.stakeholders.id, existing.fornecedorId)).limit(1)
+        : [];
+      await tx.delete(schema.despesas).where(and(eq(schema.despesas.id, id), eq(schema.despesas.tenantId, ctx.tenant.id)));
+      await logAudit(
+        {
+          tenantId: ctx.tenant.id,
+          userId: ctx.userId,
+          action: "despesa.delete",
+          entity: "despesa",
+          entityId: id,
+          meta: {
+            numDoc: existing.numDoc,
+            valor: existing.valor,
+            fornecedor: forn?.nome ?? null,
+            fornecedorId: existing.fornecedorId,
+            competencia: existing.competencia,
+            vencimento: existing.vencimento,
+            contaCef: existing.contaCef,
+            categoriaDre: existing.categoriaDre,
+            status: existing.status,
+            versionId: existing.versionId,
+            vinculos: inventario,
+          },
+        },
+        tx,
+      );
+    });
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
   revalidatePath("/despesas");
   return { ok: true };
 }
