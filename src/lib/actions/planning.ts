@@ -1,12 +1,16 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { monthValue } from "@/lib/planning";
+import { RECEITAS_PROJETO_KEY } from "@/lib/budget/config";
+import { getBudgetPlanning, getChartAccounts } from "@/lib/queries";
+import { naturezaDoGrupo } from "@/lib/natureza-grupo";
+import { recusaDaInclusao, recusaDaRemocao, resumoDaRemocao, totalReceitasDoProjeto, type GrupoDoPlano } from "@/lib/orcamento-regras";
 
 export interface PlanningAccountInput {
   rowKey: string;
@@ -22,10 +26,19 @@ function screenOf(kind: string): "budget" | "forecast" | null {
 
 /**
  * Grava um bloco (receitas OU despesas) de uma versão de Budget/Forecast no
- * modelo total + %. Substitui (delete + insert transacional) as contas e os
- * percentuais mensais daquele tipo, na versão informada. O valor mensal é
- * derivado: valor = total × pct / 100. NÃO toca no bloco oposto nem em outras
- * versões — preserva o isolamento entre versões/projetos.
+ * modelo total + %. O valor mensal é derivado: valor = total × pct / 100.
+ *
+ * Prompt D (pré-condição BG-11): a gravação é NÃO DESTRUTIVA para linhas
+ * ausentes — só as chaves que vieram no formulário são substituídas (delete +
+ * insert transacional); chave que não veio (linha legada, grupo fora da
+ * seleção) fica intacta. Remover linha é ação explícita
+ * (`removerLinhaDoOrcamento`). Conta zerada enviada é apagada (o usuário a
+ * zerou) e não reinserida.
+ *
+ * "Receitas do Projeto" (3.1): o total é derivado do cadastro do projeto no
+ * servidor — o que o cliente mandar nessa linha é ignorado — e continua
+ * gravado em `budget_account.total`, para que relatórios não mudem de
+ * mecanismo. NÃO toca no bloco oposto nem em outras versões.
  */
 export async function saveBudgetPlanning(
   versionId: string,
@@ -65,20 +78,35 @@ export async function saveBudgetPlanning(
     }
   }
 
+  // BD-1: o total da linha fixa vem do cadastro, não do formulário.
+  if (bloco === "receita" && accounts.some((a) => a.rowKey === RECEITAS_PROJETO_KEY)) {
+    const [projeto] = await db
+      .select({ valorConstrucao: schema.projects.valorConstrucao, valorTerreno: schema.projects.valorTerreno, terrenoForaCaixa: schema.projects.terrenoForaCaixa })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.id, version.projectId), eq(schema.projects.tenantId, ctx.tenant.id)))
+      .limit(1);
+    const doCadastro = projeto ? totalReceitasDoProjeto(projeto) : null;
+    accounts = accounts.map((a) => (a.rowKey === RECEITAS_PROJETO_KEY ? { ...a, dreCategory: "Receita", total: doCadastro ?? 0 } : a));
+  }
+  const chaves = [...new Set(accounts.map((a) => a.rowKey))];
+
   await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.budgetAccounts)
-      .where(
-        and(
-          eq(schema.budgetAccounts.versionId, versionId),
-          eq(schema.budgetAccounts.kind, bloco),
-        ),
-      );
-    await tx
-      .delete(schema.budgetLines)
-      .where(
-        and(eq(schema.budgetLines.versionId, versionId), eq(schema.budgetLines.kind, bloco)),
-      );
+    if (chaves.length > 0) {
+      await tx
+        .delete(schema.budgetAccounts)
+        .where(
+          and(
+            eq(schema.budgetAccounts.versionId, versionId),
+            eq(schema.budgetAccounts.kind, bloco),
+            inArray(schema.budgetAccounts.rowKey, chaves),
+          ),
+        );
+      await tx
+        .delete(schema.budgetLines)
+        .where(
+          and(eq(schema.budgetLines.versionId, versionId), eq(schema.budgetLines.kind, bloco), inArray(schema.budgetLines.rowKey, chaves)),
+        );
+    }
 
     const accVals = accounts
       .filter((a) => Number(a.total) !== 0 || a.months.some((m) => (Number(m.pct) || 0) !== 0))
@@ -119,7 +147,7 @@ export async function saveBudgetPlanning(
     action: "budget.planning.save",
     entity: "version",
     entityId: versionId,
-    meta: { bloco, contas: accounts.length },
+    meta: { bloco, contas: accounts.length, chaves },
   });
   revalidatePath("/budget");
   revalidatePath("/forecast");
@@ -169,6 +197,122 @@ async function copyPlanningData(
       })),
     );
   }
+  // BD-7: a Previsão herda a seleção de linhas do Orçamento de origem.
+  const sel = await tx.select().from(schema.budgetSelecoes).where(eq(schema.budgetSelecoes.versionId, fromVersionId));
+  if (sel.length > 0) {
+    await tx.insert(schema.budgetSelecoes).values(sel.map((r) => ({ tenantId, versionId: toVersionId, kind: r.kind, rowKey: r.rowKey, ordem: r.ordem })));
+  }
+}
+
+/* ─── incluir / excluir linha da grade (Prompt D, 4-A) ───────────────── */
+
+export type ResultadoLinha = { ok: true; aviso?: string } | { ok: false; error: string };
+
+/** Grupos do Plano de Contas com natureza e "ativo" derivados dos subitens. */
+async function gruposDoPlano(tenantId: string): Promise<GrupoDoPlano[]> {
+  const contas = await getChartAccounts(tenantId);
+  const porGrupo = new Map<string, { groupCode: string; groupName: string; kind: "cef" | "complementar"; subitens: { natureza: string | null; ativo: boolean }[] }>();
+  for (const c of contas) {
+    const g = porGrupo.get(c.groupCode) ?? { groupCode: c.groupCode, groupName: c.groupName, kind: c.kind, subitens: [] };
+    g.subitens.push({ natureza: c.natureza, ativo: c.ativo ?? true });
+    porGrupo.set(c.groupCode, g);
+  }
+  return [...porGrupo.values()].map((g) => ({ groupCode: g.groupCode, groupName: g.groupName, kind: g.kind, natureza: naturezaDoGrupo(g.subitens), ativo: g.subitens.some((x) => x.ativo) }));
+}
+
+/**
+ * Versão alvo de incluir/excluir: do tenant, de Orçamento (a Previsão herda
+ * a seleção — BD-7), com permissão de editar e não congelada.
+ */
+async function versaoParaSelecao(versionId: string): Promise<{ ok: true; ctx: NonNullable<Awaited<ReturnType<typeof getTenantContext>>>; version: typeof schema.versions.$inferSelect } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  const [version] = await db
+    .select()
+    .from(schema.versions)
+    .where(and(eq(schema.versions.id, versionId), eq(schema.versions.tenantId, ctx.tenant.id)))
+    .limit(1);
+  if (!version) return { ok: false, error: "Versão não encontrada." };
+  if (version.kind !== "budget") return { ok: false, error: "A Previsão Atualizada herda as linhas do Orçamento de origem: inclua ou remova lá." };
+  if (!can(ctx.perms, "budget", "editar")) return { ok: false, error: "Sem permissão para editar o orçamento." };
+  if (version.locked) return { ok: false, error: "Versão congelada — edição bloqueada." };
+  return { ok: true, ctx, version };
+}
+
+/**
+ * Sem seleção gravada para (versão, bloco), a grade mostra o padrão. Na
+ * primeira inclusão/exclusão o padrão daquele momento é materializado na
+ * tabela, para que a mudança tenha onde ser registrada. Devolve as chaves.
+ */
+async function materializarSelecao(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], tenantId: string, projectId: string, versionId: string, bloco: "receita" | "despesa"): Promise<string[]> {
+  const atual = await tx.select().from(schema.budgetSelecoes).where(and(eq(schema.budgetSelecoes.versionId, versionId), eq(schema.budgetSelecoes.kind, bloco)));
+  if (atual.length > 0) return atual.sort((a, b) => a.ordem - b.ordem).map((r) => r.rowKey);
+  const data = await getBudgetPlanning(tenantId, projectId, "budget", versionId);
+  const rows = (bloco === "receita" ? data.receitas : data.despesas).filter((r) => r.fromChart);
+  if (rows.length > 0) {
+    await tx.insert(schema.budgetSelecoes).values(rows.map((r, i) => ({ tenantId, versionId, kind: bloco, rowKey: r.rowKey, ordem: i })));
+  }
+  return rows.map((r) => r.rowKey);
+}
+
+/**
+ * 4-A.2 — inclui na grade um grupo do Plano de Contas (ativo, da natureza do
+ * bloco, ainda ausente). Entra zerado: nada é gravado em budget_account.
+ * Não cria grupo: cadastro é na tela de Plano de Contas.
+ */
+export async function incluirLinhaDoOrcamento(versionId: string, bloco: "receita" | "despesa", rowKey: string): Promise<ResultadoLinha> {
+  const alvo = await versaoParaSelecao(versionId);
+  if (!alvo.ok) return alvo;
+  const { ctx, version } = alvo;
+  const grupos = await gruposDoPlano(ctx.tenant.id);
+  const data = await getBudgetPlanning(ctx.tenant.id, version.projectId, "budget", versionId);
+  const naGrade = (bloco === "receita" ? data.receitas : data.despesas).map((r) => r.rowKey);
+  const grupo = grupos.find((g) => g.groupCode === rowKey);
+  const recusa = recusaDaInclusao(grupo, bloco, naGrade);
+  if (recusa) return { ok: false, error: recusa };
+  await db.transaction(async (tx) => {
+    const chaves = await materializarSelecao(tx, ctx.tenant.id, version.projectId, versionId, bloco);
+    if (!chaves.includes(rowKey)) {
+      await tx.insert(schema.budgetSelecoes).values({ tenantId: ctx.tenant.id, versionId, kind: bloco, rowKey, ordem: chaves.length });
+    }
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "budget.linha.incluir", entity: "version", entityId: versionId, meta: { bloco, rowKey, grupo: grupo!.groupName } }, tx);
+  });
+  revalidatePath("/budget");
+  return { ok: true };
+}
+
+/**
+ * 4-A.3 — retira uma linha da GRADE (nunca do Plano de Contas). Como a
+ * gravação passou a ser não destrutiva, é aqui que o lançamento daquela conta
+ * é removido da versão: budget_account e budget_line da chave. O log guarda
+ * conta, total e competências. Fixa e legadas não saem (4-A.4). A tela pede
+ * confirmação quando há valor; o servidor exige `confirmado` nesse caso.
+ */
+export async function removerLinhaDoOrcamento(versionId: string, bloco: "receita" | "despesa", rowKey: string, confirmado = false): Promise<ResultadoLinha> {
+  const alvo = await versaoParaSelecao(versionId);
+  if (!alvo.ok) return alvo;
+  const { ctx, version } = alvo;
+  const data = await getBudgetPlanning(ctx.tenant.id, version.projectId, "budget", versionId);
+  const rows = bloco === "receita" ? data.receitas : data.despesas;
+  const row = rows.find((r) => r.rowKey === rowKey);
+  if (!row) return { ok: false, error: "Essa linha não está na grade." };
+  const recusa = recusaDaRemocao(row);
+  if (recusa) return { ok: false, error: recusa };
+  const resumo = resumoDaRemocao(row.total, row.pct);
+  if (resumo.temValor && !confirmado) return { ok: false, error: "Esta linha tem lançamento: confirme a remoção na tela." };
+  const meses = Object.entries(row.pct).filter(([, p]) => (Number(p) || 0) !== 0).map(([m, p]) => ({ mes: m, pct: Number(p) }));
+  await db.transaction(async (tx) => {
+    await materializarSelecao(tx, ctx.tenant.id, version.projectId, versionId, bloco);
+    await tx.delete(schema.budgetSelecoes).where(and(eq(schema.budgetSelecoes.versionId, versionId), eq(schema.budgetSelecoes.kind, bloco), eq(schema.budgetSelecoes.rowKey, rowKey)));
+    await tx.delete(schema.budgetAccounts).where(and(eq(schema.budgetAccounts.versionId, versionId), eq(schema.budgetAccounts.kind, bloco), eq(schema.budgetAccounts.rowKey, rowKey)));
+    await tx.delete(schema.budgetLines).where(and(eq(schema.budgetLines.versionId, versionId), eq(schema.budgetLines.kind, bloco), eq(schema.budgetLines.rowKey, rowKey)));
+    await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "budget.linha.remover", entity: "version", entityId: versionId, meta: { bloco, rowKey, conta: row.label, total: resumo.total, competencias: resumo.competencias, meses } }, tx);
+  });
+  revalidatePath("/budget");
+  revalidatePath("/forecast");
+  revalidatePath("/dre");
+  revalidatePath("/fluxocaixa");
+  return { ok: true, aviso: resumo.temValor ? `Lançamento de “${row.label}” removido (${resumo.competencias} competência(s)).` : `“${row.label}” retirada da grade.` };
 }
 
 /**
