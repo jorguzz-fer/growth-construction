@@ -1804,6 +1804,16 @@ export async function getDocumentsByStockMovements(tenantId: string, movementIds
     .orderBy(desc(schema.documents.uploadedAt));
 }
 
+/** Prompt Y, 7.3 — quantos documentos cada movimento de estoque tem (para "entrada sem comprovação"). */
+export async function getContagemDocsPorMovimento(tenantId: string): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ id: schema.documents.stockMovementId, n: sql<number>`count(*)::int` })
+    .from(schema.documents)
+    .where(and(eq(schema.documents.tenantId, tenantId), isNotNull(schema.documents.stockMovementId)))
+    .groupBy(schema.documents.stockMovementId);
+  return new Map(rows.filter((r) => !!r.id).map((r) => [r.id as string, r.n]));
+}
+
 export interface MovimentoParaObraRow {
   id: string;
   tipo: string;

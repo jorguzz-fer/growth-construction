@@ -1,5 +1,9 @@
 import { getTenantContext } from "@/lib/context";
-import { getStockItems, getStockSaldos, getStockMovementsPage, getDespesasParaEstoque, getPermutaOptions, getDocumentsByStockMovements, getMovimentosParaObra } from "@/lib/queries";
+import { getStockItems, getStockSaldos, getStockMovementsPage, getDespesasParaEstoque, getPermutaOptions, getDocumentsByStockMovements, getMovimentosParaObra, getContagemDocsPorMovimento } from "@/lib/queries";
+import { isAiConfigured } from "@/lib/ai/despesa-extract";
+import { analisarEstoque } from "@/lib/estoque-analise";
+import { AssistenteEstoque } from "@/components/app/assistente-estoque";
+import { hojeISO } from "@/lib/despesa-status";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { confrontoCompraConsumo, consumoPorObra } from "@/lib/calc/estoque-obra";
 import { can } from "@/lib/permissions";
@@ -40,9 +44,11 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
 
   // 4-A — documentos da página de movimentos (miniatura/abrir por URL assinada); 4.4 / 4.6 — consumo e confronto no período da tela.
   const r2 = isR2Configured();
-  const [docs, paraObra] = await Promise.all([
+  const [docs, paraObra, todosMovimentos, docsPorMovimentoCount] = await Promise.all([
     getDocumentsByStockMovements(ctx.tenant.id, movimentos.rows.map((m) => m.id)),
     filtros.tab === "mov" ? getMovimentosParaObra(ctx.tenant.id, filtros.de, filtros.ate) : Promise.resolve([]),
+    getMovimentosParaObra(ctx.tenant.id),
+    getContagemDocsPorMovimento(ctx.tenant.id),
   ]);
   const docsPorMov: Record<string, { id: string; filename: string; tipo: string | null; versao: number; contentType: string | null; uploadedAt: string | null; url: string | null }[]> = {};
   for (const d of docs) {
@@ -52,6 +58,15 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
   const nomeDaObra = (id: string) => ctx.projects.find((p) => p.id === id)?.name ?? "obra fora da lista";
   const consumo = consumoPorObra(paraObra).map((c) => ({ ...c, projectName: nomeDaObra(c.projectId) }));
   const confronto = confrontoCompraConsumo(paraObra).map((c) => ({ ...c, projectName: nomeDaObra(c.projectId) }));
+
+  // Seção 7 — o assistente: puro, sobre o que a página carregou; propõe e para.
+  const analise = analisarEstoque({
+    materiais: items.map((i) => ({ id: i.id, nome: i.nome, sku: i.sku, unidade: i.unidade, custoUnit: Number(i.custoUnit), minimo: Number(i.minimo), saldo: saldos.get(i.id) ?? 0, ativo: i.ativo })),
+    movimentos: todosMovimentos.map((m) => ({ ...m, docs: docsPorMovimentoCount.get(m.id) ?? 0 })),
+    despesas: despesas.map((d) => ({ id: d.id, numDoc: d.numDoc, valor: d.valor, entradasSoma: d.entradasSoma })),
+    hojeISO: hojeISO(),
+  });
+  const obras = Object.fromEntries(ctx.projects.map((p) => [p.id, p.name]));
 
   const itemViews = items.map((i) => {
     const s = saldos.get(i.id) ?? 0;
@@ -65,6 +80,9 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
         title="Controle de Estoques"
         subtitle="Almoxarifado da empresa: a entrada aponta a compra (despesa) ou a permuta; a saída diz para qual obra o material foi. Sem efeito contábil — o custo já é da despesa."
       />
+      {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       <EstoqueManager
         items={itemViews}
         movimentos={{ rows: movimentos.rows.map((m) => ({ id: m.id, itemId: m.itemId, itemNome: m.itemNome, unidade: m.unidade, tipo: m.tipo as "entrada" | "saida", origem: m.origem, quantidade: Number(m.quantidade), custoUnit: Number(m.custoUnit), valor: m.valor, data: m.data, doc: m.doc, obs: m.obs, projectName: m.projectName, responsavel: m.responsavel, despesaId: m.despesaId, despesaNumDoc: m.despesaNumDoc, permutaId: m.permutaId, permutaDescricao: m.permutaDescricao, estornoDeId: m.estornoDeId, estornado: m.estornado })), total: movimentos.total, pagina: movimentos.pagina, porPagina: movimentos.porPagina }}
@@ -80,6 +98,16 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
         canEditar={can(ctx.perms, "estoque", "editar")}
         canExcluir={can(ctx.perms, "estoque", "excluir")}
       />
+      </div>
+      <AssistenteEstoque
+        usuario={ctx.userEmail ?? "anon"}
+        analise={analise}
+        despesas={despesas.map((d) => ({ id: d.id, label: `${d.numDoc ?? "s/ nº"}${d.fornecedor ? ` · ${d.fornecedor}` : ""} · ${d.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` }))}
+        obras={obras}
+        aiConfigurada={isAiConfigured()}
+        canCriar={can(ctx.perms, "estoque", "criar")}
+      />
+      </div>
     </>
   );
 }
