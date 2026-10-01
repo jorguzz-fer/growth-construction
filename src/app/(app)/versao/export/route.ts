@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const [unitRows, reembRows, permRows, despRows, incc] = await Promise.all([
     getUnits(ctx.tenant.id, version.id),
     getReembolsos(version.id),
-    getPermutas(version.id),
+    getPermutas(ctx.tenant.id, version.id),
     getDespesas(version.id),
     getInccRows(project.id),
   ]);

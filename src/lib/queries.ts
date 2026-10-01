@@ -147,11 +147,13 @@ export async function getReembolsos(
     .where(eq(schema.reembolsos.versionId, versionId));
 }
 
-export async function getPermutas(versionId: string): Promise<PermutaRow[]> {
+/** Ativos de permuta da versão — da empresa (Prompt P, 3.5: antes filtrava só a versão). */
+export async function getPermutas(tenantId: string, versionId: string): Promise<PermutaRow[]> {
   return db
     .select()
     .from(schema.permutas)
-    .where(eq(schema.permutas.versionId, versionId));
+    .where(and(eq(schema.permutas.tenantId, tenantId), eq(schema.permutas.versionId, versionId)))
+    .orderBy(asc(schema.permutas.dataRecebimento), asc(schema.permutas.id));
 }
 
 export async function getInccRows(projectId: string): Promise<InccRow[]> {

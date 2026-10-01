@@ -117,19 +117,19 @@ describe.skipIf(!HAS_DB)("Receitas com obra explícita", async () => {
     expect(outro).toHaveLength(0);
   });
 
-  it("addPermuta grava na obra do formulário; sem obra, recusa", async () => {
-    await expect(addPermuta(fd({ tipo: "Imóvel", estimado: "1" }))).rejects.toThrow(/Escolha o projeto/);
-    await addPermuta(fd({ projectId: p.a1.id, tipo: "Imóvel", estimado: "300000" }));
+  it("addPermuta grava na obra do formulário; sem obra, recusa com mensagem (Prompt P, 3.2)", async () => {
+    const ativo = { unitCode: "U-1", cliente: "Cliente X", dataRecebimento: "09/15/2026", tipo: "Imóvel", estimado: "300000" };
+    expect(await addPermuta(fd({ ...ativo }))).toEqual({ ok: false, error: expect.stringMatching(/Escolha o projeto/) });
+    expect((await addPermuta(fd({ projectId: p.a1.id, ...ativo }))).ok).toBe(true);
     const ps = await db.select().from(schema.permutas).where(eq(schema.permutas.tenantId, tA.id));
     expect(ps).toHaveLength(1);
     expect(ps[0].versionId).toBe(v.a1.id);
-    expect(redirects.at(-1)).toBe(`/permuta?proj=${p.a1.id}`);
   });
 
   it("versão congelada bloqueia Liberação e Permuta (decisão de 30/09/2026)", async () => {
     await db.update(schema.versions).set({ locked: true }).where(eq(schema.versions.id, v.a2.id));
     await expect(addReembolso(fd({ projectId: p.a2.id, data: "2026-09-11", valor: "1" }))).rejects.toThrow(/congelada/);
-    await expect(addPermuta(fd({ projectId: p.a2.id, tipo: "Imóvel", estimado: "1" }))).rejects.toThrow(/congelada/);
+    expect(await addPermuta(fd({ projectId: p.a2.id, unitCode: "U-1", cliente: "C", dataRecebimento: "09/15/2026", tipo: "Imóvel", estimado: "1" }))).toEqual({ ok: false, error: expect.stringMatching(/congelada/) });
     await db.update(schema.versions).set({ locked: false }).where(eq(schema.versions.id, v.a2.id));
   });
 });

@@ -40,7 +40,7 @@ export async function flowMaps(
   const [entradas, despesas, permutas, parcelas] = await Promise.all([
     getMonthlyRevenue(version.id, projectId),
     getDespesas(version.id),
-    getPermutas(version.id),
+    getPermutas(version.tenantId, version.id),
     getParcelasByVersion(version.id),
   ]);
 
