@@ -2,6 +2,7 @@ import { getTenantContext } from "@/lib/context";
 import { getFuncionarios } from "@/lib/queries";
 import { can } from "@/lib/permissions";
 import { TELA_DADOS_FUNCIONARIO, TELA_FUNCIONARIOS } from "@/lib/funcionario-regras";
+import Link from "next/link";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { FuncionariosManager } from "@/components/app/funcionarios-manager";
@@ -17,7 +18,12 @@ export default async function FuncionariosPage() {
   const ativos = funcionarios.filter((f) => !f.desligamento).length;
   return (
     <>
-      <PageHeader eyebrow={ctx.tenant.name} title="Funcionários" subtitle={`${ativos} ativo(s) · ${funcionarios.length - ativos} desligado(s) · ficha de registro (art. 41 da CLT); o sistema não tem folha de pagamento`} />
+      <PageHeader
+        eyebrow={ctx.tenant.name}
+        title="Funcionários"
+        subtitle={`${ativos} ativo(s) · ${funcionarios.length - ativos} desligado(s) · ficha de registro (art. 41 da CLT); o sistema não calcula folha`}
+        actions={can(ctx.perms, TELA_DADOS_FUNCIONARIO, "ver") ? <Link href="/funcionarios/folha" className="text-[12px] text-[var(--color-accent2)] hover:underline">Folha de pagamento e encargos →</Link> : undefined}
+      />
       <FuncionariosManager
         funcionarios={funcionarios}
         projetos={ctx.projects.map((p) => ({ id: p.id, nome: p.name }))}
