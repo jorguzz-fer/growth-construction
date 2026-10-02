@@ -1,7 +1,7 @@
 import { getProjectVersions, getTenantContext } from "@/lib/context";
 import { avisoNoSeletor, entraNosRelatorios } from "@/lib/situacao-versao";
 import { chaveLigada } from "@/lib/chaves-tenant";
-import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
+import { lerEscopoDeRelatorio, projetosDoEscopo, rotuloDoEscopo, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
@@ -13,6 +13,7 @@ import {
   getPermutas,
   getReembolsos,
   getUnits,
+  getVersionsDoProjeto,
   permToCalc,
   permToResale,
   reembToCalc,
@@ -36,13 +37,24 @@ import {
   textoDosLimites,
 } from "@/lib/resumo-blocos";
 import { versionInputsByMonth } from "@/lib/dre-inputs";
+import {
+  TIPOS_DO_RESUMO,
+  percentual,
+  somarIndicadores,
+  somarUnidades,
+  textoDaCobertura,
+  totalDoComparativo,
+  versaoDoTipo,
+  type LinhaComparativa,
+} from "@/lib/resumo-consolidado";
+import { ROTULO_DA_NATUREZA } from "@/lib/dashboard-tela";
 import { ehVersaoAtual, pendenteDaConta } from "@/lib/contas-pagar-regras";
 import { estaVencida } from "@/lib/despesa-status";
 import { analisarResumo } from "@/lib/resumo-analise";
 import { AssistenteResumo } from "@/components/app/assistente-resumo";
 import { TEXTO_DA_BASE, indicadoresDoResumo, type IndicadorDoResumo } from "@/lib/resumo-tela";
 import { rotuloDaVersao } from "@/lib/dashboard-tela";
-import { brl0, dateBR, monthInRange, ymd } from "@/lib/utils";
+import { brl0, dateBR, monthInRange, pct1, ymd } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +77,11 @@ async function versionIndicadores(
   version: Version,
   definicaoNova = false,
 ): Promise<IndicadorDoResumo[]> {
+  return (await dadosDaVersao(version, definicaoNova)).indicadores;
+}
+
+/** O que a tela lê de UMA versão: indicadores, totais e unidades (mesmo cálculo de sempre). */
+async function dadosDaVersao(version: Version, definicaoNova = false) {
   const [unitRows, permRows, reembRows] = await Promise.all([
     getUnits(version.tenantId, version.id),
     getPermutas(version.tenantId, version.id),
@@ -76,7 +93,8 @@ async function versionIndicadores(
     liberacoesComStatus(reembRows),
     { definicaoNova },
   );
-  return indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length, definicaoNova });
+  const indicadores = indicadoresDoResumo({ totals, unidades: unitRows, permutas: permRows, liberacoes: reembRows.length, definicaoNova });
+  return { indicadores, totals, unitRows, permRows };
 }
 
 /** As liberações com o status, que `calcTotals` só lê com a chave (2.7). */
@@ -101,13 +119,26 @@ export default async function ResumoPage({
   const resumoNovo = await chaveLigada(ctx.tenant.id, "resumo_definicao_nova");
 
   // A obra vem da URL desta tela (Prompt A); sem ela, a aba reabre a última
-  // escolhida ou a tela pede a escolha — nunca a obra do cookie. Relatório de
-  // UMA obra: não há "Todos" aqui (B12 vale para os consolidáveis).
+  // escolhida ou a tela pede a escolha — nunca a obra do cookie. Decisão de
+  // 01/10/2026: além de uma obra, o mesmo seletor do Dashboard — Todos,
+  // Ativos e Finalizados — com o Resumo consolidado.
   const spObra = await searchParams;
-  const selecaoObra = lerSelecaoDeProjeto(ctx.projects, spObra);
+  const escopo = lerEscopoDeRelatorio(ctx.projects, spObra);
+  if (escopo.tipo === "todos" || escopo.tipo === "ativos" || escopo.tipo === "finalizados") {
+    return (
+      <ResumoConsolidado
+        ctx={ctx}
+        escopo={escopo.tipo}
+        de={spObra.de ?? ""}
+        ate={spObra.ate ?? ""}
+        resumoNovo={resumoNovo}
+        rascunhoFora={rascunhoFora}
+      />
+    );
+  }
   const escolhido =
-    selecaoObra.tipo === "projeto"
-      ? await getProjectVersions(ctx.tenant.id, selecaoObra.projeto.id)
+    escopo.tipo === "projeto"
+      ? await getProjectVersions(ctx.tenant.id, escopo.projeto.id)
       : null;
   if (!escolhido?.trabalho) {
     return <PedirProjeto titulo="Resumo Executivo" projetos={ctx.projects} oQue="ver o resumo executivo" />;
@@ -118,6 +149,8 @@ export default async function ResumoPage({
       <ProjectPicker
         projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
         selected={obra.id}
+        allOption
+        scopeOptions
       />
       <LembrarProjeto projectId={obra.id} />
     </>
@@ -643,5 +676,282 @@ function BlocosDoResumo({ b }: { b: Blocos }) {
       </div>
       <p className="text-[11px] text-[var(--color-ink3)]">{BLOCOS_PENDENTES.execucao}</p>
     </div>
+  );
+}
+
+/**
+ * Decisão de 01/10/2026 — o Resumo de várias obras (Todos, Ativos ou
+ * Finalizados). Uma coluna por tipo de versão, somando as obras que TÊM esse
+ * tipo; a cobertura é declarada e a obra sem o tipo não entra como zero.
+ * Percentual se recalcula das somas. Comparativo por obra só com mais de uma.
+ */
+async function ResumoConsolidado({
+  ctx,
+  escopo,
+  de,
+  ate,
+  resumoNovo,
+  rascunhoFora,
+}: {
+  ctx: NonNullable<Awaited<ReturnType<typeof getTenantContext>>>;
+  escopo: "todos" | "ativos" | "finalizados";
+  de: string;
+  ate: string;
+  resumoNovo: boolean;
+  rascunhoFora: boolean;
+}) {
+  const doEscopo = projetosDoEscopo(ctx.projects, escopo);
+  const obras = doEscopo.projetos;
+  const hasRange = !!(de || ate);
+  const verCusto = can(ctx.perms, "despesas", "ver");
+  const d = new Date();
+  const mesAtual = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+
+  const porObra = await Promise.all(
+    obras.map(async (p) => {
+      const vs = await getVersionsDoProjeto(ctx.tenant.id, p.id);
+      const tipos = await Promise.all(
+        TIPOS_DO_RESUMO.map(async (tipo) => {
+          const v = versaoDoTipo(vs, tipo);
+          // Com a chave do rascunho, planejamento não Aprovado fica fora dos relatórios.
+          if (!v) return { tipo, situacao: "sem" as const, dados: null };
+          if (!entraNosRelatorios(v, rascunhoFora)) return { tipo, situacao: "fora" as const, dados: null };
+          const dados = await dadosDaVersao(v, resumoNovo);
+          let recebimentos = 0;
+          if (hasRange) {
+            const revenue = await getMonthlyRevenue(v.id, p.id);
+            const permCash = permutaCashByMonth(permToResale(dados.permRows));
+            recebimentos = [...Object.entries(revenue), ...Object.entries(permCash)].filter(([mm]) => monthInRange(mm, de, ate)).reduce((a, [, x]) => a + x, 0);
+          }
+          return { tipo, situacao: "ok" as const, dados, recebimentos };
+        }),
+      );
+      const custo = verCusto && vs.some((v) => v.kind === "atual") ? await custoOrcadoRealizado(ctx.tenant.id, p.id, mesAtual, rascunhoFora) : null;
+      return { p, tipos, custo };
+    }),
+  );
+
+  const colunas = TIPOS_DO_RESUMO.map((tipo) => {
+    const daColuna = porObra.map((o) => o.tipos.find((t) => t.tipo === tipo)!);
+    const ok = daColuna.filter((t) => t.situacao === "ok" && t.dados);
+    const fora = daColuna.filter((t) => t.situacao === "fora").length;
+    const dados = ok.map((t) => t.dados!);
+    const unidades = somarUnidades(
+      dados.map((x) => ({
+        disp: x.totals.disp,
+        res: x.totals.res,
+        vend: x.totals.vend,
+        // Desligada: a soma de três filtros, como na tela de uma obra; ligada: todas (2.3).
+        total: resumoNovo ? x.unitRows.length : x.totals.vend + x.totals.res + x.totals.disp,
+      })),
+    );
+    return {
+      tipo,
+      obras: ok.length,
+      fora,
+      indicadores: somarIndicadores(dados.map((x) => x.indicadores)),
+      unidades,
+      banco: dados.reduce((a, x) => a + x.totals.banco, 0),
+      recebimentos: ok.reduce((a, t) => a + ("recebimentos" in t ? (t.recebimentos ?? 0) : 0), 0),
+    };
+  });
+  const visiveis = colunas.filter((c) => c.obras > 0);
+
+  const comparativo: LinhaComparativa[] = porObra.map(({ p, tipos, custo }) => {
+    const atual = tipos.find((t) => t.tipo === "atual");
+    const x = atual?.situacao === "ok" ? atual.dados : null;
+    const vendidas = x ? x.unitRows.filter((u) => u.status === "Vendido") : [];
+    return {
+      obra: p.name,
+      projectId: p.id,
+      vgv: x ? x.totals.vgv : null,
+      vgvVendido: x ? vendidas.reduce((a, u) => a + Number(u.valor), 0) : null,
+      vendidas: x ? vendidas.length : null,
+      unidades: x ? x.unitRows.length : null,
+      custoRealizado: custo ? custo.realizado : null,
+      custoOrcado: custo ? custo.orcado : null,
+    };
+  });
+  const total = totalDoComparativo(comparativo);
+  const pctTxt = (n: number | null) => (n == null ? "—" : pct1(n));
+  const desvioTxt = (real: number | null, orc: number | null) => (real == null || orc == null ? "—" : `${real - orc > 0 ? "+" : real - orc < 0 ? "−" : ""}${brl0(Math.abs(real - orc))}`);
+
+  const titulo = rotuloDoEscopo(escopo);
+  return (
+    <>
+      <PageHeader
+        eyebrow={`${titulo} · ${obras.length} projeto${obras.length === 1 ? "" : "s"}`}
+        title="Resumo Executivo"
+        subtitle="Consolidado por tipo de versão"
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <ProjectPicker
+              projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+              selected={escopo === "todos" ? TODOS_OS_PROJETOS : escopo}
+              allOption
+              scopeOptions
+            />
+            <DateRangeFilter de={de} ate={ate} />
+          </div>
+        }
+      />
+      {doEscopo.semSituacao > 0 && (
+        <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+          {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as como Ativo ou Finalizado em Projetos.
+        </p>
+      )}
+      {obras.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">Nenhum projeto neste filtro.</CardContent>
+        </Card>
+      ) : (
+        <>
+          <p className="mb-2 text-[13px] text-[var(--color-ink2)]" data-cobertura>
+            Cobertura: {colunas.map((c) => `${textoDaCobertura(c.tipo, c.obras, obras.length)}${c.fora ? ` (${c.fora} fora dos relatórios, não Aprovada)` : ""}`).join(" · ")}.
+            {" "}Projeto sem a versão fica fora da coluna, não entra como zero.
+          </p>
+          <p className="mb-4 text-[12px] text-[var(--color-ink3)]" data-criterios>
+            Cada coluna soma a versão daquele tipo de cada projeto (a mais antiga do tipo, como no Dashboard). O VGV conta{" "}
+            {TEXTO_DA_BASE.todas_unidades}; Sinais a Subsídio contam {TEXTO_DA_BASE.vendidas}; valores nominais, sem INCC.
+            {resumoNovo ? " Os blocos Vendas, Exposição e Atenção são por obra: escolha uma obra para vê-los." : ""}
+          </p>
+          <Card className="mb-6">
+            <CardContent className="p-5">
+              <div className="tbl-scroll overflow-x-auto">
+                <Table aria-label="Resumo consolidado por tipo de versão">
+                  <THead>
+                    <tr>
+                      <TH>Indicador</TH>
+                      {visiveis.map((c) => (
+                        <TH key={c.tipo} className="text-right">
+                          <div>{ROTULO_DA_NATUREZA[c.tipo]}</div>
+                          <div className="text-[10px] font-normal normal-case text-[var(--color-ink3)]">
+                            soma de {c.obras} de {obras.length}
+                          </div>
+                        </TH>
+                      ))}
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {hasRange && (
+                      <TR>
+                        <TD className="text-[var(--color-ink2)]">
+                          Recebimentos previstos no período ({dateBR(de) !== "—" ? dateBR(de) : "início"} até {dateBR(ate) !== "—" ? dateBR(ate) : "fim"})
+                        </TD>
+                        {visiveis.map((c) => (
+                          <TD key={c.tipo} className="text-right font-[family-name:var(--font-mono)]">{brl0(c.recebimentos)}</TD>
+                        ))}
+                      </TR>
+                    )}
+                    {(visiveis[0]?.indicadores ?? []).map((ind) => (
+                      <TR key={ind.label}>
+                        <TD className="text-[var(--color-ink2)]" title={`Base: ${TEXTO_DA_BASE[ind.base]}`}>{ind.label}</TD>
+                        {visiveis.map((c) => {
+                          const i = c.indicadores.find((x) => x.label === ind.label);
+                          return (
+                            <TD key={c.tipo} className="text-right font-[family-name:var(--font-mono)]">
+                              {!i || i.vazio ? "—" : brl0(i.value)}
+                            </TD>
+                          );
+                        })}
+                      </TR>
+                    ))}
+                    {(
+                      [
+                        ["Unidades disponíveis", (c: (typeof visiveis)[number]) => c.unidades.disp],
+                        ["Unidades reservadas", (c: (typeof visiveis)[number]) => c.unidades.res],
+                        ["Unidades vendidas", (c: (typeof visiveis)[number]) => c.unidades.vend],
+                        [resumoNovo ? "Total de unidades (todas)" : "Total de unidades (disp. + res. + vend.)", (c: (typeof visiveis)[number]) => c.unidades.total],
+                      ] as const
+                    ).map(([rotulo, f]) => (
+                      <TR key={rotulo}>
+                        <TD className="text-[var(--color-ink2)]">{rotulo}</TD>
+                        {visiveis.map((c) => (
+                          <TD key={c.tipo} className="text-right font-[family-name:var(--font-mono)]">{f(c)}</TD>
+                        ))}
+                      </TR>
+                    ))}
+                    <TR>
+                      <TD className="text-[var(--color-ink2)]">Financiamento aprovado (não entra nos totais)</TD>
+                      {visiveis.map((c) => (
+                        <TD key={c.tipo} className="text-right font-[family-name:var(--font-mono)]">{brl0(c.banco)}</TD>
+                      ))}
+                    </TR>
+                  </tbody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {obras.length > 1 && (
+            <Card data-comparativo>
+              <CardContent className="p-5">
+                <h2 className="text-sm font-semibold text-[var(--color-ink)]">Comparativo entre projetos</h2>
+                <p className="mb-3 text-[11px] text-[var(--color-ink3)]">
+                  Versão Atual de cada projeto. A linha Total soma os valores e recalcula os percentuais das somas (não é média).
+                  {verCusto
+                    ? ` Custo = Custo Variável + Custo Fixo, competências até ${mesAtual}; o desvio total soma só os projetos com Orçamento (${total.obrasComOrcamento} de ${obras.length}).`
+                    : " Custo não aparece: exige permissão de ver Despesas."}{" "}
+                  Margem fica de fora até a correção da receita (Prompt I).
+                </p>
+                <div className="tbl-scroll overflow-x-auto">
+                  <Table aria-label="Comparativo entre projetos">
+                    <THead>
+                      <tr>
+                        <TH>Projeto</TH>
+                        <TH className="text-right">VGV total</TH>
+                        <TH className="text-right">VGV vendido</TH>
+                        <TH className="text-right">Vendidas</TH>
+                        <TH className="text-right">% vendidas</TH>
+                        {verCusto && <TH className="text-right">Custo realizado</TH>}
+                        {verCusto && <TH className="text-right">Custo orçado</TH>}
+                        {verCusto && <TH className="text-right">Desvio</TH>}
+                        {verCusto && <TH className="text-right">% desvio</TH>}
+                      </tr>
+                    </THead>
+                    <tbody>
+                      {comparativo.map((l) => (
+                        <TR key={l.projectId}>
+                          <TD>
+                            <Link href={`/resumo?proj=${l.projectId}`} className="text-[var(--color-accent2)] hover:underline">
+                              {l.obra}
+                            </Link>
+                            {l.vgv == null && <span className="ml-1 text-[11px] text-[var(--color-warning)]">sem versão Atual</span>}
+                          </TD>
+                          {/* Ausência não é zero: sem unidade cadastrada, "—". */}
+                          <TD className="text-right font-[family-name:var(--font-mono)]">{l.vgv == null || !l.unidades ? "—" : brl0(l.vgv)}</TD>
+                          <TD className="text-right font-[family-name:var(--font-mono)]">{l.vgvVendido == null || !l.unidades ? "—" : brl0(l.vgvVendido)}</TD>
+                          <TD className="text-right font-[family-name:var(--font-mono)]">{l.vendidas == null ? "—" : l.unidades ? `${l.vendidas} de ${l.unidades}` : "sem unidades"}</TD>
+                          <TD className="text-right font-[family-name:var(--font-mono)]">{pctTxt(l.vendidas == null || l.unidades == null ? null : percentual(l.vendidas, l.unidades))}</TD>
+                          {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{l.custoRealizado == null ? "—" : brl0(l.custoRealizado)}</TD>}
+                          {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{l.custoOrcado == null ? "sem Orçamento" : brl0(l.custoOrcado)}</TD>}
+                          {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{desvioTxt(l.custoRealizado, l.custoOrcado)}</TD>}
+                          {verCusto && (
+                            <TD className="text-right font-[family-name:var(--font-mono)]">
+                              {pctTxt(l.custoRealizado == null || l.custoOrcado == null ? null : percentual(l.custoRealizado - l.custoOrcado, l.custoOrcado))}
+                            </TD>
+                          )}
+                        </TR>
+                      ))}
+                      <TR className="bg-[var(--color-surface2)] font-semibold" data-total-comparativo>
+                        <TD>Total ({total.obrasComAtual} com Atual)</TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)]">{total.unidades ? brl0(total.vgv) : "—"}</TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)]">{total.unidades ? brl0(total.vgvVendido) : "—"}</TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)]">{total.unidades ? `${total.vendidas} de ${total.unidades}` : "sem unidades"}</TD>
+                        <TD className="text-right font-[family-name:var(--font-mono)]">{pctTxt(total.pctVendidas)}</TD>
+                        {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{total.obrasComOrcamento ? brl0(total.custoRealizadoComOrcamento) : "—"}</TD>}
+                        {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{total.obrasComOrcamento ? brl0(total.custoOrcado) : "—"}</TD>}
+                        {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{total.desvio == null ? "—" : desvioTxt(total.custoRealizadoComOrcamento, total.custoOrcado)}</TD>}
+                        {verCusto && <TD className="text-right font-[family-name:var(--font-mono)]">{pctTxt(total.pctDesvio)}</TD>}
+                      </TR>
+                    </tbody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </>
   );
 }

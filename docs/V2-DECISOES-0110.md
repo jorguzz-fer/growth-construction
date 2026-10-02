@@ -204,3 +204,42 @@ números em parâmetro, não em código.
   diz isso. Com uma linha de orçamento temporária e o limite baixado para
   R$ 1.000, o alerta apareceu com valor, mês e diferença. Tudo foi desfeito
   depois, e o limite voltou a R$ 5.000.
+
+## Resumo Executivo com várias obras
+
+Decisão: seletor de projetos igual ao do Dashboard, com os atalhos Todos /
+Ativos / Finalizados; valores somam; percentuais se recalculam (nunca média);
+cobertura declarada; obra sem o cenário sai da coluna e não entra como zero;
+comparativo só com mais de uma obra.
+
+- **Seletor.** O Resumo usa o mesmo seletor do Dashboard: uma obra, ou Todos /
+  Ativos / Finalizados, com a mesma regra de escopo (obra sem status fica fora
+  de Ativos/Finalizados, com aviso). Com **uma obra**, a tela é exatamente a de
+  antes, com a comparação de versões e os blocos.
+- **Consolidado.** Uma coluna por tipo de versão (Atual, Orçamento, Previsão
+  Atualizada). Cada coluna soma a versão daquele tipo de cada obra, a mais
+  antiga do tipo, como no Dashboard. Os números são calculados pelas mesmas
+  funções da tela de uma obra e seguem a chave do Resumo.
+  - **Cobertura** escrita acima da tabela ("Previsão Atualizada: 1 de 3
+    projetos") e no cabeçalho de cada coluna ("soma de 1 de 3").
+  - Obra sem o tipo fica **fora** da coluna. Indicador sem registro em nenhuma
+    obra mostra "—", não R$ 0. Coluna sem nenhuma obra não aparece.
+  - Com a chave do rascunho ligada, versão de planejamento não Aprovada fica
+    fora e a cobertura diz quantas.
+  - Com período, a primeira linha é "Recebimentos previstos no período",
+    somada por coluna.
+- **Comparativo** (só com mais de uma obra), da versão Atual de cada obra:
+  VGV total, VGV vendido, vendidas, % vendidas e, para quem vê Despesas, custo
+  realizado × orçado (até o mês corrente), desvio e % de desvio.
+  - A linha **Total** soma os valores e **recalcula** os percentuais a partir
+    das somas.
+  - O desvio total soma só as obras **com** Orçamento, os dois lados nas mesmas
+    obras.
+  - Margem fica de fora até a correção da receita (Prompt I), e a tela diz.
+- **Fica por obra:** os blocos Vendas, Exposição e Atenção (chave ligada) e o
+  assistente. No consolidado a tela avisa para escolher uma obra.
+- **Conferido na base local:**
+  - A coluna Previsão (1 de 3) bate com a tela do SIGNATURE na Previsão.
+  - Os recebimentos do período na Atual (R$ 4.321) são a soma das três obras
+    (0 + 4.321 + 0).
+  - Ativos/Finalizados mostram o aviso das 2 obras sem status.

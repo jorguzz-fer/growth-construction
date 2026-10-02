@@ -243,7 +243,7 @@ export const BLOCOS_PENDENTES = {
   caixa:
     "Caixa (regime de caixa): o saldo de hoje e a exposição máxima projetada dependem da decisão do ponto de partida do saldo (BAD-1, chave do Fluxo de Caixa). Até lá, veja o Fluxo de Caixa.",
   execucao: "Execução (físico × financeiro) fica fora da tela até a decisão da medição por serviço (BV-1).",
-  comparativo: "Comparativo entre projetos: aparece quando a tela somar mais de um projeto; hoje o Resumo é de uma obra por vez.",
+  comparativo: "Comparativo entre projetos: aparece quando a tela somar mais de um projeto — escolha Todos, Ativos ou Finalizados no seletor de projeto.",
 } as const;
 
 /** O plano tem alguma fonte com valor? (sinal, periódicas, FGTS, subsídio ou financiamento) */
