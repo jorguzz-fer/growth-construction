@@ -24,6 +24,7 @@ import {
   textoDoPeriodo,
   type IntencaoDoChat,
 } from "@/lib/assistente-chat";
+import { comUsoDeIa, limiteDeConversa } from "@/lib/ai/uso";
 
 export interface RespostaDoChat {
   texto: string;
@@ -55,9 +56,11 @@ export async function perguntarAoAssistente(pergunta: string, projetoDaTela: str
   const mesAtual = `${String(agora.getMonth() + 1).padStart(2, "0")}/${agora.getFullYear()}`;
   let intencao: IntencaoDoChat;
   let via: RespostaDoChat["via"] = "local";
-  if (isAiConfigured()) {
+  // Prompt AM, 5.2: passou do limite de conversas, a leitura é local — sem custo, sem travar.
+  const noLimite = isAiConfigured() ? await limiteDeConversa(ctx.tenant.id, ctx.userId) : null;
+  if (isAiConfigured() && !noLimite) {
     try {
-      intencao = await interpretarPergunta(texto, mesAtual);
+      intencao = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "chat" }, () => interpretarPergunta(texto, mesAtual));
       via = "ia";
     } catch (e) {
       // Só o tipo do erro: a pergunta nunca vai para o log.

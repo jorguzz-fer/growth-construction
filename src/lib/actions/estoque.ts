@@ -13,6 +13,7 @@ import { AI_ACCEPTED_MIME, AI_MAX_DOCS, isAiConfigured } from "@/lib/ai/despesa-
 import { extrairItensDaNota } from "@/lib/ai/estoque-itens";
 import { casarItensComCadastro, type PropostaDeEntrada } from "@/lib/estoque-analise";
 import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 /**
  * Estoque (Prompt Y). Controle FÍSICO: a saída não realoca custo (BY-1) —
@@ -329,7 +330,7 @@ export async function proporEntradasDaNota(despesaId: string): Promise<Resultado
   const materiais = await db.select().from(schema.stockItems).where(and(eq(schema.stockItems.tenantId, ctx.tenant.id), eq(schema.stockItems.ativo, true)));
   try {
     const paraLeitura = await Promise.all(legiveis.map(async (d) => ({ bytes: await getObjectBytes(d.storageKey), mime: d.contentType ?? "application/pdf", filename: d.filename })));
-    const lido = await extrairItensDaNota(paraLeitura, { materiais: materiais.map((m) => ({ nome: m.nome, unidade: m.unidade, sku: m.sku })) });
+    const lido = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "estoque" }, () => extrairItensDaNota(paraLeitura, { materiais: materiais.map((m) => ({ nome: m.nome, unidade: m.unidade, sku: m.sku })) }));
     const propostas = casarItensComCadastro(lido.itens, materiais.map((m) => ({ id: m.id, nome: m.nome, sku: m.sku, unidade: m.unidade, custoUnit: Number(m.custoUnit), minimo: Number(m.minimo), saldo: 0, ativo: m.ativo })));
     await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "estoque.ia.proposta", entity: "despesa", entityId: despesa.id, meta: { documentos: legiveis.map((d) => d.filename), itens: propostas.length, semCadastro: propostas.filter((x) => !x.materialId).length } });
     return { ok: true, propostas, observacoes: lido.observacoes, documentos: legiveis.map((d) => d.filename) };

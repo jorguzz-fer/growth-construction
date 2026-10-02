@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { cadeiaDeModelos, resolverModelo } from "@/lib/ai/modelos";
 import { mensagemDeErroIa } from "@/lib/ai/erros";
+import { registrarUso } from "@/lib/ai/uso";
 
 /**
  * Camada compartilhada das leituras por IA (despesa, fornecedor, extrato).
@@ -79,6 +80,10 @@ function isModelUnavailable(e: unknown): boolean {
 /**
  * Cria a mensagem tentando o modelo primário e, se indisponível, os
  * alternativos. Qualquer outro erro é traduzido por `enrichAiError`.
+ *
+ * Prompt AM, 5.1: ao fim, registra o consumo (modelo que respondeu, tokens)
+ * quando a action marcou a chamada com `comUsoDeIa`. Só números; nunca o
+ * conteúdo. O comportamento da chamada não muda.
  */
 export async function createMessageWithFallback(
   client: Anthropic,
@@ -88,13 +93,19 @@ export async function createMessageWithFallback(
   let lastErr: unknown;
   for (const model of models) {
     try {
-      return await client.messages.create({ ...params, model });
+      const msg = await client.messages.create({ ...params, model });
+      await registrarUso({ modelo: msg.model ?? model, fallback: model !== models[0], erro: false, usage: msg.usage });
+      return msg;
     } catch (e) {
       lastErr = e;
-      if (!isModelUnavailable(e)) throw enrichAiError(e);
+      if (!isModelUnavailable(e)) {
+        await registrarUso({ modelo: null, fallback: model !== models[0], erro: true });
+        throw enrichAiError(e);
+      }
       // modelo indisponível → tenta o próximo da cadeia
     }
   }
+  await registrarUso({ modelo: null, fallback: true, erro: true });
   throw enrichAiError(lastErr);
 }
 

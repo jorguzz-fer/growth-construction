@@ -42,6 +42,7 @@ import {
   montarPreenchimentoDespesa,
   type PreenchimentoDespesa,
 } from "@/lib/ai/despesa-doc";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 // As cinco actions de stakeholder (add/update/setAtivo/delete/extract) foram
 // movidas para `actions/stakeholders.ts` no Prompt W (5.4) — só organização.
@@ -1087,11 +1088,13 @@ export async function extractDespesaFromDoc(
     // Decisão de 01/10/2026 (BE-2): vai ao modelo só o documento. Fornecedores,
     // obras e a própria empresa NÃO entram no prompt — o casamento com o
     // cadastro é feito abaixo, no servidor (montarPreenchimentoDespesa).
-    const extraido = await extractDespesaFromDocument(docs, {
-      contas: contas.map((c) => ({ code: c.code, name: c.name })),
-      categorias,
-      tiposDocumento: TIPOS_DOCUMENTO,
-    });
+    const extraido = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "despesa" }, () =>
+      extractDespesaFromDocument(docs, {
+        contas: contas.map((c) => ({ code: c.code, name: c.name })),
+        categorias,
+        tiposDocumento: TIPOS_DOCUMENTO,
+      }),
+    );
 
     return {
       ok: true,

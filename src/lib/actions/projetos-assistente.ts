@@ -10,6 +10,7 @@ import { extractProjetoFromDocuments } from "@/lib/ai/projeto-extract";
 import { montarPropostaDeProjeto, type PropostaDeProjeto } from "@/lib/ai/projeto-doc";
 import { getObjectBytes, isR2Configured } from "@/lib/storage/r2";
 import { TELA_PROJETO } from "@/lib/projeto-regras";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 export type ResultadoPropostaProjeto = { ok: true; proposta: PropostaDeProjeto } | { ok: false; error: string };
 
@@ -43,7 +44,7 @@ export async function proporDadosDoProjetoPorDocumento(projectId: string, docume
   if (!legivelPelaIa(mime)) return falha("Só PDF ou imagem (PNG, JPG, WebP) podem ser lidos.");
   try {
     const bytes = await getObjectBytes(doc.storageKey);
-    const lido = await extractProjetoFromDocuments([{ bytes, mime, filename: doc.filename }], new Date().toISOString().slice(0, 10));
+    const lido = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "projeto" }, () => extractProjetoFromDocuments([{ bytes, mime, filename: doc.filename }], new Date().toISOString().slice(0, 10)));
     const proposta = montarPropostaDeProjeto(lido, {
       name: projeto.name,
       endereco: projeto.endereco,

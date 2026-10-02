@@ -3898,3 +3898,34 @@ export async function getRepositorio(tenantId: string): Promise<RepositorioRow[]
     valor: r.valor == null ? null : Number(r.valor),
   }));
 }
+
+/**
+ * Prompt AM, 5.1 e 7.3 — consumo da IA da empresa desde `desde` (só números:
+ * operação, modelo, tokens) e o último teste de conexão, com quem executou.
+ */
+export async function getUsoDaIa(tenantId: string, desde: Date) {
+  return db
+    .select({
+      operacao: schema.iaUso.operacao,
+      modelo: schema.iaUso.modelo,
+      fallback: schema.iaUso.fallback,
+      entrada: schema.iaUso.entrada,
+      saida: schema.iaUso.saida,
+      cacheCriacao: schema.iaUso.cacheCriacao,
+      cacheLida: schema.iaUso.cacheLida,
+      erro: schema.iaUso.erro,
+    })
+    .from(schema.iaUso)
+    .where(and(eq(schema.iaUso.tenantId, tenantId), gte(schema.iaUso.createdAt, desde)));
+}
+
+export async function getUltimoTesteDeIa(tenantId: string) {
+  const [r] = await db
+    .select({ em: schema.iaUso.createdAt, erro: schema.iaUso.erro, modelo: schema.iaUso.modelo, email: schema.users.email })
+    .from(schema.iaUso)
+    .leftJoin(schema.users, eq(schema.users.id, schema.iaUso.userId))
+    .where(and(eq(schema.iaUso.tenantId, tenantId), eq(schema.iaUso.operacao, "teste")))
+    .orderBy(desc(schema.iaUso.createdAt))
+    .limit(1);
+  return r ?? null;
+}

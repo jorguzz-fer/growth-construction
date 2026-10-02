@@ -12,6 +12,7 @@ import {
   jsonb,
   unique,
   uniqueIndex,
+  index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -2025,3 +2026,33 @@ export const asoAcessos = pgTable("aso_acesso", {
   usuario: text("usuario"),
   acessadoEm: timestamp("acessado_em", { mode: "date" }).notNull().defaultNow(),
 });
+
+/**
+ * Consumo da IA (Prompt AM, Parte 5; migração 0066): QUANTO cada chamada ao
+ * modelo custou, por quem e quando — nunca O QUÊ (sem pergunta, documento ou
+ * resposta). Gravado por `createMessageWithFallback` quando a action marca o
+ * uso com `comUsoDeIa`.
+ */
+export const iaUso = pgTable(
+  "ia_uso",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** despesa | extrato | fornecedor | projeto | venda | permuta | estoque | folha | medicao | chat | assistente | teste */
+    operacao: text("operacao").notNull(),
+    /** modelo que efetivamente respondeu (null quando falhou). */
+    modelo: text("modelo"),
+    /** respondeu um alternativo da cadeia, não o primário. */
+    fallback: boolean("fallback").notNull().default(false),
+    entrada: integer("entrada").notNull().default(0),
+    saida: integer("saida").notNull().default(0),
+    cacheCriacao: integer("cache_criacao").notNull().default(0),
+    cacheLida: integer("cache_lida").notNull().default(0),
+    erro: boolean("erro").notNull().default(false),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("ia_uso_tenant_quando_idx").on(t.tenantId, t.createdAt)],
+);
