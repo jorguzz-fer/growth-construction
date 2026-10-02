@@ -71,7 +71,7 @@ export const NAV_MENU: NavModule[] = [
       { href: "/fluxocaixa", label: "Fluxo de Caixa" },
       { href: "/resumo", label: "Resumo Executivo" },
       { href: "/consolidado", label: "Consolidado" },
-      { href: "/diagnosticoia", label: "Diagnóstico de IA" },
+      { href: "/diagnosticoia", label: "Assistente" },
     ],
   },
   {

@@ -292,7 +292,7 @@ export function FornecedorForm({
                           href="/diagnosticoia"
                           className="font-medium text-[var(--color-accent2)] underline"
                         >
-                          Abrir Diagnóstico de IA
+                          Abrir o diagnóstico de IA
                         </a>
                       </>
                     ),
