@@ -310,7 +310,7 @@ export async function lerFolhaDePonto(equipeDiaId: string): Promise<ResultadoFol
   const equipe = await getEquipeDoProjeto(ctx.tenant.id, dia.projectId);
   try {
     const paraLeitura = await Promise.all(legiveis.map(async (d) => ({ bytes: await getObjectBytes(d.storageKey), mime: d.contentType ?? "application/pdf", filename: d.filename })));
-    const lido = await lerFolhaDePontoComIA(paraLeitura, equipe.filter((m) => m.situacao === "ativa").map((m) => m.nome));
+    const lido = await lerFolhaDePontoComIA(paraLeitura);
     const r = casarNomesComEquipe(lido.linhas.map((l) => ({ nome: l.nome, quantidade: l.quantidade })), equipe);
     await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "equipe.ia.folha_ponto", entity: "equipe_dia", entityId: dia.id, meta: { data: dia.data, documentos: legiveis.length, casados: r.casados.length, semPar: r.semPar.length } });
     return { ok: true, data: dia.data, casados: r.casados, semPar: r.semPar, observacoes: lido.observacoes };

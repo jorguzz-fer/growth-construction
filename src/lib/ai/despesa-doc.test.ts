@@ -330,3 +330,20 @@ describe("leituras defeituosas", () => {
     expect(res.alertas.status?.nivel).toBe("conferir");
   });
 });
+
+describe("decisão de 01/10 — a empresa não vai ao modelo; a checagem é local", () => {
+  const lidoComCnpj = (doc: string) =>
+    montarPreenchimentoDespesa(
+      extracao({ fornecedorNome: alta("A F ANDRADE COM MAT CONSTR EIRELI - ME"), fornecedorDoc: alta(doc) }),
+      { ...CTX, empresaDoc: "10.365.725/0002-18" },
+    );
+  it("se a leitura devolver o CNPJ da própria empresa, não vincula e pede o fornecedor certo", () => {
+    const r = lidoComCnpj("10365725000218");
+    expect(r.valores.fornecedorId).toBeUndefined();
+    expect(r.alertas.fornecedor?.motivo).toContain("própria empresa");
+  });
+  it("sem empresaDoc, o casamento é o de sempre", () => {
+    const r = montarPreenchimentoDespesa(extracao({ fornecedorNome: alta("A F ANDRADE COM MAT CONSTR EIRELI - ME"), fornecedorDoc: alta("10.365.725/0002-18") }), CTX);
+    expect(r.valores.fornecedorId).toBe("f-andrade");
+  });
+});

@@ -180,6 +180,12 @@ export interface ContextoDespesa {
   formasPagamento: readonly string[];
   /** Ids válidos de TIPOS_DOCUMENTO. */
   tiposDocumento: readonly string[];
+  /**
+   * CNPJ da própria empresa (decisão de 01/10/2026: ele não vai mais ao
+   * modelo). Se a leitura devolver a pagadora como fornecedor, o casamento é
+   * recusado aqui e a tela pede conferência.
+   */
+  empresaDoc?: string | null;
 }
 
 /** Resultado do casamento de um texto lido com um cadastro existente. */
@@ -315,8 +321,15 @@ export function montarPreenchimentoDespesa(
   }
 
   // ── Fornecedor ────────────────────────────────────────────────────────
-  const forn = acharFornecedor(x.fornecedorNome.valor, x.fornecedorDoc.valor, ctx.fornecedores);
-  if (forn.id) {
+  const soDigitos = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "");
+  const ehAPropriaEmpresa = !!ctx.empresaDoc && soDigitos(ctx.empresaDoc).length > 0 && soDigitos(x.fornecedorDoc.valor) === soDigitos(ctx.empresaDoc);
+  const forn = ehAPropriaEmpresa ? { id: null, fraco: false } : acharFornecedor(x.fornecedorNome.valor, x.fornecedorDoc.valor, ctx.fornecedores);
+  if (ehAPropriaEmpresa) {
+    marcar("fornecedor", {
+      nivel: "conferir",
+      motivo: "A leitura trouxe o CNPJ da própria empresa como fornecedor (ela é a pagadora) — escolha o fornecedor correto.",
+    });
+  } else if (forn.id) {
     valores.fornecedorId = forn.id;
     preencheu("fornecedor");
     marcar(
