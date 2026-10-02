@@ -5,7 +5,8 @@
  * entram com o MOTIVO escrito, nunca com número provisório (1.9).
  */
 import type { VersionTotals } from "@/lib/calc/types";
-import { ymd } from "@/lib/utils";
+import type { Inputs } from "@/lib/calc/dre-cascata";
+import { brl, pct1, ym, ymd } from "@/lib/utils";
 
 export const STATUS_DE_UNIDADE = ["Disponivel", "Reservado", "Vendido", "Permutado"] as const;
 
@@ -112,7 +113,7 @@ export interface LinhaDeAtencao {
   href: string;
 }
 
-/** 1.7 · Atenção — só exceções CATEGÓRICAS (BAE-1 sem resposta). Nunca causa. */
+/** 1.7 · Atenção — as exceções CATEGÓRICAS. As por valor (BAE-1) vêm de `alertaDeDesvio` e `alertaDeVencidos`. Nunca causa. */
 export function blocoAtencao(o: {
   obra: string;
   projectId: string;
@@ -129,6 +130,110 @@ export function blocoAtencao(o: {
   if (o.despesasSemClassificacao)
     out.push({ texto: `${o.despesasSemClassificacao} despesa(s) da Atual sem categoria DRE ou sem competência.`, href: `/conferencia?proj=${o.projectId}` });
   return out;
+}
+
+/**
+ * BAE-1 (decisão de 01/10/2026): os limites dos alertas por valor. Um valor só
+ * para a empresa toda, gravado no tenant (migração 0065) — não em código.
+ */
+export interface ParametrosDeAlerta {
+  /** desvio de custo: acima deste % ... */
+  desvioPct: number;
+  /** ... E acima deste valor em R$ (os dois juntos). */
+  desvioValor: number;
+  /** recebível vencido há MAIS destes dias. */
+  vencidoDias: number;
+}
+
+export function parametrosDeAlerta(t: { alertaDesvioPct: string | number; alertaDesvioValor: string | number; alertaVencidoDias: number }): ParametrosDeAlerta {
+  return { desvioPct: Number(t.alertaDesvioPct), desvioValor: Number(t.alertaDesvioValor), vencidoDias: Number(t.alertaVencidoDias) };
+}
+
+/**
+ * Custo (categorias de custo da cascata da DRE: Custo Variável + Custo Fixo)
+ * somado nas competências ATÉ `mes` ("MM/YYYY"), inclusive. Lançamento sem
+ * competência fica de fora: não dá para dizer se já devia ter acontecido.
+ */
+export function custoAteOMes(porMes: Readonly<Record<string, Inputs>>, mes: string): number {
+  const limite = ym(mes);
+  if (limite == null) return 0;
+  let total = 0;
+  for (const [mm, inp] of Object.entries(porMes)) {
+    const m = ym(mm);
+    if (m == null || m > limite) continue;
+    total += inp.custoVar + (inp.byCat["Custo Fixo"] || 0);
+  }
+  return total;
+}
+
+/**
+ * Desvio de custo: Realizado (versão Atual) contra o Orçamento, nas mesmas
+ * competências (até o mês corrente). Alerta só ACIMA do orçado e só quando
+ * passa dos DOIS limites. Sem Orçamento, não calcula — e diz isso.
+ */
+export function alertaDeDesvio(
+  o: {
+    obra: string;
+    projectId: string;
+    /** null = não há Orçamento para comparar; `semOrcamento` diz por quê. */
+    orcado: number | null;
+    semOrcamento?: "sem_lancamento" | "fora_dos_relatorios";
+    realizado: number;
+    ate: string;
+  },
+  p: ParametrosDeAlerta,
+): LinhaDeAtencao | null {
+  const href = `/projeto?proj=${o.projectId}`;
+  if (o.orcado == null)
+    return {
+      texto:
+        o.semOrcamento === "fora_dos_relatorios"
+          ? `${o.obra}: o Orçamento não está Aprovado e fica fora dos relatórios — o desvio de custo não é calculado.`
+          : `${o.obra} sem Orçamento lançado: o desvio de custo não é calculado.`,
+      href,
+    };
+  const dif = o.realizado - o.orcado;
+  if (dif <= p.desvioValor) return null;
+  if (o.orcado <= 0)
+    return { texto: `Custo realizado de ${brl(o.realizado)} até ${o.ate} sem custo orçado nessas competências — ${o.obra}.`, href };
+  const pct = (dif / o.orcado) * 100;
+  if (pct <= p.desvioPct) return null;
+  return {
+    texto: `Custo ${pct1(pct)} acima do orçado até ${o.ate}: ${brl(o.realizado)} realizados contra ${brl(o.orcado)} (${brl(dif)} a mais) — ${o.obra}.`,
+    href,
+  };
+}
+
+/** O que o bloco Atenção declara sob o título: o que entra e com que limite. */
+export function textoDosLimites(p: ParametrosDeAlerta): string {
+  return `Exceções categóricas e por valor: custo acima de ${pct1(p.desvioPct)} e de ${brl(p.desvioValor)} do orçado; recebível vencido há mais de ${p.vencidoDias} dias (limites na tela Empresa)`;
+}
+
+/** Dias corridos entre duas datas "MM/DD/YYYY"; null se alguma for inválida. */
+function diasEntre(de: string, ate: string): number | null {
+  const a = ymd(de);
+  const b = ymd(ate);
+  if (a == null || b == null) return null;
+  const d = (n: number) => Date.UTC(Math.floor(n / 10000), (Math.floor(n / 100) % 100) - 1, n % 100);
+  return Math.round((d(b) - d(a)) / (24 * 60 * 60 * 1000));
+}
+
+/** Recebível com saldo em aberto vencido há MAIS de `vencidoDias` (hoje em "MM/DD/YYYY"). */
+export function alertaDeVencidos(
+  o: { obra: string; projectId: string; contas: readonly { saldo: number; vencimento: string | null }[]; hoje: string },
+  p: ParametrosDeAlerta,
+): LinhaDeAtencao | null {
+  const atrasadas = o.contas.filter((c) => {
+    if (c.saldo <= 0 || !c.vencimento) return false;
+    const dias = diasEntre(c.vencimento, o.hoje);
+    return dias != null && dias > p.vencidoDias;
+  });
+  if (!atrasadas.length) return null;
+  const total = atrasadas.reduce((a, c) => a + c.saldo, 0);
+  return {
+    texto: `${atrasadas.length} recebível(is) vencido(s) há mais de ${p.vencidoDias} dias, ${brl(total)} em aberto — ${o.obra}.`,
+    href: `/contasreceber?proj=${o.projectId}`,
+  };
 }
 
 /** 1.9 · Os blocos que ainda não entram, com o motivo que a tela escreve. */

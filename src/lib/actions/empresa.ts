@@ -18,7 +18,7 @@ import {
   normalizarCodigoMunicipio,
 } from "@/lib/calc/emitente-fiscal";
 import { ehAmbienteFiscal } from "@/lib/fiscal/tipos";
-import { campoInalterado, recusaDoCadastroFiscal, recusaDoNome, TELA_EMPRESA } from "@/lib/empresa-regras";
+import { campoInalterado, lerLimitesDeAlerta, recusaDoCadastroFiscal, recusaDoNome, TELA_EMPRESA } from "@/lib/empresa-regras";
 
 /**
  * Prompt AH, 2.4: as três actions devolvem `{ ok, error }` com o campo e o
@@ -164,6 +164,42 @@ export async function renameTenant(formData: FormData): Promise<ResultadoEmpresa
   if (!houveMudanca(changes)) return { ok: true };
   await db.update(schema.tenants).set({ name }).where(eq(schema.tenants.id, ctx.tenant.id));
   await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.rename", entity: "tenant", entityId: ctx.tenant.id, meta: { changes } });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * BAE-1 (decisão de 01/10/2026): limites dos alertas do Resumo Executivo —
+ * desvio de custo (% E R$, os dois juntos) e recebível vencido (dias). Um valor
+ * para a empresa toda; a troca fica na Auditoria com de → para.
+ */
+export async function salvarLimitesDeAlerta(formData: FormData): Promise<ResultadoEmpresa> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: SEM_SESSAO };
+  if (!can(ctx.perms, TELA_EMPRESA, "editar")) return { ok: false, error: "Sem permissão para alterar os limites dos alertas." };
+  const lido = lerLimitesDeAlerta({
+    desvioPct: formData.get("alertaDesvioPct"),
+    desvioValor: formData.get("alertaDesvioValor"),
+    vencidoDias: formData.get("alertaVencidoDias"),
+  });
+  if (!lido.ok) return lido;
+  const [antes] = await db
+    .select({ alertaDesvioPct: schema.tenants.alertaDesvioPct, alertaDesvioValor: schema.tenants.alertaDesvioValor, alertaVencidoDias: schema.tenants.alertaVencidoDias })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, ctx.tenant.id))
+    .limit(1);
+  if (!antes) return { ok: false, error: "Empresa não encontrada." };
+  const depois = { alertaDesvioPct: lido.desvioPct, alertaDesvioValor: lido.desvioValor, alertaVencidoDias: lido.vencidoDias };
+  const changes = diffAudit(
+    { alertaDesvioPct: Number(antes.alertaDesvioPct), alertaDesvioValor: Number(antes.alertaDesvioValor), alertaVencidoDias: antes.alertaVencidoDias },
+    depois,
+  );
+  if (!houveMudanca(changes)) return { ok: true };
+  await db
+    .update(schema.tenants)
+    .set({ alertaDesvioPct: String(lido.desvioPct), alertaDesvioValor: String(lido.desvioValor), alertaVencidoDias: lido.vencidoDias })
+    .where(eq(schema.tenants.id, ctx.tenant.id));
+  await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "tenant.alertas", entity: "tenant", entityId: ctx.tenant.id, meta: { changes } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

@@ -2,7 +2,7 @@ import Image from "next/image";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
-import { renameTenant, salvarDadosFiscais, uploadLogo } from "@/lib/actions/empresa";
+import { renameTenant, salvarDadosFiscais, salvarLimitesDeAlerta, uploadLogo } from "@/lib/actions/empresa";
 import { getHistoricoFiscal, getUltimoTesteR2 } from "@/lib/queries";
 import { analisarEmpresa } from "@/lib/empresa-analise";
 import { AssistenteEmpresa } from "@/components/app/assistente-empresa";
@@ -361,6 +361,35 @@ export default async function EmpresaPage() {
                 Sem permissão para alterar os dados fiscais.
               </p>
             )}
+          </FormComResultado>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4" id="alertas">
+        <CardContent className="space-y-4 p-5">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">Alertas do Resumo Executivo</h2>
+            <p className="mt-1 text-[12px] text-[var(--color-ink3)]">
+              Limites do bloco Atenção, um valor só para a empresa toda. O desvio de custo só alerta quando passa dos{" "}
+              <strong>dois</strong> limites juntos (percentual e valor). Toda troca fica na Auditoria.
+            </p>
+          </div>
+          <FormComResultado action={salvarLimitesDeAlerta} sucesso="Limites salvos." aoConcluir="recarregar" className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <Label>Desvio de custo acima de (%)</Label>
+                <Input name="alertaDesvioPct" inputMode="decimal" defaultValue={String(Number(ctx.tenant.alertaDesvioPct)).replace(".", ",")} disabled={!canEdit} />
+              </div>
+              <div>
+                <Label>E acima de (R$)</Label>
+                <Input name="alertaDesvioValor" inputMode="decimal" defaultValue={String(Number(ctx.tenant.alertaDesvioValor)).replace(".", ",")} disabled={!canEdit} />
+              </div>
+              <div>
+                <Label>Recebível vencido há mais de (dias)</Label>
+                <Input name="alertaVencidoDias" inputMode="numeric" defaultValue={String(ctx.tenant.alertaVencidoDias)} disabled={!canEdit} />
+              </div>
+            </div>
+            {canEdit && <Button type="submit">Salvar limites</Button>}
           </FormComResultado>
         </CardContent>
       </Card>

@@ -20,7 +20,7 @@ vi.mock("@/lib/storage/r2", () => ({ isR2Configured: () => false, putObject: asy
 describe.skipIf(!HAS_DB)("Prompt AH · AH-1 cadastro da empresa", async () => {
   const { db, schema } = await import("@/lib/db");
   const { defaultPermissions } = await import("@/lib/permissions");
-  const { salvarDadosFiscais, renameTenant, uploadLogo } = await import("./empresa");
+  const { salvarDadosFiscais, renameTenant, uploadLogo, salvarLimitesDeAlerta } = await import("./empresa");
   let tenantId = "";
   let outroId = "";
   const fd = (campos: Record<string, string>) => {
@@ -113,5 +113,23 @@ describe.skipIf(!HAS_DB)("Prompt AH · AH-1 cadastro da empresa", async () => {
     await renameTenant(fd({ name: "Outro nome" }));
     const depois = await linha(outroId);
     expect(depois).toEqual(antes);
+  });
+  it("BAE-1 — limites dos alertas: nascem 10% / R$ 5.000 / 15 dias; admin troca com auditoria; membro não", async () => {
+    let t = await linha();
+    expect([Number(t.alertaDesvioPct), Number(t.alertaDesvioValor), t.alertaVencidoDias]).toEqual([10, 5000, 15]);
+    await como("admin");
+    expect(await salvarLimitesDeAlerta(fd({ alertaDesvioPct: "12,5", alertaDesvioValor: "8.000", alertaVencidoDias: "30" }))).toEqual({ ok: true });
+    t = await linha();
+    expect([Number(t.alertaDesvioPct), Number(t.alertaDesvioValor), t.alertaVencidoDias]).toEqual([12.5, 8000, 30]);
+    const [aud] = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "tenant.alertas")));
+    expect(JSON.stringify(aud.meta)).toContain("12.5");
+    expect(await salvarLimitesDeAlerta(fd({ alertaDesvioPct: "0", alertaDesvioValor: "1", alertaVencidoDias: "1" }))).toMatchObject({ ok: false });
+    await como("membro");
+    expect((await salvarLimitesDeAlerta(fd({ alertaDesvioPct: "1", alertaDesvioValor: "1", alertaVencidoDias: "1" }))).ok).toBe(false);
+    t = await linha();
+    expect(t.alertaVencidoDias).toBe(30);
+    // o outro tenant não muda
+    expect((await linha(outroId)).alertaVencidoDias).toBe(15);
+    await como("admin");
   });
 });
