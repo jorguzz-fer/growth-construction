@@ -118,7 +118,8 @@ export default async function AppLayout({
       {backupPending.has && (
         <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />
       )}
-      <div className="mx-auto max-w-6xl px-4 pb-10 pt-6 sm:px-6 lg:pt-8">
+      {/* Conteúdo em largura total da tela (antes: max-w-6xl, ~1150px, encaixotado em monitor largo). */}
+      <div className="w-full px-4 pb-10 pt-6 sm:px-6 lg:px-8 lg:pt-8">
         {denied ? <AccessDenied /> : children}
       </div>
       {/* Prompt E, Etapa 2 — chat somente leitura, em qualquer tela. */}
