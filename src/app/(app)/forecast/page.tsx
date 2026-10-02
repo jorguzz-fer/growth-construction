@@ -66,6 +66,7 @@ export default async function ForecastPage({
             canEdit={can(ctx.perms, "forecast", "editar")}
             rascunhoForaLigado={rascunhoFora}
             podeTravar={can(ctx.perms, "versaotrava", "editar")}
+            podeAprovar={can(ctx.perms, "versaoaprova", "editar")}
             budgetVersions={budgetVersions.map((v) => ({ id: v.id, label: v.label }))}
             canCreateForecast={can(ctx.perms, "forecast", "criar")}
             comparacao={comparando ? cmp : null}

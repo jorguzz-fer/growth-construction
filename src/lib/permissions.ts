@@ -52,6 +52,10 @@ export const SCREENS: Screen[] = [
   // Orçamentos, Previsão e Projetos. Permissão PRÓPRIA (ação, não rota): nasce
   // só com owner e admin — como `versao` hoje — e pode ser dada por override.
   { id: "versaotrava", label: "Travar e destravar versão", modulo: "Planejamento" },
+  // Decisão de 01/10/2026 (BH-4): aprovar e desaprovar versão tem permissão
+  // PRÓPRIA — desaprovar tira número de relatório, não pode valer o `editar`
+  // da tela. Nasce só com owner e admin (TELAS_SENSIVEIS).
+  { id: "versaoaprova", label: "Aprovar e desaprovar versão", modulo: "Planejamento" },
   { id: "clientes", label: "Clientes (Compradores)", modulo: "Receitas" },
   // Permissão de CAMPO, não de rota (Prompt M, 5.4 · BM-3): renda, FGTS, score,
   // restrições, estado civil e inteligência de mercado do comprador. Nasce só
@@ -178,7 +182,7 @@ export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
  * admin").
  */
-export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava"]);
+export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava", "versaoaprova"]);
 
 /**
  * Papéis com TETO DE LEITURA (Prompt AL, Parte 3 · decisão BAL-2 = opção 1):
