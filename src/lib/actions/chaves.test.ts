@@ -104,4 +104,52 @@ describe.skipIf(!HAS_DB)("Chaves de mudança por empresa (B4)", async () => {
     expect(await membroRestritoNoTenant(tB.id)).toBe(true);
     expect(await membroRestritoNoTenant(tA.id)).toBe(false);
   });
+  describe("decisão de 01/10: prévia exportada antes de ligar", () => {
+    it("chave com prévia não liga sem a planilha exportada", async () => {
+      ctxRef.current = ctx(tB, "owner");
+      const r = await definirChave(fd({ chave: "dashboard_definicao_nova", ligar: "1", viPrevia: "on" }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("Exporte a prévia");
+    });
+
+    it("a rota exporta a prévia em .xlsx e registra quem exportou; aí liga e a auditoria leva a exportação", async () => {
+      ctxRef.current = ctx(tB, "owner");
+      const { GET } = await import("@/app/(app)/chaves/previa/route");
+      const res = await GET(new Request("http://x/chaves/previa?chave=dashboard_definicao_nova"));
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Disposition")).toMatch(/previa-dashboard_definicao_nova-\d{4}-\d{2}-\d{2}\.xlsx/);
+      const [exp] = await db
+        .select()
+        .from(schema.auditLog)
+        .where(and(eq(schema.auditLog.tenantId, tB.id), eq(schema.auditLog.action, "chave.previa.exportar")));
+      expect(exp.entityId).toBe("dashboard_definicao_nova");
+      expect(await definirChave(fd({ chave: "dashboard_definicao_nova", ligar: "1", viPrevia: "on" }))).toEqual({ ok: true });
+      const [l] = await db
+        .select()
+        .from(schema.auditLog)
+        .where(and(eq(schema.auditLog.tenantId, tB.id), eq(schema.auditLog.action, "chave.ligar")));
+      expect(l.meta).toMatchObject({ chave: "dashboard_definicao_nova", para: true, previaExportadaPor: "—" });
+    });
+
+    it("a exportação de outra chave não serve, e a antiga demais também não", async () => {
+      ctxRef.current = ctx(tB, "owner");
+      await db.insert(schema.auditLog).values({
+        tenantId: tB.id,
+        action: "chave.previa.exportar",
+        entity: "tenant_flag",
+        entityId: "fluxo_definicao_nova",
+        createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      });
+      expect((await definirChave(fd({ chave: "fluxo_definicao_nova", ligar: "1", viPrevia: "on" }))).ok).toBe(false);
+      expect((await definirChave(fd({ chave: "resumo_definicao_nova", ligar: "1", viPrevia: "on" }))).ok).toBe(false);
+    });
+
+    it("rota: chave sem prévia exportável é recusada; membro sem ver também", async () => {
+      const { GET } = await import("@/app/(app)/chaves/previa/route");
+      ctxRef.current = ctx(tB, "owner");
+      expect((await GET(new Request("http://x/chaves/previa?chave=membro_padrao_restrito"))).status).toBe(400);
+      ctxRef.current = ctx(tB, "membro");
+      expect((await GET(new Request("http://x/chaves/previa?chave=dre_definicao_nova"))).status).toBe(403);
+    });
+  });
 });

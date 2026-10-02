@@ -150,3 +150,27 @@ de **catálogo**, que não identificam pessoa nem empresa:
 Pela regra literal ("nada do banco"), essas listas também deveriam sair — a
 classificação passaria a ser feita só localmente, com menos acerto. **Mantive
 (caminho que não piora nada para o usuário) e pergunto:** podem continuar?
+
+## As quatro chaves — prévia guardada, ordem e registro
+
+Decisão: pode ligar, **uma de cada vez**, com alguns dias entre elas, na ordem
+Dashboard → Fluxo de Caixa → Resumo Executivo → DRE; guardar a prévia
+(antes × depois) antes de cada uma; registrar quem ligou e quando.
+
+- **Exportar prévia (.xlsx)** em cada chave que tem prévia em `/chaves`
+  (as quatro definições novas e o Rascunho fora dos relatórios). A planilha leva
+  cabeçalho com empresa, situação da chave, quem exportou e quando, e a mesma
+  tabela da tela, calculada pelas mesmas funções. Para o Rascunho, é o
+  checklist pedido (projeto, versão, situação, total de receitas e de despesas).
+- **Sem exportação recente, não liga.** Ligar uma dessas chaves exige uma
+  exportação da prévia **dela** nos últimos 7 dias. A tela mostra a última
+  exportação (quem e quando). Imprimir continua livre (Ctrl+P na tela), mas a
+  trava conta só a exportação, porque é a única que o sistema consegue ver.
+- **Registro.** A exportação entra na Auditoria (`chave.previa.exportar`). O
+  ligar já gravava quem e quando (na chave e na Auditoria) e agora leva junto
+  a exportação usada (`previaExportadaEm`, `previaExportadaPor`).
+- **Ordem.** Só **avisa**, não trava: mostra a chave anterior da ordem que
+  ainda está desligada, e avisa se outra das quatro foi ligada há menos de 3
+  dias.
+- **Quem liga em produção é você** (owner ou admin) em `/chaves`. Eu não ligo
+  nenhuma chave.

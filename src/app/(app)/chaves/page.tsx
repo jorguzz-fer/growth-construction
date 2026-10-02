@@ -14,6 +14,8 @@ import { getBankAccounts } from "@/lib/queries";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { brl, pct1 } from "@/lib/utils";
 import { membroRestritoPorAmbiente } from "@/lib/membro-padrao";
+import { avisosDaOrdem, exportacaoValida, temPreviaExportavel, VALIDADE_DA_EXPORTACAO_DIAS } from "@/lib/chaves-previa";
+import { ultimasExportacoes } from "@/lib/chaves-exportacao";
 import { definirChave } from "@/lib/actions/chaves";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
@@ -51,6 +53,10 @@ export default async function ChavesPage() {
   const previaDashboard = await previaDashboardDefinicaoNova(ctx.tenant.id, ctx.projects);
   // Prompt AE, 6.2: prévia da chave "resumo_definicao_nova" (só leitura).
   const previaResumo = await previaResumoDefinicaoNova(ctx.tenant.id, ctx.projects);
+  // Decisão de 01/10/2026: a prévia é exportada (e guardada) antes de ligar.
+  const exportacoes = await ultimasExportacoes(ctx.tenant.id);
+  const agora = new Date();
+  const titulos = Object.fromEntries(CHAVES.map((c) => [c.id, c.titulo]));
   // A chave do membro também liga pela variável de ambiente, de antes do B4.
   const peloAmbiente: Record<string, boolean> = {
     membro_padrao_restrito: membroRestritoPorAmbiente(ctx.tenant.id),
@@ -65,12 +71,22 @@ export default async function ChavesPage() {
         ligue quando estiver de acordo. Desligar volta ao comportamento anterior. Toda troca
         fica na Auditoria.
       </p>
+      <p className="mb-5 max-w-3xl text-[13px] leading-relaxed text-[var(--color-ink2)]" data-ordem-das-chaves>
+        <strong>Combinado em 01/10:</strong> as quatro definições novas entram <strong>uma de cada vez</strong>, com alguns dias
+        entre elas, nesta ordem: Dashboard, Fluxo de Caixa, Resumo Executivo e DRE. Antes de ligar, exporte a prévia (o
+        &ldquo;antes × depois&rdquo;) e guarde a planilha — sem a exportação dos últimos {VALIDADE_DA_EXPORTACAO_DIAS} dias a
+        chave não liga. Quem exportou, quem ligou e quando ficam na Auditoria.
+      </p>
       <div className="space-y-4">
         {CHAVES.map((c) => {
           const l = estado.get(c.id);
           const ligadaAqui = l?.ligada ?? false;
           const ambiente = peloAmbiente[c.id] ?? false;
           const ligada = ligadaAqui || ambiente;
+          const exportavel = temPreviaExportavel(c.id);
+          const exportacao = exportacoes.get(c.id);
+          const exportacaoOk = exportacaoValida(exportacao?.em, agora);
+          const avisos = ligadaAqui ? [] : avisosDaOrdem(c.id, estado, titulos, agora);
           return (
             <Card key={c.id}>
               <CardContent className="p-5">
@@ -99,6 +115,23 @@ export default async function ChavesPage() {
                     {c.previa.rotulo}
                   </Link>
                 </p>
+                {exportavel && (
+                  <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]" data-exportacao={c.id}>
+                    <a href={`/chaves/previa?chave=${c.id}`} className="font-medium text-[var(--color-accent2)] hover:underline" download>
+                      Exportar prévia (.xlsx)
+                    </a>
+                    <span className={exportacaoOk || ligadaAqui ? "text-[var(--color-ink3)]" : "text-[var(--color-warning)]"}>
+                      {exportacao
+                        ? `Última exportação por ${exportacao.por} em ${exportacao.em.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}${exportacaoOk || ligadaAqui ? "" : ` — mais de ${VALIDADE_DA_EXPORTACAO_DIAS} dias: exporte de novo antes de ligar`}`
+                        : "Ainda não exportada — exporte antes de ligar."}
+                    </span>
+                  </p>
+                )}
+                {avisos.map((a) => (
+                  <p key={a} className="mt-1 text-[12.5px] text-[var(--color-warning)]" data-aviso-ordem>
+                    {a}
+                  </p>
+                ))}
                 {podeEditar &&
                   (ligadaAqui ? (
                     <FormComResultado
