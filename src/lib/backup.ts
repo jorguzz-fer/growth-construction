@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import {
   getCashByTenant,
@@ -19,6 +19,7 @@ import {
   internalDateInSemester,
   type SemesterInfo,
 } from "@/lib/semester";
+import { semestrePendente, semestreSalvo, type BackupFeito } from "@/lib/backup-historico";
 
 export interface SemesterSummary {
   key: string;
@@ -30,6 +31,10 @@ export interface SemesterSummary {
   total: number;
   /** Semestre já encerrado (anterior ao corrente). */
   closed: boolean;
+  /** Último instante do semestre. */
+  fim: Date;
+  /** Prompt AO, 6.3: o último download deste semestre (pela Auditoria). */
+  ultimoBackup: BackupFeito | null;
 }
 
 export interface SemesterListing {
@@ -57,6 +62,23 @@ function semKeyOfDate(d: Date | null): string | null {
 }
 
 /**
+ * Prompt AO, Parte 6 — o último download de cada semestre, lido do registro
+ * `backup.download` da Auditoria (quem e quando).
+ */
+export async function ultimosBackups(tenantId: string): Promise<Map<string, BackupFeito>> {
+  const rows = await db
+    .select({ chave: schema.auditLog.entityId, em: schema.auditLog.createdAt, email: schema.users.email, userId: schema.auditLog.userId })
+    .from(schema.auditLog)
+    .leftJoin(schema.users, eq(schema.users.id, schema.auditLog.userId))
+    .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "backup.download")))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(500);
+  const out = new Map<string, BackupFeito>();
+  for (const r of rows) if (r.chave && !out.has(r.chave)) out.set(r.chave, { em: r.em, por: r.email ?? r.userId ?? "—" });
+  return out;
+}
+
+/**
  * Semestres do tenant que possuem dados (despesas, contas a receber, caixa ou
  * documentos), do mais recente para o mais antigo, com a contagem por tipo.
  */
@@ -64,11 +86,12 @@ export async function listSemesters(
   tenantId: string,
   today: Date = new Date(),
 ): Promise<SemesterListing> {
-  const [despesas, receber, caixa, documentos] = await Promise.all([
+  const [despesas, receber, caixa, documentos, backups] = await Promise.all([
     getDespesasByTenant(tenantId),
     getContasReceber(tenantId),
     getCashByTenant(tenantId),
     getDocuments(tenantId),
+    ultimosBackups(tenantId),
   ]);
 
   const acc = new Map<string, SemesterSummary>();
@@ -88,6 +111,8 @@ export async function listSemesters(
         documentos: 0,
         total: 0,
         closed: false,
+        fim: info.end,
+        ultimoBackup: backups.get(key) ?? null,
       } as SemesterSummary);
     s[field] += 1;
     s.total += 1;
@@ -108,9 +133,9 @@ export async function listSemesters(
     .map((s) => ({ ...s, closed: semesterOrdinal(s.key) <= lastClosedOrd }))
     .sort((a, b) => semesterOrdinal(b.key) - semesterOrdinal(a.key));
 
-  // Aviso: último semestre ENCERRADO que tem dados.
-  const pendingKey =
-    semesters.find((s) => s.closed && s.total > 0)?.key ?? null;
+  // Aviso: último semestre ENCERRADO que tem dados e ainda não foi salvo
+  // depois de encerrado (Prompt AO, 6.3 — antes reaparecia sempre).
+  const pendingKey = semestrePendente(semesters, backups);
 
   return { semesters, currentKey, lastClosedKey, pendingKey };
 }
@@ -126,6 +151,14 @@ export async function hasPendingSemesterBackup(
   const key = lastClosedSemesterKey(today);
   const info = semesterInfo(key);
   if (!info) return { key, label: key, has: false };
+  // Prompt AO, 6.3: já baixado depois de encerrado → o aviso não volta.
+  const [ultimo] = await db
+    .select({ em: schema.auditLog.createdAt })
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "backup.download"), eq(schema.auditLog.entityId, key)))
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(1);
+  if (ultimo && semestreSalvo(info.end, { em: ultimo.em, por: "" })) return { key, label: info.label, has: false };
 
   const [d] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -153,6 +186,16 @@ export async function hasPendingSemesterBackup(
   return { key, label: info.label, has: n > 0 };
 }
 
+/** Prompt AO, 6.2 — o que o pacote continha, para o registro do download. */
+export interface ConteudoDoPacote {
+  despesas: number;
+  contasReceber: number;
+  caixa: number;
+  documentos: number;
+  documentosNoPeriodo: number;
+  documentosFalhos: number;
+}
+
 function sheetFromAoa(rows: (string | number)[][]) {
   return XLSX.utils.aoa_to_sheet(rows);
 }
@@ -166,7 +209,7 @@ export async function buildSemesterZip(
   tenantId: string,
   key: string,
   tenantName: string,
-): Promise<{ filename: string; bytes: Uint8Array } | null> {
+): Promise<{ filename: string; bytes: Uint8Array; conteudo: ConteudoDoPacote } | null> {
   const info = semesterInfo(key);
   if (!info) return null;
   const monthSet = new Set(info.months);
@@ -290,7 +333,18 @@ export async function buildSemesterZip(
 
   const bytes = await zip.generateAsync({ type: "uint8array" });
   const tenantSlug = (tenantName || "tenant").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "");
-  return { filename: `Backup_${tenantSlug}_${slug}.zip`, bytes };
+  return {
+    filename: `Backup_${tenantSlug}_${slug}.zip`,
+    bytes,
+    conteudo: {
+      despesas: despRows.length,
+      contasReceber: recRows.length,
+      caixa: cxRows.length,
+      documentos: docsIncluidos,
+      documentosNoPeriodo: docRows.length,
+      documentosFalhos: docsFalhos.length,
+    },
+  };
 }
 
 export type { SemesterInfo };
