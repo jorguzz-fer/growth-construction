@@ -25,6 +25,7 @@ import {
 } from "@/lib/stakeholder-regras";
 import { AI_ACCEPTED_MIME, isAiConfigured } from "@/lib/ai/despesa-extract";
 import { extractFornecedorFromDocument, type ExtractedFornecedor } from "@/lib/ai/fornecedor-extract";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 /**
  * Actions do cadastro de Fornecedores & Stakeholders (Prompt W).
@@ -346,7 +347,7 @@ export async function extractFornecedorFromDoc(formData: FormData): Promise<{ ok
   }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    return { ok: true, data: await extractFornecedorFromDocument(bytes, mime) };
+    return { ok: true, data: await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "fornecedor" }, () => extractFornecedorFromDocument(bytes, mime)) };
   } catch (e) {
     console.error("[fornecedor] falha na leitura por IA:", e);
     return falha(e instanceof Error ? e.message : "Falha ao ler o documento.");

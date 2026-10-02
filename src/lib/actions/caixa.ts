@@ -36,6 +36,7 @@ import {
   extractExtratoFromText,
   type ExtratoExtraido,
 } from "@/lib/ai/extrato-extract";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 /** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
 const EXTRATO_AI_MIME = [
@@ -82,9 +83,9 @@ export async function extractExtratoPdf(
   let result: ExtratoExtraido;
   try {
     if (isAiConfigured()) {
-      result = await extractExtratoFromDocument(bytes, mime);
+      result = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "extrato" }, () => extractExtratoFromDocument(bytes, mime));
     } else if (mime === "application/pdf") {
-      result = await extractExtratoFromText(bytes);
+      result = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "extrato" }, () => extractExtratoFromText(bytes));
     } else {
       return {
         ...empty,

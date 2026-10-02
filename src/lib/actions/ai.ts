@@ -10,6 +10,8 @@ import {
 } from "@/lib/ai/client";
 import { rotuloModelo } from "@/lib/ai/modelos";
 import { isR2Configured } from "@/lib/storage/r2";
+import { can } from "@/lib/permissions";
+import { comUsoDeIa, registrarUso } from "@/lib/ai/uso";
 
 export interface AiDiagnosticResult {
   /** ANTHROPIC_API_KEY presente no ambiente? */
@@ -35,13 +37,17 @@ export interface AiDiagnosticResult {
 
 /**
  * Testa, ao vivo, a configuração de leitura por IA: presença da chave, acesso ao
- * modelo e conectividade de rede — fazendo uma chamada mínima à API. Só
- * owner/admin. Serve para diagnosticar em segundos por que a leitura por IA
- * "não está funcionando" no ambiente.
+ * modelo e conectividade de rede — fazendo uma chamada mínima à API. Serve para
+ * diagnosticar em segundos por que a leitura por IA "não está funcionando".
+ *
+ * Prompt AM, 6.1: a permissão vem da MATRIZ (`diagnosticoia:editar` — o bloco
+ * de configuração), não do papel; antes, um membro com a tela por override via
+ * o botão e recebia "Sem permissão", e um admin com a tela revogada passava.
+ * 7.3: o resultado fica registrado (quem, quando, modelo), em `ia_uso`.
  */
 export async function testAiConnection(): Promise<AiDiagnosticResult> {
   const ctx = await getTenantContext();
-  if (!ctx || (ctx.role !== "owner" && ctx.role !== "admin")) {
+  if (!ctx || !can(ctx.perms, "diagnosticoia", "editar")) {
     throw new Error("Sem permissão para executar o diagnóstico.");
   }
   const keyPresent = isAiConfigured();
@@ -51,6 +57,8 @@ export async function testAiConnection(): Promise<AiDiagnosticResult> {
   const r2Configured = isR2Configured();
 
   if (!keyPresent) {
+    // 7.3: o teste fica registrado mesmo sem chamada (quem testou, quando, falhou).
+    await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "teste" }, () => registrarUso({ modelo: null, fallback: false, erro: true }));
     return {
       keyPresent: false,
       configuredModel,
@@ -65,10 +73,12 @@ export async function testAiConnection(): Promise<AiDiagnosticResult> {
   }
 
   try {
-    const msg = await createMessageWithFallback(aiClient(), {
-      max_tokens: 8,
-      messages: [{ role: "user", content: "responda apenas: ok" }],
-    });
+    const msg = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "teste" }, () =>
+      createMessageWithFallback(aiClient(), {
+        max_tokens: 8,
+        messages: [{ role: "user", content: "responda apenas: ok" }],
+      }),
+    );
     return {
       keyPresent: true,
       configuredModel,

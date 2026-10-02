@@ -15,6 +15,7 @@ import { LIMITE_UPLOAD_BYTES, LIMITE_UPLOAD_MB } from "@/lib/clientes-regras";
 import { origemDoStakeholder, recusaDaAlocacao, recusaDoRegistro, TIPOS_DOC_EQUIPE_DIA, valorDaDiaria, type OrigemMembro } from "@/lib/equipe-regras";
 import { numeroDoCampo } from "@/lib/estoque-regras";
 import { garantirFuncoesPadrao } from "@/lib/equipes-db";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 /**
  * Equipes de Projetos (Prompt Z, Parte 3). Nenhuma action aqui cria
@@ -310,7 +311,7 @@ export async function lerFolhaDePonto(equipeDiaId: string): Promise<ResultadoFol
   const equipe = await getEquipeDoProjeto(ctx.tenant.id, dia.projectId);
   try {
     const paraLeitura = await Promise.all(legiveis.map(async (d) => ({ bytes: await getObjectBytes(d.storageKey), mime: d.contentType ?? "application/pdf", filename: d.filename })));
-    const lido = await lerFolhaDePontoComIA(paraLeitura);
+    const lido = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "folha" }, () => lerFolhaDePontoComIA(paraLeitura));
     const r = casarNomesComEquipe(lido.linhas.map((l) => ({ nome: l.nome, quantidade: l.quantidade })), equipe);
     await logAudit({ tenantId: ctx.tenant.id, userId: ctx.userId, action: "equipe.ia.folha_ponto", entity: "equipe_dia", entityId: dia.id, meta: { data: dia.data, documentos: legiveis.length, casados: r.casados.length, semPar: r.semPar.length } });
     return { ok: true, data: dia.data, casados: r.casados, semPar: r.semPar, observacoes: lido.observacoes };

@@ -12,6 +12,7 @@ import { extractLaudoDeMedicao } from "@/lib/ai/medicao-extract";
 import { compararLaudoComLancado, type ComparacaoDoLaudo } from "@/lib/ai/medicao-doc";
 import { escolherOrcamento } from "@/lib/medicao-cef";
 import { TELA_RELATORIO } from "@/lib/medicao-regras";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 export type ResultadoLaudo = { ok: true; comparacao: ComparacaoDoLaudo } | { ok: false; error: string };
 
@@ -61,7 +62,7 @@ export async function lerLaudoDaMedicao(medicaoId: string, documentId: string): 
       }
     }
     const bytes = await getObjectBytes(doc.storageKey);
-    const lido = await extractLaudoDeMedicao({ bytes, mime, filename: doc.filename }, grupos);
+    const lido = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "medicao" }, () => extractLaudoDeMedicao({ bytes, mime, filename: doc.filename }, grupos));
     const daCompetencia = lancadas.filter((m) => m.competencia === row.m.competencia).map((m) => ({ grupoCode: m.grupoCode, competencia: m.competencia, valor: Number(m.valor) }));
     return { ok: true, comparacao: compararLaudoComLancado(lido, daCompetencia, orcadoPorGrupo) };
   } catch (e) {
