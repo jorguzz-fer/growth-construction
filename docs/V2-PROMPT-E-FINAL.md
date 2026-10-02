@@ -150,3 +150,11 @@ uma tabela nova e aditiva, com `down`.
   documento.
 - **Sem registro de uso de IA:** não dá para saber quantas leituras cada
   empresa faz.
+
+## Complemento (Prompt AM, 1.4)
+
+A tela **Assistente** (`/diagnosticoia`) não contraria a recusa da seção 1 a um
+item de menu "IA". Aquela recusa vale para um assistente **de dados**, que
+perderia o contexto da tela. O Assistente **explica como o sistema funciona**,
+não tem dados nem contexto de tela a perder, e encaminha as perguntas de número
+para o chat do canto (Etapa 2).

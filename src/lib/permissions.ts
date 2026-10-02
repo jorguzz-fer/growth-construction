@@ -95,7 +95,7 @@ export const SCREENS: Screen[] = [
   { id: "funcionariosdados", label: "Funcionários — endereço, salário, jornada, banco e dependentes", modulo: "Pessoas" },
   { id: "funcionariosaso", label: "Funcionários — ASO (dado de saúde)", modulo: "Pessoas" },
   { id: "equipes", label: "Equipes de Projetos", modulo: "Pessoas" },
-  { id: "backup", label: "Backup & Arquivamento", modulo: "Backup" },
+  { id: "backup", label: "Backup de dados", modulo: "Backup" },
   { id: "usuarios", label: "Usuários & Acessos", modulo: "Config" },
   { id: "acessos", label: "Gestão de Acessos", modulo: "Config" },
   { id: "acoes", label: "Log de Auditoria", modulo: "Config" },
@@ -109,7 +109,7 @@ export const SCREENS: Screen[] = [
   { id: "chaves", label: "Chaves de mudança", modulo: "Config" },
   // Prompt AP: "versao" saiu (a tela virou redirecionamento para Projetos).
   // A trava foi para `versaotrava`; a planilha, para a tela Projetos.
-  { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
+  { id: "diagnosticoia", label: "Assistente (e diagnóstico de IA)", modulo: "Config" },
 ];
 
 export const SCREEN_IDS = SCREENS.map((s) => s.id);

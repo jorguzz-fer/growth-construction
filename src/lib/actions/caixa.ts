@@ -101,7 +101,7 @@ export async function extractExtratoPdf(
       error:
         `Falha ao ler o arquivo do extrato (${detail}). ` +
         "Se o PDF for escaneado/imagem (sem texto), ative a leitura por IA em " +
-        "Config → Diagnóstico de IA, ou envie o extrato em XLSX/CSV.",
+        "Business Intelligence → Assistente (diagnóstico de IA), ou envie o extrato em XLSX/CSV.",
     };
   }
   if (result.movimentos.length === 0) {
@@ -109,7 +109,7 @@ export async function extractExtratoPdf(
       ...result,
       error:
         "Não identifiquei movimentações no texto do PDF. Ele pode ser escaneado/imagem " +
-        "(sem texto) — ative a leitura por IA em Config → Diagnóstico de IA, ou envie XLSX/CSV.",
+        "(sem texto) — ative a leitura por IA em Business Intelligence → Assistente (diagnóstico de IA), ou envie XLSX/CSV.",
     };
   }
 

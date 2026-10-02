@@ -3,6 +3,7 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { AiDiagnosticPanel } from "@/components/app/ai-diagnostic-panel";
+import { AssistenteProduto } from "@/components/app/assistente-produto";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -31,15 +32,14 @@ export default async function DiagnosticoIaPage() {
 
   return (
     <>
-      <PageHeader title="Diagnóstico de IA" />
-      {!configura ? (
-        <Card>
-          <CardContent className="p-5 text-[13px] text-[var(--color-ink2)]">
-            A configuração da IA (chave, modelo, teste e consumo) é de quem administra a empresa.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
+      {/* Prompt AM: a tela vira o Assistente — um chat que explica o sistema. A rota não muda. */}
+      <PageHeader title="Assistente" subtitle="Como o sistema funciona — sem acesso aos dados da empresa" />
+      <AssistenteProduto />
+      {configura && (
+        // 7.1 — o diagnóstico fica, como bloco secundário e recolhido, para quem configura.
+        <details className="mt-6 space-y-4" data-diagnostico-ia>
+          <summary className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">Diagnóstico de IA (configuração)</summary>
+          <div className="mt-4 space-y-4">
           {/* 7.3 — o estado, que antes só aparecia depois de clicar no teste. */}
           <Card data-estado-ia>
             <CardContent className="space-y-2 p-5 text-[13px]">
@@ -109,7 +109,8 @@ export default async function DiagnosticoIaPage() {
           </Card>
 
           <AiDiagnosticPanel />
-        </div>
+          </div>
+        </details>
       )}
     </>
   );
