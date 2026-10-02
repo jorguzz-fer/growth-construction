@@ -7,8 +7,10 @@ relatório. Nenhum dado foi alterado.
 
 **Só a Etapa 1** (painel por tela, somente leitura ou "propõe, você
 confirma"). Isso segue o BE-3: só a etapa autorizada.
-- **Etapa 2** (chat flutuante que envia dados a um modelo): **não
-  implementada.** Depende do BE-2 (privacidade), que é decisão do dono.
+- **Etapa 2** (chat flutuante): **implementada depois, com a decisão do dono
+  de 01/10/2026** — só a pergunta vai ao modelo, que só classifica; o número
+  é calculado no sistema. Ver
+  [`V2-DECISOES-0110.md`](./V2-DECISOES-0110.md#chat-do-assistente-prompt-e-etapa-2).
 - **Etapa 3** (escrita com confirmação): **não autorizada** por padrão. As
   pré-condições da seção 4.1 não foram verificadas aqui.
 

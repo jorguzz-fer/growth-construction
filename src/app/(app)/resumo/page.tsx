@@ -6,7 +6,6 @@ import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import {
-  getBudgetLines,
   getContasPagar,
   getContasReceber,
   getMonthlyRevenue,
@@ -21,7 +20,7 @@ import {
 } from "@/lib/queries";
 import { calcTotals, permutaCashByMonth } from "@/lib/calc";
 import Link from "next/link";
-import { and, asc, count, eq, isNull, or } from "drizzle-orm";
+import { and, count, eq, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import {
   BLOCOS_PENDENTES,
@@ -31,12 +30,11 @@ import {
   blocoAtencao,
   blocoExposicao,
   blocoVendas,
-  custoAteOMes,
   parametrosDeAlerta,
   temPlanoDePagamento,
   textoDosLimites,
 } from "@/lib/resumo-blocos";
-import { versionInputsByMonth } from "@/lib/dre-inputs";
+import { custoOrcadoRealizado } from "@/lib/custo-orcado";
 import {
   TIPOS_DO_RESUMO,
   percentual,
@@ -536,36 +534,6 @@ async function montarBlocos(o: {
     atencao: [...blocoAtencao({ obra: obra.name, projectId: obra.id, temAtual: o.temAtual, unidades, despesasSemClassificacao: semClassificacao }), ...porValor],
     obraId: obra.id,
     parametros,
-  };
-}
-
-/**
- * BAE-1 — custo Realizado (Atual) e Orçado até `mes`, pela MESMA leitura da
- * DRE (`versionInputsByMonth`, seguindo a chave da DRE). `orcado` null = sem
- * Orçamento que conte nos relatórios.
- */
-async function custoOrcadoRealizado(tenantId: string, projectId: string, mes: string, rascunhoFora: boolean) {
-  const versoes = await db
-    .select({ id: schema.versions.id, kind: schema.versions.kind, isDefault: schema.versions.isDefault, status: schema.versions.status })
-    .from(schema.versions)
-    .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, projectId)))
-    .orderBy(asc(schema.versions.createdAt));
-  const budgets = versoes.filter((v) => v.kind === "budget");
-  const padrao = budgets.find((v) => v.isDefault) ?? budgets[0] ?? null;
-  const budget = padrao && entraNosRelatorios(padrao, rascunhoFora) ? padrao : null;
-  const atual = versoes.find((v) => v.kind === "atual") ?? null;
-  if (!atual) return null;
-  const linhasDoOrcamento = budget ? await getBudgetLines(budget.id) : [];
-  const definicaoNova = await chaveLigada(tenantId, "dre_definicao_nova");
-  const [porMesOrcado, porMesAtual] = await Promise.all([
-    budget ? versionInputsByMonth(tenantId, budget.id, projectId, { definicaoNova }) : Promise.resolve(null),
-    versionInputsByMonth(tenantId, atual.id, projectId, { definicaoNova }),
-  ]);
-  const temOrcamento = !!porMesOrcado && linhasDoOrcamento.length > 0;
-  return {
-    orcado: temOrcamento ? custoAteOMes(porMesOrcado, mes) : null,
-    semOrcamento: temOrcamento ? undefined : padrao && !budget ? ("fora_dos_relatorios" as const) : ("sem_lancamento" as const),
-    realizado: custoAteOMes(porMesAtual, mes),
   };
 }
 
