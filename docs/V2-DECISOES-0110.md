@@ -39,3 +39,53 @@ qual PR. Nada aqui altera dado gravado.
   cadastro, e o botão "Excluir definitivamente" só libera depois de digitar
   o nome do projeto (a mesma confirmação de antes, que o servidor também
   confere). Vale para obras e para matriz/filial.
+
+## Versões (Prompts F e H)
+
+- **6 · trava × situação: não trava ao aprovar.** Contagem de versões com
+  `locked = true`: **na base local, 0 de 5**. Em produção, rodar o relatório 1
+  de [`sql/decisoes-0110.sql`](./sql/decisoes-0110.sql) e mandar o resultado;
+  se der zero, a coluna pode ser descontinuada (decisão sua).
+- **7 · a ordem é Rascunho → Concluído → Aprovado.**
+  - Aprovar só a partir de Concluído; de Rascunho direto é recusado, com o
+    motivo.
+  - Sair de Aprovado (para Concluído ou Rascunho) é permitido, mas o
+    seletor **pede confirmação** e diz o efeito: com a regra "Rascunho fora
+    dos relatórios" ligada, "ela sai dos relatórios agora e os números
+    mudam"; desligada, "hoje não muda, mas mudará quando a regra for
+    ligada".
+  - Erro na troca agora aparece na tela (antes era ignorado em silêncio).
+- **8 · teto de 12 previsões:** fica. Nada a fazer.
+- **9 · permissão própria `versaoaprova`** ("Aprovar e desaprovar versão",
+  módulo Planejamento). Nasce só com owner e admin e aparece na Gestão de
+  Acessos como as outras.
+  - Entrar ou sair de Aprovado exige essa permissão.
+  - Rascunho ↔ Concluído segue o `editar` da tela.
+  - A Auditoria registra de → para.
+  - **Efeito em produção:** quem aprova hoje só com o `editar` de
+    Orçamentos/Previsão (membro com override) deixa de conseguir; precisa
+    receber `versaoaprova` na Gestão de Acessos.
+- **10 · lista de conferência do Rascunho:** a prévia em `/chaves` já lista
+  todas as versões fora de Aprovado com projeto, nome, total de receitas e
+  total de despesas. Ela ganha exportação no PR das chaves; o relatório 3
+  do SQL é a mesma lista direto do banco.
+
+## Orçamentos (Prompt D)
+
+- **4 · entrada financeira — DIVERGE. Não fechei; preciso da sua decisão.**
+  As três telas usam três valores diferentes:
+
+  | Tela | Valor |
+  |---|---|
+  | Orçamentos, "Receitas do Projeto" (BD-1) | **construção**; soma o terreno **só** quando "terreno fora do caixa" está desmarcado |
+  | Dashboard, "% entradas de caixa" e "% margem" | **construção + terreno, sempre** |
+  | Resumo, "VGV" | **soma das unidades** da versão — não usa o cadastro |
+
+  Com terreno fora do caixa (o padrão, e o caso das 3 obras locais), o
+  Orçamento usa só a construção e o Dashboard soma o terreno. O Resumo é
+  outra base. O relatório 2 do SQL mostra, por obra, os três números.
+  **Nada foi mudado.** Pergunta: qual vale nas três? (Sugestão: a entrada
+  financeira nas duas primeiras, que é o dinheiro que passa pela
+  construtora; e o VGV do Resumo continua sendo o das unidades, com o nome
+  "VGV" e não "receita do projeto".)
+- **5 · "Outras Receitas": não cria.** Nada a fazer.

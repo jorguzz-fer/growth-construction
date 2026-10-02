@@ -1,5 +1,7 @@
 "use server";
 
+import { TELA_APROVA, trocaDeSituacao } from "@/lib/situacao-versao";
+
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
@@ -471,34 +473,43 @@ export async function duplicateForecast(
   }
 }
 
-/** Atualiza o status do workflow da versão (Rascunho/Concluído/Aprovado). */
-export async function setVersionStatus(versionId: string, status: string) {
+/**
+ * Atualiza a situação da versão (Rascunho → Concluído → Aprovado).
+ * Decisões de 01/10/2026: aprovar só a partir de Concluído; entrar ou sair de
+ * Aprovado exige a permissão própria `versaoaprova` (não o `editar` da tela);
+ * as demais trocas, o `editar` da tela. Devolve `{ ok, error }`.
+ */
+export async function setVersionStatus(versionId: string, status: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const ctx = await getTenantContext();
-  if (!ctx) throw new Error("Sessão inválida.");
-  const allowed = ["Rascunho", "Concluído", "Aprovado"];
-  if (!allowed.includes(status)) throw new Error("Status inválido.");
+  if (!ctx) return { ok: false, error: "Sessão inválida." };
   const [version] = await db
     .select()
     .from(schema.versions)
     .where(and(eq(schema.versions.id, versionId), eq(schema.versions.tenantId, ctx.tenant.id)))
     .limit(1);
-  if (!version) return;
+  if (!version) return { ok: false, error: "Versão não encontrada." };
+  if (version.status === status) return { ok: true };
+  const troca = trocaDeSituacao(version.status, status, false);
+  if (troca.recusa) return { ok: false, error: troca.recusa };
   const screen = screenOf(version.kind);
-  if (!screen || !can(ctx.perms, screen, "editar")) {
-    throw new Error("Sem permissão.");
+  if (troca.exigeAprovador) {
+    if (!can(ctx.perms, TELA_APROVA, "editar")) return { ok: false, error: "Sem permissão para aprovar ou desaprovar versão." };
+  } else if (!screen || !can(ctx.perms, screen, "editar")) {
+    return { ok: false, error: "Sem permissão." };
   }
   await db
     .update(schema.versions)
     .set({ status })
-    .where(eq(schema.versions.id, versionId));
+    .where(and(eq(schema.versions.id, versionId), eq(schema.versions.tenantId, ctx.tenant.id)));
   await logAudit({
     tenantId: ctx.tenant.id,
     userId: ctx.userId,
     action: "version.status",
     entity: "version",
     entityId: versionId,
-    meta: { status },
+    meta: { status, de: version.status },
   });
   revalidatePath("/budget");
   revalidatePath("/forecast");
+  return { ok: true };
 }

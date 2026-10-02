@@ -44,3 +44,37 @@ export function efeitoDaTrocaDeSituacao(chaveLigada: boolean): string | null {
   if (!chaveLigada) return null;
   return "Aprovar faz a versão entrar nos relatórios; voltar a Rascunho ou Concluído a tira. Toda troca fica na Auditoria.";
 }
+
+// ── Decisões de 01/10/2026 (BH-4 e a ordem das situações) ─────────────────
+
+export const SITUACOES = ["Rascunho", "Concluído", "Aprovado"] as const;
+/** Permissão PRÓPRIA para aprovar e desaprovar: tirar número de relatório não vale `editar`. */
+export const TELA_APROVA = "versaoaprova" as const;
+
+export interface TrocaDeSituacao {
+  /** Motivo da recusa, ou null. */
+  recusa: string | null;
+  /** A troca entra ou sai de Aprovado: exige `versaoaprova`. */
+  exigeAprovador: boolean;
+  /** Confirmação a mostrar antes (sair de Aprovado), ou null. */
+  confirmacao: string | null;
+}
+
+/**
+ * Rascunho → Concluído → Aprovado. Aprovar só a partir de Concluído; sair de
+ * Aprovado é permitido, mas pede confirmação — senão a versão sai dos
+ * relatórios sem ninguém perceber, e o sintoma é um número que diminui sozinho.
+ */
+export function trocaDeSituacao(de: string, para: string, chaveLigada: boolean, rotulo = "a versão"): TrocaDeSituacao {
+  if (!(SITUACOES as readonly string[]).includes(para)) return { recusa: "Situação inválida.", exigeAprovador: false, confirmacao: null };
+  const exigeAprovador = de === "Aprovado" || para === "Aprovado";
+  if (para === "Aprovado" && de !== "Aprovado" && de !== "Concluído")
+    return { recusa: "Conclua a versão antes de aprovar: a ordem é Rascunho → Concluído → Aprovado.", exigeAprovador, confirmacao: null };
+  const confirmacao =
+    de === "Aprovado" && para !== "Aprovado"
+      ? chaveLigada
+        ? `Tirar ${rotulo} de Aprovado? Ela SAI dos relatórios agora (DRE, Fluxo, Dashboard, Resumo) e os números deles mudam. Toda troca fica na Auditoria.`
+        : `Tirar ${rotulo} de Aprovado? Hoje os relatórios não mudam, mas, quando a regra “Rascunho fora dos relatórios” for ligada, ela deixará de entrar neles. Toda troca fica na Auditoria.`
+      : null;
+  return { recusa: null, exigeAprovador, confirmacao };
+}

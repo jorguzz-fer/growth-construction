@@ -18,7 +18,7 @@ import {
 import type { BudgetPlanningData, PlanningAccountRow } from "@/lib/planning";
 import { recusaDaRemocao, resumoDaRemocao, textoDaRemocao } from "@/lib/orcamento-regras";
 import { avisoDeDivergencia, isoParaInterna, rotuloDaOrigem } from "@/lib/previsao-regras";
-import { avisoNaEdicao, efeitoDaTrocaDeSituacao } from "@/lib/situacao-versao";
+import { avisoNaEdicao, efeitoDaTrocaDeSituacao, trocaDeSituacao } from "@/lib/situacao-versao";
 import { BudgetForecastCompare } from "@/components/app/budget-forecast-compare";
 import type { ForecastComparisonData } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +69,7 @@ export function BudgetPlanningScreen({
   comparacao,
   rascunhoForaLigado = false,
   podeTravar = false,
+  podeAprovar = false,
 }: {
   data: BudgetPlanningData;
   kind: "budget" | "forecast";
@@ -82,6 +83,8 @@ export function BudgetPlanningScreen({
   rascunhoForaLigado?: boolean;
   /** Prompt AP, BAP-2: pode travar/destravar a versão aberta (`versaotrava`). */
   podeTravar?: boolean;
+  /** Decisão de 01/10/2026 (BH-4): pode aprovar e desaprovar (`versaoaprova`). */
+  podeAprovar?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -115,6 +118,7 @@ export function BudgetPlanningScreen({
           canEdit={canEdit}
           rascunhoForaLigado={rascunhoForaLigado}
           podeTravar={podeTravar}
+          podeAprovar={podeAprovar}
         />
         <Card>
           <CardContent className="p-6 text-center">
@@ -150,6 +154,7 @@ export function BudgetPlanningScreen({
         canEdit={canEdit}
         rascunhoForaLigado={rascunhoForaLigado}
         podeTravar={podeTravar}
+        podeAprovar={podeAprovar}
       />
       {kind === "forecast" && (
         <ForecastToolbar
@@ -338,6 +343,7 @@ function TopBar({
   canEdit,
   rascunhoForaLigado = false,
   podeTravar = false,
+  podeAprovar = false,
 }: {
   titulo: string;
   data: BudgetPlanningData;
@@ -347,8 +353,10 @@ function TopBar({
   canEdit: boolean;
   rascunhoForaLigado?: boolean;
   podeTravar?: boolean;
+  podeAprovar?: boolean;
 }) {
   const [pending, start] = useTransition();
+  const [erroSituacao, setErroSituacao] = useState<string | null>(null);
   const version = data.versions.find((v) => v.id === data.versionId) ?? null;
   const periodo =
     data.project.mesInicial && data.project.mesFinal
@@ -429,28 +437,42 @@ function TopBar({
         {version && (
           <Select
             value={version.status}
-            onChange={(e) =>
+            onChange={(e) => {
+              const para = e.target.value;
+              // Decisões de 01/10: Rascunho → Concluído → Aprovado; sair de
+              // Aprovado tira a versão dos relatórios e pede confirmação.
+              const troca = trocaDeSituacao(version.status, para, rascunhoForaLigado, `“${version.label}”`);
+              if (troca.recusa) {
+                setErroSituacao(troca.recusa);
+                return;
+              }
+              if (troca.confirmacao && !window.confirm(troca.confirmacao)) return;
               start(async () => {
-                try {
-                  await setVersionStatus(version.id, e.target.value);
-                  window.location.reload();
-                } catch {
-                  /* ignora */
+                const r = await setVersionStatus(version.id, para);
+                if (!r.ok) {
+                  setErroSituacao(r.error);
+                  return;
                 }
-              })
-            }
-            disabled={!canEdit || pending}
+                window.location.reload();
+              });
+            }}
+            disabled={pending || (version.status === "Aprovado" ? !podeAprovar : !canEdit && !podeAprovar)}
             className="h-9 w-auto"
             title={`Status da versão${efeitoDaTrocaDeSituacao(rascunhoForaLigado) ? `. ${efeitoDaTrocaDeSituacao(rascunhoForaLigado)}` : ""}`}
           >
-            <option>Rascunho</option>
-            <option>Concluído</option>
-            <option>Aprovado</option>
+            <option disabled={version.status === "Aprovado" ? !podeAprovar : !canEdit}>Rascunho</option>
+            <option disabled={version.status === "Aprovado" ? !podeAprovar : !canEdit}>Concluído</option>
+            <option disabled={!podeAprovar || version.status === "Rascunho"}>Aprovado</option>
           </Select>
+        )}
+        {erroSituacao && (
+          <span role="alert" className="text-[11.5px] text-[var(--color-danger)]">
+            {erroSituacao}
+          </span>
         )}
         {version && (
           // BF-2: a situação é documental e não bloqueia; a trava é outra coisa.
-          <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-ink3)]" title="Rascunho → Concluído (revisão fechada pelo autor) → Aprovado. A situação não bloqueia a edição; a trava é o botão ao lado (quem tem a permissão de travar versão).">
+          <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-ink3)]" title="Rascunho → Concluído (revisão fechada pelo autor) → Aprovado (quem tem a permissão de aprovar versão). A situação não bloqueia a edição; a trava é o botão ao lado (quem tem a permissão de travar versão).">
             <Badge tone={version.locked ? "warning" : "neutral"}>{version.locked ? "travada" : "não travada"}</Badge>
             {podeTravar && <BotaoTrava versionId={version.id} rotulo={version.label} locked={version.locked} />}
             situação não bloqueia a edição
