@@ -28,7 +28,8 @@ export async function GET(req: Request) {
     action: "backup.download",
     entity: "backup",
     entityId: key,
-    meta: { semestre: key, arquivo: res.filename, bytes: res.bytes.byteLength },
+    // Prompt AO, 6.2: período, quem, quando (a própria linha) e o que o pacote continha.
+    meta: { semestre: key, arquivo: res.filename, bytes: res.bytes.byteLength, conteudo: res.conteudo },
   });
 
   return new Response(new Uint8Array(res.bytes), {
