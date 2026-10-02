@@ -1084,13 +1084,13 @@ export async function extractDespesaFromDoc(
       })),
     );
 
+    // Decisão de 01/10/2026 (BE-2): vai ao modelo só o documento. Fornecedores,
+    // obras e a própria empresa NÃO entram no prompt — o casamento com o
+    // cadastro é feito abaixo, no servidor (montarPreenchimentoDespesa).
     const extraido = await extractDespesaFromDocument(docs, {
-      fornecedores: fornecedores.map((f) => ({ nome: f.nome, doc: f.doc })),
       contas: contas.map((c) => ({ code: c.code, name: c.name })),
-      projetos: projetos.map((p) => ({ nome: p.nome })),
       categorias,
       tiposDocumento: TIPOS_DOCUMENTO,
-      empresa: { nome: ctx.tenant.name, cnpj: ctx.tenant.cnpj },
     });
 
     return {
@@ -1102,6 +1102,7 @@ export async function extractDespesaFromDoc(
         projetos,
         formasPagamento: FORMAS_PAGAMENTO,
         tiposDocumento: TIPOS_DOCUMENTO.map((t) => t.id),
+        empresaDoc: ctx.tenant.cnpj,
       }),
     };
   } catch (e) {

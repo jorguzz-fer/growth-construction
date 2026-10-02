@@ -110,3 +110,43 @@ qual PR. Nada aqui altera dado gravado.
     banco (sem normalizar) e não é validado; ele segue aparecendo como
     pendência no checklist. Só o campo que o usuário **mudou** é validado.
     Vale para CNPJ, alíquota, CEP, código IBGE e UF.
+
+## Privacidade da leitura por IA (BE-2)
+
+Regra do dono: **vai ao modelo só o documento**. Nada do banco entra no prompt
+— nem cadastro de cliente, nem renda, nem histórico — e o conteúdo do prompt
+nunca entra em log nem em auditoria.
+
+- **O que saiu do prompt.**
+  - **Despesa (nota/boleto/recibo):** saíram a empresa (razão social e CNPJ),
+    a lista de fornecedores (nome e CPF/CNPJ) e a lista de obras. O modelo só
+    copia o que está no papel (quem paga, quem recebe, CNPJ, valores, datas);
+    o sistema compara com o cadastro **depois, localmente**. Se a leitura
+    trouxer o CNPJ da **própria empresa** como fornecedor, o sistema não vincula
+    e avisa na tela.
+  - **Folha de ponto:** saiu a lista de nomes da equipe alocada. O modelo
+    devolve os nomes como estão escritos e o casamento com a equipe continua
+    local (`casarNomesComEquipe`), como já era.
+- **O que já era só o documento:** fornecedor (cartão CNPJ), projeto, extrato,
+  venda de unidade e ativo de permuta (texto digitado pela pessoa).
+- **Log e auditoria.** Conferido: as auditorias das leituras guardam só
+  contagens e nomes de arquivo; os `console.error` gravam só o erro da chamada,
+  nunca o pedido nem a resposta.
+- **Testes:** o prompt da despesa não contém nome, CPF/CNPJ de fornecedor,
+  empresa nem obra; a folha de ponto não recebe a equipe.
+
+### Pergunta em aberto — listas que não são dado pessoal
+
+Para manter a qualidade da classificação, **continuam** indo ao modelo listas
+de **catálogo**, que não identificam pessoa nem empresa:
+
+| Leitura | Lista que vai junto |
+| --- | --- |
+| Despesa | plano de contas, categorias de despesa, tipos de documento fiscal |
+| Nota de materiais (estoque) | nomes dos materiais cadastrados (nome, unidade, SKU) |
+| Laudo de medição | grupos do orçamento CEF (código e nome) |
+| Ativo de permuta | tipos de bem aceitos |
+
+Pela regra literal ("nada do banco"), essas listas também deveriam sair — a
+classificação passaria a ser feita só localmente, com menos acerto. **Mantive
+(caminho que não piora nada para o usuário) e pergunto:** podem continuar?

@@ -3,8 +3,7 @@
  * partes, e a separação é o ponto deste módulo.
  *
  * A conta da API é cobrada por token, e a maior parte do que enviamos em cada
- * leitura NÃO muda: os fornecedores cadastrados, o plano de contas, as obras,
- * as regras. Só o documento muda. Colocando o que é estável no `system` e
+ * leitura NÃO muda: o plano de contas e as regras. Só o documento muda. Colocando o que é estável no `system` e
  * marcando um ponto de cache, essa parte passa a ser cobrada ~10% nas leituras
  * seguintes (a janela de cache é curta, mas o uso real é lançar vários
  * documentos em sequência — exatamente o caso que ela cobre).
@@ -16,56 +15,44 @@
  * Módulo PURO: testado em `despesa-prompt.test.ts`.
  */
 
+/**
+ * Decisão de 01/10/2026 (BE-2, item c): vai ao modelo SÓ o documento — nada
+ * do cadastro de pessoas ou empresas entra no prompt (fornecedores com CPF/CNPJ,
+ * a própria empresa, obras). O casamento com o cadastro é feito DEPOIS da
+ * leitura, aqui no servidor (`montarPreenchimentoDespesa`). Ficam só listas
+ * de configuração que não identificam ninguém: o plano de contas, as
+ * categorias e os tipos de documento fiscal (constantes do sistema).
+ */
 export interface ContextoLeituraDespesa {
-  fornecedores: { nome: string; doc: string | null }[];
   contas: { code: string; name: string }[];
-  projetos: { nome: string }[];
   categorias: readonly string[];
   tiposDocumento: readonly { id: string; label: string }[];
-  /** A própria empresa — para NÃO ser confundida com o fornecedor. */
-  empresa: { nome: string; cnpj: string | null };
 }
 
-/** Tetos de listagem: o que passa disso não cabe no prompt sem virar custo. */
-const MAX_FORNECEDORES = 200;
+/** Teto de listagem: o que passa disso não cabe no prompt sem virar custo. */
 const MAX_CONTAS = 400;
 
-const porTexto = (a: string, b: string) => a.localeCompare(b, "pt-BR");
-
 /**
- * Parte ESTÁVEL do prompt (vai em `system`, com ponto de cache): quem é a
- * empresa, o que existe cadastrado e as regras de leitura. Só muda quando o
- * cadastro do tenant muda.
+ * Parte ESTÁVEL do prompt (vai em `system`, com ponto de cache): o plano de
+ * contas e as regras de leitura. Só muda quando o plano de contas muda.
  */
 export function promptSistemaDespesa(ctx: ContextoLeituraDespesa): string {
-  const fornList =
-    [...ctx.fornecedores]
-      .sort((a, b) => porTexto(a.nome, b.nome))
-      .slice(0, MAX_FORNECEDORES)
-      .map((f) => `- ${f.nome}${f.doc ? ` (${f.doc})` : ""}`)
-      .join("\n") || "(nenhum cadastrado)";
   const contaList =
     [...ctx.contas]
       .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
       .slice(0, MAX_CONTAS)
       .map((c) => `- ${c.code} — ${c.name}`)
       .join("\n") || "(nenhum cadastrado)";
-  const projList =
-    [...ctx.projetos]
-      .sort((a, b) => porTexto(a.nome, b.nome))
-      .map((p) => `- ${p.nome}`)
-      .join("\n") || "(nenhum cadastrado)";
   const tipoList = ctx.tiposDocumento.map((t) => `- ${t.id} = ${t.label}`).join("\n");
 
   return (
     "Você lê documentos de compra de uma construtora (nota fiscal, cupom, boleto, " +
     "comprovante de pagamento, recibo, foto de papel) e preenche o lançamento da despesa.\n\n" +
-    `EMPRESA QUE ESTÁ LANÇANDO (é a PAGADORA — nunca a fornecedora): ${ctx.empresa.nome}` +
-    (ctx.empresa.cnpj ? ` — CNPJ ${ctx.empresa.cnpj}` : "") +
-    ".\nEm comprovante de Pix/TED, o fornecedor é o RECEBEDOR, não o pagador. " +
-    "Nunca devolva os dados da empresa acima como fornecedor.\n\n" +
-    `OBRAS/PROJETOS cadastrados:\n${projList}\n\n` +
-    `FORNECEDORES já cadastrados (use exatamente o nome quando corresponder):\n${fornList}\n\n` +
+    "QUEM É QUEM: a construtora que lança é a PAGADORA (destinatária da nota, tomadora do serviço, " +
+    "quem paga o Pix/TED). O fornecedor é quem EMITE a nota ou RECEBE o pagamento. " +
+    "Em comprovante de Pix/TED, o fornecedor é o RECEBEDOR, não o pagador. Nunca devolva a pagadora como fornecedor.\n\n" +
+    "FORNECEDOR e OBRA: copie como estão escritos no documento (nome, CNPJ/CPF, obra citada). " +
+    "O sistema compara com o cadastro depois; você não recebe o cadastro.\n\n" +
     `PLANO DE CONTAS (escolha o código mais adequado):\n${contaList}\n\n` +
     `TIPOS DE DOCUMENTO FISCAL aceitos:\n${tipoList}\n\n` +
     "REGRAS:\n" +

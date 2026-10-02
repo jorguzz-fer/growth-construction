@@ -20,7 +20,7 @@ const bloco = (doc: DocumentoParaLeitura): Anthropic.ContentBlockParam => {
   return doc.mime === "application/pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } } : { type: "image", source: { type: "base64", media_type: doc.mime as ImageMime, data } };
 };
 
-export async function lerFolhaDePontoComIA(docs: DocumentoParaLeitura[], nomesDaEquipe: readonly string[]): Promise<{ linhas: LinhaDaFolha[]; observacoes: string[] }> {
+export async function lerFolhaDePontoComIA(docs: DocumentoParaLeitura[]): Promise<{ linhas: LinhaDaFolha[]; observacoes: string[] }> {
   if (!isAiConfigured()) throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   if (docs.length === 0) throw new Error("O dia não tem folha de ponto anexada.");
   const client = aiClient();
@@ -38,7 +38,7 @@ export async function lerFolhaDePontoComIA(docs: DocumentoParaLeitura[], nomesDa
             type: "object",
             additionalProperties: false,
             properties: {
-              nome: { type: "string", description: "Nome como está na folha; se corresponder a um nome da equipe fornecida, use o nome da equipe exatamente." },
+              nome: { type: "string", description: "Nome exatamente como está escrito na folha." },
               quantidade: { type: "number", description: "1 para dia inteiro, 0.5 para meio dia; 1.5 ou 2 se a folha indicar." },
               confianca: { type: "string", enum: ["alta", "media", "baixa"] },
             },
@@ -53,7 +53,9 @@ export async function lerFolhaDePontoComIA(docs: DocumentoParaLeitura[], nomesDa
     max_tokens: 2048,
     tools: [tool],
     tool_choice: { type: "tool", name: "listar_presencas" },
-    system: [{ type: "text", text: `Você lê folhas de ponto assinadas de canteiro de obra (Brasil) e lista quem esteve presente. Não invente nome: só o que está escrito ou assinado. A equipe alocada nesta obra é:\n${nomesDaEquipe.map((n) => `- ${n}`).join("\n") || "- (vazia)"}`, cache_control: { type: "ephemeral" } }],
+    // Decisão de 01/10/2026 (BE-2): só o documento vai ao modelo — os nomes da
+    // equipe NÃO entram; o casamento com a equipe é local (casarNomesComEquipe).
+    system: [{ type: "text", text: "Você lê folhas de ponto assinadas de canteiro de obra (Brasil) e lista quem esteve presente. Não invente nome: só o que está escrito ou assinado. Copie cada nome como está na folha; o sistema compara com a equipe depois." }],
     messages: [{ role: "user", content: [...docs.flatMap((d): Anthropic.ContentBlockParam[] => (docs.length > 1 ? [{ type: "text", text: `Arquivo: ${d.filename}` }, bloco(d)] : [bloco(d)])), { type: "text", text: "Liste as presenças desta folha de ponto." }] }],
   });
   const block = message.content.find((b) => b.type === "tool_use");

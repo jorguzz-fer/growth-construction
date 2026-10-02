@@ -213,8 +213,8 @@ export async function extractDespesaFromDocument(
   };
 
   // Ordem que a API usa para o cache: tools → system → messages. O ponto de
-  // cache no fim do `system` cobre, portanto, a ferramenta E todo o contexto do
-  // tenant (fornecedores, plano de contas, obras, regras) — que é a maior parte
+  // cache no fim do `system` cobre, portanto, a ferramenta E o plano de contas
+  // e as regras (nada do cadastro de pessoas — decisão de 01/10) — que é a maior parte
   // dos tokens e não muda entre uma leitura e a seguinte. O documento vem
   // depois, em `messages`, porque é o único pedaço realmente volátil.
   const message = await createMessageWithFallback(client, {

@@ -6,58 +6,47 @@ import {
 } from "./despesa-prompt";
 
 const CTX: ContextoLeituraDespesa = {
-  fornecedores: [
-    { nome: "Zeladoria Sul", doc: null },
-    { nome: "A F ANDRADE COM MAT CONSTR EIRELI", doc: "10.365.725/0002-18" },
-    { nome: "Casarão Itanhaém", doc: null },
-  ],
   contas: [
     { code: "2.10", name: "Serviços" },
     { code: "1.1", name: "Materiais" },
     { code: "1.2", name: "Mão de obra" },
   ],
-  projetos: [{ nome: "OBRA 28" }, { nome: "OBRA 25" }],
   categorias: ["Custo de Obra"],
   tiposDocumento: [
     { id: "SEM_DOC", label: "Sem documento" },
     { id: "NFE", label: "NF-e" },
   ],
-  empresa: { nome: "BMV Construções Ltda", cnpj: "42.844.364/0001-06" },
 };
 
 describe("parte estável do prompt (a que é cacheada)", () => {
   const p = promptSistemaDespesa(CTX);
 
-  it("leva o contexto do tenant: empresa, obras, fornecedores, plano e tipos", () => {
-    expect(p).toContain("BMV Construções Ltda");
-    expect(p).toContain("42.844.364/0001-06");
-    expect(p).toContain("OBRA 25");
-    expect(p).toContain("A F ANDRADE COM MAT CONSTR EIRELI");
+  it("leva só configuração que não identifica ninguém: plano de contas e tipos", () => {
     expect(p).toContain("1.1 — Materiais");
     expect(p).toContain("NFE = NF-e");
   });
 
-  it("deixa explícito que a empresa é a pagadora, nunca a fornecedora", () => {
+  it("decisão de 01/10 (BE-2): nenhum dado de pessoa ou empresa do cadastro vai ao modelo", () => {
+    // o tipo nem aceita mais fornecedores, obras ou a empresa
+    expect(Object.keys(CTX).sort()).toEqual(["categorias", "contas", "tiposDocumento"]);
+    expect(p).not.toMatch(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/); // nenhum CNPJ
+    expect(p).not.toContain("FORNECEDORES já cadastrados");
+    expect(p).not.toContain("OBRAS/PROJETOS cadastrados");
+    expect(p).toContain("você não recebe o cadastro");
+  });
+
+  it("deixa explícito que a construtora é a pagadora, nunca a fornecedora", () => {
     expect(p).toContain("PAGADORA");
     expect(p).toContain("RECEBEDOR");
   });
 
   /**
-   * O cache é casamento de PREFIXO byte a byte: se a ordem das listas variar
+   * O cache é casamento de PREFIXO byte a byte: se a ordem da lista variar
    * entre uma leitura e outra (a consulta ao banco não garante ordem), o
-   * prefixo muda, o cache não é aproveitado e ninguém percebe — só a fatura.
+   * prefixo muda e o cache não é aproveitado.
    */
-  it("ordena as listas, para o prefixo ser idêntico entre chamadas", () => {
-    const embaralhado = promptSistemaDespesa({
-      ...CTX,
-      fornecedores: [...CTX.fornecedores].reverse(),
-      contas: [...CTX.contas].reverse(),
-      projetos: [...CTX.projetos].reverse(),
-    });
-    expect(embaralhado).toBe(p);
-  });
-
-  it("ordena o plano de contas por código, numericamente", () => {
+  it("ordena o plano de contas, para o prefixo ser idêntico entre chamadas", () => {
+    expect(promptSistemaDespesa({ ...CTX, contas: [...CTX.contas].reverse() })).toBe(p);
     expect(p.indexOf("- 1.1 ")).toBeLessThan(p.indexOf("- 1.2 "));
     expect(p.indexOf("- 1.2 ")).toBeLessThan(p.indexOf("- 2.10 "));
   });
@@ -67,14 +56,8 @@ describe("parte estável do prompt (a que é cacheada)", () => {
     expect(p).not.toContain("Arquivo");
   });
 
-  it("cadastro vazio não quebra o prompt", () => {
-    const vazio = promptSistemaDespesa({
-      ...CTX,
-      fornecedores: [],
-      contas: [],
-      projetos: [],
-    });
-    expect(vazio).toContain("(nenhum cadastrado)");
+  it("plano de contas vazio não quebra o prompt", () => {
+    expect(promptSistemaDespesa({ ...CTX, contas: [] })).toContain("(nenhum cadastrado)");
   });
 });
 
