@@ -166,6 +166,13 @@ export function custoAteOMes(porMes: Readonly<Record<string, Inputs>>, mes: stri
   return total;
 }
 
+/** Custo (Custo Variável + Custo Fixo) somado só nas competências de `meses`. */
+export function custoNosMeses(porMes: Readonly<Record<string, Inputs>>, meses: ReadonlySet<string>): number {
+  let total = 0;
+  for (const [mm, inp] of Object.entries(porMes)) if (meses.has(mm)) total += inp.custoVar + (inp.byCat["Custo Fixo"] || 0);
+  return total;
+}
+
 /**
  * Desvio de custo: Realizado (versão Atual) contra o Orçamento, nas mesmas
  * competências (até o mês corrente). Alerta só ACIMA do orçado e só quando

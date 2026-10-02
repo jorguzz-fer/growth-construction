@@ -13,6 +13,8 @@ import { AppShell } from "@/components/app/app-shell";
 import { AccessDenied } from "@/components/app/access-denied";
 import { BackupReminder } from "@/components/app/backup-reminder";
 import { hasPendingSemesterBackup } from "@/lib/backup";
+import { Suspense } from "react";
+import { ChatAssistente } from "@/components/app/chat-assistente";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +121,10 @@ export default async function AppLayout({
       <div className="mx-auto max-w-6xl px-4 pb-10 pt-6 sm:px-6 lg:pt-8">
         {denied ? <AccessDenied /> : children}
       </div>
+      {/* Prompt E, Etapa 2 — chat somente leitura, em qualquer tela. */}
+      <Suspense fallback={null}>
+        <ChatAssistente projetos={ctx.projects.map((p) => ({ id: p.id, name: p.name }))} />
+      </Suspense>
     </AppShell>
   );
 }

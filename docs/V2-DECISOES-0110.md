@@ -243,3 +243,48 @@ comparativo só com mais de uma obra.
   - Os recebimentos do período na Atual (R$ 4.321) são a soma das três obras
     (0 + 4.321 + 0).
   - Ativos/Finalizados mostram o aviso das 2 obras sem status.
+
+## Chat do assistente (Prompt E, Etapa 2)
+
+Decisão: o chat pode entrar e responde sobre **métricas do catálogo**
+(receita, custo, saldo, desvio), sem dado pessoal. Métrica futura que precise
+de nome de comprador para e pergunta antes.
+
+- **Onde.** Botão no canto inferior direito, em toda tela. O painel abre por
+  cima, sem navegar, e mostra o contexto: a obra da tela, ou "todas as obras
+  que você vê".
+- **O que vai ao modelo:** **só a pergunta digitada** e o catálogo (texto
+  fixo, igual para toda empresa). O modelo **só classifica** a pergunta
+  (métrica, cenário, obra citada, período). Ele **não recebe número, nome de
+  obra, cadastro nem histórico**, e não escreve a resposta.
+- **O que fica no sistema:** o casamento da obra citada com o cadastro (só
+  entre as obras que o usuário vê), o cálculo e o texto da resposta. Os
+  números saem das mesmas funções da DRE e do Orçado x Realizado.
+- **Sem a chave de IA** (ou se a chamada falhar), uma leitura local por
+  palavras-chave faz a classificação. Nada vai a lugar nenhum.
+- **Catálogo:**
+  - **Receita**, da DRE, por cenário;
+  - **Custo**, Custo Variável + Custo Fixo da DRE, por cenário;
+  - **Desvio de custo**, Atual × Orçamento nas mesmas competências (sem
+    período, até o mês corrente);
+  - **Saldo**, nas contas da empresa (não é por obra).
+- **Regras do relatório:**
+  - Obra sem o cenário fica fora da soma e é nomeada, nunca entra como zero.
+  - Sem lançamento no recorte, o chat diz que não há, como o "—" da DRE.
+  - Com a chave do rascunho, planejamento não Aprovado fica fora.
+- **Permissão:**
+  - receita exige ver a DRE;
+  - custo e desvio exigem ver a DRE **e** Despesas;
+  - saldo exige ver o Controle de Caixa.
+  - Sem permissão, o chat diz que não tem acesso e não mostra número.
+- **Privacidade:**
+  - A pergunta **não é gravada** em log nem em auditoria. Em erro, o log
+    guarda só o tipo do erro.
+  - A conversa fica só na memória da aba. Nada é gravado no banco.
+- **Pergunta fora do catálogo** (por exemplo, o telefone de um cliente): o chat
+  diz que ainda não responde e lista o que sabe responder.
+- **Conferido no navegador na base local:**
+  - "quanto gastamos nesta obra?" no SIGNATURE deu R$ 5.826,90, igual à DRE
+    (3.285 + 2.542).
+  - O desvio sem Orçamento diz que não calcula.
+  - O telefone de cliente é recusado.
