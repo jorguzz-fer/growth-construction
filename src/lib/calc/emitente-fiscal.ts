@@ -347,6 +347,34 @@ export function checarProntidaoFiscal(e: EmitenteFiscal): PendenciaFiscal[] {
     });
   }
 
+  // Decisão de 01/10/2026: os dois avisos do Prompt AH, Parte 4, entram NO
+  // checklist (eram concatenados pela tela). São avisos — nenhum bloqueio
+  // muda e `emitentePronto` continua igual. O código tributário entra no
+  // corpo da nota; o nome do município é o que o usuário acha que informou.
+  if (falta(e.codigoTributarioMunicipio)) {
+    p.push({
+      campo: "codigoTributarioMunicipio",
+      label: "Código tributário do município",
+      mensagem: "Vai no corpo da nota; alguns municípios exigem, outros não. Confira com a prefeitura ou a contabilidade.",
+      severidade: "aviso",
+    });
+  }
+  if (falta(e.municipio)) {
+    p.push({
+      campo: "municipio",
+      label: "Município",
+      mensagem: "A nota usa o código IBGE, mas o nome é o que você confere na tela e no documento impresso — preencha os dois.",
+      severidade: "aviso",
+    });
+  } else if (!codigoMunicipioValido(e.codigoMunicipio)) {
+    p.push({
+      campo: "municipio",
+      label: "Município",
+      mensagem: "Nome preenchido sem o código IBGE: para a emissão só o código vale. Informe o código do mesmo município.",
+      severidade: "aviso",
+    });
+  }
+
   if (falta(e.cnae)) {
     p.push({
       campo: "cnae",

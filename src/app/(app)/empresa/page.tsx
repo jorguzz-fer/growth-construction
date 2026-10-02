@@ -6,7 +6,7 @@ import { renameTenant, salvarDadosFiscais, uploadLogo } from "@/lib/actions/empr
 import { getHistoricoFiscal, getUltimoTesteR2 } from "@/lib/queries";
 import { analisarEmpresa } from "@/lib/empresa-analise";
 import { AssistenteEmpresa } from "@/components/app/assistente-empresa";
-import { AJUDA_CAMPO, avisosComplementares, estadoDoSeloR2, rotuloDoSeloR2 } from "@/lib/empresa-regras";
+import { AJUDA_CAMPO, estadoDoSeloR2, rotuloDoSeloR2 } from "@/lib/empresa-regras";
 import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -72,12 +72,8 @@ export default async function EmpresaPage() {
   // e variáveis de ambiente não entram nela (6.3).
   const analise = analisarEmpresa(emitente, await getHistoricoFiscal(ctx.tenant.id));
   const bloqueios = pendencias.filter((p) => p.severidade === "bloqueio");
-  // Prompt AH, Parte 4 — os dois avisos complementares vivem fora do
-  // checklist (9.4) e são concatenados aqui; `emitentePronto` não os vê.
-  const avisos = [
-    ...pendencias.filter((p) => p.severidade === "aviso"),
-    ...avisosComplementares({ codigoTributarioMunicipio: t.codigoTributarioMunicipio, municipio: t.municipio, codigoMunicipio: t.codigoMunicipio }),
-  ];
+  // Os dois avisos da Parte 4 vêm do próprio checklist (decisão de 01/10).
+  const avisos = pendencias.filter((p) => p.severidade === "aviso");
 
   return (
     <>

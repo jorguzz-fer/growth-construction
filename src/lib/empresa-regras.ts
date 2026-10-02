@@ -1,12 +1,12 @@
 /**
  * Regras da tela Empresa (Prompt AH). Módulo PURO.
  *
- * Complementa `calc/emitente-fiscal.ts` SEM alterá-lo (9.4): os dois avisos
- * da Parte 4 vivem aqui e a tela os concatena ao checklist; `emitentePronto`
+ * Os dois avisos da Parte 4 passaram para dentro do checklist em
+ * `calc/emitente-fiscal.ts` (decisão de 01/10/2026); `emitentePronto`
  * continua contando só bloqueios. A validação de gravação (Parte 2) chama os
  * validadores que já existem — nada é reescrito.
  */
-import { cepValido, codigoMunicipioValido, ufValida, type PendenciaFiscal } from "@/lib/calc/emitente-fiscal";
+import { cepValido, checarProntidaoFiscal, codigoMunicipioValido, ufValida, type PendenciaFiscal } from "@/lib/calc/emitente-fiscal";
 
 export const TELA_EMPRESA = "empresa" as const;
 
@@ -38,24 +38,22 @@ export function recusaDoCadastroFiscal(v: { cep: string | null; codigoMunicipio:
 }
 
 /**
- * Parte 4.1 — avisos complementares ao checklist (nunca bloqueio):
- * `codigoTributarioMunicipio` entra no payload da nota e alguns municípios o
- * exigem; `municipio` é o nome que o usuário acha que informou — a nota usa o
- * código IBGE, e os dois precisam andar juntos. Sem tabela de municípios não
- * há checagem de coerência nome × código (4.3).
+ * Parte 4.1 — os dois avisos (código tributário do município e município sem
+ * IBGE). Desde 01/10/2026 vivem DENTRO de `checarProntidaoFiscal`; esta função
+ * só os filtra de lá, para quem precisar deles à parte.
  */
 export function avisosComplementares(e: { codigoTributarioMunicipio?: string | null; municipio?: string | null; codigoMunicipio?: string | null }): PendenciaFiscal[] {
-  const p: PendenciaFiscal[] = [];
-  const falta = (v: string | null | undefined) => !v || !v.trim();
-  if (falta(e.codigoTributarioMunicipio)) {
-    p.push({ campo: "codigoTributarioMunicipio", label: "Código tributário do município", mensagem: "Vai no corpo da nota; alguns municípios exigem, outros não. Confira com a prefeitura ou a contabilidade.", severidade: "aviso" });
-  }
-  if (falta(e.municipio)) {
-    p.push({ campo: "municipio", label: "Município", mensagem: "A nota usa o código IBGE, mas o nome é o que você confere na tela e no documento impresso — preencha os dois.", severidade: "aviso" });
-  } else if (!codigoMunicipioValido(e.codigoMunicipio)) {
-    p.push({ campo: "municipio", label: "Município", mensagem: "Nome preenchido sem o código IBGE: para a emissão só o código vale. Informe o código do mesmo município.", severidade: "aviso" });
-  }
-  return p;
+  return checarProntidaoFiscal(e).filter((p) => p.campo === "codigoTributarioMunicipio" || p.campo === "municipio");
+}
+
+/**
+ * Decisão de 01/10/2026: o campo voltou do formulário igual ao gravado? Então
+ * é dado antigo — mantém-se como está (inválido inclusive) e não trava o
+ * salvamento dos outros campos. Compara o texto aparado.
+ */
+export function campoInalterado(enviado: string | null | undefined, gravado: string | null | undefined): boolean {
+  const n = (v: string | null | undefined) => (v === null || v === undefined || v.trim() === "" ? null : v.trim());
+  return n(enviado) === n(gravado) && n(gravado) !== null;
 }
 
 /** Parte 5 — o selo do R2 diz o que mede: variáveis presentes ≠ conexão provada. */

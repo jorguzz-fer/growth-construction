@@ -52,12 +52,12 @@ describe("Prompt AH · regras da tela Empresa", () => {
     expect(checarProntidaoFiscal(completo)).toEqual([]);
     expect(emitentePronto(completo)).toBe(true);
     const semCodigo = { ...completo, codigoMunicipio: null, codigoTributarioMunicipio: null };
-    const antes = checarProntidaoFiscal(semCodigo);
-    expect(antes.map((p) => [p.campo, p.severidade])).toEqual([["codigoMunicipio", "bloqueio"]]);
-    // a tela concatena: 1 bloqueio (do checklist) + 2 avisos (complementares); emitentePronto ignora os avisos
-    const naTela = [...antes, ...avisosComplementares(semCodigo)];
-    expect(naTela.filter((p) => p.severidade === "bloqueio")).toHaveLength(1);
+    // Decisão de 01/10/2026: os dois avisos estão DENTRO do checklist — o
+    // bloqueio é o mesmo de antes e emitentePronto ignora os avisos.
+    const naTela = checarProntidaoFiscal(semCodigo);
+    expect(naTela.filter((p) => p.severidade === "bloqueio").map((p) => p.campo)).toEqual(["codigoMunicipio"]);
     expect(naTela.filter((p) => p.severidade === "aviso").map((p) => p.campo)).toEqual(["codigoTributarioMunicipio", "municipio"]);
+    expect(avisosComplementares(semCodigo).map((p) => p.campo)).toEqual(["codigoTributarioMunicipio", "municipio"]);
     expect(emitentePronto(semCodigo)).toBe(false);
     expect(emitentePronto({ ...completo, codigoTributarioMunicipio: null, municipio: null })).toBe(true);
   });
@@ -70,5 +70,16 @@ describe("Prompt AH · regras da tela Empresa", () => {
   it("3 — nome vazio é recusado com o motivo", () => {
     expect(recusaDoNome("  ")).toMatch(/razão social/);
     expect(recusaDoNome("RMV")).toBeNull();
+  });
+});
+
+describe("decisão de 01/10 — dado antigo inválido não trava a edição", () => {
+  it("campo devolvido igual ao gravado é inalterado (mesmo inválido); mudar ou apagar não é", async () => {
+    const { campoInalterado } = await import("./empresa-regras");
+    expect(campoInalterado("123", "123")).toBe(true);
+    expect(campoInalterado(" 123 ", "123")).toBe(true);
+    expect(campoInalterado("1234", "123")).toBe(false);
+    expect(campoInalterado(null, "123")).toBe(false);
+    expect(campoInalterado(null, null)).toBe(false);
   });
 });

@@ -89,3 +89,24 @@ qual PR. Nada aqui altera dado gravado.
   construtora; e o VGV do Resumo continua sendo o das unidades, com o nome
   "VGV" e não "receita do projeto".)
 - **5 · "Outras Receitas": não cria.** Nada a fazer.
+
+## Empresa (Prompt AH)
+
+- **15 · os dois avisos entram no checklist.** "Código tributário do
+  município" e "Município" (vazio, ou nome sem código IBGE) agora saem de
+  `checarProntidaoFiscal`, junto com os outros, como **aviso**. Nenhum
+  bloqueio mudou e `emitentePronto` dá o mesmo resultado (teste). A tela e o
+  assistente deixaram de concatenar à parte.
+- **16 · dado inválido já gravado.**
+  - **Resultado na base local:** a única empresa (RMV) tem todos os campos
+    fiscais vazios — **nenhum valor preenchido e inválido**. Em produção,
+    rodar o 2º relatório de
+    [`sql/v2-prompt-ah-diagnostico.sql`](./sql/v2-prompt-ah-diagnostico.sql)
+    e me mandar.
+  - **Não trava mais a edição.** Antes, o formulário reenviava o valor antigo
+    inválido (CEP com 6 dígitos, por exemplo) e o servidor recusava o
+    salvamento inteiro — não dava para mudar nem o nome fantasia. Agora o
+    campo que volta **igual ao gravado** é mantido exatamente como está no
+    banco (sem normalizar) e não é validado; ele segue aparecendo como
+    pendência no checklist. Só o campo que o usuário **mudou** é validado.
+    Vale para CNPJ, alíquota, CEP, código IBGE e UF.

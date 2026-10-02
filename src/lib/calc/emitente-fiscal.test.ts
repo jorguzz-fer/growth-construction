@@ -112,6 +112,7 @@ const COMPLETO: EmitenteFiscal = {
   regimeTributario: "LUCRO_PRESUMIDO",
   itemListaServico: "7.02",
   aliquotaIss: 3,
+  codigoTributarioMunicipio: "070201",
   codigoMunicipio: "3552502",
   municipio: "Suarão",
   uf: "SP",

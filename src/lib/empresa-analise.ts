@@ -10,7 +10,6 @@
  * secrets e variáveis de ambiente nem chegam a este módulo (6.3).
  */
 import { checarProntidaoFiscal, codigoMunicipioValido, optantePeloSimples, type EmitenteFiscal, type PendenciaFiscal } from "@/lib/calc/emitente-fiscal";
-import { avisosComplementares } from "@/lib/empresa-regras";
 
 /** 6.1 · onde encontrar cada dado — a FONTE, nunca o valor. */
 export const ONDE_ENCONTRAR: Record<string, { onde: string; esforco: 1 | 2 | 3 }> = {
@@ -112,7 +111,7 @@ export function analisarEmpresa(e: EmitenteFiscal, historico: readonly MudancaFi
   const bloqueios = pend.filter((p) => p.severidade === "bloqueio");
   return {
     passos: oQueFaltaParaEmitir(bloqueios),
-    avisos: [...pend.filter((p) => p.severidade === "aviso"), ...avisosComplementares(e)],
+    avisos: pend.filter((p) => p.severidade === "aviso"),
     divergencias: conferirPreenchido(e),
     historico: [...historico],
     semPendenciaAberta: bloqueios.length === 0,
