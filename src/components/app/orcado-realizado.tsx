@@ -22,7 +22,7 @@ export function OrcadoRealizado({ projectId, card }: { projectId: string; card: 
     <section aria-label="Orçado x Realizado" className="rounded-[10px] border border-[#e9d5ff] bg-[#faf5ff] p-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-[family-name:var(--font-mono)] text-[10.5px] uppercase tracking-wide text-[var(--color-ink)]">Orçado x Realizado</h3>
+          <h3 className="font-[family-name:var(--font-mono)] text-[10.5px] uppercase tracking-wide text-[var(--color-ink)]">Orçado x Realizado · competência</h3>
           <p className="text-[11.5px] text-[var(--color-ink3)]">Acompanhe o desempenho financeiro do projeto</p>
         </div>
         <Badge tone="info" title="Custo por competência da despesa; receita pelos recebíveis das vendas, como na DRE. Recebimento efetivo (caixa) não entra aqui.">{card.regime}</Badge>

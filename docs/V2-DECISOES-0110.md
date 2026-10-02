@@ -26,3 +26,16 @@ qual PR. Nada aqui altera dado gravado.
 - **3.5 · a coluna fica fora.** Nada a fazer.
 - **BV-3 · sem preencher autor pelo log.** Já está assim desde o Prompt V:
   medição sem autor aparece para todos, marcada "autor não registrado".
+
+## Projetos (Prompt B)
+
+- **1 · comparativo por caixa: não.** O cartão continua por competência e o
+  título passou a dizer isso: "Orçado x Realizado · competência". Caixa por
+  projeto fica no Fluxo de Caixa e no Resumo.
+- **2 · título "Projetos".** Já estava assim em todo o app (cabeçalho, menu,
+  permissões); não sobrou "Projetos & Unidades" em tela.
+- **3 · Excluir saiu do menu `[...]`**, que ficou com Abrir e Copiar link. A
+  exclusão mora dentro da tela do projeto, numa faixa própria no fim do
+  cadastro, e o botão "Excluir definitivamente" só libera depois de digitar
+  o nome do projeto (a mesma confirmação de antes, que o servidor também
+  confere). Vale para obras e para matriz/filial.
