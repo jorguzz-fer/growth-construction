@@ -135,6 +135,21 @@ nunca entra em log nem em auditoria.
 - **Testes:** o prompt da despesa não contém nome, CPF/CNPJ de fornecedor,
   empresa nem obra; a folha de ponto não recebe a equipe.
 
+### Provedor, retenção e contrato
+
+- **Provedor:** Anthropic (API), com a chave do servidor (`ANTHROPIC_API_KEY`).
+  Todas as empresas usam a mesma conta.
+- **Treino:** pela política comercial do provedor, o conteúdo enviado pela API
+  **não é usado para treinar modelos**.
+- **Retenção:** o provedor **guarda o que recebe por até 30 dias** e depois
+  apaga. É possível pedir **retenção zero (ZDR)** para a organização da
+  chave.
+- **Com o dono:**
+  - conferir que a chave é da organização comercial e pedir o ZDR;
+  - cuidar do contrato da RMV (controlador, operador e suboperador).
+- **No sistema:** nenhum conteúdo de pergunta, documento ou resposta é
+  guardado. Só o consumo em números (tabela `ia_uso`, Prompt AM).
+
 ### Pergunta em aberto — listas que não são dado pessoal
 
 Para manter a qualidade da classificação, **continuam** indo ao modelo listas
