@@ -174,3 +174,33 @@ Dashboard → Fluxo de Caixa → Resumo Executivo → DRE; guardar a prévia
   dias.
 - **Quem liga em produção é você** (owner ou admin) em `/chaves`. Eu não ligo
   nenhuma chave.
+
+## Alertas do Resumo Executivo (BAE-1)
+
+Decisão: desvio de custo acima de **10% E acima de R$ 5.000** (os dois juntos);
+recebível vencido há **mais de 15 dias**; um valor só para a empresa toda; os
+números em parâmetro, não em código.
+
+- **Parâmetro.** Migração **0065** (aditiva, com `down/`): três colunas no
+  tenant com o padrão 10 / 5000 / 15. As empresas existentes recebem o padrão;
+  nenhum outro dado é tocado. Editável na tela **Empresa → Alertas do Resumo
+  Executivo** (quem edita a Empresa), com de → para na Auditoria
+  (`tenant.alertas`).
+- **Onde aparece.** No bloco **Atenção** do Resumo, que só existe com a chave
+  `resumo_definicao_nova` ligada. O título do bloco declara os limites em uso.
+- **Desvio de custo.** Compara o **Realizado** (versão Atual) com o
+  **Orçamento**, somando nas **mesmas competências, até o mês corrente**.
+  - **Custo** é o das categorias de custo da cascata da DRE (Custo Variável +
+    Custo Fixo), pela mesma leitura da DRE, que segue a chave da DRE.
+  - **Orçamento** é o mesmo do cartão Orçado x Realizado da tela Projetos. Com
+    a chave do rascunho ligada, só conta se estiver Aprovado.
+  - Só alerta **acima** do orçado. Sem Orçamento lançado (ou com ele fora dos
+    relatórios), a linha diz que o desvio não é calculado, e não mostra zero.
+  - Exige permissão de ver Despesas: quem não vê Despesas não vê custo.
+- **Recebível vencido.** Contas a receber da obra com saldo em aberto e
+  vencimento há mais de N dias: quantidade e soma. Não mostra nome de cliente.
+  Exige permissão de ver Contas a Receber.
+- **Conferido na base local:** o SIGNATURE não tem Orçamento lançado e a linha
+  diz isso. Com uma linha de orçamento temporária e o limite baixado para
+  R$ 1.000, o alerta apareceu com valor, mês e diferença. Tudo foi desfeito
+  depois, e o limite voltou a R$ 5.000.

@@ -91,3 +91,26 @@ export function recusaDoNome(nome: string): string | null {
   if (n.length > 200) return "Nome da empresa com mais de 200 caracteres.";
   return null;
 }
+
+/**
+ * BAE-1 (decisão de 01/10/2026): os limites dos alertas do Resumo Executivo,
+ * um valor só para a empresa. Aceita vírgula decimal. Devolve a recusa dita.
+ */
+export function lerLimitesDeAlerta(v: { desvioPct: unknown; desvioValor: unknown; vencidoDias: unknown }):
+  | { ok: true; desvioPct: number; desvioValor: number; vencidoDias: number }
+  | { ok: false; error: string } {
+  // "5.000,00", "5000,5", "5000.5" e "5.000" — ponto só é milhar em grupos de três.
+  const num = (x: unknown) => {
+    if (typeof x !== "string" || !x.trim()) return NaN;
+    const t = x.trim().replace(/^R\$\s*/, "");
+    if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
+    return /^\d{1,3}(\.\d{3})+$/.test(t) ? Number(t.replace(/\./g, "")) : Number(t);
+  };
+  const pct = num(v.desvioPct);
+  const valor = num(v.desvioValor);
+  const dias = typeof v.vencidoDias === "string" ? Number(v.vencidoDias.trim()) : NaN;
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 1000) return { ok: false, error: "Desvio de custo (%): informe um número maior que 0 e até 1000." };
+  if (!Number.isFinite(valor) || valor < 0 || valor > 1e12) return { ok: false, error: "Desvio de custo (R$): informe um valor de 0 em diante." };
+  if (!Number.isInteger(dias) || dias < 0 || dias > 3650) return { ok: false, error: "Recebível vencido (dias): informe um número inteiro de 0 a 3650." };
+  return { ok: true, desvioPct: Math.round(pct * 100) / 100, desvioValor: Math.round(valor * 100) / 100, vencidoDias: dias };
+}

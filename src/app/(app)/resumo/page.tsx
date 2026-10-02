@@ -1,11 +1,12 @@
 import { getProjectVersions, getTenantContext } from "@/lib/context";
-import { avisoNoSeletor } from "@/lib/situacao-versao";
+import { avisoNoSeletor, entraNosRelatorios } from "@/lib/situacao-versao";
 import { chaveLigada } from "@/lib/chaves-tenant";
 import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
 import {
+  getBudgetLines,
   getContasPagar,
   getContasReceber,
   getMonthlyRevenue,
@@ -19,9 +20,22 @@ import {
 } from "@/lib/queries";
 import { calcTotals, permutaCashByMonth } from "@/lib/calc";
 import Link from "next/link";
-import { and, count, eq, isNull, or } from "drizzle-orm";
+import { and, asc, count, eq, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { BLOCOS_PENDENTES, STATUS_DE_UNIDADE, blocoAtencao, blocoExposicao, blocoVendas, temPlanoDePagamento } from "@/lib/resumo-blocos";
+import {
+  BLOCOS_PENDENTES,
+  STATUS_DE_UNIDADE,
+  alertaDeDesvio,
+  alertaDeVencidos,
+  blocoAtencao,
+  blocoExposicao,
+  blocoVendas,
+  custoAteOMes,
+  parametrosDeAlerta,
+  temPlanoDePagamento,
+  textoDosLimites,
+} from "@/lib/resumo-blocos";
+import { versionInputsByMonth } from "@/lib/dre-inputs";
 import { ehVersaoAtual, pendenteDaConta } from "@/lib/contas-pagar-regras";
 import { estaVencida } from "@/lib/despesa-status";
 import { analisarResumo } from "@/lib/resumo-analise";
@@ -220,6 +234,7 @@ export default async function ResumoPage({
         totals,
         de,
         ate,
+        rascunhoFora,
       })
     : null;
 
@@ -425,10 +440,13 @@ async function montarBlocos(o: {
   totals: ReturnType<typeof calcTotals>;
   de: string;
   ate: string;
+  rascunhoFora: boolean;
 }) {
   const { ctx, obra } = o;
   const d = new Date();
-  const hoje = ymd(`${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`);
+  const hojeBR = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  const mesAtual = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  const hoje = ymd(hojeBR);
   const vencida = (v: string | null) => ymd(v) != null && hoje != null && (ymd(v) as number) < hoje;
   const unidades = o.unitRows.map((u) => ({
     status: u.status,
@@ -436,12 +454,12 @@ async function montarBlocos(o: {
     mesVenda: u.mesVenda,
     temPlano: temPlanoDePagamento(u.paymentPlan),
   }));
-  const [receber, pagar, semClassificacao] = await Promise.all([
+  const [receber, pagar, semClassificacao, custo] = await Promise.all([
     can(ctx.perms, "contasreceber", "ver")
       ? getContasReceber(ctx.tenant.id, obra.id).then((cs) =>
           cs
             .filter((c) => !/cancel/i.test(c.status))
-            .map((c) => ({ saldo: Math.max(0, c.valor - c.valorRecebido), vencida: vencida(c.vencimento) })),
+            .map((c) => ({ saldo: Math.max(0, c.valor - c.valorRecebido), vencida: vencida(c.vencimento), vencimento: c.vencimento })),
         )
       : Promise.resolve(null),
     can(ctx.perms, "contaspagar", "ver")
@@ -465,7 +483,15 @@ async function montarBlocos(o: {
           )
           .then((r) => Number(r[0]?.n ?? 0))
       : Promise.resolve(null),
+    // BAE-1: custo só para quem vê Despesas (20.); o Orçamento é o do card
+    // Orçado x Realizado e, com a chave do rascunho, só se estiver Aprovado.
+    can(ctx.perms, "despesas", "ver") && o.temAtual ? custoOrcadoRealizado(ctx.tenant.id, obra.id, mesAtual, o.rascunhoFora) : Promise.resolve(null),
   ]);
+  const parametros = parametrosDeAlerta(ctx.tenant);
+  const porValor = [
+    custo ? alertaDeDesvio({ obra: obra.name, projectId: obra.id, ...custo, ate: mesAtual }, parametros) : null,
+    receber ? alertaDeVencidos({ obra: obra.name, projectId: obra.id, contas: receber, hoje: hojeBR }, parametros) : null,
+  ].filter((x) => x != null);
   return {
     vendas: blocoVendas(unidades, o.de, o.ate),
     exposicao: blocoExposicao({
@@ -474,8 +500,39 @@ async function montarBlocos(o: {
       totals: o.totals,
       permutas: o.permRows.map((p) => ({ status: p.status, estimado: Number(p.estimado ?? 0) })),
     }),
-    atencao: blocoAtencao({ obra: obra.name, projectId: obra.id, temAtual: o.temAtual, unidades, despesasSemClassificacao: semClassificacao }),
+    atencao: [...blocoAtencao({ obra: obra.name, projectId: obra.id, temAtual: o.temAtual, unidades, despesasSemClassificacao: semClassificacao }), ...porValor],
     obraId: obra.id,
+    parametros,
+  };
+}
+
+/**
+ * BAE-1 — custo Realizado (Atual) e Orçado até `mes`, pela MESMA leitura da
+ * DRE (`versionInputsByMonth`, seguindo a chave da DRE). `orcado` null = sem
+ * Orçamento que conte nos relatórios.
+ */
+async function custoOrcadoRealizado(tenantId: string, projectId: string, mes: string, rascunhoFora: boolean) {
+  const versoes = await db
+    .select({ id: schema.versions.id, kind: schema.versions.kind, isDefault: schema.versions.isDefault, status: schema.versions.status })
+    .from(schema.versions)
+    .where(and(eq(schema.versions.tenantId, tenantId), eq(schema.versions.projectId, projectId)))
+    .orderBy(asc(schema.versions.createdAt));
+  const budgets = versoes.filter((v) => v.kind === "budget");
+  const padrao = budgets.find((v) => v.isDefault) ?? budgets[0] ?? null;
+  const budget = padrao && entraNosRelatorios(padrao, rascunhoFora) ? padrao : null;
+  const atual = versoes.find((v) => v.kind === "atual") ?? null;
+  if (!atual) return null;
+  const linhasDoOrcamento = budget ? await getBudgetLines(budget.id) : [];
+  const definicaoNova = await chaveLigada(tenantId, "dre_definicao_nova");
+  const [porMesOrcado, porMesAtual] = await Promise.all([
+    budget ? versionInputsByMonth(tenantId, budget.id, projectId, { definicaoNova }) : Promise.resolve(null),
+    versionInputsByMonth(tenantId, atual.id, projectId, { definicaoNova }),
+  ]);
+  const temOrcamento = !!porMesOrcado && linhasDoOrcamento.length > 0;
+  return {
+    orcado: temOrcamento ? custoAteOMes(porMesOrcado, mes) : null,
+    semOrcamento: temOrcamento ? undefined : padrao && !budget ? ("fora_dos_relatorios" as const) : ("sem_lancamento" as const),
+    realizado: custoAteOMes(porMesAtual, mes),
   };
 }
 
@@ -560,9 +617,9 @@ function BlocosDoResumo({ b }: { b: Blocos }) {
             {e.aPagar ? `Vencido a pagar: ${brl0(e.aPagar.vencido)}.` : ""}
           </p>
         </Bloco>
-        <Bloco titulo="Atenção" regime="Só exceções que não dependem de limite (BAE-1 sem resposta)">
+        <Bloco titulo="Atenção" regime={textoDosLimites(b.parametros)}>
           {b.atencao.length === 0 ? (
-            <p className="text-[12.5px] text-[var(--color-ink2)]">Nenhuma exceção categórica nesta obra.</p>
+            <p className="text-[12.5px] text-[var(--color-ink2)]">Nenhuma exceção nesta obra.</p>
           ) : (
             <ul className="space-y-1.5 text-[12.5px] text-[var(--color-ink2)]">
               {b.atencao.map((a) => (

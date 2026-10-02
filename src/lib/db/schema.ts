@@ -148,6 +148,12 @@ export const tenants = pgTable("tenant", {
   emailFiscal: text("email_fiscal"),
   /** ambiente de emissão: "homologacao" (padrão) | "producao". */
   fiscalAmbiente: text("fiscal_ambiente").notNull().default("homologacao"),
+  // ── Alertas do Resumo Executivo (BAE-1, migração 0065) ─────────────────
+  /** desvio de custo: alerta quando passa deste % E de `alertaDesvioValor`. */
+  alertaDesvioPct: numeric("alerta_desvio_pct", { precision: 6, scale: 2 }).notNull().default("10"),
+  alertaDesvioValor: numeric("alerta_desvio_valor", { precision: 15, scale: 2 }).notNull().default("5000"),
+  /** recebível vencido há mais destes dias entra no bloco Atenção. */
+  alertaVencidoDias: integer("alerta_vencido_dias").notNull().default(15),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
