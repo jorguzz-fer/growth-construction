@@ -59,6 +59,16 @@ describe.skipIf(!HAS_DB)("Prompt AH · AH-1 cadastro da empresa", async () => {
     expect([t.cep, t.codigoMunicipio, t.uf]).toEqual(["123456", "99", "SP"]);
   });
 
+  it("01/10 — o formulário devolve o dado antigo inválido: os outros campos gravam e o antigo fica intocado", async () => {
+    // a tela reenvia CEP "123456" e IBGE "99" como estavam; só o nome fantasia mudou
+    expect(await salvarDadosFiscais(fd({ nomeFantasia: "Nova", cep: "123456", codigoMunicipio: "99", uf: "SP" }))).toEqual({ ok: true });
+    const t = await linha();
+    expect([t.nomeFantasia, t.cep, t.codigoMunicipio, t.uf]).toEqual(["Nova", "123456", "99", "SP"]);
+    // mudar o campo inválido para outro inválido continua recusado
+    expect(await salvarDadosFiscais(fd({ nomeFantasia: "Nova", cep: "1234567", codigoMunicipio: "99", uf: "SP" }))).toMatchObject({ ok: false, error: expect.stringMatching(/^CEP:/) });
+    expect((await linha()).cep).toBe("123456");
+  });
+
   it("7/10 — gravação parcial: com os campos inválidos VAZIOS no formulário, os demais gravam; vazio vira null", async () => {
     const r = await salvarDadosFiscais(fd({ nomeFantasia: "Fantasia", inscricaoMunicipal: "555", regimeTributario: "LUCRO_PRESUMIDO" }));
     expect(r).toEqual({ ok: true });

@@ -18,7 +18,7 @@ import {
   normalizarCodigoMunicipio,
 } from "@/lib/calc/emitente-fiscal";
 import { ehAmbienteFiscal } from "@/lib/fiscal/tipos";
-import { recusaDoCadastroFiscal, recusaDoNome, TELA_EMPRESA } from "@/lib/empresa-regras";
+import { campoInalterado, recusaDoCadastroFiscal, recusaDoNome, TELA_EMPRESA } from "@/lib/empresa-regras";
 
 /**
  * Prompt AH, 2.4: as três actions devolvem `{ ok, error }` com o campo e o
@@ -78,17 +78,33 @@ export async function salvarDadosFiscais(formData: FormData): Promise<ResultadoE
     return typeof v === "string" && v.trim() ? v.trim() : null;
   };
 
-  const cnpj = normalizarCnpj(t("cnpj"));
-  if (cnpj && !cnpjValido(cnpj)) return { ok: false, error: "CNPJ: os dígitos verificadores não conferem — revise o número." };
+  // Decisão de 01/10/2026: dado inválido JÁ GRAVADO não é tocado nem trava o
+  // salvamento dos outros campos. Campo que voltou igual ao gravado mantém o
+  // valor exato do banco (sem normalizar) e não passa pela validação; ele
+  // aparece como pendência no checklist. Só o que o usuário mudou é validado.
+  const [antes] = await db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenant.id)).limit(1);
+  const gravado = (col: "cnpj" | "cep" | "codigoMunicipio" | "uf" | "aliquotaIss") => {
+    const v = antes?.[col];
+    return v === null || v === undefined || String(v).trim() === "" ? null : String(v);
+  };
+  const manteve = (campo: string, col: Parameters<typeof gravado>[0]) => campoInalterado(t(campo), gravado(col));
+
+  const cnpj = manteve("cnpj", "cnpj") ? gravado("cnpj") : normalizarCnpj(t("cnpj"));
+  if (!manteve("cnpj", "cnpj") && cnpj && !cnpjValido(cnpj)) return { ok: false, error: "CNPJ: os dígitos verificadores não conferem — revise o número." };
 
   const aliquotaTexto = t("aliquotaIss")?.replace(",", ".");
+  const aliquotaMantida = manteve("aliquotaIss", "aliquotaIss") || (aliquotaTexto != null && gravado("aliquotaIss") != null && Number(aliquotaTexto) === Number(gravado("aliquotaIss")));
   const aliquota = aliquotaTexto === null || aliquotaTexto === undefined ? null : Number(aliquotaTexto);
-  if (aliquota !== null && !aliquotaIssValida(aliquota)) return { ok: false, error: "Alíquota de ISS: deve estar entre 0 e 5% (teto constitucional)." };
+  if (!aliquotaMantida && aliquota !== null && !aliquotaIssValida(aliquota)) return { ok: false, error: "Alíquota de ISS: deve estar entre 0 e 5% (teto constitucional)." };
 
-  const cep = normalizarCep(t("cep"));
-  const codigoMunicipio = normalizarCodigoMunicipio(t("codigoMunicipio"));
-  const uf = t("uf")?.toUpperCase() ?? null;
-  const recusa = recusaDoCadastroFiscal({ cep, codigoMunicipio, uf });
+  const cep = manteve("cep", "cep") ? gravado("cep") : normalizarCep(t("cep"));
+  const codigoMunicipio = manteve("codigoMunicipio", "codigoMunicipio") ? gravado("codigoMunicipio") : normalizarCodigoMunicipio(t("codigoMunicipio"));
+  const uf = manteve("uf", "uf") ? gravado("uf") : t("uf")?.toUpperCase() ?? null;
+  const recusa = recusaDoCadastroFiscal({
+    cep: manteve("cep", "cep") ? null : cep,
+    codigoMunicipio: manteve("codigoMunicipio", "codigoMunicipio") ? null : codigoMunicipio,
+    uf: manteve("uf", "uf") ? null : uf,
+  });
   if (recusa) return { ok: false, error: recusa };
 
   const ambiente = t("fiscalAmbiente");
@@ -102,7 +118,7 @@ export async function salvarDadosFiscais(formData: FormData): Promise<ResultadoE
     itemListaServico: t("itemListaServico"),
     codigoTributarioMunicipio: t("codigoTributarioMunicipio"),
     cnae: t("cnae"),
-    aliquotaIss: aliquota === null ? null : String(aliquota),
+    aliquotaIss: aliquotaMantida ? gravado("aliquotaIss") : aliquota === null ? null : String(aliquota),
     logradouro: t("logradouro"),
     numeroEndereco: t("numeroEndereco"),
     complemento: t("complemento"),
@@ -116,7 +132,6 @@ export async function salvarDadosFiscais(formData: FormData): Promise<ResultadoE
     fiscalAmbiente: ehAmbienteFiscal(ambiente) ? ambiente : "homologacao",
   };
 
-  const [antes] = await db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenant.id)).limit(1);
   const changes = diffAudit(antes as unknown as Record<string, unknown>, valores);
 
   await db.update(schema.tenants).set(valores).where(eq(schema.tenants.id, ctx.tenant.id));
