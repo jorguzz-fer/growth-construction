@@ -355,11 +355,14 @@ function SituacaoControl({ projectId, situacao, canEdit }: { projectId: string; 
   );
 }
 
-/* ─── menu [...] (seção 8: Abrir · Copiar link · Excluir) ────────────── */
+/* ─── menu [...] (seção 8: Abrir · Copiar link) ───────────────────────
+ * Decisão de 01/10/2026: Excluir saiu daqui. O deleteProject apaga em
+ * cascata (versões, unidades, despesas, caixa, medições, orçamentos, contas a
+ * receber) e não pode ficar a um clique, ao lado de "Copiar link". Mora dentro
+ * da tela do projeto (ZonaDeExclusao), exigindo digitar o nome. */
 
-function MenuAcoes({ projectId, nome, detalhado, canDelete }: { projectId: string; nome: string; detalhado: boolean; canDelete: boolean }) {
+function MenuAcoes({ projectId, nome, detalhado }: { projectId: string; nome: string; detalhado: boolean }) {
   const [aberto, setAberto] = useState(false);
-  const [excluir, setExcluir] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const item = "block w-full px-3 py-1.5 text-left text-[12.5px] text-[var(--color-ink)] hover:bg-[var(--color-surface2)]";
   const copiar = async () => {
@@ -390,16 +393,29 @@ function MenuAcoes({ projectId, nome, detalhado, canDelete }: { projectId: strin
             <button role="menuitem" type="button" className={item} onClick={copiar}>
               Copiar link
             </button>
-            {canDelete && (
-              <button role="menuitem" type="button" className={`${item} border-t border-[var(--color-line)] text-[var(--color-danger)]`} onClick={() => { setAberto(false); setExcluir(true); }}>
-                Excluir projeto…
-              </button>
-            )}
           </div>
         </>
       )}
-      <ExcluirProjeto projectId={projectId} nome={nome} aberto={excluir} onFechar={() => setExcluir(false)} voltarParaTodos={detalhado} />
     </div>
+  );
+}
+
+/** Exclusão dentro da tela do projeto: confirma digitando o nome (ExcluirProjeto). */
+function ZonaDeExclusao({ projectId, nome }: { projectId: string; nome: string }) {
+  const [excluir, setExcluir] = useState(false);
+  return (
+    <section aria-label="Excluir projeto" className="rounded-[10px] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 p-3.5" data-zona-exclusao>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-[12.5px] text-[var(--color-ink2)]">
+          <strong className="text-[var(--color-danger)]">Excluir o projeto</strong> apaga junto todas as versões, unidades, despesas, caixa,
+          medições, orçamentos e contas a receber. Não há como desfazer. A confirmação pede o nome do projeto.
+        </p>
+        <Button size="sm" variant="outline" className="border-[var(--color-danger)]/40 text-[var(--color-danger)]" onClick={() => setExcluir(true)}>
+          Excluir projeto…
+        </Button>
+      </div>
+      <ExcluirProjeto projectId={projectId} nome={nome} aberto={excluir} onFechar={() => setExcluir(false)} voltarParaTodos />
+    </section>
   );
 }
 
@@ -607,7 +623,7 @@ function ProjectCard({
             {project.startDate && <> · Início: {dateBR(project.startDate)}</>}
             {project.endDate && <> · Fim: {dateBR(project.endDate)}</>}
           </span>
-          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} canDelete={canDelete} /></div>
+          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} /></div>
         </header>
 
         {daProposta.length > 0 && (
@@ -771,6 +787,7 @@ function ProjectCard({
             </Link>
           )}
         </div>
+        {detalhado && canDelete && <ZonaDeExclusao projectId={project.id} nome={project.name} />}
       </CardContent>
     </Card>
   );
@@ -798,7 +815,7 @@ function OfficeCard({ project, detalhado, canEdit, canDelete }: { project: Proje
           <h3 className="text-[15px] font-semibold text-[var(--color-ink)]">{project.name}</h3>
           <Badge tone="neutral">Matriz/Filial</Badge>
           <BadgeSituacao situacao={project.situacao} />
-          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} canDelete={canDelete} /></div>
+          <div className="ml-auto"><MenuAcoes projectId={project.id} nome={project.name} detalhado={detalhado} /></div>
         </header>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
@@ -816,6 +833,7 @@ function OfficeCard({ project, detalhado, canEdit, canDelete }: { project: Proje
           )}
           <Resultado msg={msg} />
         </div>
+        {detalhado && canDelete && <ZonaDeExclusao projectId={project.id} nome={project.name} />}
       </CardContent>
     </Card>
   );
