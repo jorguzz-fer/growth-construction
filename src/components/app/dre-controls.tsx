@@ -120,9 +120,9 @@ export function DreControls({
           className="h-9 w-auto"
           title="Tipo de versão aplicado a todos os projetos"
         >
-          <option value="atual">Atual (real)</option>
-          <option value="forecast">Forecast</option>
-          <option value="budget">Budget</option>
+          <option value="atual">Atual</option>
+          <option value="forecast">Previsão Atualizada</option>
+          <option value="budget">Orçamento</option>
         </Select>
       )}
       {periodo === "custom" && (

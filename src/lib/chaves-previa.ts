@@ -89,7 +89,7 @@ export function tabelaDre(ps: readonly PreviaDreProjeto[]): TabelaDaPrevia {
     for (const m of p.meses) linhas.push([p.projeto, `Competência ${m.mes}`, m.hoje, m.nova, m.nova - m.hoje]);
     for (const r of p.comoReceita) linhas.push([p.projeto, `Sai da receita: ${r.numDoc ?? "sem PED"} · ${r.competencia ?? "sem competência"}`, r.valor, null, null]);
     if (p.semCenario.length) {
-      const nomes = p.semCenario.map((k) => (k === "budget" ? "Orçamento" : k === "forecast" ? "Previsão Atualizada" : "Realizado")).join(" e ");
+      const nomes = p.semCenario.map((k) => (k === "budget" ? "Orçamento" : k === "forecast" ? "Previsão Atualizada" : "Atual")).join(" e ");
       linhas.push([p.projeto, `Sem ${nomes}: na Empresa toda, fica fora dessa coluna`, null, null, null]);
     }
   }

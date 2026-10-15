@@ -54,7 +54,7 @@ async function loadBudgetTarget(ctx: Ctx, versionId: string) {
     .limit(1);
   if (!v) throw new Error("Versão inválida.");
   if (!isBudgetVersion(v.kind)) {
-    throw new Error("Lançamento simplificado é só para Budget/Forecast.");
+    throw new Error("Lançamento simplificado é só para Orçamento e Previsão Atualizada.");
   }
   // Permissão pela tela correspondente ao tipo da versão (budget/forecast).
   if (!can(ctx.perms, v.kind, "editar")) throw new Error("Sem permissão.");
@@ -296,7 +296,7 @@ export async function importFromBudget(forecastVersionId: string) {
   if (!ctx) throw new Error("Sem permissão.");
   const target = await loadBudgetTarget(ctx, forecastVersionId);
   const budget = await siblingVersion(target.projectId, "budget");
-  if (!budget) throw new Error("Este projeto não tem versão Budget.");
+  if (!budget) throw new Error("Este projeto não tem versão de Orçamento.");
 
   const lines = await db
     .select()

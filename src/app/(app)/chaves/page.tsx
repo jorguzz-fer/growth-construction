@@ -224,7 +224,7 @@ export default async function ChavesPage() {
           <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
             Resultado Final da versão Atual de cada projeto, {dreLigada ? "como estava antes da chave e como está agora" : "hoje e pela definição nova"}.
             Mudam: despesa classificada como “Receita” sai da receita; multa, juros e outros encargos vão para a
-            competência da despesa. Na Empresa toda, projeto sem o cenário escolhido deixa de entrar com o Realizado.
+            competência da despesa. Na Empresa toda, projeto sem o cenário escolhido deixa de entrar com a Atual.
             Nada é gravado nem reclassificado.
           </p>
           <div className="mt-3 overflow-x-auto">
@@ -263,7 +263,7 @@ export default async function ChavesPage() {
                           ))}
                           {p.semCenario.length > 0 && (
                             <li>
-                              Sem {p.semCenario.map((k) => (k === "budget" ? "Orçamento" : k === "forecast" ? "Previsão Atualizada" : "Realizado")).join(" e ")}:
+                              Sem {p.semCenario.map((k) => (k === "budget" ? "Orçamento" : k === "forecast" ? "Previsão Atualizada" : "Atual")).join(" e ")}:
                               na Empresa toda, fica fora dessa coluna.
                             </li>
                           )}

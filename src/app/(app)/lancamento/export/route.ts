@@ -24,7 +24,7 @@ export async function GET(req: Request) {
         .limit(1)
     : [];
   if (!version || !isBudgetVersion(version.kind)) {
-    return new Response("Somente Budget/Forecast", { status: 400 });
+    return new Response("Somente Orçamento e Previsão Atualizada", { status: 400 });
   }
   if (!can(ctx.perms, version.kind, "ver")) {
     return new Response("Não autorizado", { status: 403 });

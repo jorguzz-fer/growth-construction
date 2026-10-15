@@ -63,7 +63,7 @@ export async function saveBudgetPlanning(
   }
   if (version.locked) throw new Error("Versão congelada — edição bloqueada.");
   if (version.kind !== "budget" && version.kind !== "forecast") {
-    throw new Error("Só é possível planejar versões de Budget ou Forecast.");
+    throw new Error("Só é possível planejar versões de Orçamento ou Previsão Atualizada.");
   }
 
   // Validação: sem percentuais negativos; soma por conta não pode ultrapassar 100%.

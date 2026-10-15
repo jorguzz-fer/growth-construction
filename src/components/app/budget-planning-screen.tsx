@@ -127,7 +127,7 @@ export function BudgetPlanningScreen({
             </p>
             <p className="mt-1 text-[12.5px] text-[var(--color-ink3)]">
               Informe o <strong>Mês inicial</strong> e o <strong>Mês final</strong> no
-              cadastro do projeto para habilitar o Budget e o Forecast.
+              cadastro do projeto para habilitar Orçamentos e Previsão Atualizada.
             </p>
             <Link
               // Leva direto ao projeto em questão, já filtrado no seletor —

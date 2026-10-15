@@ -127,11 +127,11 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
                 size="sm"
                 disabled={pending}
                 onClick={() =>
-                  window.confirm("Importar os lançamentos do Budget (substitui os atuais)?") &&
-                  acao(() => importFromBudget(props.versionId), "Dados do Budget importados.")
+                  window.confirm("Importar os lançamentos do Orçamento (substitui os atuais)?") &&
+                  acao(() => importFromBudget(props.versionId), "Dados do Orçamento importados.")
                 }
               >
-                ⬇ Importar do Budget
+                ⬇ Importar do Orçamento
               </Button>
               <Button
                 variant="outline"

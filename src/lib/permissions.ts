@@ -46,8 +46,8 @@ export const SCREENS: Screen[] = [
   { id: "medicao", label: "Medição de Obra — Relatório CEF", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
-  { id: "budget", label: "Lançamento Budget", modulo: "Planejamento" },
-  { id: "forecast", label: "Lançamento Forecast", modulo: "Planejamento" },
+  { id: "budget", label: "Orçamentos", modulo: "Planejamento" },
+  { id: "forecast", label: "Previsão Atualizada", modulo: "Planejamento" },
   // Prompt AP, BAP-2: a trava de versão saiu de /versao e mora nas telas de
   // Orçamentos, Previsão e Projetos. Permissão PRÓPRIA (ação, não rota): nasce
   // só com owner e admin — como `versao` hoje — e pode ser dada por override.
