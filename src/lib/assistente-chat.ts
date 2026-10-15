@@ -33,7 +33,7 @@ export const CATALOGO: readonly MetricaDoCatalogo[] = [
   {
     id: "receita",
     nome: "Receita",
-    definicao: "Receita da DRE (regime de competência) do cenário pedido: Realizado (versão Atual), Orçamento ou Previsão Atualizada.",
+    definicao: "Receita da DRE (regime de competência) do cenário pedido: Atual (o movimento real), Orçamento ou Previsão Atualizada.",
     exige: ["dre"],
     href: "/dre",
     porObra: true,
@@ -64,7 +64,7 @@ export const CATALOGO: readonly MetricaDoCatalogo[] = [
   },
 ] as const;
 
-export const ROTULO_DO_CENARIO: Record<CenarioDoChat, string> = { atual: "Realizado (Atual)", budget: "Orçamento", forecast: "Previsão Atualizada" };
+export const ROTULO_DO_CENARIO: Record<CenarioDoChat, string> = { atual: "Atual", budget: "Orçamento", forecast: "Previsão Atualizada" };
 
 export const MAX_PERGUNTA = 500;
 

@@ -57,7 +57,7 @@ describe("Prompt AC · Parte 1 — comparação", () => {
   });
 
   it("1.8 — o rótulo vem do kind; o nome digitado é complemento; cópia marcada", () => {
-    expect(rotuloDaColuna({ ...atual, label: "Atual — caixa real" })).toEqual({ titulo: "Realizado", complemento: "Atual — caixa real" });
+    expect(rotuloDaColuna({ ...atual, label: "Atual — caixa real" })).toEqual({ titulo: "Atual", complemento: "Atual — caixa real" });
     expect(rotuloDaColuna(copia).titulo).toBe("Orçamento (cópia)");
   });
 

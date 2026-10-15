@@ -84,7 +84,9 @@ export const CENARIOS: Cenario[] = ["budget", "forecast", "atual"];
 export const ROTULO_CENARIO: Record<string, string> = {
   budget: "Orçamento",
   forecast: "Previsão Atualizada",
-  atual: "Realizado",
+  // Prompt NOM (Fase 3): o cenário do movimento real chama-se "Atual", como a
+  // versão — não "Realizado". `kind` no banco não muda.
+  atual: "Atual",
   custom: "Cópia",
 };
 

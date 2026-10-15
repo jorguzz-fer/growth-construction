@@ -18,7 +18,7 @@ export async function LancamentoScreen({
   ctx: TenantContext;
   kind: "budget" | "forecast";
 }) {
-  const title = kind === "budget" ? "Lançamento Budget" : "Lançamento Forecast";
+  const title = kind === "budget" ? "Orçamentos" : "Previsão Atualizada";
   const canEditKind = can(ctx.perms, kind, "editar");
 
   const [receita, despesa] = await Promise.all([

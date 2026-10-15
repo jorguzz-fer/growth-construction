@@ -23,7 +23,7 @@ já faz; "parcial" é o que existe em parte; "novo" é o que não existe.
 
 | Pedido | Situação | Onde está / o que falta |
 |---|---|---|
-| Versões como Orçamento, Previsão Atualizada e Atual | **Parcial** | Menu, DRE (`dre.ts`), Dashboard e chat já usam os nomes novos. Sobram "Budget"/"Forecast" no seletor da DRE (`dre-controls.tsx`), em `lancamento-screen.tsx`, no botão "Importar do Budget" (`budget-matrix.tsx`), no `budget-planning-screen.tsx` e no console da plataforma. Na DRE o terceiro cenário se chama "Realizado", não "Atual". |
+| Versões como Orçamento, Previsão Atualizada e Atual | **Feito (NOM, 15/10)** | Sobravam "Budget"/"Forecast" no seletor da DRE, no botão de importar, nos avisos e no console; o cenário da DRE chamava-se "Realizado". Tudo passou aos três nomes. Rótulo de versão já gravada não muda. |
 | Assistente de IA em toda tela | **Parcial** | 23 painéis somente leitura (Prompt E, Etapa 1) e o chat flutuante (Etapa 2). Nenhum escreve; nenhum faz simulação; nenhum recebe número da tela. |
 | IA lê documento e preenche por voz ou texto | **Parcial** | Leitura de documento existe para despesa, fornecedor, unidade, permuta, medição, folha de ponto, estoque, extrato e projeto (`src/lib/ai/*-extract.ts`), sempre como proposta. **Voz não existe em lugar nenhum**: sem captura de áudio nem transcrição. |
 
@@ -81,7 +81,7 @@ antecedente ganham código próprio.
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 1 | **NOM** | Nomenclatura das versões | — | Só rótulo; rota e `kind` não mudam. **Pode ir já.** Decide se o cenário "Realizado" da DRE vira "Atual". |
+| 1 | **NOM** | Nomenclatura das versões | — | **Feito em 15/10** ([`V3-PROMPT-NOM-FINAL.md`](./V3-PROMPT-NOM-FINAL.md)). "Realizado" virou "Atual" (BNOM-1). |
 | 2 | **E2** | Assistente de IA — arquitetura da Fase 3 | BE2-1 · BE2-2 · BE2-3 | Reabre BE-2 (decisão 3) e libera a Etapa 3 (decisão 1). **Todo prompt dos Blocos 2 e 3 depende dele.** |
 | 3 | **VOZ** | Entrada por voz | BV2-1 · BV2-2 | Infraestrutura: captura no navegador e transcrição. Nada grava; o texto transcrito entra no mesmo caminho do texto digitado. Depende de E2. |
 | 4 | **PDF** | Geração de PDF | BPDF-1 | Infraestrutura: um gerador no servidor para Dashboard e, depois, outras telas. Independente de IA. |
@@ -173,8 +173,8 @@ consulta dentro do próprio prompt.
 
 # 4. ORDEM SUGERIDA
 
-O que pode começar agora, sem resposta pendente: **NOM**, **AC2**, **AD2** e
-a parte de infraestrutura de **PDF**. Em seguida **E2**, que destrava os dois
+**NOM** está feito. O que pode começar agora, sem resposta pendente: **AC2**,
+**AD2** e a parte de infraestrutura de **PDF**. Em seguida **E2**, que destrava os dois
 blocos maiores. **DP** assim que o Thiago entregar a tabela. **AM2** e **S2**
 assim que BAM2-1 e BS2-1 forem respondidos. **G2** espera a conversa de 16/10.
 

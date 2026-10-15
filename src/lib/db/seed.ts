@@ -130,8 +130,8 @@ async function seedDemoData(tenantId: string) {
     .returning();
 
   const versionsSeed = [
-    { key: "budget", kind: "budget" as const, label: "Budget / Orçamento", color: "#6366f1", isDefault: false },
-    { key: "forecast", kind: "forecast" as const, label: "Previsto / Forecast", color: "#10b981", isDefault: true },
+    { key: "budget", kind: "budget" as const, label: "Orçamento", color: "#6366f1", isDefault: false },
+    { key: "forecast", kind: "forecast" as const, label: "Previsão Atualizada", color: "#10b981", isDefault: true },
     { key: "atual", kind: "atual" as const, label: "Atual — caixa real", color: "#f59e0b", isDefault: false },
   ];
   const insertedVersions = await db

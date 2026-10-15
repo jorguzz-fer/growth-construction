@@ -55,7 +55,7 @@ Regras gerais:
 - Escopo: projeto (inclusive Matriz/Filial), Empresa toda, Ativos ou Finalizados.
 - Período: Acumulado, um ano ou Personalizado, o mesmo para todas as colunas.
 - Visão: Consolidado (com "% Receita") ou Mensal.
-- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão, Realizado).
+- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão Atualizada, Atual).
 
 **O que confunde:**
 - "—" significa nenhum lançamento. "R$ 0" é uma soma que deu zero.
@@ -66,7 +66,7 @@ Regras gerais:
   - multa e juros pelo pagamento.
 - O **rodapé amarelo** conta o que ficou fora da cascata (sem categoria, sem competência, categoria fora da lista) e traz um link para a Conferência. Lançamento sem competência só aparece no Acumulado.
 - Retiradas, Investimentos e Empréstimos estão na cascata. A tela diz que a classificação delas aguarda decisão. Para uma leitura contábil formal, confirme com a sua contabilidade.
-- Na Empresa toda, o projeto sem o cenário entra com outra versão (Realizado, senão a padrão), e a linha de cobertura declara isso.
+- Na Empresa toda, o projeto sem o cenário entra com outra versão (Atual, senão a padrão), e a linha de cobertura declara isso.
 
 **Não faz:** não grava, não reclassifica e não exporta.
 

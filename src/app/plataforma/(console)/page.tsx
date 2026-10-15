@@ -25,8 +25,8 @@ export default async function PlataformaPage() {
           </h2>
           <CreateTenantForm />
           <p className="text-xs text-[var(--color-ink3)]">
-            A conta nasce com 1 projeto, as 3 versões (Budget / Forecast /
-            Atual), o plano de contas (CEF + complementar) e a tabela INCC
+            A conta nasce com 1 projeto, as 3 versões (Orçamento / Previsão
+            Atualizada / Atual), o plano de contas (CEF + complementar) e a tabela INCC
             padrão. Dados de movimento (unidades, despesas) ficam vazios para o
             cliente preencher.
           </p>

@@ -205,7 +205,7 @@ export async function perguntarAoAssistente(pergunta: string, projetoDaTela: str
       metrica.definicao,
       ...(dentro.length > 1 ? [`Soma de ${dentro.length} de ${resolvidas.length} obra(s).`] : []),
       ...(fora.length ? [`Sem ${rotulo}${rascunhoFora && cenario !== "atual" ? " Aprovado" : ""}, fora da soma: ${fora.join(", ")}.`] : []),
-      ...(intencao.cenario ? [] : ["Sem cenário na pergunta, uso o Realizado. Pergunte “orçado” ou “previsão” para os outros."]),
+      ...(intencao.cenario ? [] : ["Sem cenário na pergunta, uso a Atual. Pergunte “orçado” ou “previsão” para os outros."]),
     ],
     link: { href: umaObra ? `/dre?proj=${umaObra.id}` : "/dre?proj=all", rotulo: "Ver na DRE" },
     entendido: `${metrica.nome} · ${rotulo} · ${escopo} · ${periodo}`,
