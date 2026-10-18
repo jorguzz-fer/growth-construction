@@ -224,6 +224,8 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
   - Anexar nota, romaneio ou foto.
   - Ver o consumo por obra e o comparativo compra × consumo.
 - Usar o assistente, que pode ler a nota de uma despesa e **propor** as entradas item a item. Cada entrada só é criada com o clique da pessoa.
+- **Atalhos no topo**: "↓ Dar entrada" e "↑ Dar baixa (saída para obra)" abrem a aba Entradas & Saídas já no tipo certo.
+- **Com a Cris**: na aba Entradas & Saídas, ela preenche a entrada ou a baixa a partir do que a pessoa diz ou dita (material, quantidade, motivo, obra, despesa, data, documento). Quem registra é o botão "Registrar entrada" ou "Registrar baixa". O painel lateral tem, embaixo das perguntas prontas, uma caixa para conversar com a Cris.
 
 **Campos que confundem:**
 - **Custo unitário**: é o do cadastro no momento do movimento, e fica gravado no movimento.

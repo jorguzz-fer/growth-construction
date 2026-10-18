@@ -217,6 +217,15 @@ const texto = async (page, url) => {
   check("P2: a Cris preenche o novo ativo de permuta", /Novo ativo de permuta/.test(await ctxCris(`/permuta/novo?proj=${obraParaCadastro}`, "Novo ativo de permuta")));
   check("S3: a Cris preenche a nova despesa", /Nova despesa/.test(await ctxCris("/despesas?proj=all", "Nova despesa")));
   check("V2b: a Cris preenche a nova medição", /Nova medição de projeto/.test(await ctxCris(`/medicaolanc?aba=nova&proj=${obraParaCadastro}`, "Nova medição de projeto")));
+  // Y2 — Estoque: a baixa à vista, a caixa de conversa no painel, a Cris no movimento.
+  await texto(page, "/estoque");
+  check("Y2: o atalho Dar baixa aparece no Estoque", (await page.locator("[data-atalho-baixa]").count()) === 1);
+  check("Y2: o painel tem a caixa de conversa", (await page.locator("[data-caixa-conversa]").count()) === 1);
+  await page.click("[data-atalho-baixa]");
+  await page.waitForURL(/lancar=saida/, { timeout: 15000 }).catch(() => {});
+  await page.waitForSelector("text=Registrar baixa", { timeout: 15000 }).catch(() => {});
+  check("Y2: o atalho abre o formulário na baixa", (await page.locator("button:has-text('Registrar baixa')").count()) === 1);
+  check("Y2: a Cris preenche o movimento de estoque", /Movimento de estoque/.test(await ctxCris("/estoque?tab=mov&lancar=saida", "Movimento de estoque")));
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));

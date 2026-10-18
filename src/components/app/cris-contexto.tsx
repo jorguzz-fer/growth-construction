@@ -130,3 +130,37 @@ export function PerguntarACris({ pergunta, children, className }: { pergunta: st
     </button>
   );
 }
+
+/**
+ * Prompt Y2 — caixa de conversa embaixo das perguntas prontas de um painel:
+ * o que a pessoa escreve vai para a Cris, que abre com a pergunta.
+ */
+export function CaixaDeConversa({ placeholder }: { placeholder?: string }) {
+  const cris = useCris();
+  const [texto, setTexto] = useState("");
+  if (!cris) return null;
+  return (
+    <form
+      data-caixa-conversa
+      className="mt-3 flex gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const q = texto.trim();
+        if (!q) return;
+        cris.perguntar(q);
+        setTexto("");
+      }}
+    >
+      <input
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder={placeholder ?? "Pergunte à Cris…"}
+        aria-label="Pergunte à Cris"
+        className="min-w-0 flex-1 rounded-[8px] border border-[var(--color-line)] bg-white px-2.5 py-1.5 text-[12.5px] text-[var(--color-ink)] placeholder:text-[var(--color-ink3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent2)]/40"
+      />
+      <button type="submit" disabled={!texto.trim()} className="rounded-[8px] bg-[var(--color-accent)] px-2.5 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40">
+        Enviar
+      </button>
+    </form>
+  );
+}

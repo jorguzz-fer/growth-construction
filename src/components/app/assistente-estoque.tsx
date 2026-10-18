@@ -8,6 +8,7 @@ import { cn, brl0, dateBR } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
+import { CaixaDeConversa } from "@/components/app/cris-contexto";
 
 /**
  * Painel do assistente do Estoque (Prompt Y, seção 7; Prompt E).
@@ -200,6 +201,9 @@ export function AssistenteEstoque({ usuario, analise, despesas, obras, aiConfigu
           )}
         </AcaoDoPainel>
       </div>
+
+      {/* Prompt Y2 — as perguntas prontas ficam; embaixo, a caixa de conversa com a Cris. */}
+      <CaixaDeConversa placeholder="Pergunte à Cris sobre o estoque…" />
 
       <p className="mt-3 text-[11px] leading-snug text-[var(--color-ink3)]">
         Ele propõe, você confirma. O assistente nunca lança movimento sem o seu clique, não exclui item, não estorna movimento e não cria material sozinho.

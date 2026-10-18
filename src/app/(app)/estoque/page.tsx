@@ -3,6 +3,7 @@ import { getStockItems, getStockSaldos, getStockMovementsPage, getDespesasParaEs
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { analisarEstoque } from "@/lib/estoque-analise";
 import { AssistenteEstoque } from "@/components/app/assistente-estoque";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 import { hojeISO } from "@/lib/despesa-status";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { confrontoCompraConsumo, consumoPorObra } from "@/lib/calc/estoque-obra";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
  * despesa ou a permuta de origem; a saída diz para qual obra o material foi.
  * Nada aqui gera custo — a despesa já é da obra dela (BY-1).
  */
-export default async function EstoquePage({ searchParams }: { searchParams: Promise<{ tab?: string; pagina?: string; f_item?: string; f_obra?: string; f_tipo?: string; de?: string; ate?: string }> }) {
+export default async function EstoquePage({ searchParams }: { searchParams: Promise<{ lancar?: string; tab?: string; pagina?: string; f_item?: string; f_obra?: string; f_tipo?: string; de?: string; ate?: string }> }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
   // A página verifica "ver" antes de consultar qualquer dado (Prompt M, 2.2).
@@ -83,6 +84,18 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
       {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
       <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
       <div className="min-w-0 flex-1">
+      <CrisDaTela
+        titulo="Controle de Estoques"
+        dados={{
+          itens: itemViews.filter((i) => i.ativo).slice(0, 150).map((i) => ({ material: i.nome, unidade: i.unidade, saldo: i.saldo, minimo: i.minimo, custoUnit: i.custoUnit, valorEstoque: i.valorEstoque })),
+          aba: filtros.tab === "mov" ? "Entradas & Saídas" : "Itens & Saldo",
+        }}
+        sugestoes={
+          filtros.tab === "mov"
+            ? ["Dar baixa de 10 sacos de cimento para a obra", "Dar entrada da nota da última compra", "Quanto cada obra consumiu?"]
+            : ["Quais itens estão abaixo do mínimo?", "Como dou baixa de material para uma obra?", "Qual o valor em estoque?"]
+        }
+      />
       <EstoqueManager
         items={itemViews}
         movimentos={{ rows: movimentos.rows.map((m) => ({ id: m.id, itemId: m.itemId, itemNome: m.itemNome, unidade: m.unidade, tipo: m.tipo as "entrada" | "saida", origem: m.origem, quantidade: Number(m.quantidade), custoUnit: Number(m.custoUnit), valor: m.valor, data: m.data, doc: m.doc, obs: m.obs, projectName: m.projectName, responsavel: m.responsavel, despesaId: m.despesaId, despesaNumDoc: m.despesaNumDoc, permutaId: m.permutaId, permutaDescricao: m.permutaDescricao, estornoDeId: m.estornoDeId, estornado: m.estornado })), total: movimentos.total, pagina: movimentos.pagina, porPagina: movimentos.porPagina }}
@@ -97,6 +110,7 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
         canCriar={can(ctx.perms, "estoque", "criar")}
         canEditar={can(ctx.perms, "estoque", "editar")}
         canExcluir={can(ctx.perms, "estoque", "excluir")}
+        tipoInicial={sp.lancar === "saida" ? "saida" : "entrada"}
       />
       </div>
       <AssistenteEstoque
