@@ -12,7 +12,8 @@ export const STATUS_DE_PERMUTA = ["Disponivel", "Vendido"] as const;
 export const FORMAS_DE_REVENDA = ["avista", "parcelada", "escambo"] as const;
 export const PERIODICIDADES = ["mensal", "semestral", "anual"] as const;
 /** Prompt P, 6.3 — tipos de documento do ativo (a versão é por ativo E tipo). */
-export const TIPOS_DOC_PERMUTA = ["Matrícula ou documento do bem", "Laudo de avaliação", "Contrato de permuta", "Recibo", "Outros"] as const;
+// Prompt P2 (revisão V5): "documentos e foto do ativo".
+export const TIPOS_DOC_PERMUTA = ["Matrícula ou documento do bem", "Laudo de avaliação", "Contrato de permuta", "Recibo", "Foto do ativo", "Outros"] as const;
 
 export type StatusDePermuta = (typeof STATUS_DE_PERMUTA)[number];
 export type FormaDeRevenda = (typeof FORMAS_DE_REVENDA)[number];

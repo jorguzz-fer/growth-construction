@@ -146,6 +146,8 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 - Importar e exportar planilha.
 - Cancelar com motivo. O ativo fica na lista, fora dos totais.
 - Usar o assistente, que analisa as permutas e oferece lançamento por descrição: a IA **propõe** os campos, e a pessoa confere e grava.
+- **Fotos do ativo**: em Documentos e fotos do ativo, o tipo "Foto do ativo" guarda a foto do bem, que aparece em miniatura na lista.
+- **Lançar com a Cris**: no ativo novo ou na edição, diga, dite ou anexe o laudo, o contrato ou a foto. A Cris preenche unidade, data, tipo, descrição, valor estimado e os dados da revenda; quem grava é Salvar. O cliente é escolhido à mão: o nome não vai ao modelo.
 
 **Campos que confundem:**
 - **Status**: "Disponivel" (em estoque) ou "Vendido". Quando é Vendido, data, valor e forma da revenda são obrigatórios.

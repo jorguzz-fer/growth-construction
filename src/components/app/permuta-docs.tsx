@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
 import { dateBR } from "@/lib/utils";
 
+const EH_IMAGEM = /\.(png|jpe?g|webp|gif|heic)$/i;
+
 export interface PermutaDoc {
   id: string;
   filename: string;
@@ -68,7 +70,7 @@ export function PermutaDocs({ permutaId, docs, canEdit, r2 }: { permutaId: strin
   return (
     <div className="rounded-[10px] border border-[var(--color-accent2)]/12 bg-[var(--color-surface2)] p-3 sm:col-span-2 lg:col-span-3">
       <h4 className="mb-2 text-[12px] font-semibold text-[var(--color-ink)]">
-        Documentos do ativo <span className="font-normal text-[var(--color-ink3)]">matrícula, laudo, contrato, recibo · versão por tipo</span>
+        Documentos e fotos do ativo <span className="font-normal text-[var(--color-ink3)]">matrícula, laudo, contrato, recibo, foto · versão por tipo</span>
       </h4>
       {canEdit && r2 && (
         <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-end">
@@ -105,6 +107,11 @@ export function PermutaDocs({ permutaId, docs, canEdit, r2 }: { permutaId: strin
         <ul className="divide-y divide-[var(--color-accent2)]/8 rounded-[8px] border border-[var(--color-accent2)]/12 bg-white">
           {docs.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-[12.5px]">
+              {/* Prompt P2 — foto do ativo aparece em miniatura. */}
+              {d.url && EH_IMAGEM.test(d.filename) && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={d.url} alt={`Foto: ${d.filename}`} className="h-10 w-10 rounded-[6px] object-cover" data-foto-ativo />
+              )}
               <span className="font-medium text-[var(--color-ink)]">{d.filename}</span>
               {d.tipo && (
                 <span className="rounded-full bg-[var(--color-surface3)] px-2 py-0.5 text-[10px] text-[var(--color-ink3)]">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addPermuta, updatePermuta } from "@/lib/actions/receitas";
@@ -75,6 +76,9 @@ export function PermutaForm({
   const [alertas, setAlertas] = useState<Partial<Record<CampoAtivo, Alerta>>>({});
   const [leitura, setLeitura] = useState<{ resumo: string; preenchidos: string[]; observacoes: string[] } | null>(null);
   const [pronto, setPronto] = useState(!propostaDoAssistente || !!initial);
+  function unidadesComALegadaFn() {
+    return initial?.unitCode && !unidades.includes(initial.unitCode) ? [initial.unitCode, ...unidades] : unidades;
+  }
   const limparAlerta = (campo: CampoAtivo) =>
     setAlertas((a) => {
       if (!a[campo]) return a;
@@ -82,6 +86,43 @@ export function PermutaForm({
       void _fora;
       return resto;
     });
+  // Prompt P2 — a Cris preenche o ativo (texto, ditado, documento ou foto).
+  // Os campos soltos recebem o valor como semente: a proposta junta o que já
+  // está no formulário com o que veio e remonta o formulário com isso.
+  const [semente, setSemente] = useState<Record<string, string> | null>(null);
+  const [versaoDoForm, setVersaoDoForm] = useState(0);
+  const dv = (campo: string, resto: string) => semente?.[campo] ?? resto;
+  useCrisFormulario(
+    {
+      id: initial ? "permuta-edicao" : "permuta-nova",
+      titulo: initial ? "Editar ativo de permuta" : "Novo ativo de permuta",
+      campos: [
+        { nome: "unitCode", rotulo: "Unidade de origem", tipo: "opcao", opcoes: unidadesComALegadaFn() },
+        { nome: "dataRecebimento", rotulo: "Data de recebimento", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "tipo", rotulo: "Tipo do bem ou serviço", tipo: "opcao", opcoes: [...tipos] },
+        { nome: "descricao", rotulo: "Descrição do bem", tipo: "texto" },
+        { nome: "estimado", rotulo: "Valor estimado", tipo: "numero", dica: "em reais" },
+        { nome: "status", rotulo: "Status", tipo: "opcao", opcoes: ["Disponivel", "Vendido"] },
+        { nome: "dataVenda", rotulo: "Data da venda ou escambo", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "valorVenda", rotulo: "Valor da venda", tipo: "numero", dica: "em reais" },
+        { nome: "formaVenda", rotulo: "Forma da revenda", tipo: "opcao", opcoes: ["avista", "parcelada", "escambo"] },
+        { nome: "tipoPermuta", rotulo: "Tipo permuta", tipo: "texto" },
+        { nome: "obs", rotulo: "Observações", tipo: "texto" },
+      ],
+    },
+    (p) => {
+      const atual: Record<string, string> = {};
+      if (formRef.current) for (const [k, v] of new FormData(formRef.current).entries()) if (typeof v === "string") atual[k] = v;
+      const v = p.valores;
+      if (v.estimado) setEstimado(v.estimado);
+      if (v.valorVenda) setValorVenda(v.valorVenda);
+      if (v.status) setStatus(v.status);
+      if (v.formaVenda) setForma(v.formaVenda);
+      setSemente({ ...atual, ...v });
+      setVersaoDoForm((n) => n + 1);
+      setLeitura({ resumo: "A Cris preencheu o formulário. Confira e clique em Salvar.", preenchidos: Object.keys(v), observacoes: p.observacao ? [p.observacao] : [] });
+    },
+  );
   useEffect(() => {
     if (!propostaDoAssistente || initial) return;
     let guardada: PropostaGuardadaPermuta | null = null;
@@ -107,7 +148,7 @@ export function PermutaForm({
   // 3.6 — registro antigo só com o nome: a opção aparece marcada como
   // "gravado por nome" e continua valendo até alguém escolher do cadastro.
   const nomeLegado = initial && !initial.clienteId && initial.cliente ? initial.cliente : null;
-  const unidadesComALegada = initial?.unitCode && !unidades.includes(initial.unitCode) ? [initial.unitCode, ...unidades] : unidades;
+  const unidadesComALegada = unidadesComALegadaFn();
   const clienteLegadoOuProposto = nomeLegado ?? (proposta && !proposta.clienteId && proposta.clienteNome ? proposta.clienteNome : null);
 
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
@@ -129,7 +170,7 @@ export function PermutaForm({
   return (
     <Card>
       <CardContent className="p-5">
-        <form ref={formRef} onSubmit={enviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <form key={versaoDoForm} ref={formRef} onSubmit={enviar} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {/* Obra desta tela (Prompt A): o ativo vai para a versão de trabalho dela. */}
           <input type="hidden" name="projectId" value={projectId} />
           {initial && <input type="hidden" name="id" value={initial.id} />}
@@ -140,7 +181,7 @@ export function PermutaForm({
             </div>
           )}
           <CampoIA label="Unidade de origem *" alerta={alertas.unitCode}>
-            <Select name="unitCode" defaultValue={initial?.unitCode ?? proposta?.unitCode ?? ""} required onChange={() => limparAlerta("unitCode")}>
+            <Select name="unitCode" defaultValue={dv("unitCode", initial?.unitCode ?? proposta?.unitCode ?? "")} required onChange={() => limparAlerta("unitCode")}>
               <option value="">— selecione —</option>
               {unidadesComALegada.map((c) => (
                 <option key={c} value={c}>
@@ -150,7 +191,7 @@ export function PermutaForm({
             </Select>
           </CampoIA>
           <CampoIA label="Cliente *" alerta={alertas.cliente}>
-            <Select name="clienteId" defaultValue={initial?.clienteId ?? proposta?.clienteId ?? ""} required={!clienteLegadoOuProposto} onChange={() => limparAlerta("cliente")}>
+            <Select name="clienteId" defaultValue={dv("clienteId", initial?.clienteId ?? proposta?.clienteId ?? "")} required={!clienteLegadoOuProposto} onChange={() => limparAlerta("cliente")}>
               <option value="">{nomeLegado ? `${nomeLegado} (gravado por nome)` : clienteLegadoOuProposto ? `${clienteLegadoOuProposto} (fora do cadastro)` : "— selecione —"}</option>
               {clientes.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -160,10 +201,10 @@ export function PermutaForm({
             </Select>
           </CampoIA>
           <CampoIA label="Data de recebimento *" alerta={alertas.dataRecebimento}>
-            <DateField name="dataRecebimento" defaultValue={initial?.dataRecebimento ?? proposta?.dataRecebimento ?? ""} required onChange={() => limparAlerta("dataRecebimento")} />
+            <DateField name="dataRecebimento" defaultValue={dv("dataRecebimento", initial?.dataRecebimento ?? proposta?.dataRecebimento ?? "")} required onChange={() => limparAlerta("dataRecebimento")} />
           </CampoIA>
           <CampoIA label="Tipo do bem / serviço *" alerta={alertas.tipo}>
-            <Select name="tipo" defaultValue={initial?.tipo ?? proposta?.tipo ?? tipos[0] ?? ""} onChange={() => limparAlerta("tipo")}>
+            <Select name="tipo" defaultValue={dv("tipo", initial?.tipo ?? proposta?.tipo ?? tipos[0] ?? "")} onChange={() => limparAlerta("tipo")}>
               {tipos.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -172,7 +213,7 @@ export function PermutaForm({
             </Select>
           </CampoIA>
           <CampoIA label="Descrição" alerta={alertas.descricao} className="lg:col-span-2">
-            <Input name="descricao" defaultValue={initial?.descricao ?? proposta?.descricao ?? ""} placeholder="" onChange={() => limparAlerta("descricao")} />
+            <Input name="descricao" defaultValue={dv("descricao", initial?.descricao ?? proposta?.descricao ?? "")} placeholder="" onChange={() => limparAlerta("descricao")} />
           </CampoIA>
           <CampoIA label="Valor estimado (R$) *" alerta={alertas.estimado}>
             <MoneyInput
@@ -193,7 +234,7 @@ export function PermutaForm({
           </div>
           <div>
             <Label>Data da venda / escambo{vendido ? " *" : ""}</Label>
-            <DateField name="dataVenda" defaultValue={initial?.dataVenda ?? ""} />
+            <DateField name="dataVenda" defaultValue={dv("dataVenda", initial?.dataVenda ?? "")} />
           </div>
           <div>
             <Label>Valor da venda (R$){vendido ? " *" : ""}</Label>
@@ -211,11 +252,11 @@ export function PermutaForm({
             <>
               <div>
                 <Label>Parcelas{vendido ? " *" : ""}</Label>
-                <Input name="parcelas" type="number" min="1" step="1" defaultValue={initial?.parcelas ?? ""} placeholder="Ex.: 12" />
+                <Input name="parcelas" type="number" min="1" step="1" defaultValue={dv("parcelas", String(initial?.parcelas ?? ""))} placeholder="Ex.: 12" />
               </div>
               <div>
                 <Label>Periodicidade</Label>
-                <Select name="periodicidade" defaultValue={initial?.periodicidade ?? "mensal"}>
+                <Select name="periodicidade" defaultValue={dv("periodicidade", initial?.periodicidade ?? "mensal")}>
                   <option value="mensal">Mensal</option>
                   <option value="semestral">Semestral</option>
                   <option value="anual">Anual</option>
@@ -223,7 +264,7 @@ export function PermutaForm({
               </div>
               <div>
                 <Label>Vencimento da 1ª parcela</Label>
-                <DateField name="dataPrimParcela" defaultValue={initial?.dataPrimParcela ?? ""} />
+                <DateField name="dataPrimParcela" defaultValue={dv("dataPrimParcela", initial?.dataPrimParcela ?? "")} />
               </div>
             </>
           )}
@@ -234,11 +275,11 @@ export function PermutaForm({
           )}
           <div>
             <Label>Tipo permuta</Label>
-            <Input name="tipoPermuta" defaultValue={initial?.tipoPermuta ?? ""} placeholder="Ex.: materiais, serviços" />
+            <Input name="tipoPermuta" defaultValue={dv("tipoPermuta", initial?.tipoPermuta ?? "")} placeholder="Ex.: materiais, serviços" />
           </div>
           <div className="lg:col-span-2">
             <Label>Observações</Label>
-            <Input name="obs" defaultValue={initial?.obs ?? ""} placeholder="" />
+            <Input name="obs" defaultValue={dv("obs", initial?.obs ?? "")} placeholder="" />
           </div>
           {aviso && (
             <p role="status" className="text-[13px] text-[var(--color-danger)] sm:col-span-2 lg:col-span-3">

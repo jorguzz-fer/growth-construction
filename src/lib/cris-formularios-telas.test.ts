@@ -13,9 +13,16 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/planocontas-cris.tsx", "formularioDoPlano"],
   ["src/components/app/contas-receber-manager.tsx", '"conta-receber-nova"'],
   ["src/components/app/liberacao-form.tsx", '"liberacao-nova"'],
+  ["src/components/app/permuta-form.tsx", '"permuta-nova"'],
 ];
 
+import { TIPOS_DOC_PERMUTA } from "./permuta-regras";
+
 describe("Etapa 3 — telas de lançamento com a Cris", () => {
+  it("Prompt P2: o ativo de permuta aceita foto como documento", () => {
+    expect(TIPOS_DOC_PERMUTA).toContain("Foto do ativo");
+  });
+
   it.each(TELAS)("%s registra o formulário", (arquivo, id) => {
     const src = readFileSync(arquivo, "utf8");
     expect(src).toContain("useCrisFormulario(");
