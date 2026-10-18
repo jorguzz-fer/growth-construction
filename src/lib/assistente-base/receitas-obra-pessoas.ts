@@ -70,20 +70,23 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 
 ## Simulador (/simulador) — módulo Receitas
 
-**Para que serve:** é uma calculadora de proposta. Monta o fluxo de parcelas SAC, PRICE ou SBPE com o INCC da obra. **Nada é gravado.**
+**Para que serve:** é o simulador de **parcelamento** que o vendedor usa antes de vender, como a planilha da empresa: ato de assinatura, sinais, anuais, mensais corrigidas pelo INCC da obra, FGTS, subsídio e o financiamento bancário nas chaves. Monta o fluxo SAC, PRICE ou SBPE. **Nada é gravado.**
 
 **O que se faz nela:**
-- Informar tipo, data da 1ª parcela, juros ao mês, valor do imóvel, entrada (no mês 1), sinais, anuais, FGTS e subsídio (cada um com o mês em que entra), número de mensais (até 480), financiamento e renda.
+- Escolher a **unidade** disponível (opcional), que traz o valor do imóvel, ou digitar o valor.
+- Informar tipo, data de início, renda familiar, ato, sinais e anuais (cada um com o mês), número de mensais (até 480), financiamento, FGTS e subsídio. Juros ao mês só no SAC e no PRICE.
 - Escolher um cliente, o que é opcional. A renda do cadastro só é puxada para quem tem a permissão de dados do cliente.
-- Ver entrada efetiva, recursos futuros, financiamento, saldo parcelado e a tabela mês a mês. O assistente só lê.
+- Ver os cinco números (valor do imóvel, ato e sinais, anuais/FGTS/subsídio, financiamento, saldo em mensais), o **comprometimento de renda em %** e o fluxo mês a mês. "Detalhar" mostra a parcela base, a correção e os juros.
+- **Proposta ao cliente:** abaixo do fluxo, a proposta de pagamento com o plano (o que paga e quando), a mensagem e a validade. "Gerar PDF da proposta" imprime **só a proposta**, sem renda nem limite, que são internos.
+- **Com a Cris:** o vendedor dita a simulação ("simule 90 mensais com ato de 30 mil") e ela preenche os campos. Ela também escreve o texto da proposta ao cliente. A Cris **não recebe a renda nem o nome do cliente**.
 
 **Campos que confundem:**
-- **Juros ao mês**: é uma premissa (padrão de 1%), não a taxa de um contrato. No SBPE, a parcela é o saldo dividido pelo número de parcelas, sem juros.
-- **Limite de renda**: compara a **maior** parcela com 30% da renda. É uma referência de cálculo, não uma aprovação de crédito.
-- **Obra %**: é linear, calculado pela janela de início e fim da obra, ou uma premissa linear se a obra não tiver essas datas. **Não é medição.**
-- **INCC**: corrige as parcelas a partir da 5ª, pelo acumulado do mês do vencimento.
+- **Juros ao mês**: é uma premissa (padrão de 1%), não a taxa de um contrato. No SBPE, a parcela é o saldo dividido pelo número de mensais, sem juros.
+- **Comprometimento de renda**: a **maior** mensal dividida pela renda, com limite de 30%. É uma referência de cálculo, não uma aprovação de crédito.
+- **Evolução da obra**: é linear, calculada pela janela de início e fim da obra, ou uma premissa linear se a obra não tiver essas datas. **Não é medição.**
+- **INCC**: corrige as mensais a partir da 5ª, pelo acumulado do mês do vencimento.
 
-**O que ela NÃO faz:** não cria venda nem salva simulações. A venda é cadastrada em Unidades.
+**O que ela NÃO faz:** não cria venda, não reserva a unidade e não salva simulações. A venda é cadastrada em Unidades.
 
 ---
 

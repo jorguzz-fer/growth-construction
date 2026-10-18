@@ -174,4 +174,12 @@ body {
   [data-sem-impressao] {
     display: none !important;
   }
+  /* Prompt N2 — "Gerar PDF da proposta": só a proposta ao cliente sai no papel. */
+  body[data-imprimir="proposta"] [data-fora-da-proposta] {
+    display: none !important;
+  }
+  body[data-imprimir="proposta"] [data-proposta] {
+    border: 0 !important;
+    box-shadow: none !important;
+  }
 }

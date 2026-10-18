@@ -28,14 +28,15 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
+  // Prompt N2 — na impressão (PDF), a tela solta a altura fixa: sem isso o PDF cortava na primeira página.
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden print:block print:h-auto print:overflow-visible">
       <Sidebar
         perms={perms}
         mobileOpen={mobileOpen}
         onCloseMobile={closeMobile}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col print:block">
         <AppHeader
           tenantName={tenantName}
           logoUrl={logoUrl}

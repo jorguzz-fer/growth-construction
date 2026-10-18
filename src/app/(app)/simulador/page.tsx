@@ -3,7 +3,7 @@ import { lerSelecaoDeProjeto } from "@/lib/projeto-selecao";
 import { PedirProjeto } from "@/components/app/pedir-projeto";
 import { ProjectPicker } from "@/components/app/project-picker";
 import { LembrarProjeto } from "@/components/app/projeto-da-aba";
-import { getClientesParaSimulador, getInccTabela } from "@/lib/queries";
+import { getAtualVersion, getClientesParaSimulador, getInccTabela, getUnits } from "@/lib/queries";
 import { mesDaData } from "@/lib/incc-analise";
 import { PageHeader } from "@/components/app/page-header";
 import { SimulatorForm } from "@/components/app/simulator-form";
@@ -40,22 +40,30 @@ export default async function SimuladorPage({
   // dados sensíveis; para os demais a lista vem sem renda (digitam).
   const podeVerRenda = can(ctx.perms, "clientesdados", "ver");
   const clientes = await getClientesParaSimulador(ctx.tenant.id, podeVerRenda);
+  // Prompt N2 — "simulador de unidade": a unidade disponível da versão Atual
+  // preenche o valor do imóvel (só leitura; a unidade não é reservada).
+  const atual = await getAtualVersion(ctx.tenant.id, project.id);
+  const unidades = (atual ? await getUnits(ctx.tenant.id, atual.id) : [])
+    .filter((u) => u.status === "Disponivel" && Number(u.valor) > 0)
+    .map((u) => ({ id: u.id, rotulo: [u.bloco ? `${u.bloco} ${u.code}` : u.code, u.tipo].filter(Boolean).join(" · "), valor: Number(u.valor) }));
 
   return (
     <>
-      <PageHeader
-        eyebrow={project.name}
-        title="Simulador de Unidade"
-        subtitle="SAC / PRICE / SBPE · fluxo com tantas linhas quanto parcelas, correção INCC a partir da 5ª · calculadora: nada é gravado"
-        actions={
-          <ProjectPicker
-            projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
-            selected={project.id}
-          />
-        }
-      />
+      <div data-fora-da-proposta>
+        <PageHeader
+          eyebrow={project.name}
+          title="Simulador de Unidade"
+          subtitle="Parcelamento de ato, sinais, anuais e mensais · SAC / PRICE / SBPE · INCC a partir da 5ª · simulação: nada é gravado"
+          actions={
+            <ProjectPicker
+              projects={ctx.projects.map((p) => ({ id: p.id, label: p.name }))}
+              selected={project.id}
+            />
+          }
+        />
+      </div>
       <LembrarProjeto projectId={project.id} />
-      <SimulatorForm incc={incc} obra={{ nome: project.name, variante }} janelaObra={janelaObra} clientes={clientes} podeVerRenda={podeVerRenda} usuario={ctx.userEmail ?? "anon"} />
+      <SimulatorForm incc={incc} obra={{ nome: project.name, variante }} janelaObra={janelaObra} clientes={clientes} podeVerRenda={podeVerRenda} usuario={ctx.userEmail ?? "anon"} unidades={unidades} empresa={ctx.tenant.name} />
     </>
   );
 }

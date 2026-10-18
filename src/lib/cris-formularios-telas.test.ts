@@ -23,6 +23,7 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/funcionarios-manager.tsx", "formularioDoFuncionario"],
   ["src/components/app/papel-e-telas.tsx", '"usuario-novo"'],
   ["src/components/app/numeracao-form.tsx", '"numeracao-despesas"'],
+  ["src/components/app/simulator-form.tsx", "formularioDoSimulador"],
   ["src/components/app/cris-no-formulario.tsx", "useCrisFormulario("],
 ];
 
