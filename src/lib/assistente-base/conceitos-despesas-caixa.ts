@@ -78,6 +78,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Pagar** (na linha): registra data, valor, conta, juros, multa e desconto, e lança a saída no Caixa. Pagamentos parciais acumulam.
 - **Cancelar despesa**: cancelamento lógico. A despesa sai de relatórios, Contas a Pagar e caixa, mas o histórico fica.
 - **Excluir**: só sem vínculos (pagamento, parcela paga, acerto, ressarcimento, conciliação, nota ou anexo), digitando o PED.
+- **Lançar com a Cris**: diga, dite ou anexe a nota, o boleto ou o recibo. A Cris preenche fornecedor, conta, categoria, competência, vencimento, valor, status, descrição e forma de pagamento, e também a recorrência (quantos meses) e o "paga por terceiro" (quem pagou, quando e se será reembolsado). Quem grava é Salvar.
+- **Paga por terceiro — quem aparece**: quem tem o papel "Pagador por Terceiro" (dado em Ressarcimentos) e quem já pagou pela empresa antes, marcado "já pagou antes, sem o papel". Se ninguém aparece, dê o papel em Ressarcimentos.
 
 **Campos que confundem:**
 - **Status no formulário** (A pagar / Pago): marcar "Pago" ali **só muda o status**. Não registra pagamento nem saída no Caixa; para isso, use **Pagar** ou concilie o extrato.

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
@@ -142,7 +144,18 @@ export default async function DespesasPage({
   // Prompt S 3-B.3 / T 2.3 — "pago por terceiro" oferece só quem tem o papel
   // de Pagador por Terceiro (ativo), concedido em Ressarcimentos; antes era a
   // lista de sócios. A obrigação continua nascendo aqui, em addDespesa.
-  const pagadores = pagadoresPorTerceiro(fornecedores);
+  // Prompt S3 — quem já pagou pela empresa (tem obrigação) também aparece.
+  const jaPagaram = new Set(
+    (
+      await db
+        .selectDistinct({ id: schema.despesaTerceiros.pagadorTerceiroId })
+        .from(schema.despesaTerceiros)
+        .where(eq(schema.despesaTerceiros.tenantId, ctx.tenant.id))
+    )
+      .map((r) => r.id)
+      .filter((x): x is string => !!x),
+  );
+  const pagadores = pagadoresPorTerceiro(fornecedores, [], jaPagaram);
   const despesas: Array<
     Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
   > = despesasRaw;

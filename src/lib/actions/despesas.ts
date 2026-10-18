@@ -280,6 +280,18 @@ async function lancarDespesa(
     if (faturasDoCartao.length === 0) throw new Recusa("Informe a data da compra no cartão.");
     cartao = c;
   }
+  // Prompt S3 — quem desembolsou precisa ser um cadastro ATIVO desta empresa:
+  // antes, qualquer id era aceito (inclusive de outra empresa).
+  if (pagoPorSocioId) {
+    if (!/^[0-9a-f-]{36}$/i.test(pagoPorSocioId)) throw new Recusa("Quem desembolsou não foi encontrado nesta empresa.");
+    const [pagador] = await db
+      .select({ ativo: schema.stakeholders.ativo })
+      .from(schema.stakeholders)
+      .where(and(eq(schema.stakeholders.id, pagoPorSocioId), eq(schema.stakeholders.tenantId, ctx.tenant.id)))
+      .limit(1);
+    if (!pagador) throw new Recusa("Quem desembolsou não foi encontrado nesta empresa.");
+    if (!pagador.ativo) throw new Recusa("Quem desembolsou está inativo no cadastro.");
+  }
   const core = {
     versionId: version.id,
     tenantId: ctx.tenant.id,

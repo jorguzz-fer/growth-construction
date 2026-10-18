@@ -74,13 +74,30 @@ describe.skipIf(!HAS_DB)("Despesas — integridade (Prompt I, §11 e §19)", asy
     expect((r as { error: string }).error).toMatch(/Status de parcela inválido/);
   });
 
-  it("11.2 — falha no meio da gravação não deixa despesa pela metade", async () => {
-    // Sócio inexistente: a obrigação com terceiro viola a chave estrangeira
-    // DEPOIS de a despesa ter sido inserida. Sem transação, a despesa ficava.
-    await expect(
-      addDespesa(fd({ ...base(), pagoPorSocioId: "00000000-0000-0000-0000-000000000000", socioDataPagamento: "09/01/2026" })),
-    ).rejects.toThrow();
+  it("11.2 — pagador inexistente não deixa despesa pela metade", async () => {
+    // Antes, o sócio inexistente violava a chave estrangeira DEPOIS de a
+    // despesa ter sido inserida, e a transação desfazia tudo. Desde o Prompt
+    // S3 o servidor confere o pagador antes de gravar: a recusa vem antes.
+    expect(await addDespesa(fd({ ...base(), pagoPorSocioId: "00000000-0000-0000-0000-000000000000", socioDataPagamento: "09/01/2026" }))).toEqual({
+      ok: false,
+      error: "Quem desembolsou não foi encontrado nesta empresa.",
+    });
     expect(await despesasDoTenant()).toHaveLength(0);
+  });
+
+  it("Prompt S3 — pagador de OUTRA empresa ou inativo é recusado antes de gravar", async () => {
+    const [outra] = await db.insert(schema.tenants).values({ name: "desp-S3-outra" }).returning();
+    const [deFora] = await db.insert(schema.stakeholders).values({ tenantId: outra.id, nome: "Sócio de fora" }).returning();
+    const [inativo] = await db.insert(schema.stakeholders).values({ tenantId, nome: "Sócio inativo", ativo: false }).returning();
+    try {
+      expect(await addDespesa(fd({ ...base(), pagoPorSocioId: deFora.id, socioDataPagamento: "09/01/2026" }))).toMatchObject({ ok: false, error: "Quem desembolsou não foi encontrado nesta empresa." });
+      expect(await addDespesa(fd({ ...base(), pagoPorSocioId: inativo.id, socioDataPagamento: "09/01/2026" }))).toMatchObject({ ok: false, error: "Quem desembolsou está inativo no cadastro." });
+      expect(await addDespesa(fd({ ...base(), pagoPorSocioId: "nao-e-id", socioDataPagamento: "09/01/2026" }))).toMatchObject({ ok: false });
+      expect(await despesasDoTenant()).toHaveLength(0);
+    } finally {
+      await db.delete(schema.tenants).where(eq(schema.tenants.id, outra.id));
+      await db.delete(schema.stakeholders).where(eq(schema.stakeholders.id, inativo.id));
+    }
   });
 
   it("11.5 — réplicas recorrentes nascem 'A pagar', sem pago por terceiro", async () => {

@@ -14,6 +14,7 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/contas-receber-manager.tsx", '"conta-receber-nova"'],
   ["src/components/app/liberacao-form.tsx", '"liberacao-nova"'],
   ["src/components/app/permuta-form.tsx", '"permuta-nova"'],
+  ["src/components/app/despesa-form.tsx", '"despesa-nova"'],
 ];
 
 import { TIPOS_DOC_PERMUTA } from "./permuta-regras";

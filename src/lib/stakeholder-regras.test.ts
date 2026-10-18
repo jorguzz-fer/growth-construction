@@ -141,3 +141,21 @@ describe("filtrarCadastros (6.1)", () => {
     expect(filtrarCadastros(lista, {})).toHaveLength(2);
   });
 });
+
+describe("Prompt S3 — paga por terceiro: a lista não vem vazia para quem já pagou", () => {
+  it("quem tem o papel aparece; quem já pagou sem o papel também, marcado; inativo só se for o da edição", async () => {
+    const { pagadoresPorTerceiro, PAPEL_PAGADOR_TERCEIRO } = await import("./stakeholder-regras");
+    const todos = [
+      { id: "a", nome: "Ana", ativo: true, papeis: [PAPEL_PAGADOR_TERCEIRO] },
+      { id: "b", nome: "Beto", ativo: true, papeis: [] },
+      { id: "c", nome: "Caio", ativo: true, papeis: [] },
+      { id: "d", nome: "Duda", ativo: false, papeis: [PAPEL_PAGADOR_TERCEIRO] },
+    ];
+    expect(pagadoresPorTerceiro(todos, [], new Set(["b", "d"]))).toEqual([
+      { id: "a", nome: "Ana" },
+      { id: "b", nome: "Beto (já pagou antes, sem o papel)" },
+    ]);
+    expect(pagadoresPorTerceiro(todos, ["d"]).map((x) => x.nome)).toEqual(["Ana", "Duda (inativo)"]);
+  });
+});
+

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { statusDespesaValido } from "@/lib/despesa-regras";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 import {
   addDespesa,
   updateDespesa,
@@ -419,6 +420,65 @@ export function DespesaForm({
   const [cartaoId, setCartaoId] = useState(prefill?.cartaoId ?? "");
   const [cartaoData, setCartaoData] = useState(prefill?.cartaoDataCompra ?? "");
   const [cartaoParcelas, setCartaoParcelas] = useState("1");
+  // Prompt S3 — a Cris preenche a despesa (texto, ditado ou documento),
+  // inclusive a recorrência e o "paga por terceiro"; quem grava é Salvar.
+  const [daCris, setDaCris] = useState<string[]>([]);
+  useCrisFormulario(
+    {
+      id: isEdit ? "despesa-edicao" : "despesa-nova",
+      titulo: isEdit ? "Editar despesa" : "Nova despesa",
+      campos: [
+        ...(isEdit ? [] : [{ nome: "projeto", rotulo: "Projeto", tipo: "opcao" as const, opcoes: projetos.map((p) => p.nome) }]),
+        { nome: "fornecedor", rotulo: "Fornecedor", tipo: "opcao" as const, opcoes: fornecedores.map((f) => f.nome) },
+        { nome: "conta", rotulo: "Conta do Plano de Contas", tipo: "opcao" as const, opcoes: contas.map((c) => `${c.code} — ${c.name}`) },
+        ...(categoriaDoPlano ? [] : [{ nome: "categoria", rotulo: "Categoria da DRE", tipo: "opcao" as const, opcoes: categoriasDespesa }]),
+        { nome: "competencia", rotulo: "Competência", tipo: "mes" as const, dica: "MM/YYYY" },
+        { nome: "vencimento", rotulo: "Vencimento", tipo: "data" as const, dica: "MM/DD/YYYY" },
+        { nome: "valor", rotulo: "Valor", tipo: "numero" as const, dica: "em reais" },
+        { nome: "status", rotulo: "Status", tipo: "opcao" as const, opcoes: ["A pagar", "Pago"] },
+        { nome: "obs", rotulo: "Descrição da compra", tipo: "texto" as const },
+        { nome: "formaPagamento", rotulo: "Forma de pagamento", tipo: "opcao" as const, opcoes: [...FORMAS_PAGAMENTO] },
+        ...(isEdit
+          ? []
+          : [
+              { nome: "recorrente", rotulo: "Despesa recorrente (repete mês a mês)", tipo: "booleano" as const },
+              { nome: "recMeses", rotulo: "Quantos meses", tipo: "numero" as const, dica: "2 a 60" },
+              { nome: "pagoPorTerceiro", rotulo: "Paga por terceiro", tipo: "booleano" as const },
+              { nome: "pagador", rotulo: "Quem desembolsou", tipo: "opcao" as const, opcoes: pagadores.map((x) => x.nome) },
+              { nome: "dataPagamentoTerceiro", rotulo: "Data em que o terceiro pagou", tipo: "data" as const, dica: "MM/DD/YYYY" },
+              { nome: "reembolsavel", rotulo: "Será reembolsada pela empresa", tipo: "booleano" as const },
+            ]),
+      ],
+    },
+    (p) => {
+      const v = p.valores;
+      const sim = (x: string) => /^(sim|s|true|1)$/i.test(x.trim());
+      const proj = v.projeto ? projetos.find((x) => x.nome === v.projeto) : undefined;
+      if (proj) setProjeto(proj.id);
+      const forn = v.fornecedor ? fornecedores.find((f) => f.nome === v.fornecedor) : undefined;
+      if (forn) setFornecedorId(forn.id);
+      const conta = v.conta ? contas.find((c) => `${c.code} — ${c.name}` === v.conta) : undefined;
+      if (conta) setContaCef(conta.code);
+      if (v.categoria) setCategoriaDre(v.categoria);
+      if (v.competencia) setCompetencia(v.competencia);
+      if (v.vencimento) setVencimento(v.vencimento);
+      if (v.valor) setValor(v.valor);
+      if (v.status && statusDespesaValido(v.status)) setStatus(v.status);
+      if (v.obs) setObs(v.obs);
+      if (v.formaPagamento) setFormaPagamento(v.formaPagamento);
+      if (v.recorrente) setRecorrente(sim(v.recorrente));
+      if (v.recMeses) setRecMeses(v.recMeses);
+      if (v.pagoPorTerceiro) setPagoPorSocio(sim(v.pagoPorTerceiro));
+      const pag = v.pagador ? pagadores.find((x) => x.nome === v.pagador) : undefined;
+      if (pag) {
+        setPagoPorSocio(true);
+        setSocioId(pag.id);
+      }
+      if (v.dataPagamentoTerceiro) setSocioData(v.dataPagamentoTerceiro);
+      if (v.reembolsavel) setSocioReembolsavel(sim(v.reembolsavel));
+      setDaCris(Object.keys(v));
+    },
+  );
   const noCartao = !isEdit && formaPagamento === "Cartão de crédito";
   const cartaoEscolhido = cartoes.find((c) => c.id === cartaoId) ?? null;
   const faturasPrevistas = noCartao && cartaoEscolhido && cartaoData ? faturasDasParcelas(cartaoData, Math.max(1, Number(cartaoParcelas) || 1), cartaoEscolhido) : [];
@@ -1679,6 +1739,11 @@ export function DespesaForm({
 
         {notice && (
           <p className="text-xs text-[var(--color-accent)]">{notice}</p>
+        )}
+        {daCris.length > 0 && !error && (
+          <p role="status" data-cris-preencheu className="text-[12.5px] text-[var(--color-ink2)]">
+            A Cris preencheu {daCris.length} campo(s). Confira e clique em Salvar — nada foi gravado ainda.
+          </p>
         )}
         {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
       </CardContent>
