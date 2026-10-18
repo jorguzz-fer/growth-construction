@@ -22,6 +22,7 @@ import {
 import { brl0, monthInRange } from "@/lib/utils";
 import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
+import { AvisoTelaRemovida } from "@/components/app/aviso-tela-removida";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { BarChart, CHART_COLORS } from "@/components/app/charts";
@@ -53,7 +54,7 @@ const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
 export default async function ProjecaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string; saiu?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -74,7 +75,7 @@ export default async function ProjecaoPage({
       ? await getProjectVersions(ctx.tenant.id, selecaoObra.projeto.id)
       : null;
   if (!escolhido?.trabalho) {
-    return <PedirProjeto titulo="Projeção de Receitas" projetos={ctx.projects} oQue="ver a projeção" />;
+    return <PedirProjeto titulo="Projeção de Receitas" projetos={ctx.projects} oQue="ver a projeção" aviso={<AvisoTelaRemovida de={spObra.saiu} />} />;
   }
   const { project: obra, versions: versoesDaObra, trabalho: versaoTrabalho } = escolhido;
   const projectPicker = (
@@ -140,6 +141,7 @@ export default async function ProjecaoPage({
             </div>
           }
         />
+        <AvisoTelaRemovida de={sp.saiu} />
         <VersionCompareTable
           firstColLabel="Fonte"
           columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
@@ -245,6 +247,7 @@ export default async function ProjecaoPage({
           </div>
         }
       />
+      <AvisoTelaRemovida de={sp.saiu} />
 
       <Card className="mb-6">
         <CardContent className="p-5">

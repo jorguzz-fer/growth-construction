@@ -13,12 +13,15 @@ export function PedirProjeto({
   projetos,
   oQue,
   allOption = false,
+  aviso,
 }: {
   titulo: string;
   projetos: { id: string; name: string }[];
   /** complemento de "Selecione um projeto para …" (ex.: "ver as unidades"). */
   oQue: string;
   allOption?: boolean;
+  /** Linha logo abaixo do título (ex.: aviso de tela que saiu). */
+  aviso?: React.ReactNode;
 }) {
   return (
     <>
@@ -32,6 +35,7 @@ export function PedirProjeto({
           />
         }
       />
+      {aviso}
       <RecuperarProjeto idsPermitidos={projetos.map((p) => p.id)}>
         <Card>
           <CardContent className="p-8 text-center text-[var(--color-ink3)]">

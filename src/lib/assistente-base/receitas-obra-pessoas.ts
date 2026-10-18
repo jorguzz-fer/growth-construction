@@ -59,7 +59,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
   - **Financiamento Bancário**: valor financiado, data de entrada e data da 1ª parcela.
 - **Caixas "ativo" e "Usar …"**: encadeiam as fontes umas nas outras.
   - Contas a Receber e a Projeção detalhada ignoram essas caixas e listam toda fonte preenchida.
-  - O modo comparação da Projeção e o Consolidado só contam as fontes com a cadeia ligada. Também só contam o Subsídio "Recebido" e não contam o Financiamento.
+  - O modo comparação da Projeção só conta as fontes com a cadeia ligada. Também só conta o Subsídio "Recebido" e não conta o Financiamento.
 - **"vencimento a conferir"**: aviso de que o dia de vencimento não existe em algum mês da série, como o dia 31.
 
 **O que ela NÃO faz:** não registra recebimentos, que ficam em Contas a Receber. Não liga o comprador à unidade: isso se faz em Clientes.
@@ -124,7 +124,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
   - A data é aquela em que o recurso entrou na conta, e é a que o Fluxo de Caixa usa.
   - A origem identifica o banco e a referência da medição.
 - Editar enquanto a liberação não estiver cancelada. Cancelar exige um motivo, e a linha fica riscada, fora dos totais.
-- As liberações também aparecem no Fluxo de Caixa, no Caixa, na Projeção, no Consolidado e no Resumo.
+- As liberações também aparecem no Fluxo de Caixa, no Caixa, na Projeção e no Resumo.
 - Usar o assistente para comparar liberações com medições e com o financiamento previsto nas vendas. Ele só lê.
 
 **O que ela NÃO faz:** não confere valores com o banco nem cria receita na DRE; não é o financiamento do comprador (que fica no plano da unidade).
@@ -240,7 +240,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 
 **Campos que confundem:**
 - **Mês**: é o mês de referência do índice, normalmente divulgado no mês seguinte.
-- **Onde a correção incide**: Caixa, modo comparação da Projeção, Consolidado e Simulador.
+- **Onde a correção incide**: Caixa, modo comparação da Projeção e Simulador.
 - **Onde não incide**: Contas a Receber, Projeção detalhada e receita da DRE, que usam valor nominal. A correção é aplicada na leitura, e nada é gravado corrigido.
 
 **O que ela NÃO faz:** não busca índice externo. Não tem como acrescentar meses: a tabela nasce com a obra, a partir de uma tabela padrão.

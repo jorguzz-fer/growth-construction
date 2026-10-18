@@ -36,11 +36,12 @@ export interface Screen {
 export const SCREENS: Screen[] = [
   { id: "dashboard", label: "Dashboard", modulo: "Reports" },
   { id: "projecao", label: "Projeção de Receitas", modulo: "Reports" },
-  { id: "consolidado", label: "Consolidado", modulo: "Reports" },
+  // Prompt AB2: o Consolidado saiu (redireciona para a Projeção de Receitas).
   { id: "caixa", label: "Controle de Caixa", modulo: "Conciliação de Caixa" },
   // Prompt L, Parte 9: a rota /fechamento saiu; "criar" aqui é fechar o dia no cartão do Caixa.
   { id: "fechamento", label: "Fechar o dia (no Caixa)", modulo: "Conciliação de Caixa" },
-  { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
+  // Prompt AB2: a tela saiu; a chave ficou e governa a lista "Dias fechados" do Caixa.
+  { id: "balancodia", label: "Dias fechados (no Caixa)", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
   { id: "medicao", label: "Medição de Projeto — Relatório CEF", modulo: "Reports" },
@@ -139,7 +140,6 @@ export const CONTADOR_VE: ReadonlySet<string> = new Set([
   "fluxocaixa",
   "medicao",
   "resumo",
-  "consolidado",
   "planocontas",
   "despesas",
   "acoes",

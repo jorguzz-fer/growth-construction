@@ -80,6 +80,9 @@ const SAIRAM = new Set([
   // Prompt AN: a Conferência de lançamentos mudou para /conferencia; a de planos saiu.
   "/diagnostico/categorias-invertidas",
   "/diagnostico/planos-recebiveis",
+  // Prompt AB2: Consolidado e Balanço do Dia saíram (redirecionamento com aviso).
+  "/consolidado",
+  "/balancodia",
 ]);
 const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => !SAIRAM.has(href)));
 

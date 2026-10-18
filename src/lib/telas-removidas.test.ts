@@ -17,6 +17,10 @@ describe("Prompt AL · Parte 1 — a tela Acesso Contabilidade sai", () => {
       "/versao/:path*",
       "/diagnostico/planos-recebiveis",
       "/diagnostico/planos-recebiveis/:path*",
+      "/consolidado",
+      "/consolidado/:path*",
+      "/balancodia",
+      "/balancodia/:path*",
     ]);
     expect(avisoDeTelaRemovida("contabilidade")).toMatch(/Acesso Contabilidade saiu/);
     expect(avisoDeTelaRemovida(["contabilidade"])).toBe(TELAS_REMOVIDAS.contabilidade.aviso);
@@ -152,6 +156,46 @@ describe("Prompt AP — a tela Configuração da Versão sai", () => {
     for (const role of ["membro", "contador", "engenheiro"] as const) {
       expect(defaultPermissions(role).versaotrava.ver, role).toBe(false);
       expect(defaultPermissions(role, { membroRestrito: true }).versaotrava.ver, role).toBe(false);
+    }
+  });
+});
+
+describe("Prompt AB2 — Consolidado e Balanço do Dia saem", () => {
+  it("as páginas não existem mais; as rotas redirecionam com o aviso em ?saiu= (o destino usa ?de= como data)", () => {
+    expect(existsSync("src/app/(app)/consolidado/page.tsx")).toBe(false);
+    expect(existsSync("src/app/(app)/balancodia/page.tsx")).toBe(false);
+    const cfg = readFileSync("next.config.ts", "utf8");
+    expect(cfg).toContain('{ source: "/consolidado", destination: "/projecao?saiu=consolidado", permanent: false }');
+    expect(cfg).toContain('{ source: "/balancodia", destination: "/caixa?saiu=balancodia", permanent: false }');
+    expect(avisoDeTelaRemovida("consolidado")).toMatch(/Consolidado saiu.*por fonte/);
+    expect(avisoDeTelaRemovida("balancodia")).toMatch(/Balanço do Dia saiu.*Dias fechados/);
+  });
+
+  it("nenhum item de menu aponta para elas", () => {
+    const hrefs = NAV_MENU.flatMap((m) => m.items).map((i) => i.href);
+    expect(hrefs).not.toContain("/consolidado");
+    expect(hrefs).not.toContain("/balancodia");
+  });
+
+  it("a chave do Consolidado sai; a do Balanço do Dia fica e governa os dias fechados no Caixa", () => {
+    expect(SCREEN_IDS).not.toContain("consolidado");
+    expect(screenIdOfPath("/consolidado")).toBeNull();
+    expect(SCREEN_IDS).toContain("balancodia");
+    const caixa = readFileSync("src/app/(app)/caixa/page.tsx", "utf8");
+    expect(caixa).toContain('can(ctx.perms, "balancodia", "ver")');
+    expect(caixa).toContain("data-dias-fechados");
+  });
+
+  it("override gravado para `consolidado` é inerte", () => {
+    const comOrfa: PermMatrix = { consolidado: { ver: true, criar: true, editar: true, excluir: true } };
+    for (const role of ["membro", "contador", "engenheiro"] as const) {
+      expect(effectivePermissions(role, comOrfa)).toEqual(effectivePermissions(role, null));
+    }
+  });
+
+  it("nenhuma menção restante às rotas em href, redirect ou revalidatePath", () => {
+    for (const f of ["src/lib/nav-menu.ts", "src/lib/actions/receitas.ts", "src/lib/actions/incc.ts", "src/lib/actions/fechamento.ts"]) {
+      expect(readFileSync(f, "utf8"), f).not.toMatch(/["'`]\/(consolidado|balancodia)["'`/?]/);
     }
   });
 });

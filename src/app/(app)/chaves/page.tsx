@@ -178,8 +178,8 @@ export default async function ChavesPage() {
           <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
             Versões de Orçamento e Previsão Atualizada que <strong>não estão Aprovadas</strong> nesta empresa.
             {rascunhoLigada
-              ? " Com a chave ligada, os valores abaixo já NÃO entram em DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade."
-              : " Ao ligar a chave, os valores abaixo deixam de entrar em DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade."}{" "}
+              ? " Com a chave ligada, os valores abaixo já NÃO entram em DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade."
+              : " Ao ligar a chave, os valores abaixo deixam de entrar em DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade."}{" "}
             A versão Atual (movimento real) nunca é filtrada. Nada é apagado: cada versão continua inteira na tela dela, e basta Aprovar para voltar a contar.
           </p>
           {naoAprovadas.length === 0 ? (

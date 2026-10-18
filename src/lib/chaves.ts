@@ -49,7 +49,7 @@ export const CHAVES = [
     id: "rascunho_fora_dos_relatorios",
     titulo: "Orçamento em Rascunho não entra em relatório",
     efeito:
-      "Versões de Orçamento e Previsão Atualizada que não estejam Aprovadas deixam de alimentar DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade. A versão Atual (movimento real) nunca é filtrada. Nada é apagado: o rascunho continua nas telas de edição.",
+      "Versões de Orçamento e Previsão Atualizada que não estejam Aprovadas deixam de alimentar DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade. A versão Atual (movimento real) nunca é filtrada. Nada é apagado: o rascunho continua nas telas de edição.",
     origem: "Prompt H, seções 1 e 5",
     previa: { href: "/chaves#previa-rascunho", rotulo: "Lista de conferência — o que sairia dos relatórios" },
   },

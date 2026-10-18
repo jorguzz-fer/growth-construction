@@ -8,6 +8,7 @@ import { cadeiaDeSaldo, diasDesdeAtualizacao } from "@/lib/calc/cadeia-caixa";
 import { CadeiaDias } from "@/components/app/cadeia-dias";
 import { BalancoDiaTable } from "@/components/app/balanco-dia-table";
 import { CrisDaTela } from "@/components/app/cris-contexto";
+import { AvisoTelaRemovida } from "@/components/app/aviso-tela-removida";
 import { isoDaData, previstoPorDia, saldosProjetados } from "@/lib/calc/previsto-caixa";
 import { SaldosCaixa } from "@/components/app/saldos-caixa";
 import { hojeISO } from "@/lib/despesa-status";
@@ -75,7 +76,8 @@ export default async function CaixaPage({
     vs?: string;
     proj?: string;
     project?: string;
-      conta?: string;
+    conta?: string;
+    saiu?: string;
   }>;
 }) {
   // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
@@ -93,6 +95,36 @@ export default async function CaixaPage({
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
 
+  // Prompt L2/AB2 — o histórico dos dias fechados é da empresa, não da obra:
+  // aparece no Caixa com ou sem projeto escolhido (o Balanço do Dia saiu).
+  const verDiasFechados = can(ctx.perms, "balancodia", "ver");
+  const fechamentosHistorico = (verDiasFechados ? await getDailyClosings(ctx.tenant.id) : []).map((c) => ({
+    id: c.id,
+    dia: c.dia,
+    saldoInicial: Number(c.saldoInicial),
+    totalEntradas: Number(c.totalEntradas),
+    totalSaidas: Number(c.totalSaidas),
+    saldoFinal: Number(c.saldoFinal),
+    divergencias: Number(c.divergencias),
+    responsavelNome: c.responsavelNome,
+    projectName: c.projectName,
+    clienteNome: c.clienteNome,
+    fechadoEm: dataHoraBR(c.closedAt),
+    saldoEmConta: c.saldoEmConta == null ? null : Number(c.saldoEmConta),
+    reabertoEm: c.reabertoEm ? dataHoraBR(c.reabertoEm) : null,
+    reabertoPor: c.reabertoPor,
+    motivoReabertura: c.motivoReabertura,
+  }));
+  const diasFechados = verDiasFechados ? (
+    <details className="mb-6" data-dias-fechados open={sp.saiu === "balancodia" || undefined}>
+      <summary className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">Dias fechados ({fechamentosHistorico.length})</summary>
+      <div className="mt-3">
+        <BalancoDiaTable rows={fechamentosHistorico} />
+      </div>
+    </details>
+  ) : null;
+  const avisoRemovida = <AvisoTelaRemovida de={sp.saiu} />;
+
   const pickerProjetos = ctx.projects.map((p) => ({ id: p.id, label: p.name }));
   const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
   const escolhido =
@@ -106,6 +138,7 @@ export default async function CaixaPage({
             <ProjectPicker projects={pickerProjetos} selected={escolhido?.project.id ?? ""} />
           }
         />
+        {avisoRemovida}
         {escolhido ? (
           // Projeto sem nenhuma versão: nada a mostrar, e nada é gravado em
           // versão de outra obra (antes caía na obra do cookie).
@@ -125,6 +158,7 @@ export default async function CaixaPage({
             </Card>
           </RecuperarProjeto>
         )}
+        <div className="mt-6">{diasFechados}</div>
       </>
     );
   }
@@ -174,6 +208,7 @@ export default async function CaixaPage({
           subtitle="Comparativo de versões · movimentação real de caixa no período"
           actions={projectPicker}
         />
+        {avisoRemovida}
         {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <DateRangeFilter de={de} ate={ate} />
@@ -265,23 +300,6 @@ export default async function CaixaPage({
     abertasTodas.map((c) => ({ vencimento: c.vencimento, saldo: c.saldo })),
   );
   const previstoDaFaixa = { porDia: previstoPorDiaDaFaixa, saldo: saldosProjetados(cadeia.dias, hoje, previstoPorDiaDaFaixa), atrasados };
-  const fechamentosHistorico = (await getDailyClosings(ctx.tenant.id)).map((c) => ({
-    id: c.id,
-    dia: c.dia,
-    saldoInicial: Number(c.saldoInicial),
-    totalEntradas: Number(c.totalEntradas),
-    totalSaidas: Number(c.totalSaidas),
-    saldoFinal: Number(c.saldoFinal),
-    divergencias: Number(c.divergencias),
-    responsavelNome: c.responsavelNome,
-    projectName: c.projectName,
-    clienteNome: c.clienteNome,
-    fechadoEm: dataHoraBR(c.closedAt),
-    saldoEmConta: c.saldoEmConta == null ? null : Number(c.saldoEmConta),
-    reabertoEm: c.reabertoEm ? dataHoraBR(c.reabertoEm) : null,
-    reabertoPor: c.reabertoPor,
-    motivoReabertura: c.motivoReabertura,
-  }));
   const analise = analisarCaixa({
     pendentes: conciliacaoData.pendentes,
     abertas,
@@ -328,6 +346,7 @@ export default async function CaixaPage({
         subtitle="Conciliação do extrato com os lançamentos · role a faixa para ver até uma semana à frente"
         actions={projectPicker}
       />
+      {avisoRemovida}
       {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
       <div className="mb-5 flex flex-wrap items-end gap-3">
         <DateRangeFilter de={de} ate={ate} />
@@ -410,14 +429,7 @@ export default async function CaixaPage({
       <CadeiaDias cadeia={cadeia} canFechar={can(ctx.perms, "fechamento", "criar")} canReabrir={can(ctx.perms, "conciliacao", "excluir")} previsto={previstoDaFaixa} />
 
       {/* Prompt L2 — o histórico dos dias fechados mora aqui (o Balanço do Dia sai, AB2). */}
-      {can(ctx.perms, "balancodia", "ver") && (
-        <details className="mb-6" data-dias-fechados>
-          <summary className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">Dias fechados ({fechamentosHistorico.length})</summary>
-          <div className="mt-3">
-            <BalancoDiaTable rows={fechamentosHistorico} />
-          </div>
-        </details>
-      )}
+      {diasFechados}
 
       {/* Abas */}
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">

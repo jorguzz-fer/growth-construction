@@ -19,7 +19,7 @@ export type ResultadoIncc = { ok: true; meses: number } | { ok: false; error: st
  * (`projectFutureIncc`, `marcarComoProjecao`).
  */
 
-const TELAS_DO_INCC = ["/parametros", "/caixa", "/fluxocaixa", "/projecao", "/consolidado", "/simulador"];
+const TELAS_DO_INCC = ["/parametros", "/caixa", "/fluxocaixa", "/projecao", "/simulador"];
 
 const hojeGravado = () => {
   const d = new Date();

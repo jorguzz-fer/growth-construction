@@ -9,7 +9,7 @@ Regras gerais:
 - **Permissões padrão:**
   - Owner e admin têm tudo, sempre.
   - O membro, com a chave "Padrão novo do membro" desligada, vê, cria e edita toda tela fora do grupo Config, mas não exclui. Com a chave ligada, fica só com lançamento e receita.
-  - O contador é só leitura. Por padrão, vê DRE, Fluxo, Medição, Resumo, Consolidado, Plano de Contas, Despesas/Conferência e Auditoria.
+  - O contador é só leitura. Por padrão, vê DRE, Fluxo, Medição, Resumo, Plano de Contas, Despesas/Conferência e Auditoria.
   - O engenheiro só lança medição.
   - Ajustes por pessoa são feitos em Gestão de Acessos.
 - **Assistente:** várias telas têm um painel à direita que só lê os números da tela. As exceções estão indicadas abaixo.
@@ -129,23 +129,9 @@ Regras gerais:
 
 ---
 
-## Consolidado (/consolidado) — módulo Business Intelligence
+## Consolidado — saiu
 
-**Para que serve:** a receita projetada de **uma obra**, por fonte, ao longo do tempo. Apesar do nome, não soma obras.
-
-**O que se faz:**
-- Uma obra (sem "Todos"), período e versões.
-- Periodicidade Mensal/Trimestral/Semestral/Anual, com o ano.
-- Linhas: AS/Sinais, Mensais, Semestrais, Anuais, FGTS, Subsídio, Permuta, Liberações de Obra e TOTAL.
-- Com 2–3 versões, mostra o comparativo do total por fonte.
-
-**O que confunde:** as liberações entram no TOTAL, e uma célula zerada aparece como "—".
-
-**Não faz:** não mostra despesa, resultado nem várias obras. Para isso, use Dashboard, DRE, Fluxo ou Resumo em "Todos".
-
-**Chaves:** com Rascunho ligada, planejamento não Aprovado sai dos números.
-
-**Quem acessa:** owner e admin, o membro (chave desligada) e o contador (leitura).
+A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receitas**, que mostra a receita da obra por fonte: escolha duas ou três versões para ver os totais por fonte (AS/Sinais, Mensais, Semestrais, Anuais, FGTS, Subsídio, Permuta, Liberações de Obra). Pergunta livre sobre os números vai para a Cris.
 
 ---
 
@@ -392,10 +378,10 @@ Regras gerais:
 
 - **Orçamentos × Previsão Atualizada:** o Orçamento define linhas e totais. A Previsão nasce dele, herda tudo e só redistribui os % mensais (até 12 por projeto).
 - **DRE × Fluxo de Caixa:** a DRE é resultado (competência e vencimento) até o Resultado Final. O Fluxo é dinheiro: previsto pelo vencimento, realizado pela liquidação e saldo a partir das contas correntes.
-- **Dashboard × Resumo Executivo × Consolidado:**
+- **Dashboard × Resumo Executivo × Projeção de Receitas:**
   - o Dashboard é o painel geral (VGV, realizado, a receber, a pagar, margem);
   - o Resumo detalha vendas e fontes de recurso e as unidades por status;
-  - o Consolidado é a receita de **uma** obra por fonte e período.
+  - a Projeção é a receita de **uma** obra mês a mês e, comparando versões, por fonte.
 - **Usuários × Gestão de Acessos:** papel × ajuste fino por tela.
 - **Situação × Trava:** a situação documenta a etapa e, com a chave de Rascunho, decide se a versão entra nos relatórios. A trava impede editar.
 - **Rodapé da DRE × Conferência:** o rodapé conta o que ficou fora. A Conferência lista e corrige a categoria.

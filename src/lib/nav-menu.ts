@@ -72,7 +72,6 @@ export const NAV_MENU: NavModule[] = [
       { href: "/resumo", label: "Resumo Executivo" },
       // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
       { href: "/projecao", label: "Projeção de Receitas" },
-      { href: "/consolidado", label: "Consolidado" },
     ],
   },
   {
@@ -121,7 +120,6 @@ export const NAV_MENU: NavModule[] = [
       { href: "/contas", label: "Contas Correntes" },
       // Prompt REN (Fase 3): o cartão é meio de pagamento — mora no Caixa.
       { href: "/cartoes", label: "Cartões de Crédito" },
-      { href: "/balancodia", label: "Balanço do Dia" },
     ],
   },
   {

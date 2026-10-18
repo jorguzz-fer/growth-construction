@@ -91,6 +91,19 @@ const texto = async (page, url) => {
   check("L2: dias de hoje em diante mostram o previsto", previstos >= 1, `${previstos} dia(s)`);
   check("L2: cartão traz o saldo projetado", caixa.includes("Saldo projetado"));
   await page.screenshot({ path: `${OUT}/v3-caixa.png`, fullPage: true });
+
+  // AB2 — Consolidado e Balanço do Dia saem (redirecionamento com aviso).
+  check("AB2: menu sem Consolidado e sem Balanço do Dia", !/\bConsolidado\b/.test(menu) && !menu.includes("Balanço do Dia"));
+  const proj = await texto(page, "/consolidado");
+  check("AB2: /consolidado leva à Projeção com o aviso", page.url().includes("/projecao") && proj.includes("A tela Consolidado saiu"), page.url());
+  await page.context().close();
+}
+{
+  const page = await entrar("fer.jorge@gmail.com");
+  await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
+  const bal = await texto(page, "/balancodia");
+  check("AB2: /balancodia leva ao Caixa com o aviso", page.url().includes("/caixa") && bal.includes("A tela Balanço do Dia saiu"), page.url());
+  check("AB2: dias fechados aparecem no Caixa", (await page.locator("[data-dias-fechados]").count()) === 1);
   await page.context().close();
 }
 

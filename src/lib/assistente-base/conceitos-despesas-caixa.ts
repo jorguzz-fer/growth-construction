@@ -45,7 +45,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 ### Papéis e Gestão de Acessos
 - **owner** (Proprietário) e **admin** (Administrador): acesso total, sempre.
 - **membro**: com a chave "padrão novo do membro" desligada, pode ver, criar e editar em todas as telas fora de Configurações, mas **não exclui nem cancela**. Se a chave for ligada, passa a alcançar só as telas de lançamento e receita: Despesas, Contas a Pagar, Fornecedores, Caixa, Contas Correntes, Medição, Clientes, Unidades, Contas a Receber e Permuta.
-- **contador**: somente leitura. Por padrão vê DRE, Fluxo de Caixa, Medição, Resumo, Consolidado, Plano de Contas, Despesas e Auditoria. Pode receber "ver" em outras telas, mas nunca criar, editar ou excluir.
+- **contador**: somente leitura. Por padrão vê DRE, Fluxo de Caixa, Medição, Resumo, Plano de Contas, Despesas e Auditoria. Pode receber "ver" em outras telas, mas nunca criar, editar ou excluir.
 - **engenheiro**: só o lançamento de Medição.
 - **Gestão de Acessos** (Configurações): owner e admin ajustam, membro a membro, a matriz Ver/Criar/Editar/Excluir de cada tela. Usuários, Gestão de Acessos e Chaves de mudança não podem ser concedidas a outros papéis.
 - Algumas permissões são **ações**, não telas: "Fechar o dia (no Caixa)"; "Conciliação — ajustar e desfazer" (criar = lançar ajuste; excluir = desfazer conciliação e reabrir dia); "Travar e destravar versão"; "Aprovar e desaprovar versão".
@@ -211,6 +211,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
   - **Conciliado**: o que os lançamentos sustentam.
   - Num dia todo conciliado, os dois coincidem.
 - **Cadeia de saldo**: 2 dias realizados, hoje e 7 dias à frente. O botão **Fechar o dia** grava saldo inicial, entradas, saídas, saldo final e divergência. Fechar não trava lançamentos, e reabrir exige um motivo.
+- **O que vence nos próximos dias**: de hoje em diante, o cartão de cada dia mostra "Vence a receber", "Vence a pagar" e o "Saldo projetado". A pagar é o saldo em aberto das contas a pagar da versão Atual; a receber é o que falta receber das contas lançadas e as parcelas dos planos de venda. O que venceu e segue em aberto aparece num aviso à parte, sem entrar em nenhum dia. Título sem data de vencimento não entra.
+- **Dias fechados**: a seção recolhível abaixo da cadeia lista o histórico dos fechamentos (ver "Dias fechados (no Caixa)").
 - **Importar extrato**:
   - escolha a conta e, opcionalmente, o saldo final (que atualiza a conta);
   - envie XLSX, CSV ou PDF (PDF escaneado ou imagem só com IA);
@@ -257,18 +259,18 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - membro: ver, criar e editar;
 - contador: não acessa.
 
-## Balanço do Dia (/balancodia) — módulo Caixa
+## Dias fechados (no Caixa) — antes, tela Balanço do Dia
 
 **Para que serve:** o **histórico dos fechamentos do dia**: saldo inicial, entradas, saídas, saldo final, saldo em conta, divergências, responsável, data do fechamento e reaberturas com motivo.
 
+**Onde fica:** na tela **Caixa**, na seção recolhível "Dias fechados", abaixo da cadeia de saldo. Aparece com ou sem projeto escolhido, porque o histórico é da empresa. A antiga tela Balanço do Dia saiu; o endereço /balancodia leva ao Caixa.
+
 **O que se faz nela:** filtrar por período, imprimir e exportar CSV.
 
-**O que NÃO faz:** não fecha o dia (isso é feito no cartão da cadeia, na tela Caixa) e não mostra movimento a movimento (isso fica no Caixa).
-
-**Quem acessa por padrão:**
+**Quem vê:** quem tem "ver" em "Dias fechados (no Caixa)" na Gestão de Acessos (a antiga chave do Balanço do Dia):
 - owner e admin;
 - membro, com a chave do membro desligada;
-- contador: não acessa.
+- contador: não vê.
 
 ---
 
@@ -276,7 +278,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 
 - **Despesas × Contas a Pagar**: em Despesas se **lança, edita, paga e cancela**, por obra, com uma linha por PED. Contas a Pagar é **só consulta**, da empresa inteira, por **vencimento**, com uma linha por parcela, fatura ou saldo a ressarcir. A despesa parcelada aparece em várias linhas ali e em uma só em Despesas.
 - **Ressarcimentos × Acerto Contábil**: Ressarcimentos devolve o dinheiro a **um terceiro que pagou pela empresa**. No Acerto Contábil, a **própria empresa** paga várias despesas a fornecedores numa transferência só, e a diferença vira encargo ou desconto financeiro.
-- **Caixa × Contas Correntes × Balanço do Dia**: Contas Correntes é o **cadastro** das contas e do saldo; Caixa é o **dia a dia** (extrato, conciliação, ajustes, fechar o dia); Balanço do Dia é o **histórico** dos dias fechados.
+- **Caixa × Contas Correntes**: Contas Correntes é o **cadastro** das contas e do saldo; Caixa é o **dia a dia** (extrato, conciliação, ajustes, fechar o dia) e guarda o **histórico** dos dias fechados.
 - **Cartões × Despesas**: a compra é lançada em **Despesas** (forma "Cartão de crédito") e entra na DRE pela competência. **Cartões** cuida da **fatura**: acompanhar, pagar (a saída de caixa), juros, estorno e conferência do extrato do cartão.
 
 ## Caminhos comuns

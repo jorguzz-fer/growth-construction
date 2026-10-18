@@ -73,7 +73,7 @@ describe("perfil contador — somente leitura", () => {
   });
 
   it("enxerga os relatórios essenciais", () => {
-    for (const id of ["dre", "fluxocaixa", "consolidado"]) {
+    for (const id of ["dre", "fluxocaixa", "resumo"]) {
       expect(can(perms, id, "ver")).toBe(true);
     }
   });
