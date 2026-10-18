@@ -102,7 +102,7 @@ export function ChatAssistente() {
         aria-label={aberto ? `Fechar a ${NOME_DA_CRIS}` : `Falar com a ${NOME_DA_CRIS}`}
         aria-expanded={aberto}
         data-chat-botao
-        className="fixed bottom-5 right-5 z-[90] flex h-12 items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-4 shadow-lg hover:shadow-xl print:hidden"
+        className="fixed bottom-5 right-5 z-[110] flex h-12 items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-4 shadow-lg hover:shadow-xl print:hidden"
       >
         <Faisca />
         <span className="text-[13px] font-semibold text-[var(--color-ink)]">{NOME_DA_CRIS}</span>
@@ -112,7 +112,7 @@ export function ChatAssistente() {
           role="dialog"
           aria-label={`${NOME_DA_CRIS}, assistente`}
           data-chat
-          className="fixed bottom-20 right-5 z-[90] flex max-h-[75vh] w-[min(420px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-2xl print:hidden"
+          className="fixed bottom-20 right-5 z-[110] flex max-h-[75vh] w-[min(420px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-2xl print:hidden"
         >
           <div className="border-b border-[var(--color-line)] px-4 py-3">
             <div className="flex items-center justify-between">

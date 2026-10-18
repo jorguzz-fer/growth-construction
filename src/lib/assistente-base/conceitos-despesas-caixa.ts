@@ -139,6 +139,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Obra da saída**: com a chave "Saída do ressarcimento segue a despesa" desligada, cai na obra aberta na tela. Se ela for ligada, o ressarcimento avulso cai na obra da despesa, e o lote continua na obra da tela.
 - **Não confundir** com "Liberações de Obra" (rota /reembolso, módulo Receitas).
 
+- **Com a Cris**: com a janela "Registrar ressarcimento" aberta, a Cris preenche valor, data, conta e comprovante a partir do que a pessoa diz ou dita. Quem registra é o botão **Confirmar**.
+
 **O que NÃO faz:** não lança a despesa nova paga por terceiro. Isso é feito em Despesas, marcando "Paga por terceiro".
 
 **Quem acessa por padrão:**
@@ -180,6 +182,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Diferença** entre o transferido e o vinculado: o sistema a lança como despesa financeira (pago a mais) ou receita financeira (pago a menos), na competência do pagamento, sem ratear no custo das obras. Sobre a classificação contábil, confirme com a sua contabilidade.
 - Aba **Rateio entre obras**: o pagamento a um prestador de várias obras gera **um PED por obra** e uma só saída de caixa, com a base do rateio gravada.
 - Aba **Acertos do período**: histórico, com **estorno**.
+- **Com a Cris** (aba Vincular despesas): ela preenche o cabeçalho do pagamento e **marca** as despesas pelos números dos PEDs (aceita o final do número) ou, em lote, todas as de um fornecedor. Número que não acha ou que bate com mais de um é avisado, e nada é marcado por ele. Quem grava é o botão **Concluir acerto**, depois da conferência.
 
 **Quem acessa por padrão:** quem pode **editar Despesas e ver o Caixa**, ou seja, owner, admin e membro. O estorno exige excluir em Despesas (owner e admin). O contador não acessa.
 

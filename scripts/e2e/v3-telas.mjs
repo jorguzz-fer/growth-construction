@@ -216,6 +216,7 @@ const texto = async (page, url) => {
   check("K2: a Cris preenche a nova conta a receber", /Nova conta a receber/.test(await ctxCris(`/contasreceber?proj=${obraParaCadastro}`, "Nova conta a receber")));
   check("P2: a Cris preenche o novo ativo de permuta", /Novo ativo de permuta/.test(await ctxCris(`/permuta/novo?proj=${obraParaCadastro}`, "Novo ativo de permuta")));
   check("S3: a Cris preenche a nova despesa", /Nova despesa/.test(await ctxCris("/despesas?proj=all", "Nova despesa")));
+  check("T2: a Cris marca as despesas do acerto", /Acerto Contábil: pagamento/.test(await ctxCris("/acerto", "Acerto Contábil")));
   check("K2: a Cris preenche a nova liberação", /Nova liberação de obra/.test(await ctxCris(`/reembolso/novo?proj=${obraParaCadastro}`, "Nova liberação")));
 
   // D2 — Orçamentos: alteração não salva marca a tela e pede confirmação ao sair.

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { marcarDespesas } from "@/lib/acerto-cris";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -162,6 +164,45 @@ function VincularDespesas({
   const totalVinculado = Math.round(itens.reduce((a, i) => a + i.valor, 0) * 100) / 100;
   const transferido = Number(cab.valorTransferido) || 0;
   const diferenca = calcularDiferenca(transferido, totalVinculado);
+
+  // Prompt T2 — a Cris preenche o cabeçalho e marca as despesas (por PED ou,
+  // em lote, todas de um fornecedor). A confirmação é o Concluir da tela.
+  const [crisMsg, setCrisMsg] = useState<string | null>(null);
+  useCrisFormulario(
+    {
+      id: "acerto-vincular",
+      titulo: "Acerto Contábil: pagamento e despesas a quitar",
+      campos: [
+        { nome: "dataPagamento", rotulo: "Data do pagamento", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "banco", rotulo: "Banco / conta", tipo: "opcao", opcoes: bancos.map((b) => b.nome) },
+        { nome: "valorTransferido", rotulo: "Valor transferido", tipo: "numero", dica: "em reais" },
+        { nome: "formaPagamento", rotulo: "Forma", tipo: "opcao", opcoes: ["PIX", "Transferência bancária", "Boleto", "Cheque", "Dinheiro"] },
+        { nome: "favorecido", rotulo: "Favorecido", tipo: "opcao", opcoes: favorecidos.map((f) => f.nome) },
+        { nome: "obs", rotulo: "Observação", tipo: "texto" },
+        { nome: "marcarPeds", rotulo: "Despesas a marcar (PEDs)", tipo: "texto", dica: "nº dos PEDs separados por vírgula" },
+        { nome: "marcarFornecedor", rotulo: "Marcar todas as despesas deste fornecedor", tipo: "opcao", opcoes: opts.fornecedores.map((f) => f.nome) },
+      ],
+    },
+    (p) => {
+      const v = p.valores;
+      const banco = v.banco ? bancos.find((b) => b.nome === v.banco) : undefined;
+      const fav = v.favorecido ? favorecidos.find((f) => f.nome === v.favorecido) : undefined;
+      setCab((c) => ({
+        ...c,
+        ...(v.dataPagamento ? { dataPagamento: v.dataPagamento } : {}),
+        ...(banco ? { bankAccountId: banco.id } : {}),
+        ...(v.valorTransferido ? { valorTransferido: v.valorTransferido } : {}),
+        ...(v.formaPagamento ? { formaPagamento: v.formaPagamento } : {}),
+        ...(fav ? { favorecidoId: fav.id } : {}),
+        ...(v.obs ? { obs: v.obs } : {}),
+      }));
+      const r = marcarDespesas(despesas, { peds: v.marcarPeds, fornecedorNome: v.marcarFornecedor });
+      if (r.ids.length) setSel((s) => ({ ...s, ...Object.fromEntries(r.ids.map((id) => [id, despesas.find((d) => d.id === id)!.saldo])) }));
+      setCrisMsg(
+        [r.ids.length ? `A Cris marcou ${r.ids.length} despesa(s).` : "", r.naoAchados.length ? `Não encontrei: ${r.naoAchados.join(", ")}.` : "", "Confira e clique em Concluir."].filter(Boolean).join(" "),
+      );
+    },
+  );
 
   const alternar = (d: DespesaAbativel) =>
     setSel((s) => {
@@ -420,6 +461,11 @@ function VincularDespesas({
           )}
           {erro && <p className="mt-3 text-sm text-[var(--color-danger)]">{erro}</p>}
           {msg && <p className="mt-3 text-sm text-[var(--color-success)]">{msg}</p>}
+          {crisMsg && (
+            <p data-cris-preencheu className="mt-3 text-sm text-[var(--color-accent)]">
+              {crisMsg}
+            </p>
+          )}
           <div className="mt-4">
             <Button
               onClick={confirmar}
