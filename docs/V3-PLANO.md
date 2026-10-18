@@ -71,7 +71,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 12 | **AD2** | Fluxo de Caixa mensal e semanal | BAD2-1 | Pode ir antes de E2. |
 | 13 | **AD3** | Fluxo de Caixa Analítico (novo) | BAD3-1 | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. |
 | 14 | **AA2** | Dashboard: gráficos e PDF | BAA-1 (I §54–57) · critério de conciliação · PDF | (Especificado: fluxo de caixa em linhas, DRE em barras empilhadas.) |
-| 15 | **RC** | Relatório livre pelo chat | BRC-1 · BRC-2 · **a confirmar** | (Mudou: o dono descreveu o relatório livre como função do chat do Dashboard. Tela própria ou chat: decisão pendente.) Depende de E2. |
+| 15 | **RC** | Relatórios Customizados (nova) | BRC-1 | (Confirmado em 18/10: tela própria, com chat próprio. O chat do Dashboard não a substitui.) Depende de E2. |
 | 16 | **AE2** | Resumo Executivo: indicadores selecionáveis | BAE2-1 | Custo/m² precisa de área no cadastro. |
 | 17 | **IAR** | Chat de análise e simulação nas telas de relatório | — | Vai por último no bloco, tela a tela (Dashboard, DRE, Fluxo, Resumo, Projeção). Depende de E2. |
 
@@ -82,11 +82,11 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 18 | **D2** | Orçamentos: chat por voz, texto e arquivo | BD2-1 · 4.1.3 | **Estreia da Etapa 3.** Antes, `budget.ts` e `planning.ts` devolvem `{ ok, error }`. Aviso ao sair sem salvar. Depende de E2 e VOZ. |
 | 19 | **B2** | Projetos: comando e pré-preenchimento | BB2-1 · BB2-2 | Leitura de documento já existe. Depende de D2. |
 | 20 | **F2** | Previsão Atualizada: meses passados = Atual | BF2-1 | Estende a reprojeção. Depende de D2. |
-| 21 | **G2** | Plano de Contas: chat insere planos | **Decisão 8 de 18/10, a confirmar** | Revoga 8.2.1 do Prompt G. |
+| 21 | **G2** | Plano de Contas: chat insere planos | BG2-1 | (Confirmado em 18/10; revoga 8.2.1 do Prompt G.) Mesmo regime da Etapa 3. Depende de D2. |
 | 22 | **M2** | Clientes: cadastro por foto e perfil da base | BM2-1 | Leitura de documento nova (documento pessoal: regra de privacidade BE-2 vale). Perfil da base é relatório (IAR). |
 | 23 | **K2** | Contas a Receber e Liberações: chat lança | — | Edição por linha já existe; confirmar o que falta. |
 | 24 | **P2** | Permuta: documentos do ativo e chat | — | Upload de documento e foto do ativo. |
-| 25 | **N2** | Simulador | **a confirmar com o Thiago** | Conferência antes de prompt. |
+| 25 | **N2** | Simulador | **espera a conferência do Thiago** | O dono pediu a ele em 18/10. |
 | 26 | **AG2** | Emissão de NF-e no menu de Receitas | BAG2-1 | A tela não está neste repositório. Entra quando chegar. |
 
 ## Bloco 4 · Despesas, Caixa, Obra, Pessoas e Configurações
@@ -100,7 +100,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 31 | **U2** | Cartões no Caixa: extrato, conciliação, proposta de lançamento | BU2-1 | Tela parecida com o Caixa. Pagamento parcial e juros já existem (Prompt U): conferir. |
 | 32 | **V2b** | Medição de Projeto: chat por voz | — | Só o chat; a tela não muda. |
 | 33 | **Y2** | Estoque: painel com caixa de conversa | — | Saída já existe; mostrar. |
-| 34 | **Q2** | INCC por empresa | **a confirmar** | Modelo de dados muda. Chat explica e projeta. |
+| 34 | **Q2** | INCC por empresa | BQ2-1 | (Confirmado em 18/10: um índice por empresa.) Migra as séries por projeto; o seletor sai. Chat explica e projeta. |
 | 35 | **Z2** | Pessoas: chat cadastra funcionário | — | Equipes já lista parceiros. |
 | 36 | **AI2** | Usuários: sugestão de telas por papel; verificar restrição | BAI2-1 | Bug relatado: restrição por papel "não funcionava". |
 | 37 | **AH2 / AK2 / AF2** | Empresa, Auditoria, Numeração: chat | — | Pequenos; juntos num prompt. |
@@ -113,7 +113,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
   que o usuário vê, ou também as linhas? Nome de obra vai?
 - **BE2-2** · Limite de uso por empresa para análises e simulações.
 - **BE2-3** · A simulação grava algo (cenário salvo) ou vive só na aba?
-- **BE2-4** · Nome do chat (o Thiago batiza).
+- **BE2-4** · Nome do chat: **Cris** (respondido em 18/10).
 - **BV2-1** · Transcrição: no provedor atual de IA, ou em serviço à parte?
   Retenção do áudio.
 - **BPDF-1** · PDF no servidor ou pelo navegador? Cabeçalho da empresa?
@@ -132,8 +132,10 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 - **BAD3-1** · O Fluxo Analítico herda a visão "por fonte" da Projeção?
 - **BRC-1** · O relatório livre é salvo (nome, dono, compartilhado) ou só
   exportado?
-- **BRC-2** · Tela própria de Relatórios Customizados ou só o chat do
-  Dashboard?
+- **BG2-1** · O chat do Plano de Contas cria grupo, conta e subconta, ou só
+  conta dentro de grupo existente? Inativar e reordenar continuam vedados?
+- **BQ2-1** · Projetos que hoje têm séries de INCC diferentes: qual vira a
+  da empresa? A migração guarda as outras?
 - **BAE2-1** · Área construída para custo/m²: entra no cadastro do projeto?
 - **BD2-1** · Lançamento por voz: o assistente propõe uma linha por vez, ou
   um bloco inteiro?
@@ -164,8 +166,8 @@ Sem resposta pendente, podem começar agora: **REN**, **AC2**, **AD2**,
 **PLAT** (com BPLAT-1 respondido em uma linha) e a base de **PDF**. Depois
 **E2**, que destrava o resto. **DP** assim que o Thiago fizer a associação
 do cliente na tela (o prompt entrega o campo e o padrão; a chave liga depois).
-**L2** antes de **AB2**. **G2**, **Q2**, **N2** e **RC** esperam as
-confirmações listadas em [`V3-DECISOES-1810.md`](./V3-DECISOES-1810.md).
+**L2** antes de **AB2**. **N2** espera a conferência do Thiago sobre o
+Simulador; o resto está liberado pelas respostas de 18/10.
 
 ```
 REN, AC2, AD2, PLAT, PDF: independentes

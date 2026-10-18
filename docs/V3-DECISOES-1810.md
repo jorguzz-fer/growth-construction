@@ -44,23 +44,19 @@ não está na gravação, está marcada **a confirmar**.
    as telas (já é a regra 4.2.1 da Etapa 3; fica registrada como pedido do
    dono).
 8. **Plano de Contas: chat insere planos.** O Thiago reafirmou nas duas
-   reuniões e o dono não contestou. **A confirmar** pelo dono em uma linha,
-   porque revoga a regra 8.2.1 do Prompt G (decisão 2 de 15/10).
+   reuniões. **Confirmado pelo dono em 18/10.** Revoga a regra 8.2.1 do
+   Prompt G e fecha a decisão 2 de 15/10. Vale o mesmo regime da Etapa 3:
+   proposta, confirmação pelo botão, permissão no servidor, auditoria.
 
-## A confirmar pelo dono
+## Respostas do dono — 18/10
 
-- **Item 8 acima** (Plano de Contas com escrita assistida).
-- **Nome do chat.** "Cris" era o nome anterior; o Thiago sugeriu um nome
-  tipo "Jarvis" e ficou de batizar.
-- **INCC por empresa.** Tirar o seletor de projeto muda o modelo: hoje o
-  índice é por projeto (`incc_project_mes_uq`). Confirmar que o índice passa
-  a ser um só por empresa e o que fazer com projetos que hoje têm séries
-  diferentes.
-- **Simulador.** O Thiago achou que "descaracterizou". O Prompt N o
-  reconstruiu a partir da planilha do cliente e o manteve calculadora
-  (BN-1). Precisa de uma conferência com o Thiago antes de qualquer prompt.
-- **Relatórios Customizados.** Com o chat livre no Dashboard, a tela própria
-  (prompt RC) ainda faz sentido ou o chat é o relatório customizado?
+| Pergunta | Resposta |
+|---|---|
+| Plano de Contas com escrita assistida (item 8) | **Confirma.** |
+| Nome do chat | **Cris.** Volta o nome anterior. Entra no prompt E2 (BE2-4 fechado). |
+| INCC | **Um por empresa.** O seletor de projeto sai. O prompt Q2 migra as séries por projeto para uma série da empresa; projetos com séries diferentes são o bloqueio BQ2-1. |
+| Relatórios Customizados | **Continua como tela própria.** O chat do Dashboard não a substitui (BRC-2 fechado). |
+| Simulador | O dono pede ao Thiago que confira. N2 espera essa conferência. |
 
 ## O que já está no código e só precisa ser mostrado
 
