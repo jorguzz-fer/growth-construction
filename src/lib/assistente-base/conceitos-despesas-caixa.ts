@@ -194,6 +194,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - Cadastrar PF ou PJ (com leitura opcional do cartão CNPJ ou contrato por IA), com endereço e dados para ressarcimento (banco e PIX).
 - Marcar **papéis**; uma pessoa pode ter vários (Fornecedor de Material, Prestador de Serviço, Sócio/Quotista etc.).
 - Buscar, filtrar por papel, inativar e excluir (digitando o nome para confirmar).
+- **Com a Cris**: anexe na conversa o cartão CNPJ, o contrato ou a nota (ou dite os dados) e peça para preencher. Ela preenche nome, tipo, documento, contato, endereço e papéis, com os mesmos alertas da leitura por upload. Banco, conta e PIX são preenchidos à mão. Quem cadastra é o botão da tela.
 
 **Campos que confundem:**
 - **Inativo** não aparece nos seletores de lançamentos novos, mas continua aparecendo nos lançamentos antigos.

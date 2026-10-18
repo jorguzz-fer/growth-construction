@@ -14,7 +14,10 @@ import {
   ROTULO_CAMPO_FORNECEDOR,
   montarPreenchimentoFornecedor,
   type CampoFornecedor,
+  type DadosFornecedorLidos,
 } from "@/lib/ai/fornecedor-doc";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { formularioDoFornecedor, lidosDaProposta, manterSoNaoPropostos } from "@/lib/fornecedor-cris";
 
 export function FornecedorForm({
   papeis,
@@ -110,57 +113,69 @@ export function FornecedorForm({
           setErroLeitura(lido.error);
           return;
         }
-        // A regra de "não sobrescrever o que o usuário digitou" e a decisão do
-        // que vira alerta moram em `fornecedor-doc.ts` (puro e testado).
-        const res = montarPreenchimentoFornecedor(
-          lido.data,
-          {
-            nome,
-            nomeFantasia,
-            tipo: tipo === "PJ" ? "" : tipo,
-            doc,
-            contato,
-            email,
-            tel,
-            whatsapp,
-            site,
-            endereco,
-            numero,
-            complemento,
-            bairro,
-            cidade,
-            estado,
-            cep,
-          },
-          [...selected],
-        );
-        const v = res.valores;
-        if (v.nome) setNome(v.nome);
-        if (v.nomeFantasia) setNomeFantasia(v.nomeFantasia);
-        if (v.tipo) setTipo(v.tipo);
-        if (v.doc) setDoc(v.doc);
-        if (v.contato) setContato(v.contato);
-        if (v.email) setEmail(v.email);
-        if (v.tel) setTel(v.tel);
-        if (v.whatsapp) setWhatsapp(v.whatsapp);
-        if (v.site) setSite(v.site);
-        if (v.endereco) setEndereco(v.endereco);
-        if (v.numero) setNumero(v.numero);
-        if (v.complemento) setComplemento(v.complemento);
-        if (v.bairro) setBairro(v.bairro);
-        if (v.cidade) setCidade(v.cidade);
-        if (v.estado) setEstado(v.estado);
-        if (v.cep) setCep(v.cep);
-        if (res.papeis) setSelected(new Set(res.papeis));
-        setAlertas(res.alertas);
-        setLeitura({ preenchidos: res.preenchidos });
-        setNotice(null);
+        aplicarLidos(lido.data);
       } catch {
         // Só resta o caso que a action não alcança (rede, sessão expirada).
         setErroLeitura("Falha ao ler o documento — verifique a conexão e tente novamente.");
       }
     });
   }
+
+  /**
+   * A regra de "não sobrescrever o que o usuário digitou" e a decisão do que
+   * vira alerta moram em `fornecedor-doc.ts` (puro e testado). Prompt W2: a
+   * proposta da Cris passa pelo mesmo caminho; como a pessoa pediu, os campos
+   * que ela propôs (`propostos`) substituem o que estiver na tela, e os outros
+   * ficam como estão.
+   */
+  function aplicarLidos(dados: DadosFornecedorLidos, propostos?: ReadonlySet<string>) {
+    const atuais = {
+      nome,
+      nomeFantasia,
+      tipo: tipo === "PJ" ? "" : tipo,
+      doc,
+      contato,
+      email,
+      tel,
+      whatsapp,
+      site,
+      endereco,
+      numero,
+      complemento,
+      bairro,
+      cidade,
+      estado,
+      cep,
+    };
+    const res = montarPreenchimentoFornecedor(
+      dados,
+      propostos ? manterSoNaoPropostos(atuais, propostos) : atuais,
+      propostos?.has("papeis") ? [] : [...selected],
+    );
+    const v = res.valores;
+    if (v.nome) setNome(v.nome);
+    if (v.nomeFantasia) setNomeFantasia(v.nomeFantasia);
+    if (v.tipo) setTipo(v.tipo);
+    if (v.doc) setDoc(v.doc);
+    if (v.contato) setContato(v.contato);
+    if (v.email) setEmail(v.email);
+    if (v.tel) setTel(v.tel);
+    if (v.whatsapp) setWhatsapp(v.whatsapp);
+    if (v.site) setSite(v.site);
+    if (v.endereco) setEndereco(v.endereco);
+    if (v.numero) setNumero(v.numero);
+    if (v.complemento) setComplemento(v.complemento);
+    if (v.bairro) setBairro(v.bairro);
+    if (v.cidade) setCidade(v.cidade);
+    if (v.estado) setEstado(v.estado);
+    if (v.cep) setCep(v.cep);
+    if (res.papeis) setSelected(new Set(res.papeis));
+    setAlertas(res.alertas);
+    setLeitura({ preenchidos: res.preenchidos });
+    setNotice(null);
+  }
+
+  useCrisFormulario(formularioDoFornecedor(papeis), (p) => aplicarLidos(lidosDaProposta(p.valores, papeis), new Set(Object.keys(p.valores))));
 
   function salvar() {
     setError(null);
