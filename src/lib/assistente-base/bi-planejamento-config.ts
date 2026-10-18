@@ -177,6 +177,9 @@ Regras gerais:
 - **Uma obra**: tabela Indicadores Gerais e os cartões Unidades (Disponíveis/Reservadas/Vendidas/Total) e Financiamento Banco. Com um período informado, aparece também "Recebimentos previstos no período".
 - **2–3 versões**: tabela comparativa, sem o filtro de período.
 - **Todos/Ativos/Finalizados**: uma coluna por tipo de versão, com a cobertura. Com mais de uma obra, aparece o comparativo entre projetos. Custo realizado × orçado só para quem vê Despesas.
+- **Indicadores de negócio**, no topo: marque os que quer ver, entre VGV, VGV vendido, % vendido, unidades vendidas, preço médio vendido por m², VGV por m², custo realizado, custo realizado por m², custo orçado por m², desvio de custo e margem orçada. A escolha fica no endereço da página, então o link e o PDF levam os mesmos. Com várias obras, há uma coluna por obra e o Total. Os de custo só aparecem para quem vê Despesas.
+- O custo por m² usa a **área construída** do cadastro do projeto (campo "Área construída (m²)", em Projetos → Custos do projeto). Sem ela, o indicador diz "sem área construída no cadastro". O preço por m² usa o m² de cada unidade.
+- **Exportar PDF** do Resumo.
 
 **O que confunde:**
 - Os indicadores são **acumulados da versão**. O período só afeta o cartão de recebimentos.

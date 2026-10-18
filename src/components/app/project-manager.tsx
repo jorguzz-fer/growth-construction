@@ -466,6 +466,7 @@ function formDe(p: Project) {
     clienteId: p.clienteId ?? "",
     valorConstrucao: str(p.valorConstrucao),
     valorTerreno: str(p.valorTerreno),
+    metragem: str(p.metragem),
     custoConstrucao: str(p.custoConstrucao),
     custoTerreno: str(p.custoTerreno),
     financiamentoConstrucao: str(p.financiamentoConstrucao),
@@ -569,6 +570,7 @@ function ProjectCard({
         clienteId: f.clienteId,
         valorConstrucao: f.valorConstrucao || null,
         valorTerreno: f.valorTerreno || null,
+        metragem: f.metragem || null,
         custoConstrucao: f.custoConstrucao || null,
         custoTerreno: f.custoTerreno || null,
         financiamentoConstrucao: f.financiamentoConstrucao || null,
@@ -740,6 +742,18 @@ function ProjectCard({
             <div className="grid grid-cols-2 gap-3">
               {campoMoney("custoConstrucao", "Custo da construção")}
               {campoMoney("custoTerreno", "Custo do terreno")}
+              {/* Prompt AE2 (BAE2-1): a área construída é a base do custo por m² do Resumo. */}
+              <div>
+                <Label>Área construída (m²)</Label>
+                <Input
+                  inputMode="decimal"
+                  value={f.metragem}
+                  onChange={(e) => set("metragem")(e.target.value)}
+                  disabled={off}
+                  placeholder="não informada"
+                  aria-label="Área construída (m²)"
+                />
+              </div>
             </div>
           </Bloco>
         </div>

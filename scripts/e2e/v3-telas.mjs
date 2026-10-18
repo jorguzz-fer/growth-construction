@@ -173,6 +173,20 @@ const texto = async (page, url) => {
   await page.waitForSelector("[data-relatorio-chat] [role=alert], [data-relatorio-fala=cris]", { timeout: 60000 });
   check("RC: o chat responde (sem chave de IA, manda usar os campos)", /campos/.test((await page.textContent("[data-relatorio-chat]")) ?? ""));
   await page.screenshot({ path: `${OUT}/v3-relatorios.png`, fullPage: true });
+
+  // AE2 — Resumo Executivo: indicadores de negócio selecionáveis, no link e no PDF.
+  await texto(page, "/resumo?proj=all");
+  check("AE2: painel de indicadores no Resumo", (await page.locator("[data-indicadores-negocio]").count()) === 1);
+  check("AE2: abre com os indicadores padrão", (await page.locator("[data-linha-indicador]").count()) === 4);
+  await page.check('[data-indicador="margem_orcada"]');
+  await page.waitForURL(/ind=.*margem_orcada/, { timeout: 30000 }).catch(() => {});
+  check("AE2: marcar um indicador entra na tabela e no link", (await page.locator('[data-linha-indicador="margem_orcada"]').count()) === 1 && /ind=/.test(page.url()), page.url());
+  check("AE2: Resumo exporta PDF", (await page.locator("[data-exportar-pdf]").count()) === 1);
+  await page.screenshot({ path: `${OUT}/v3-resumo.png`, fullPage: true });
+  await texto(page, "/caixa");
+  const obraParaCadastro = await page.locator("select option").nth(1).getAttribute("value");
+  await texto(page, `/projeto?proj=${obraParaCadastro}`);
+  check("AE2: cadastro do projeto tem a área construída", (await page.locator('input[aria-label="Área construída (m²)"]').count()) >= 1);
   await page.context().close();
 }
 

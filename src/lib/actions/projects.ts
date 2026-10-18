@@ -226,6 +226,8 @@ export interface PatchDoProjeto {
   custoTerreno?: string | number | null;
   valorConstrucao?: string | number | null;
   valorTerreno?: string | number | null;
+  /** Prompt AE2 (BAE2-1): área construída em m² — base do custo por m². */
+  metragem?: string | number | null;
   formaPagamentoTerreno?: string | null;
   proprietarioTerreno?: string | null;
   terrenoForaCaixa?: boolean;
@@ -289,6 +291,11 @@ export async function updateProject(
   if (patch.custoTerreno !== undefined) set.custoTerreno = normValor(patch.custoTerreno);
   if (patch.valorConstrucao !== undefined) set.valorConstrucao = normValor(patch.valorConstrucao);
   if (patch.valorTerreno !== undefined) set.valorTerreno = normValor(patch.valorTerreno);
+  if (patch.metragem !== undefined) {
+    const m = normValor(patch.metragem);
+    if (m != null && !(Number(m) > 0 && Number(m) < 10_000_000)) return { ok: false, error: "Área construída: informe os m² (maior que zero)." };
+    set.metragem = m;
+  }
   if (patch.formaPagamentoTerreno !== undefined)
     set.formaPagamentoTerreno = patch.formaPagamentoTerreno?.trim() || null;
   if (patch.proprietarioTerreno !== undefined)
