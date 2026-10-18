@@ -48,7 +48,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 1 | **NOM** | Nomenclatura das versões | — | **Feito.** |
 | 2 | **E2** | Chat — arquitetura da Fase 3 | **Feito em 18/10** ([relatório](./V3-PROMPT-E2-FINAL.md)) | Reabre BE-2; libera a Etapa 3; o chat flutuante passa a saber a tela, a ler os números dela, a cruzar telas e a **explicar o sistema** (absorve o Assistente). Nome do chat. **Todo prompt dos Blocos 2 a 4 depende dele.** |
 | 3 | **VOZ** | Entrada por voz | **Feito em 18/10** ([relatório](./V3-PROMPT-VOZ-FINAL.md)) | Captura no navegador e transcrição; o texto entra no mesmo caminho do texto digitado. Em todas as telas de cadastro e lançamento. Depende de E2. |
-| 4 | **PDF** | Geração de PDF | BPDF-1 | Gerador no servidor para o Dashboard e, depois, outras telas. |
+| 4 | **PDF** | Geração de PDF | **Feito em 18/10** ([relatório](./V3-PROMPT-PDF-FINAL.md)) | Gerador no servidor para o Dashboard e, depois, outras telas. |
 | 5 | **REN** | Renomeações e mudanças de menu | **Feito em 18/10** | Fornecedores e Parceiros; Medição de Projeto; Cartões → Caixa; Projeção → BI; aba "A Pagar" de Despesas sai. Só rótulo e menu. **Pode ir já.** |
 | 6 | **PLAT** | Chaves e Backup só na plataforma | **Feito em 18/10** (BPLAT-1 em aberto) | Tiram-se do menu do cliente; o console `/plataforma` opera. O aviso de backup some. |
 
@@ -56,8 +56,8 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 7 | **AM2** | Assistente sai | — | (BAM2-1 respondido: a função vai para o chat, E2.) Depende de E2. Redirecionamento, sem apagar. |
-| 8 | **AB2** | Consolidado e Balanço do Dia saem | BAB2-1 | (Projeção fica.) Balanço do Dia só depois de o Caixa listar os dias fechados (L2). Redirecionamento, sem apagar. |
+| 7 | **AM2** | Assistente sai | **Feito em 18/10** ([relatório](./V3-PROMPT-AM2-FINAL.md)) | (BAM2-1 respondido: a função vai para o chat, E2.) Depende de E2. Redirecionamento, sem apagar. |
+| 8 | **AB2** | Consolidado e Balanço do Dia saem | **Feito em 18/10** ([relatório](./V3-PROMPT-AB2-FINAL.md)) | (Projeção fica.) Balanço do Dia só depois de o Caixa listar os dias fechados (L2). Redirecionamento, sem apagar. |
 
 (S2, aba "Acertos", **saiu do plano**: Acerto Contábil fica como tela.)
 
@@ -65,15 +65,15 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 9 | **DP** | De-para no Plano de Contas | BDP-3 | (Mudou: campo "categoria da DRE" em `chart_account`, com padrão de boa prática e edição.) Despesa passa a herdar e travar a categoria. **Altera a DRE: chave desligada + prévia.** Pré-requisito de AC3 e AD3. |
+| 9 | **DP** | De-para no Plano de Contas | **Feito em 18/10** ([relatório](./V3-PROMPT-DP-FINAL.md)) | (Mudou: campo "categoria da DRE" em `chart_account`, com padrão de boa prática e edição.) Despesa passa a herdar e travar a categoria. **Altera a DRE: chave desligada + prévia.** Pré-requisito de AC3 e AD3. |
 | 10 | **AC2** | DRE anual com a mensal abaixo | **Feito em 18/10** | (Mudou: mesma tela, mensal abaixo da anual; cenários em caixas de seleção.) Verificar a versão padrão ao abrir. Pode ir antes de E2. |
-| 11 | **AC3** | DRE Analítica (nova) | BAC3-1 | Drill-down categoria → grupo → plano de contas, vertical. Depende de DP. |
+| 11 | **AC3** | DRE Analítica (nova) | **Feito em 18/10** ([relatório](./V3-PROMPT-AC3-FINAL.md)) | Drill-down categoria → grupo → plano de contas, vertical. Depende de DP. |
 | 12 | **AD2** | Fluxo de Caixa mensal e semanal | **Feito em 18/10** | Pode ir antes de E2. |
-| 13 | **AD3** | Fluxo de Caixa Analítico (novo) | BAD3-1 | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. |
-| 14 | **AA2** | Dashboard: gráficos e PDF | BAA-1 (I §54–57) · critério de conciliação · PDF | (Especificado: fluxo de caixa em linhas, DRE em barras empilhadas.) |
-| 15 | **RC** | Relatórios Customizados (nova) | BRC-1 | (Confirmado em 18/10: tela própria, com chat próprio. O chat do Dashboard não a substitui.) Depende de E2. |
-| 16 | **AE2** | Resumo Executivo: indicadores selecionáveis | BAE2-1 | Custo/m² precisa de área no cadastro. |
-| 17 | **IAR** | Chat de análise e simulação nas telas de relatório | — | Vai por último no bloco, tela a tela (Dashboard, DRE, Fluxo, Resumo, Projeção). Depende de E2. |
+| 13 | **AD3** | Fluxo de Caixa Analítico (novo) | **Feito em 18/10** ([relatório](./V3-PROMPT-AD3-FINAL.md)) | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. |
+| 14 | **AA2** | Dashboard: gráficos e PDF | **Feito em 18/10** ([relatório](./V3-PROMPT-AA2-FINAL.md)) | (Especificado: fluxo de caixa em linhas, DRE em barras empilhadas.) |
+| 15 | **RC** | Relatórios Customizados (nova) | **Feito em 18/10** ([relatório](./V3-PROMPT-RC-FINAL.md)) | (Confirmado em 18/10: tela própria, com chat próprio. O chat do Dashboard não a substitui.) Depende de E2. |
+| 16 | **AE2** | Resumo Executivo: indicadores selecionáveis | **Feito em 18/10** ([relatório](./V3-PROMPT-AE2-FINAL.md)) | Custo/m² precisa de área no cadastro. |
+| 17 | **IAR** | Chat de análise e simulação nas telas de relatório | **Feito em 18/10** ([relatório](./V3-PROMPT-IAR-FINAL.md)) | Vai por último no bloco, tela a tela (Dashboard, DRE, Fluxo, Resumo, Projeção). Depende de E2. |
 
 ## Bloco 3 · Planejamento e Receitas (escrita assistida)
 
@@ -96,7 +96,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 27 | **S3** | Despesas: chat por voz/texto/documento; recorrência; "paga por terceiro" | BS3-1 | Investigar o bug da lista vazia antes. Depende de E2 e VOZ. |
 | 28 | **T2** | Ressarcimentos e Acerto Contábil: chat | — | Acerto: seleção por voz e marcação em lote, com confirmação. |
 | 29 | **W2** | Fornecedores e Parceiros: chat lê arquivo | — | Leitura de documento já existe (`fornecedor-extract`). |
-| 30 | **L2** | Caixa: dias fechados, projeção dos próximos dias, chat na conciliação | BL2-1 · BL2-2 | Lista dos dias fechados (destrava AB2). Projeção lê Contas a Pagar e a Receber. Open Finance já existe: expor o fluxo de conexão no onboarding. |
+| 30 | **L2** | Caixa: dias fechados, projeção dos próximos dias, chat na conciliação | **Feito em 18/10** ([relatório](./V3-PROMPT-L2-FINAL.md)) | Lista dos dias fechados (destrava AB2). Projeção lê Contas a Pagar e a Receber. Open Finance já existe: expor o fluxo de conexão no onboarding. |
 | 31 | **U2** | Cartões no Caixa: extrato, conciliação, proposta de lançamento | BU2-1 | Tela parecida com o Caixa. Pagamento parcial e juros já existem (Prompt U): conferir. |
 | 32 | **V2b** | Medição de Projeto: chat por voz | — | Só o chat; a tela não muda. |
 | 33 | **Y2** | Estoque: painel com caixa de conversa | — | Saída já existe; mostrar. |
