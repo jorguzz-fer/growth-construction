@@ -1,190 +1,180 @@
 # PLANO DA FASE 3 — GROWTH TOOLS · CONSTRUCTION APP
 
-Montado em 15/10/2026 a partir da revisão do Thiago de 14/10
-([`V3-REVISAO-1410.md`](./V3-REVISAO-1410.md)) e das decisões do dono de 15/10
-([`V3-DECISOES-1510.md`](./V3-DECISOES-1510.md)). Segue o mesmo formato do
+Versão de 18/10/2026. Fontes: a revisão do Thiago de 14/10
+([`V3-REVISAO-1410.md`](./V3-REVISAO-1410.md)), as duas reuniões de revisão
+V5 ([`V3-REVISAO-1710.md`](./V3-REVISAO-1710.md)) e as decisões de 15/10 e
+18/10 ([`V3-DECISOES-1510.md`](./V3-DECISOES-1510.md),
+[`V3-DECISOES-1810.md`](./V3-DECISOES-1810.md)). Segue o formato do
 [`v2/PROMPTS.md`](./v2/PROMPTS.md): cada prompt tem bloqueios, e **nenhum é
-executado sem responder os seus**. Os prompts em si ainda não estão escritos;
-este arquivo é o índice e o inventário que cada um vai receber.
+executado sem responder os seus**. Os prompts em si são escritos um a um,
+na ordem da seção 4; este arquivo é o índice.
 
 As quatro regras dos 42 prompts da V2 continuam: nenhum dado inputado pela
 empresa é alterado; nenhuma mudança amplia acesso; mudança que altera número
 em produção entra atrás de chave desligada; nada vindo de mockup entra no
-código.
+código. A Fase 3 acrescenta uma quinta, pedida pelo dono: **toda gravação
+assistida por IA passa pelo botão da tela**; o chat propõe, a pessoa
+confirma.
 
 ---
 
-# 1. O QUE A REVISÃO PEDE E O QUE JÁ EXISTE
+# 1. SITUAÇÃO EM 18/10
 
-Levantamento feito sobre o `main` depois do PR #260. "Feito" é o que o código
-já faz; "parcial" é o que existe em parte; "novo" é o que não existe.
+O que já foi feito nesta fase e o que a V5 mudou no mapa.
 
-## Transversal
+| Item | Situação |
+|---|---|
+| Nomenclatura das versões (NOM) | **Feito** em 15/10 ([`V3-PROMPT-NOM-FINAL.md`](./V3-PROMPT-NOM-FINAL.md)). |
+| Telas que saem | Consolidado, Assistente e Balanço do Dia. **Projeção de Receitas fica** e muda para BI. **Acerto Contábil fica** como tela. |
+| Telas que mudam de módulo | Cartões de Crédito → Caixa. Projeção de Receitas → Business Intelligence. Emissão de NF-e → Receitas (quando a tela existir). |
+| Renomeações | Fornecedores e Parceiros; Medição de Projeto. |
+| De-para CEF → DRE | Não é tela: campo no Plano de Contas, com padrão, travando a categoria na despesa. |
+| Já existe e só precisa ser mostrado | Caixa sem contas de terceiros; saída de Estoque; Equipes com parceiros; edição em Contas a Receber; Open Finance via Pluggy. |
 
-| Pedido | Situação | Onde está / o que falta |
-|---|---|---|
-| Versões como Orçamento, Previsão Atualizada e Atual | **Feito (NOM, 15/10)** | Sobravam "Budget"/"Forecast" no seletor da DRE, no botão de importar, nos avisos e no console; o cenário da DRE chamava-se "Realizado". Tudo passou aos três nomes. Rótulo de versão já gravada não muda. |
-| Assistente de IA em toda tela | **Parcial** | 23 painéis somente leitura (Prompt E, Etapa 1) e o chat flutuante (Etapa 2). Nenhum escreve; nenhum faz simulação; nenhum recebe número da tela. |
-| IA lê documento e preenche por voz ou texto | **Parcial** | Leitura de documento existe para despesa, fornecedor, unidade, permuta, medição, folha de ponto, estoque, extrato e projeto (`src/lib/ai/*-extract.ts`), sempre como proposta. **Voz não existe em lugar nenhum**: sem captura de áudio nem transcrição. |
-
-## Business Intelligence
-
-| Pedido | Situação | Onde está / o que falta |
-|---|---|---|
-| Dashboard: dois gráficos centrais | **Novo** | Prompt AA, Parte 4-A, não feita. Bloqueada pelo Prompt I §54–57 (linha de receita) e pelo critério de conciliação do caixa (Prompt L, Parte 7). `charts.tsx` existe como componente. |
-| Dashboard: IA gera PDF com indicadores escolhidos | **Novo** | Não há geração de PDF em nenhuma tela. |
-| Relatórios Customizados com chat próprio | **Novo** | Prompt AA, Parte 7: "nada foi criado". É quem absorve a pergunta do Consolidado (BAB-1). |
-| Assistente sai | **A fazer** | `/diagnosticoia` é o chat que explica o produto (Prompt AM). Decisão 4 de 15/10 libera. Destino da ajuda: em aberto. |
-| DRE Mensal e DRE Anual, versões por checkbox | **Parcial** | A DRE já tem visão mensal (`?view=mensal`), análise vertical e seleção de cenários lado a lado (`cenario-multiselect.tsx`, botões). Falta separar em duas telas e trocar botões por checkbox. |
-| DRE Analítica: drill-down até o plano de contas, vertical | **Novo** | A DRE para na categoria. Depende do de-para CEF → DRE para o custo de obra. |
-| Fluxo de Caixa mensal e semanal | **Parcial** | Só mensal (`fluxocaixa/page.tsx`). Semanal é novo. |
-| Fluxo de Caixa Analítico: grupo CEF, subgrupo, plano de contas, vertical | **Novo** | Nada abre por grupo. Candidato a herdar a visão "por fonte" da Projeção de Receitas (BAB-1). |
-| Resumo Executivo com indicadores selecionáveis (custo/m², VGV vendido) | **Parcial** | VGV total e VGV vendido existem (`resumo/page.tsx`). Custo/m² não existe e precisa de área no cadastro do projeto. Seleção de indicadores é nova. |
-
-## Planejamento
-
-| Pedido | Situação | Onde está / o que falta |
-|---|---|---|
-| Projetos: chat lê documento e preenche o cadastro | **Feito** | Prompt B, 25–26: `projeto-doc.ts`, `projetos-assistente.ts`. Proposta campo a campo, Salvar grava com `origem: "assistente"`. |
-| Projetos: alterações por comando ("mudar o projeto 28") | **Novo** | Depende da Etapa 3 (decisão 1). |
-| Projetos pré-preenche datas, custo e receita em Orçamentos | **Novo** | `projeto/page.tsx` não toca em `budget_line`. |
-| Orçamentos: IA ativa por voz e por arquivo | **Novo** | Painel atual é somente leitura. Pré-condição 4.1.1 cumprida (gravação não destrutiva). 4.1.3 pendente: `budget.ts` e `planning.ts` ainda lançam erro. |
-| Previsão Atualizada parecida com Orçamentos; IA traz Atual e Orçamento mês a mês | **Parcial** | A tela já é a mesma grade (`budget-planning-screen.tsx`) e o assistente já propõe reprojeção, "você confirma" (Prompt F). Falta o ajuste mês a mês guiado pelo Atual. |
-| Plano de Contas: chat para inserir departamentos, áreas e subáreas | **Bloqueado** | Prompt G 8.2.1 veda escrita assistida nesta tela "permanentemente". Decisão 2 pendente. |
-| De-para CEF → categoria da DRE, fixo e editável na tela | **Novo** | Só há heurística em `planocontas-analise.ts` e `natureza-dre`. Tabela de entrada é tarefa do Thiago. |
-
-## Telas canceladas (Etapas 1 e 2)
-
-| Tela | Decisão | Situação |
-|---|---|---|
-| Projeção de Receitas | Removida | **Não saiu.** Prompt AB, Fase 1: pergunta "por fonte" sem dono. |
-| Consolidado | Removida | **Não saiu.** Sem dono até Relatórios Customizados. |
-| Balanço do Dia | Removida | **Não saiu.** Único leitor de `daily_closing`. |
-| Acesso Contabilidade | Removida | Feito (Prompt AL). |
-| Conferência de Planos | Removida | Feito (Prompt AN). |
-| Configuração da Versão | Removida | Feito (Prompt AP). |
-| Ponto da Obra | Substituída por Pessoas | Feito (Prompt Z). |
-| Fechamento de Caixa | Removida | Feito (Prompt L, Parte 9). |
-| Acerto Contábil | Aba "Acertos" em Despesas | **Não feito.** Ainda é tela própria no menu de Despesas. Prompt S adiou até o L. |
-| Duas telas de medição | Uma tela com abas | Feito (Prompt V). |
-| Duas telas de diagnóstico/conferência | Uma tela com abas | Feito (Prompt AN). |
+O inventário completo, tela a tela, está na revisão V5.
 
 ---
 
-# 2. ÍNDICE DOS PROMPTS DA FASE 3
+# 2. ÍNDICE DOS PROMPTS
 
-Os códigos reaproveitam a letra do prompt da V2 que é dono da tela, com o
-sufixo "2" (ou "3" para a tela nova que nasce ao lado). Prompts sem
-antecedente ganham código próprio.
+Os códigos reaproveitam a letra do prompt da V2 dono da tela, com sufixo
+"2" (ou "3" para a tela nova ao lado). Prompts sem antecedente ganham código
+próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 
 ## Bloco 0 · Arquitetura e limpeza
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 1 | **NOM** | Nomenclatura das versões | — | **Feito em 15/10** ([`V3-PROMPT-NOM-FINAL.md`](./V3-PROMPT-NOM-FINAL.md)). "Realizado" virou "Atual" (BNOM-1). |
-| 2 | **E2** | Assistente de IA — arquitetura da Fase 3 | BE2-1 · BE2-2 · BE2-3 | Reabre BE-2 (decisão 3) e libera a Etapa 3 (decisão 1). **Todo prompt dos Blocos 2 e 3 depende dele.** |
-| 3 | **VOZ** | Entrada por voz | BV2-1 · BV2-2 | Infraestrutura: captura no navegador e transcrição. Nada grava; o texto transcrito entra no mesmo caminho do texto digitado. Depende de E2. |
-| 4 | **PDF** | Geração de PDF | BPDF-1 | Infraestrutura: um gerador no servidor para Dashboard e, depois, outras telas. Independente de IA. |
+| 1 | **NOM** | Nomenclatura das versões | — | **Feito.** |
+| 2 | **E2** | Chat — arquitetura da Fase 3 | BE2-1 · BE2-2 · BE2-3 · BE2-4 | Reabre BE-2; libera a Etapa 3; o chat flutuante passa a saber a tela, a ler os números dela, a cruzar telas e a **explicar o sistema** (absorve o Assistente). Nome do chat. **Todo prompt dos Blocos 2 a 4 depende dele.** |
+| 3 | **VOZ** | Entrada por voz | BV2-1 | Captura no navegador e transcrição; o texto entra no mesmo caminho do texto digitado. Em todas as telas de cadastro e lançamento. Depende de E2. |
+| 4 | **PDF** | Geração de PDF | BPDF-1 | Gerador no servidor para o Dashboard e, depois, outras telas. |
+| 5 | **REN** | Renomeações e mudanças de menu | — | Fornecedores e Parceiros; Medição de Projeto; Cartões → Caixa; Projeção → BI; aba "A Pagar" de Despesas sai. Só rótulo e menu. **Pode ir já.** |
+| 6 | **PLAT** | Chaves e Backup só na plataforma | BPLAT-1 | Tiram-se do menu do cliente; o console `/plataforma` opera. O aviso de backup some. |
 
 ## Bloco 1 · O que sai
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 5 | **AM2** | Assistente sai | BAM2-1 | Tira `/diagnosticoia` do menu e as menções (importação de extrato, regras de uso de IA). Redirecionamento, sem apagar. |
-| 6 | **S2** | Acerto Contábil vira aba "Acertos" em Despesas | BS2-1 | Somente leitura na aba; a action de acerto continua onde está. |
-| 7 | **AB2** | Projeção, Consolidado e Balanço do Dia saem | BAB-1 · BAB-3 (ainda abertos) | Projeção e Balanço do Dia podem sair assim que BAB-1 e BAB-3 forem respondidos. **Consolidado só depois de RC.** |
+| 7 | **AM2** | Assistente sai | — | (BAM2-1 respondido: a função vai para o chat, E2.) Depende de E2. Redirecionamento, sem apagar. |
+| 8 | **AB2** | Consolidado e Balanço do Dia saem | BAB2-1 | (Projeção fica.) Balanço do Dia só depois de o Caixa listar os dias fechados (L2). Redirecionamento, sem apagar. |
+
+(S2, aba "Acertos", **saiu do plano**: Acerto Contábil fica como tela.)
 
 ## Bloco 2 · Relatórios
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 8 | **DP** | De-para CEF → DRE | BDP-1 · BDP-2 | Tela fixa e editável, com a tabela do Thiago como carga inicial. **Pré-requisito de AC3 e AD3.** Altera número da DRE: entra atrás de chave. |
-| 9 | **AC2** | DRE Mensal e DRE Anual | BAC2-1 | Reorganiza o que existe; checkbox de versões. Pode ir antes de E2. |
-| 10 | **AC3** | DRE Analítica (nova) | BAC3-1 | Drill-down categoria → grupo → plano de contas, com análise vertical. Depende de DP. |
-| 11 | **AD2** | Fluxo de Caixa mensal e semanal | BAD2-1 | Semanal exige regra para parcela sem dia (só competência). Pode ir antes de E2. |
-| 12 | **AD3** | Fluxo de Caixa Analítico (novo) | BAD3-1 | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. Candidato a absorver "por fonte" (AB2). |
-| 13 | **AA2** | Dashboard: gráficos e PDF | BAA-1 (I §54–57) · critério de conciliação · PDF | Os dois gráficos do mockup. O PDF pela IA depende de PDF e E2. |
-| 14 | **RC** | Relatórios Customizados (nova) | BRC-1 · BRC-2 | Tela com chat próprio que monta o relatório. Depende de E2. **Libera a saída do Consolidado.** |
-| 15 | **AE2** | Resumo Executivo: indicadores selecionáveis | BAE2-1 | VGV vendido pronto; custo/m² precisa de área no cadastro (Prompt B). |
-| 16 | **IAR** | Assistente dos relatórios: análise e simulação | — | Troca os painéis somente leitura das telas de relatório pela nova regra de E2. Vai por último no bloco, tela a tela. |
+| 9 | **DP** | De-para no Plano de Contas | BDP-3 | (Mudou: campo "categoria da DRE" em `chart_account`, com padrão de boa prática e edição.) Despesa passa a herdar e travar a categoria. **Altera a DRE: chave desligada + prévia.** Pré-requisito de AC3 e AD3. |
+| 10 | **AC2** | DRE anual com a mensal abaixo | BAC2-2 | (Mudou: mesma tela, mensal abaixo da anual; cenários em caixas de seleção.) Verificar a versão padrão ao abrir. Pode ir antes de E2. |
+| 11 | **AC3** | DRE Analítica (nova) | BAC3-1 | Drill-down categoria → grupo → plano de contas, vertical. Depende de DP. |
+| 12 | **AD2** | Fluxo de Caixa mensal e semanal | BAD2-1 | Pode ir antes de E2. |
+| 13 | **AD3** | Fluxo de Caixa Analítico (novo) | BAD3-1 | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. |
+| 14 | **AA2** | Dashboard: gráficos e PDF | BAA-1 (I §54–57) · critério de conciliação · PDF | (Especificado: fluxo de caixa em linhas, DRE em barras empilhadas.) |
+| 15 | **RC** | Relatórios Customizados (nova) | BRC-1 | (Confirmado em 18/10: tela própria, com chat próprio. O chat do Dashboard não a substitui.) Depende de E2. |
+| 16 | **AE2** | Resumo Executivo: indicadores selecionáveis | BAE2-1 | Custo/m² precisa de área no cadastro. |
+| 17 | **IAR** | Chat de análise e simulação nas telas de relatório | — | Vai por último no bloco, tela a tela (Dashboard, DRE, Fluxo, Resumo, Projeção). Depende de E2. |
 
-## Bloco 3 · Planejamento (escrita assistida)
+## Bloco 3 · Planejamento e Receitas (escrita assistida)
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 17 | **D2** | Orçamentos: IA ativa por voz e arquivo | BD2-1 · 4.1.3 | **Estreia da Etapa 3** (4.2.5: gravação não destrutiva, sem efeito contábil). Antes, `budget.ts` e `planning.ts` passam a devolver `{ ok, error }`. Depende de E2 e VOZ. Inclui o teste da tela que o Thiago pediu. |
-| 18 | **B2** | Projetos: comando por texto e pré-preenchimento de Orçamentos | BB2-1 · BB2-2 | Leitura de documento já existe. "Mudar o projeto 28" é Etapa 3 com confirmação. O pré-preenchimento cria `budget_line` por proposta, nunca direto. Depende de D2. |
-| 19 | **F2** | Previsão Atualizada: ajuste mês a mês com Atual e Orçamento | BF2-1 | Estende a reprojeção que existe. Depende de D2. |
-| 20 | **G2** | Plano de Contas: chat para departamentos, áreas e subáreas | **Decisão 2 pendente** | Não entra enquanto a regra 8.2.1 do Prompt G não for revogada. |
+| 18 | **D2** | Orçamentos: chat por voz, texto e arquivo | BD2-1 · 4.1.3 | **Estreia da Etapa 3.** Antes, `budget.ts` e `planning.ts` devolvem `{ ok, error }`. Aviso ao sair sem salvar. Depende de E2 e VOZ. |
+| 19 | **B2** | Projetos: comando e pré-preenchimento | BB2-1 · BB2-2 | Leitura de documento já existe. Depende de D2. |
+| 20 | **F2** | Previsão Atualizada: meses passados = Atual | BF2-1 | Estende a reprojeção. Depende de D2. |
+| 21 | **G2** | Plano de Contas: chat insere planos | BG2-1 | (Confirmado em 18/10; revoga 8.2.1 do Prompt G.) Mesmo regime da Etapa 3. Depende de D2. |
+| 22 | **M2** | Clientes: cadastro por foto e perfil da base | BM2-1 | Leitura de documento nova (documento pessoal: regra de privacidade BE-2 vale). Perfil da base é relatório (IAR). |
+| 23 | **K2** | Contas a Receber e Liberações: chat lança | — | Edição por linha já existe; confirmar o que falta. |
+| 24 | **P2** | Permuta: documentos do ativo e chat | — | Upload de documento e foto do ativo. |
+| 25 | **N2** | Simulador | **espera a conferência do Thiago** | O dono pediu a ele em 18/10. |
+| 26 | **AG2** | Emissão de NF-e no menu de Receitas | BAG2-1 | A tela não está neste repositório. Entra quando chegar. |
+
+## Bloco 4 · Despesas, Caixa, Obra, Pessoas e Configurações
+
+| # | Prompt | Tela | Bloqueios | Observação |
+|---|---|---|---|---|
+| 27 | **S3** | Despesas: chat por voz/texto/documento; recorrência; "paga por terceiro" | BS3-1 | Investigar o bug da lista vazia antes. Depende de E2 e VOZ. |
+| 28 | **T2** | Ressarcimentos e Acerto Contábil: chat | — | Acerto: seleção por voz e marcação em lote, com confirmação. |
+| 29 | **W2** | Fornecedores e Parceiros: chat lê arquivo | — | Leitura de documento já existe (`fornecedor-extract`). |
+| 30 | **L2** | Caixa: dias fechados, projeção dos próximos dias, chat na conciliação | BL2-1 · BL2-2 | Lista dos dias fechados (destrava AB2). Projeção lê Contas a Pagar e a Receber. Open Finance já existe: expor o fluxo de conexão no onboarding. |
+| 31 | **U2** | Cartões no Caixa: extrato, conciliação, proposta de lançamento | BU2-1 | Tela parecida com o Caixa. Pagamento parcial e juros já existem (Prompt U): conferir. |
+| 32 | **V2b** | Medição de Projeto: chat por voz | — | Só o chat; a tela não muda. |
+| 33 | **Y2** | Estoque: painel com caixa de conversa | — | Saída já existe; mostrar. |
+| 34 | **Q2** | INCC por empresa | BQ2-1 | (Confirmado em 18/10: um índice por empresa.) Migra as séries por projeto; o seletor sai. Chat explica e projeta. |
+| 35 | **Z2** | Pessoas: chat cadastra funcionário | — | Equipes já lista parceiros. |
+| 36 | **AI2** | Usuários: sugestão de telas por papel; verificar restrição | BAI2-1 | Bug relatado: restrição por papel "não funcionava". |
+| 37 | **AH2 / AK2 / AF2** | Empresa, Auditoria, Numeração: chat | — | Pequenos; juntos num prompt. |
 
 ---
 
 # 3. OS BLOQUEIOS, EM UMA LISTA
 
-Perguntas que precisam de resposta do dono (ou do Thiago) antes do prompt
-correspondente ser escrito. As que exigem SQL somente leitura recebem a
-consulta dentro do próprio prompt.
-
 - **BE2-1** · O que de cada tela de relatório vai ao modelo: só os agregados
   que o usuário vê, ou também as linhas? Nome de obra vai?
-- **BE2-2** · Limite de uso por empresa para análises e simulações (hoje
-  `ia-uso-regras.ts` limita as conversas).
+- **BE2-2** · Limite de uso por empresa para análises e simulações.
 - **BE2-3** · A simulação grava algo (cenário salvo) ou vive só na aba?
+- **BE2-4** · Nome do chat: **Cris** (respondido em 18/10).
 - **BV2-1** · Transcrição: no provedor atual de IA, ou em serviço à parte?
   Retenção do áudio.
-- **BV2-2** · Voz em todas as telas de input ou só em Orçamentos, Previsão e
-  Projetos nesta fase?
-- **BPDF-1** · O PDF é gerado no servidor (biblioteca) ou pelo navegador
-  (imprimir)? Marca d'água e cabeçalho da empresa?
-- **BAM2-1** · A função "explicar o produto" acaba ou vira ajuda no menu?
-  (pergunta do Thiago).
-- **BS2-1** · Confirmar que a decisão da Etapa 1 (aba "Acertos", somente
-  leitura) vale. Quem precisa criar acerto continua fazendo onde?
-- **BAB-1 / BAB-3** · As três perguntas do Prompt AB, Fase 1: "por fonte",
-  histórico de `daily_closing`, e quem recebe os CSVs.
-- **BDP-1** · A tabela de de-para chega pronta do Thiago? Com que colunas
-  (grupo CEF → categoria da DRE, e subgrupo?).
-- **BDP-2** · Grupo CEF sem de-para: fica fora da DRE Analítica e é nomeado,
-  ou cai em "Não classificado"?
-- **BAC2-1** · DRE Anual soma os 12 meses do ano civil ou do período do
-  projeto?
+- **BPDF-1** · PDF no servidor ou pelo navegador? Cabeçalho da empresa?
+- **BPLAT-1** · O dono do cliente pede backup como? Um botão que abre
+  chamado, ou só por contato?
+- **BAB2-1** · Alguém recebe o CSV do Balanço do Dia?
+- **BDP-3** · Plano de contas já usado com categoria diferente da que o
+  padrão vai dar: a chave mostra quantas despesas mudam de categoria. Quem
+  decide o padrão de cada plano antes de ligar a chave: o Thiago, na tela.
+- **BAC2-2** · A mensal abaixo da anual mostra os 12 meses do ano escolhido,
+  com os mesmos cenários?
 - **BAC3-1** · O drill-down mostra lançamento individual no último nível, ou
   para no plano de contas?
 - **BAD2-1** · Semana começa na segunda? Parcela sem dia de vencimento vai
   para qual semana?
-- **BAD3-1** · O Fluxo Analítico herda a visão "por fonte" da Projeção? (liga
-  com BAB-1).
-- **BRC-1** · O relatório customizado é salvo (nome, dono, compartilhado) ou
-  só exportado?
-- **BRC-2** · O chat do RC monta o relatório a partir do catálogo (métricas
-  existentes) ou pode consultar qualquer tabela?
-- **BAE2-1** · Área construída para custo/m²: entra no cadastro do projeto ou
-  vem de outro lugar?
-- **BD2-1** · Lançamento por voz: o assistente propõe uma linha por vez, ou um
-  bloco inteiro?
+- **BAD3-1** · O Fluxo Analítico herda a visão "por fonte" da Projeção?
+- **BRC-1** · O relatório livre é salvo (nome, dono, compartilhado) ou só
+  exportado?
+- **BG2-1** · O chat do Plano de Contas cria grupo, conta e subconta, ou só
+  conta dentro de grupo existente? Inativar e reordenar continuam vedados?
+- **BQ2-1** · Projetos que hoje têm séries de INCC diferentes: qual vira a
+  da empresa? A migração guarda as outras?
+- **BAE2-1** · Área construída para custo/m²: entra no cadastro do projeto?
+- **BD2-1** · Lançamento por voz: o assistente propõe uma linha por vez, ou
+  um bloco inteiro?
 - **BB2-1** · "Mudar o projeto 28": que campos podem ser alterados por
-  comando? Período e status entram?
+  comando?
 - **BB2-2** · O pré-preenchimento de Orçamentos cria uma versão nova ou
   preenche a Orçamento existente vazia?
 - **BF2-1** · O ajuste mês a mês substitui a reprojeção atual ou é mais um
   botão?
+- **BM2-1** · Foto de documento pessoal do cliente vai ao modelo? A regra de
+  01/10 veda dado pessoal; aqui o documento é o dado.
+- **BAG2-1** · Onde está a tela de emissão que o Thiago diz pronta?
+- **BS3-1** · "Paga por terceiro": quem aparece é quem tem o papel, ou todo
+  cadastro de Ressarcimentos?
+- **BL2-1** · A projeção dos próximos dias conta parcela a pagar sem dia?
+- **BL2-2** · Open Finance: o cliente conecta sozinho ou a plataforma
+  conecta por ele?
+- **BU2-1** · Extrato do cartão: PDF da fatura ou CSV? Open Finance de
+  cartão pela Pluggy?
+- **BAI2-1** · Reproduzir a falha da restrição por papel com o usuário do
+  cliente.
 
 ---
 
 # 4. ORDEM SUGERIDA
 
-**NOM** está feito. O que pode começar agora, sem resposta pendente: **AC2**,
-**AD2** e a parte de infraestrutura de **PDF**. Em seguida **E2**, que destrava os dois
-blocos maiores. **DP** assim que o Thiago entregar a tabela. **AM2** e **S2**
-assim que BAM2-1 e BS2-1 forem respondidos. **G2** espera a conversa de 16/10.
-
-Dependências que mandam na ordem:
+Sem resposta pendente, podem começar agora: **REN**, **AC2**, **AD2**,
+**PLAT** (com BPLAT-1 respondido em uma linha) e a base de **PDF**. Depois
+**E2**, que destrava o resto. **DP** assim que o Thiago fizer a associação
+do cliente na tela (o prompt entrega o campo e o padrão; a chave liga depois).
+**L2** antes de **AB2**. **N2** espera a conferência do Thiago sobre o
+Simulador; o resto está liberado pelas respostas de 18/10.
 
 ```
-NOM ─┐
-E2 ──┼─► VOZ ─► D2 ─► B2, F2
-     ├─► IAR, RC ─► AB2 (Consolidado)
-     └─► AA2 (com PDF)
+REN, AC2, AD2, PLAT, PDF: independentes
+E2 ─┬─► VOZ ─► D2 ─► B2, F2, S3, K2, M2, P2, W2, T2, V2b, Z2, AI2
+    ├─► IAR, RC
+    ├─► AM2
+    └─► AA2 (com PDF)
 DP ──► AC3, AD3
-AC2, AD2, PDF: independentes
+L2 ──► AB2, U2
 ```
