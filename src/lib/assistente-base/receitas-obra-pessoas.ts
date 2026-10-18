@@ -24,6 +24,8 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 - Cadastrar e editar a ficha do cliente, com os blocos Vínculo e contrato, Dados cadastrais, Dados financeiros e Inteligência de mercado.
 - Anexar documentos de venda, como contrato, proposta, termo aditivo e distrato, até 10 MB cada. Um novo arquivo do mesmo tipo vira a versão seguinte, e a anterior continua guardada.
 - Excluir o cliente, digitando o nome dele para confirmar.
+- **Perfil da base** (no topo, recolhível): quantos clientes por situação do contrato, finalidade (morar ou investir), faixa etária, cidade e como conheceu, e quantos têm unidade. São só contagens; grupo com menos de 3 clientes entra em "Outros". Renda, FGTS, score, documento e contato não entram. A Cris analisa esse perfil.
+- A Cris **não** preenche a ficha do cliente nem lê documento pessoal dele: dado pessoal não vai ao modelo.
 
 **Campos que confundem:**
 - **Status do contrato** (Ativo, Assinado, Em análise, Reservado, Distratado ou Cancelado): enquanto o status estiver em branco ou for qualquer um que não seja Distratado ou Cancelado, a unidade fica presa a este cliente. Nesse caso, o sistema recusa vincular a mesma unidade a outro comprador.

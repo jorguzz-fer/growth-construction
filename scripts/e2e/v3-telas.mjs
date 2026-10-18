@@ -200,6 +200,10 @@ const texto = async (page, url) => {
   check("B2: a Cris sabe o cadastro do projeto aberto", /Cadastro do projeto/.test((await page.textContent("[data-chat-contexto]")) ?? ""));
   await page.click("[data-chat-botao]");
 
+  // M2 — Clientes: o perfil da base, só contagens.
+  const cliTxt = await texto(page, "/clientes");
+  check("M2: Clientes mostra o perfil da base", (await page.locator("[data-perfil-base]").count()) === 1 && /Perfil da base/.test(cliTxt));
+
   // D2 — Orçamentos: alteração não salva marca a tela e pede confirmação ao sair.
   await texto(page, `/budget?proj=${obraParaCadastro}`);
   check("D2: abre sem alteração pendente", (await page.locator("[data-nao-salvo]").count()) === 0);
