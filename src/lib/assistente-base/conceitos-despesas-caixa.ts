@@ -159,7 +159,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Faturas**:
   - **Pagar**: só fatura fechada; informa valor, data, conta e obra do lançamento. Pagamento parcial é aceito.
   - **Juros cobrados**: vira uma despesa "Despesas Financeiras".
-- **Extrato do cartão**: subir XLSX ou CSV para conferir o que não foi lançado, o que não apareceu no extrato e as divergências. Também se registra **estorno**.
+- **Extrato do cartão**: subir XLSX ou CSV, ou o **PDF (ou foto) da fatura**, para conferir o que não foi lançado, o que não apareceu no extrato e as divergências. O PDF é lido por IA e aparece numa **prévia**: só com "Registrar" o extrato é guardado, e nenhuma despesa é lançada. Também se registra **estorno**.
+- **Lançar o que faltou**: cada item "No extrato, sem lançamento" tem "Lançar em Despesas →", que abre a despesa já preenchida com valor, cartão, data e descrição. A pessoa confere e salva lá.
 
 **Campos que confundem:**
 - A **compra** é lançada em **Despesas**, com a forma "Cartão de crédito": cartão, data da compra e número de parcelas (1 a 48). Ela nasce "A pagar", **sem saída de caixa**, e cada parcela cai na fatura do ciclo correspondente.

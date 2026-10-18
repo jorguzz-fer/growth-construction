@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import * as XLSX from "xlsx";
 import Link from "next/link";
-import { importarExtratoCartao, registrarEstorno, vincularCreditoAoEstorno } from "@/lib/actions/cartao-extrato";
+import { importarExtratoCartao, lerFaturaCartaoPdf, registrarEstorno, vincularCreditoAoEstorno, type ItemImportado } from "@/lib/actions/cartao-extrato";
 import { parseSheet } from "@/lib/extrato-parse";
 import type { Conferencia, CompraParaConferir, ItemDoExtrato } from "@/lib/calc/conferencia-cartao";
 import { brl0, dateBR } from "@/lib/utils";
@@ -30,10 +30,34 @@ export function ExtratoCartao({ cartoes, cartaoId, conferencia, compras, projeto
   const [estornoDe, setEstornoDe] = useState<{ itemId: string | null; valor: string; despesaId: string; data: string } | null>(null);
   const obra = projetos[0]?.id ?? "";
 
+  /** Prompt U2 — fatura em PDF/imagem lida por IA: fica em prévia até a pessoa confirmar. */
+  const [previa, setPrevia] = useState<ItemImportado[] | null>(null);
+
+  const registrar = (itens: ItemImportado[]) =>
+    start(async () => {
+      if (!cartaoId) return;
+      const r = await importarExtratoCartao({ cartaoId, itens });
+      if (r.ok) {
+        setPrevia(null);
+        setMsg(`${r.inseridos} lançamento(s) registrado(s); ${r.ignorados} já estavam (não duplicados); ${r.vinculados} crédito(s) reconhecido(s) como estorno antecipado.`);
+      } else setErro(r.error);
+    });
+
   async function subir(file: File) {
     setErro(null);
     setMsg(null);
+    setPrevia(null);
     if (!cartaoId) return setErro("Escolha o cartão antes de subir o extrato.");
+    if (/\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
+      const fd = new FormData();
+      fd.set("file", file);
+      start(async () => {
+        const r = await lerFaturaCartaoPdf(fd);
+        if (r.ok) setPrevia(r.itens);
+        else setErro(r.error);
+      });
+      return;
+    }
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -42,11 +66,7 @@ export function ExtratoCartao({ cartoes, cartaoId, conferencia, compras, projeto
       // No extrato do cartão, a convenção é a inversa do extrato bancário: a
       // compra aparece como débito. Mantemos: positivo = compra, negativo = crédito.
       const itens = res.rows.map((r) => ({ data: r.data, descricao: r.descricao, valor: r.valor }));
-      start(async () => {
-        const r = await importarExtratoCartao({ cartaoId, itens });
-        if (r.ok) setMsg(`${r.inseridos} lançamento(s) registrado(s); ${r.ignorados} já estavam (não duplicados); ${r.vinculados} crédito(s) reconhecido(s) como estorno antecipado.`);
-        else setErro(r.error);
-      });
+      registrar(itens);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao ler o arquivo.");
     }
@@ -62,7 +82,7 @@ export function ExtratoCartao({ cartoes, cartaoId, conferencia, compras, projeto
       <CardContent className="p-5">
         <h2 className="text-sm font-semibold text-[var(--color-ink)]">Extrato do cartão — conferência</h2>
         <p className="mt-1 text-[12.5px] text-[var(--color-ink2)]">
-          Suba o extrato (XLSX/CSV com colunas de data, descrição e valor; positivo = compra, negativo = crédito). Nada é lançado por aqui: a tela aponta o que está no cartão e não foi lançado, e o contrário. O lançamento acontece em Despesas.
+          Suba o extrato (XLSX/CSV com colunas de data, descrição e valor; positivo = compra, negativo = crédito) ou o PDF da fatura, que a IA lê e mostra para você conferir antes de registrar. Nada é lançado por aqui: a tela aponta o que está no cartão e não foi lançado, e o contrário. O lançamento acontece em Despesas.
         </p>
         <form method="get" action="/cartoes" className="mt-3 flex flex-wrap items-end gap-2">
           <div>
@@ -78,7 +98,7 @@ export function ExtratoCartao({ cartoes, cartaoId, conferencia, compras, projeto
           </div>
           {canEditar && cartaoId && (
             <div>
-              <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])} />
+              <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])} />
               <Button type="button" variant="outline" disabled={pending} onClick={() => inputRef.current?.click()}>
                 {pending ? "Subindo…" : "Subir extrato"}
               </Button>
@@ -86,6 +106,29 @@ export function ExtratoCartao({ cartoes, cartaoId, conferencia, compras, projeto
           )}
         </form>
         {msg && <p className="mt-2 text-[12px] text-[var(--color-ink2)]" role="status">{msg}</p>}
+        {previa && (
+          <div data-previa-fatura className="mt-3 rounded-[10px] border border-[var(--color-line)] p-3">
+            <h3 className="text-[13px] font-semibold text-[var(--color-ink)]">Lido da fatura: confira antes de registrar</h3>
+            <p className="text-[11.5px] text-[var(--color-ink3)]">
+              {previa.filter((i) => i.valor > 0).length} compra(s), {brl0(previa.filter((i) => i.valor > 0).reduce((a, i) => a + i.valor, 0))} · {previa.filter((i) => i.valor < 0).length} crédito(s), {brl0(previa.filter((i) => i.valor < 0).reduce((a, i) => a + i.valor, 0))}. Registrar guarda só o extrato, para a conferência abaixo. Nenhuma despesa é lançada.
+            </p>
+            <ul className="mt-2 max-h-64 space-y-0.5 overflow-auto text-[12px] text-[var(--color-ink2)]">
+              {previa.map((i, k) => (
+                <li key={k}>
+                  {dateBR(i.data)} · {i.descricao} · <strong className={i.valor < 0 ? "text-[var(--color-success)]" : ""}>{brl0(i.valor)}</strong>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={pending} onClick={() => registrar(previa)}>
+                {pending ? "Registrando…" : `Registrar ${previa.length} lançamento(s)`}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setPrevia(null)}>
+                Descartar
+              </Button>
+            </div>
+          </div>
+        )}
         {erro && <p className="mt-2 text-[12px] text-[var(--color-danger)]" role="alert">{erro}</p>}
 
         {conferencia && (

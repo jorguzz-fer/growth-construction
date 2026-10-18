@@ -14,6 +14,8 @@ import { FaturasCartao } from "@/components/app/faturas-cartao";
 import { ProjecaoCartao } from "@/components/app/projecao-cartao";
 import { getPagamentosDaFatura } from "@/lib/actions/faturas";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisDaTela } from "@/components/app/cris-contexto";
+import { estadoDaFatura } from "@/lib/calc/fatura";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +73,21 @@ export default async function CartoesPage({ searchParams }: { searchParams: Prom
       {/* Abaixo de 1180px o painel desce para baixo do conteúdo (Prompt E, 6.2). */}
       <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
       <div className="min-w-0 flex-1">
+      {/* Prompt U2 — a Cris sabe dos cartões, das faturas e da conferência do extrato. Só apelido e 4 últimos. */}
+      <CrisDaTela
+        titulo="Cartões de Crédito"
+        dados={{
+          cartoes: cartoes.map((c) => ({ cartao: `${c.apelido}${c.ultimos4 ? " •••• " + c.ultimos4 : ""}`, ativo: c.ativo, limite: c.limite == null ? null : Number(c.limite), usadoNoCiclo: usado[c.id] ?? 0, fechamentoDia: c.diaFechamento, vencimentoDia: c.diaVencimento })),
+          faturas: faturas
+            .filter((f) => f.qtdCompras > 0 || f.valorPago > 0)
+            .slice(-24)
+            .map((f) => ({ cartao: cartoes.find((c) => c.id === f.cartaoId)?.apelido ?? "—", fechamento: f.fechamento, vencimento: f.vencimento, estado: estadoDaFatura(f, hoje), compras: f.valorCompras, pago: f.valorPago, creditos: f.creditos })),
+          conferenciaDoExtrato: cartaoExtrato && conferencia
+            ? { cartao: cartaoExtrato.apelido, conferem: conferencia.casados.length, noExtratoSemLancamento: conferencia.semLancamento.map((i) => ({ data: i.data, descricao: i.descricao, valor: i.valor })), lancadoSemExtrato: conferencia.semExtrato.length, divergentes: conferencia.divergentes.length, creditos: conferencia.creditos.length }
+            : null,
+        }}
+        sugestoes={["O que está no extrato e não foi lançado?", "Quanto vence na próxima fatura?", "Como subo a fatura em PDF?", "Como lanço um estorno?"]}
+      />
       {can(ctx.perms, "cartoes", "criar") && <CartaoForm contas={contas} />}
       <CartoesManager cartoes={cartoes} contas={contas} usado={usado} vinculos={vinculos} hoje={hoje} canEditar={can(ctx.perms, "cartoes", "editar")} canExcluir={can(ctx.perms, "cartoes", "excluir")} />
       <ProjecaoCartao cartoes={cartoes} faturas={faturas} hoje={hoje} />

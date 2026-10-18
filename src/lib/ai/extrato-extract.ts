@@ -103,7 +103,14 @@ function toInternal(s: string): string {
 export async function extractExtratoFromDocument(
   bytes: Uint8Array,
   mime: string,
+  /**
+   * Prompt U2 — "cartao" lê a FATURA do cartão de crédito, com a convenção do
+   * extrato do cartão: positivo = compra, negativo = crédito/estorno. O
+   * pagamento da fatura anterior não é movimento desta fatura e fica de fora.
+   */
+  tipo: "banco" | "cartao" = "banco",
 ): Promise<ExtratoExtraido> {
+  const cartao = tipo === "cartao";
   if (!isAiConfigured()) {
     throw new Error("Leitura por IA não configurada (defina ANTHROPIC_API_KEY).");
   }
@@ -117,8 +124,9 @@ export async function extractExtratoFromDocument(
 
   const tool: Anthropic.ToolUnion = {
     name: "extrair_extrato",
-    description:
-      "Extrai as movimentações (lançamentos) de um extrato bancário. Uma entrada por movimentação; ignore linhas de saldo/total.",
+    description: cartao
+      ? "Extrai os lançamentos de uma fatura de cartão de crédito. Uma entrada por lançamento; ignore saldo, total, limite e o pagamento da fatura anterior."
+      : "Extrai as movimentações (lançamentos) de um extrato bancário. Uma entrada por movimentação; ignore linhas de saldo/total.",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -135,8 +143,9 @@ export async function extractExtratoFromDocument(
               doc: { type: "string", description: "Documento/identificador, se houver. Vazio se não." },
               valor: {
                 type: "number",
-                description:
-                  "Valor com sinal: POSITIVO para crédito/entrada, NEGATIVO para débito/saída.",
+                description: cartao
+                  ? "Valor com sinal: POSITIVO para compra/débito, NEGATIVO para crédito/estorno."
+                  : "Valor com sinal: POSITIVO para crédito/entrada, NEGATIVO para débito/saída.",
               },
             },
             required: ["data", "descricao", "doc", "valor"],
@@ -166,10 +175,14 @@ export async function extractExtratoFromDocument(
           docBlock,
           {
             type: "text",
-            text:
-              "Extraia TODAS as movimentações deste extrato bancário e chame a ferramenta " +
-              "extrair_extrato. Não invente valores; ignore linhas de saldo/total. Use sinal " +
-              "negativo para débitos/saídas e positivo para créditos/entradas.",
+            text: cartao
+              ? "Extraia TODOS os lançamentos desta fatura de cartão de crédito e chame a ferramenta " +
+                "extrair_extrato. Não invente valores; ignore saldo, total, limite, encargos " +
+                "previstos e o pagamento da fatura anterior. Use sinal POSITIVO para compras " +
+                "(inclusive parcelas, com a data da compra) e NEGATIVO para créditos e estornos."
+              : "Extraia TODAS as movimentações deste extrato bancário e chame a ferramenta " +
+                "extrair_extrato. Não invente valores; ignore linhas de saldo/total. Use sinal " +
+                "negativo para débitos/saídas e positivo para créditos/entradas.",
           },
         ],
       },
