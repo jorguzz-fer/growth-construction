@@ -315,6 +315,7 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 - Nome e logo. O upload só funciona com armazenamento configurado.
 - **Dados fiscais**: CNPJ, inscrições, regime, item de serviço, CNAE, alíquota de ISS, ambiente (Homologação/Produção), endereço e código IBGE. Um checklist mostra o que "falta" e o que é para "confira".
 - **Alertas do Resumo Executivo**: % e valor de desvio de custo (só alerta quando passa dos dois) e dias de recebível vencido.
+- **Com a Cris**: anexe o cartão CNPJ na conversa (ou dite os dados) e peça para preencher os dados fiscais. O ambiente de emissão é escolhido à mão. Quem grava é o botão dos dados fiscais.
 
 **O que confunde:** os alertas só aparecem com a chave do Resumo ligada. Confira os dados fiscais com a sua contabilidade.
 
@@ -371,11 +372,13 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 
 **Para que serve:** ver quem alterou o quê.
 
-**O que mostra:** os **200 eventos mais recentes**, com data, usuário, ação, entidade e "de → para".
+**O que mostra:** os **200 eventos mais recentes** (ou os 200 mais recentes do filtro), com data, usuário, ação, entidade e "de → para".
+
+**Filtro:** usuário (ou "sistema"), entidade, trecho da ação e período. **Com a Cris**: peça, por exemplo, "só o que o Messias lançou este mês"; ela preenche o filtro, e quem filtra é o botão "Filtrar".
 
 **O que confunde:** quem não é owner nem admin vê os dados pessoais de compradores apenas como "alterado".
 
-**Não faz:** não filtra, não busca, não exporta e não mostra eventos além dos 200.
+**Não faz:** não busca no texto dos detalhes, não exporta e não mostra eventos além dos 200.
 
 **Quem acessa:** owner e admin, e o contador. O membro só por concessão.
 
@@ -389,6 +392,8 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 - A tela recusa um número já usado.
 - Para salvar abaixo do maior emitido, é preciso digitar CONFIRMO.
 - Número de despesa excluída não volta a ser usado.
+
+**Com a Cris**: ela vê a numeração atual e o maior número emitido, sugere e preenche prefixo, próximo número e dígitos. Quem grava é o botão Salvar, e o recuo continua pedindo CONFIRMO.
 
 **Não faz:** não renumera despesas antigas.
 

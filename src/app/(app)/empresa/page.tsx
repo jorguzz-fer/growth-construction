@@ -22,6 +22,7 @@ import {
 } from "@/lib/calc/emitente-fiscal";
 import { focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisNoFormulario } from "@/components/app/cris-no-formulario";
 
 export const dynamic = "force-dynamic";
 
@@ -211,6 +212,40 @@ export default async function EmpresaPage() {
           </p>
 
           <FormComResultado action={salvarDadosFiscais} sucesso="Dados fiscais salvos." aoConcluir="recarregar" className="space-y-4">
+            {/* Prompt AH2 — a Cris preenche os dados fiscais (lê o cartão CNPJ anexado); o ambiente de emissão fica à mão. */}
+            {canEdit && (
+              <CrisNoFormulario
+                id="empresa-dados-fiscais"
+                titulo="Dados fiscais da empresa (a Cris pode ler o cartão CNPJ anexado; o ambiente de emissão é escolhido à mão)"
+                campos={[
+                  { nome: "nomeFantasia", rotulo: "Nome fantasia", tipo: "texto" },
+                  { nome: "cnpj", rotulo: "CNPJ", tipo: "texto" },
+                  { nome: "inscricaoMunicipal", rotulo: "Inscrição municipal", tipo: "texto" },
+                  { nome: "inscricaoEstadual", rotulo: "Inscrição estadual", tipo: "texto" },
+                  { nome: "regimeTributario", rotulo: "Regime tributário", tipo: "opcao", opcoes: REGIMES_TRIBUTARIOS.map((r) => r.label) },
+                  { nome: "regimeEspecial", rotulo: "Regime especial", tipo: "opcao", opcoes: REGIMES_ESPECIAIS.map((r) => r.label) },
+                  { nome: "itemListaServico", rotulo: "Item da lista de serviço (LC 116)", tipo: "texto" },
+                  { nome: "codigoTributarioMunicipio", rotulo: "Código tributário do município", tipo: "texto" },
+                  { nome: "cnae", rotulo: "CNAE", tipo: "texto" },
+                  { nome: "aliquotaIss", rotulo: "Alíquota de ISS (%)", tipo: "texto" },
+                  { nome: "logradouro", rotulo: "Logradouro", tipo: "texto" },
+                  { nome: "numeroEndereco", rotulo: "Número", tipo: "texto" },
+                  { nome: "complemento", rotulo: "Complemento", tipo: "texto" },
+                  { nome: "bairro", rotulo: "Bairro", tipo: "texto" },
+                  { nome: "municipio", rotulo: "Município (nome)", tipo: "texto" },
+                  { nome: "codigoMunicipio", rotulo: "Código IBGE do município", tipo: "texto" },
+                  { nome: "uf", rotulo: "UF", tipo: "texto" },
+                  { nome: "cep", rotulo: "CEP", tipo: "texto" },
+                  { nome: "telefone", rotulo: "Telefone da empresa", tipo: "texto" },
+                  { nome: "emailFiscal", rotulo: "E-mail fiscal da empresa", tipo: "texto" },
+                ]}
+                opcoes={{
+                  regimeTributario: REGIMES_TRIBUTARIOS.map((r) => ({ rotulo: r.label, valor: r.id })),
+                  regimeEspecial: REGIMES_ESPECIAIS.map((r) => ({ rotulo: r.label, valor: r.id })),
+                }}
+                aviso="Confira e clique em salvar os dados fiscais — nada foi gravado ainda."
+              />
+            )}
             <fieldset disabled={!canEdit} className="space-y-4">
               <div className="grid gap-3 md:grid-cols-3">
                 <div>

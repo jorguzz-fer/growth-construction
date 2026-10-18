@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
@@ -26,6 +26,7 @@ import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
 import { SERIE_DA_EMPRESA } from "./incc-empresa";
+import type { FiltrosDaAuditoria } from "./auditoria-filtros";
 import { mapaDeCategorias, mapaParaDespesas } from "./categoria-do-plano";
 import type { CategoriaDRE } from "./calc/constants";
 import { entraNosRelatorios } from "./situacao-versao";
@@ -3095,13 +3096,28 @@ export async function getUltimoTesteR2(tenantId: string): Promise<{ ok: boolean;
 export async function getAuditLog(
   tenantId: string,
   limit = 20,
+  /** Prompt AK2 — filtros da tela de Auditoria (todos opcionais). */
+  f: Partial<FiltrosDaAuditoria> = {},
 ): Promise<AuditRow[]> {
+  const conds: SQL[] = [eq(schema.auditLog.tenantId, tenantId)];
+  if (f.usuario === "sistema") conds.push(isNull(schema.auditLog.userId));
+  else if (f.usuario) conds.push(eq(schema.auditLog.userId, f.usuario));
+  if (f.entidade) conds.push(eq(schema.auditLog.entity, f.entidade));
+  if (f.acao) conds.push(sql`${schema.auditLog.action} ilike ${"%" + f.acao.replace(/[%_\\]/g, "") + "%"}`);
+  if (f.de) conds.push(gte(schema.auditLog.createdAt, new Date(`${f.de}T00:00:00`)));
+  if (f.ate) conds.push(lt(schema.auditLog.createdAt, new Date(new Date(`${f.ate}T00:00:00`).getTime() + 86_400_000)));
   return db
     .select()
     .from(schema.auditLog)
-    .where(eq(schema.auditLog.tenantId, tenantId))
+    .where(and(...conds))
     .orderBy(desc(schema.auditLog.createdAt))
     .limit(limit);
+}
+
+/** Prompt AK2 — as entidades que aparecem no log da empresa (para o filtro). */
+export async function getEntidadesDaAuditoria(tenantId: string): Promise<string[]> {
+  const rows = await db.selectDistinct({ e: schema.auditLog.entity }).from(schema.auditLog).where(eq(schema.auditLog.tenantId, tenantId)).limit(100);
+  return rows.map((r) => r.e).filter((e): e is string => !!e).sort();
 }
 
 // ─────────────────────── Conciliação bancária (Caixa) ───────────────────────

@@ -21,6 +21,9 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/medicao-form.tsx", "formularioDaMedicao"],
   ["src/components/app/estoque-manager.tsx", "formularioDoMovimento"],
   ["src/components/app/funcionarios-manager.tsx", "formularioDoFuncionario"],
+  ["src/components/app/papel-e-telas.tsx", '"usuario-novo"'],
+  ["src/components/app/numeracao-form.tsx", '"numeracao-despesas"'],
+  ["src/components/app/cris-no-formulario.tsx", "useCrisFormulario("],
 ];
 
 import { TIPOS_DOC_PERMUTA } from "./permuta-regras";
@@ -34,6 +37,21 @@ describe("Etapa 3 — telas de lançamento com a Cris", () => {
     const src = readFileSync(arquivo, "utf8");
     expect(src).toContain("useCrisFormulario(");
     expect(src).toContain(id);
+  });
+
+  it.each([
+    ["src/app/(app)/empresa/page.tsx", '"empresa-dados-fiscais"'],
+    ["src/app/(app)/acoes/page.tsx", '"auditoria-filtro"'],
+  ])("%s oferece o formulário da página à Cris", (arquivo, id) => {
+    const src = readFileSync(arquivo, "utf8");
+    expect(src).toContain("<CrisNoFormulario");
+    expect(src).toContain(id);
+  });
+
+  it("Empresa não oferece o ambiente de emissão à Cris", () => {
+    const src = readFileSync("src/app/(app)/empresa/page.tsx", "utf8");
+    const bloco = src.slice(src.indexOf('id="empresa-dados-fiscais"'), src.indexOf("opcoes={{", src.indexOf('id="empresa-dados-fiscais"')));
+    expect(bloco).not.toContain("fiscalAmbiente");
   });
 
   it("Contas a Receber não oferece o cliente à Cris", () => {

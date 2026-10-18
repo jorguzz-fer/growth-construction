@@ -232,6 +232,12 @@ const texto = async (page, url) => {
   check("Q2: a Cris recebe a tabela do INCC", /Parâmetros \/ INCC/.test(await ctxCris(`/parametros?proj=${obraParaCadastro}`, "Parâmetros / INCC")));
   check("Z2: a Cris preenche o vínculo do funcionário", /Novo funcionário \(CLT\)/.test(await ctxCris("/funcionarios", "Novo funcionário")));
   check("AI2: o novo usuário mostra as telas sugeridas do papel", await (async () => { await texto(page, "/usuarios"); return (await page.locator("[data-telas-sugeridas] input[type=checkbox]").count()) > 0; })());
+  // AH2/AK2/AF2 — Empresa, Auditoria e Numeração com a Cris.
+  check("AH2: a Cris preenche os dados fiscais da Empresa", /Dados fiscais da empresa/.test(await ctxCris("/empresa", "Dados fiscais da empresa")));
+  check("AK2: a Auditoria tem o filtro e a Cris o preenche", /Filtro do Log de Auditoria/.test(await ctxCris("/acoes", "Filtro do Log de Auditoria")) && (await page.locator("[data-filtro-auditoria]").count()) === 1);
+  await texto(page, "/acoes?acao=membership");
+  check("AK2: o filtro por ação funciona", (await page.locator("tbody tr").count()) >= 1 && !((await page.textContent("tbody")) ?? "").match(/\bdespesa\.(create|update)\b/));
+  check("AF2: a Cris sugere a numeração", /Numeração de despesas/.test(await ctxCris("/numeracao", "Numeração de despesas")));
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));
