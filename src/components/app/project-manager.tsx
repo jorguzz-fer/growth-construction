@@ -16,6 +16,9 @@ import { brl, dateBR } from "@/lib/utils";
 import { ProjetoDocs, type ProjetoDoc } from "@/components/app/projeto-docs";
 import { ExcluirProjeto } from "@/components/app/excluir-projeto";
 import { CHAVE_PROPOSTA_PROJETO, EVENTO_PROPOSTA_PROJETO, ROTULO_CAMPO_PROJETO, type CampoProjeto, type PropostaDeProjetoGuardada } from "@/lib/ai/projeto-doc";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { useAvisoAoSair } from "@/components/app/aviso-ao-sair";
+import { formularioDoProjeto, rotuloDoCampoDoCadastro, valoresParaOCadastro } from "@/lib/projeto-cris";
 import { codigoMunicipioValido } from "@/lib/calc/emitente-fiscal";
 import { naturezaPorMunicipio } from "@/lib/calc/nfse";
 import {
@@ -521,11 +524,23 @@ function ProjectCard({
   const [msg, setMsg] = useState<Msg>(null);
   const set = <K extends keyof Form>(k: K) => (v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
   const dirty = JSON.stringify(f) !== JSON.stringify(inicial);
+  // Prompt B2 (como o D2): alteração não salva pede confirmação ao sair.
+  useAvisoAoSair(canEdit && dirty);
   const off = !canEdit || pending;
   // Proposta do assistente (Prompt B, 26): entra SÓ no formulário; gravar é o
   // Salvar do usuário, que leva `origem: "assistente"` ao log. Sem permissão
   // de editar nada é aplicado (e a action recusa de novo no servidor).
-  const [daProposta, setDaProposta] = useState<CampoProjeto[]>([]);
+  const [daProposta, setDaProposta] = useState<string[]>([]);
+  // Prompt B2 — "mudar o projeto" por comando: a Cris preenche o cartão aberto;
+  // o Salvar grava, com origem "assistente" no log (mesmo caminho do Prompt B).
+  // Só o projeto aberto (?proj=): na lista, cada cartão somaria campos demais.
+  useCrisFormulario(canEdit && detalhado ? formularioDoProjeto({ id: project.id, nome: project.name }, detalhado) : null, (p) => {
+    const v = valoresParaOCadastro(p.valores, detalhado);
+    const campos = Object.keys(v);
+    if (!campos.length) return;
+    setF((s) => ({ ...s, ...v }));
+    setDaProposta((x) => [...new Set([...x, ...campos])]);
+  });
   useEffect(() => {
     if (!detalhado || !canEdit) return;
     const aplicar = (g: PropostaDeProjetoGuardada | null) => {
@@ -630,7 +645,7 @@ function ProjectCard({
 
         {daProposta.length > 0 && (
           <p role="status" data-proposta-aplicada className="rounded-[10px] border border-[#e9d5ff] bg-[#faf5ff] px-3 py-2 text-[12px] text-[var(--color-ink)]">
-            <strong className="text-[#6D4BD1]">Proposta do assistente no formulário:</strong> {daProposta.map((c) => ROTULO_CAMPO_PROJETO[c]).join(", ")}. Confira e clique em Salvar — nada foi gravado ainda.
+            <strong className="text-[#6D4BD1]">Proposta do assistente no formulário:</strong> {daProposta.map((c) => ROTULO_CAMPO_PROJETO[c as CampoProjeto] ?? rotuloDoCampoDoCadastro(c)).join(", ")}. Confira e clique em Salvar — nada foi gravado ainda.
           </p>
         )}
 

@@ -219,6 +219,8 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 - O Status grava na hora. Projeto novo nasce Ativo.
 - **Excluir** fica numa zona separada e exige digitar o nome. A exclusão apaga junto versões, unidades, despesas, caixa, medições, orçamentos e recebíveis, sem como desfazer.
 - Assistente: cadastro incompleto, inconsistências, funding e documentos. Com IA configurada, ele lê um documento e **propõe** o preenchimento, sem gravar.
+- **Mudar por comando com a Cris**: com o projeto aberto, diga ou dite o que mudar ("a obra termina em 31/12/2027", "valor da construção 2,5 milhões") ou anexe um documento. A Cris preenche os campos do cadastro e a tela mostra quais; nada é gravado até clicar em Salvar, e o log marca que veio do assistente. O cliente, a situação e a trava continuam nos campos e botões da tela.
+- **Alterações não salvas**: com algo mudado no cartão e não salvo, sair por um link ou fechar a aba pede confirmação.
 
 **O que confunde:**
 - As **datas de início e fim** definem o período de Orçamentos e Previsão.

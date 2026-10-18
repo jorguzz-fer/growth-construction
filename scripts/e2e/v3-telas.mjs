@@ -190,6 +190,10 @@ const texto = async (page, url) => {
   const obraParaCadastro = await page.locator("select option").nth(1).getAttribute("value");
   await texto(page, `/projeto?proj=${obraParaCadastro}`);
   check("AE2: cadastro do projeto tem a área construída", (await page.locator('input[aria-label="Área construída (m²)"]').count()) >= 1);
+  // B2 — o cadastro do projeto aberto se oferece à Cris; alteração pendente avisa ao sair.
+  await page.click("[data-chat-botao]");
+  check("B2: a Cris sabe o cadastro do projeto aberto", /Cadastro do projeto/.test((await page.textContent("[data-chat-contexto]")) ?? ""));
+  await page.click("[data-chat-botao]");
 
   // D2 — Orçamentos: alteração não salva marca a tela e pede confirmação ao sair.
   await texto(page, `/budget?proj=${obraParaCadastro}`);
