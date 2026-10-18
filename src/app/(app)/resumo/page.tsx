@@ -72,6 +72,7 @@ import { indicadoresEscolhidos, painelDeIndicadores } from "@/lib/indicadores-ne
 import { IndicadoresNegocio } from "@/components/app/indicadores-negocio";
 import { ExportarPdf } from "@/components/app/pdf";
 import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -310,6 +311,19 @@ export default async function ResumoPage({
       />
       <div className="mb-4">{versionSelect}</div>
       <IndicadoresNegocio {...painel} escolhidos={indicadoresEscolhidos(sp.ind, verCustoAE2)} />
+      {/* Prompt IAR — a Cris analisa e simula sobre os números do Resumo. */}
+      <CrisDaTela
+        titulo="Resumo Executivo"
+        dados={{
+          obra: obra.name,
+          versao: `${rotuloDaVersao(version).titulo} “${version.label}”`,
+          indicadoresGerais: indicadores.map((i) => ({ item: i.label, valor: i.value })),
+          unidades: { disponiveis: totals.disp, reservadas: totals.res, vendidas: totals.vend, total: totalUnidades },
+          recebimentosNoPeriodo: hasRange ? recebimentosPeriodo : null,
+          indicadoresDeNegocio: Object.fromEntries(Object.entries(painel.valores).map(([id, v]) => [id, v[0]?.valor ?? null])),
+        }}
+        sugestoes={["Quanto falta vender do VGV?", "E se as unidades disponíveis forem vendidas com 5% de desconto?", "Como está o custo por m²?"]}
+      />
 
       <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
       <div className="min-w-0 flex-1">
@@ -788,6 +802,18 @@ async function ResumoConsolidado({
         </p>
       )}
       {obras.length > 0 && <IndicadoresNegocio {...painel} escolhidos={indicadoresEscolhidos(ind, verCusto)} />}
+      {/* Prompt IAR — a Cris analisa e simula sobre os números do Resumo consolidado. */}
+      <CrisDaTela
+        titulo="Resumo Executivo (consolidado)"
+        dados={{
+          escopo: titulo,
+          obras: obras.length,
+          porTipoDeVersao: visiveis.map((c) => ({ tipo: c.tipo, obras: c.obras, indicadores: c.indicadores.map((i) => ({ item: i.label, valor: i.value })), unidades: c.unidades })),
+          porObra: comparativo.map((l) => ({ obra: l.obra, vgv: l.vgv, vgvVendido: l.vgvVendido, vendidas: l.vendidas, unidades: l.unidades, custoRealizado: l.custoRealizado, custoOrcado: l.custoOrcado })),
+          indicadoresDeNegocio: { colunas: painel.colunas, valores: Object.fromEntries(Object.entries(painel.valores).map(([id, v]) => [id, v.map((x) => x.valor)])) },
+        }}
+        sugestoes={["Qual obra vendeu proporcionalmente mais?", "Qual obra tem o maior desvio de custo?", "E se todas as obras venderem mais 10% do VGV?"]}
+      />
       {obras.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-[var(--color-ink3)]">Nenhum projeto neste filtro.</CardContent>

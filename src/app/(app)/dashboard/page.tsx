@@ -50,6 +50,7 @@ import { mesesDoGrafico, seriesDaDre, seriesDoFluxo, temValor } from "@/lib/dash
 import { GraficosDashboard } from "@/components/app/graficos-dashboard";
 import { ExportarPdf } from "@/components/app/pdf";
 import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -358,6 +359,24 @@ export default async function DashboardPage({
         }
       />
       {project && <LembrarProjeto projectId={project.id} />}
+      {/* Prompt IAR — a Cris analisa e simula sobre os números do Dashboard. */}
+      <CrisDaTela
+        titulo="Dashboard"
+        dados={{
+          escopo: project ? project.name : rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados"),
+          recorte,
+          colunas: summaries.map((s) => ({
+            versao: cabecalho(s).titulo,
+            vgv: s.vgvAusente ? null : s.vgv,
+            realizadoAcumulado: s.realizado,
+            aReceber: s.aReceber,
+            aPagar: s.aPagar,
+          })),
+          fluxoPorMes: graficoFluxo.meses.map((mm, i) => ({ mes: mm, entradas: graficoFluxo.entradas[i], saidas: graficoFluxo.saidas[i] })),
+          drePorMes: graficoDre.meses.map((mm, i) => ({ mes: mm, receita: graficoDre.receita[i], resultado: graficoDre.partes.Resultado[i] })),
+        }}
+        sugestoes={["Como está a obra em uma frase?", "E se a receita dos próximos meses cair 10%?", "Qual mês tem a maior saída prevista?"]}
+      />
       {/* Prompt AA, 1.6 — o recorte escrito, e o seletor de versões logo abaixo do título. */}
       <div className="mb-4 space-y-2">
         <p className="text-[13px] text-[var(--color-ink2)]" data-recorte>

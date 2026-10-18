@@ -151,6 +151,9 @@ const texto = async (page, url) => {
   check("AA2: gráfico do fluxo de caixa", (await page.locator('[data-grafico="fluxo"] canvas').count()) === 1);
   check("AA2: gráfico da DRE em barras", (await page.locator('[data-grafico="dre"] canvas').count()) === 1);
   check("AA2: Dashboard exporta PDF", (await page.locator("[data-exportar-pdf]").count()) === 1);
+  await page.click("[data-chat-botao]");
+  check("IAR: a Cris sabe que está no Dashboard e sugere simulação", /Dashboard/.test((await page.textContent("[data-chat-contexto]")) ?? "") && ((await page.textContent("[data-chat]")) ?? "").includes("E se a receita dos próximos meses cair 10%?"));
+  await page.click("[data-chat-botao]");
   await page.screenshot({ path: `${OUT}/v3-dashboard.png`, fullPage: true });
 
   // RC — Relatórios Customizados: receita na URL, campos, tabela e chat.

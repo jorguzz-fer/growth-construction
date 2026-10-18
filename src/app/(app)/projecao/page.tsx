@@ -23,6 +23,7 @@ import { brl0, monthInRange } from "@/lib/utils";
 import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
 import { AvisoTelaRemovida } from "@/components/app/aviso-tela-removida";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { BarChart, CHART_COLORS } from "@/components/app/charts";
@@ -142,6 +143,12 @@ export default async function ProjecaoPage({
           }
         />
         <AvisoTelaRemovida de={sp.saiu} />
+        {/* Prompt IAR — a Cris compara as versões por fonte. */}
+        <CrisDaTela
+          titulo="Projeção de Receitas (comparação)"
+          dados={{ obra: obra.name, versoes: compareVersions.map((v) => v.label), porFonte: rows.map((r) => ({ fonte: r.label, valores: r.values })), periodo: hasRange ? `${de || "início"} a ${ate || "fim"}` : "todo o horizonte" }}
+          sugestoes={["Qual fonte mais muda entre as versões?", "E se o FGTS atrasar três meses?", "Quanto da receita depende das liberações?"]}
+        />
         <VersionCompareTable
           firstColLabel="Fonte"
           columns={compareVersions.map((v) => ({ label: v.label, color: v.color }))}
@@ -248,6 +255,20 @@ export default async function ProjecaoPage({
         }
       />
       <AvisoTelaRemovida de={sp.saiu} />
+      {/* Prompt IAR — a Cris analisa e simula sobre a projeção da obra (sem dado de cliente). */}
+      <CrisDaTela
+        titulo="Projeção de Receitas"
+        dados={{
+          obra: obra.name,
+          versao: version.label,
+          unidadesVendidas: vendidas,
+          unidades: unitRows.length,
+          totalProjetado: totalGrand,
+          liberacoes: reembGrand,
+          porMes: axis.filter((m) => yearMonths.includes(m)).map((m) => ({ mes: m, unidades: unitsProj[m] || 0, liberacoes: reembMonth[m] || 0 })),
+        }}
+        sugestoes={["Qual o mês de maior recebimento?", "E se 20% das parcelas atrasarem um mês?", "Quanto entra até o fim do ano?"]}
+      />
 
       <Card className="mb-6">
         <CardContent className="p-5">
