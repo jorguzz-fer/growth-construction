@@ -79,13 +79,13 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 18 | **D2** | Orçamentos: chat por voz, texto e arquivo | BD2-1 · 4.1.3 | **Estreia da Etapa 3.** Antes, `budget.ts` e `planning.ts` devolvem `{ ok, error }`. Aviso ao sair sem salvar. Depende de E2 e VOZ. |
-| 19 | **B2** | Projetos: comando e pré-preenchimento | BB2-1 · BB2-2 | Leitura de documento já existe. Depende de D2. |
-| 20 | **F2** | Previsão Atualizada: meses passados = Atual | BF2-1 | Estende a reprojeção. Depende de D2. |
-| 21 | **G2** | Plano de Contas: chat insere planos | BG2-1 | (Confirmado em 18/10; revoga 8.2.1 do Prompt G.) Mesmo regime da Etapa 3. Depende de D2. |
-| 22 | **M2** | Clientes: cadastro por foto e perfil da base | BM2-1 | Leitura de documento nova (documento pessoal: regra de privacidade BE-2 vale). Perfil da base é relatório (IAR). |
-| 23 | **K2** | Contas a Receber e Liberações: chat lança | — | Edição por linha já existe; confirmar o que falta. |
-| 24 | **P2** | Permuta: documentos do ativo e chat | — | Upload de documento e foto do ativo. |
+| 18 | **D2** | Orçamentos: chat por voz, texto e arquivo | **Feito em 18/10** ([relatório](./V3-PROMPT-D2-FINAL.md)); BD2-1 · 4.1.3 em aberto no relatório | **Estreia da Etapa 3.** Antes, `budget.ts` e `planning.ts` devolvem `{ ok, error }`. Aviso ao sair sem salvar. Depende de E2 e VOZ. |
+| 19 | **B2** | Projetos: comando e pré-preenchimento | **Feito em 18/10** ([relatório](./V3-PROMPT-B2-FINAL.md)); BB2-1 · BB2-2 em aberto no relatório | Leitura de documento já existe. Depende de D2. |
+| 20 | **F2** | Previsão Atualizada: meses passados = Atual | **Feito em 18/10** ([relatório](./V3-PROMPT-F2-FINAL.md)); BF2-1 em aberto no relatório | Estende a reprojeção. Depende de D2. |
+| 21 | **G2** | Plano de Contas: chat insere planos | **Feito em 18/10** ([relatório](./V3-PROMPT-G2-FINAL.md)); BG2-1 em aberto no relatório | (Confirmado em 18/10; revoga 8.2.1 do Prompt G.) Mesmo regime da Etapa 3. Depende de D2. |
+| 22 | **M2** | Clientes: cadastro por foto e perfil da base | **Feito em parte em 18/10** ([relatório](./V3-PROMPT-M2-FINAL.md)): perfil da base; o cadastro por foto espera BM2-1 | Leitura de documento nova (documento pessoal: regra de privacidade BE-2 vale). Perfil da base é relatório (IAR). |
+| 23 | **K2** | Contas a Receber e Liberações: chat lança | **Feito em 18/10** ([relatório](./V3-PROMPT-K2-FINAL.md)) | Edição por linha já existe; confirmar o que falta. |
+| 24 | **P2** | Permuta: documentos do ativo e chat | **Feito em 18/10** ([relatório](./V3-PROMPT-P2-FINAL.md)) | Upload de documento e foto do ativo. |
 | 25 | **N2** | Simulador | **espera a conferência do Thiago** | O dono pediu a ele em 18/10. |
 | 26 | **AG2** | Emissão de NF-e no menu de Receitas | BAG2-1 | A tela não está neste repositório. Entra quando chegar. |
 
@@ -93,17 +93,17 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
-| 27 | **S3** | Despesas: chat por voz/texto/documento; recorrência; "paga por terceiro" | BS3-1 | Investigar o bug da lista vazia antes. Depende de E2 e VOZ. |
-| 28 | **T2** | Ressarcimentos e Acerto Contábil: chat | — | Acerto: seleção por voz e marcação em lote, com confirmação. |
-| 29 | **W2** | Fornecedores e Parceiros: chat lê arquivo | — | Leitura de documento já existe (`fornecedor-extract`). |
+| 27 | **S3** | Despesas: chat por voz/texto/documento; recorrência; "paga por terceiro" | **Feito em 18/10** ([relatório](./V3-PROMPT-S3-FINAL.md)); BS3-1 em aberto no relatório | Investigar o bug da lista vazia antes. Depende de E2 e VOZ. |
+| 28 | **T2** | Ressarcimentos e Acerto Contábil: chat | **Feito em 18/10** ([relatório](./V3-PROMPT-T2-FINAL.md)) | Acerto: seleção por voz e marcação em lote, com confirmação. |
+| 29 | **W2** | Fornecedores e Parceiros: chat lê arquivo | **Feito em 18/10** ([relatório](./V3-PROMPT-W2-FINAL.md)) | Leitura de documento já existe (`fornecedor-extract`). |
 | 30 | **L2** | Caixa: dias fechados, projeção dos próximos dias, chat na conciliação | **Feito em 18/10** ([relatório](./V3-PROMPT-L2-FINAL.md)) | Lista dos dias fechados (destrava AB2). Projeção lê Contas a Pagar e a Receber. Open Finance já existe: expor o fluxo de conexão no onboarding. |
-| 31 | **U2** | Cartões no Caixa: extrato, conciliação, proposta de lançamento | BU2-1 | Tela parecida com o Caixa. Pagamento parcial e juros já existem (Prompt U): conferir. |
-| 32 | **V2b** | Medição de Projeto: chat por voz | — | Só o chat; a tela não muda. |
-| 33 | **Y2** | Estoque: painel com caixa de conversa | — | Saída já existe; mostrar. |
-| 34 | **Q2** | INCC por empresa | BQ2-1 | (Confirmado em 18/10: um índice por empresa.) Migra as séries por projeto; o seletor sai. Chat explica e projeta. |
-| 35 | **Z2** | Pessoas: chat cadastra funcionário | — | Equipes já lista parceiros. |
-| 36 | **AI2** | Usuários: sugestão de telas por papel; verificar restrição | BAI2-1 | Bug relatado: restrição por papel "não funcionava". |
-| 37 | **AH2 / AK2 / AF2** | Empresa, Auditoria, Numeração: chat | — | Pequenos; juntos num prompt. |
+| 31 | **U2** | Cartões no Caixa: extrato, conciliação, proposta de lançamento | **Feito em 18/10** ([relatório](./V3-PROMPT-U2-FINAL.md)); BU2-1 em aberto no relatório | Tela parecida com o Caixa. Pagamento parcial e juros já existem (Prompt U): conferir. |
+| 32 | **V2b** | Medição de Projeto: chat por voz | **Feito em 18/10** ([relatório](./V3-PROMPT-V2b-FINAL.md)) | Só o chat; a tela não muda. |
+| 33 | **Y2** | Estoque: painel com caixa de conversa | **Feito em 18/10** ([relatório](./V3-PROMPT-Y2-FINAL.md)) | Saída já existe; mostrar. |
+| 34 | **Q2** | INCC por empresa | **Feito em 18/10** ([relatório](./V3-PROMPT-Q2-FINAL.md)); BQ2-1 respondido: a série da empresa é adotada de uma obra, e as outras ficam guardadas | (Confirmado em 18/10: um índice por empresa.) Migra as séries por projeto; o seletor sai. Chat explica e projeta. |
+| 35 | **Z2** | Pessoas: chat cadastra funcionário | **Feito em 18/10** ([relatório](./V3-PROMPT-Z2-FINAL.md)) | Equipes já lista parceiros. |
+| 36 | **AI2** | Usuários: sugestão de telas por papel; verificar restrição | **Feito em 18/10** ([relatório](./V3-PROMPT-AI2-FINAL.md)); BAI2-1 em aberto no relatório | Bug relatado: restrição por papel "não funcionava". |
+| 37 | **AH2 / AK2 / AF2** | Empresa, Auditoria, Numeração: chat | **Feito em 18/10** ([relatório](./V3-PROMPT-AH2-AK2-AF2-FINAL.md)) | Pequenos; juntos num prompt. |
 
 ---
 
