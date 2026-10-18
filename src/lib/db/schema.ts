@@ -617,6 +617,11 @@ export const chartAccounts = pgTable(
     natureza: text("natureza").notNull().default("despesa"),
     /** Conta ativa: inativas não aparecem em novos lançamentos, mas ficam no histórico. */
     ativo: boolean("ativo").notNull().default(true),
+    /**
+     * Prompt DP: a categoria da DRE escolhida para a conta. NULL = o padrão de
+     * boa prática (`categoriaPadraoDaConta`): conta sem categoria não existe.
+     */
+    dreCategory: dreCategoryEnum("dre_category"),
   },
   (c) => [unique("chart_account_tenant_code_uq").on(c.tenantId, c.code)],
 );

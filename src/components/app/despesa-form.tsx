@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { statusDespesaValido } from "@/lib/despesa-regras";
 import {
@@ -152,6 +152,7 @@ export function DespesaForm({
   contas,
   bancos,
   categorias,
+  categoriaDoPlano = null,
   pagadores = [],
   cartoes = [],
   aiConfigured,
@@ -167,6 +168,12 @@ export function DespesaForm({
   contas: Conta[];
   bancos: Banco[];
   categorias: readonly string[];
+  /**
+   * Prompt DP — chave "despesa_categoria_do_plano" ligada: código da conta →
+   * categoria da DRE da conta. A categoria vem da conta e fica travada.
+   * `null` = chave desligada (a pessoa escolhe, como antes).
+   */
+  categoriaDoPlano?: Record<string, string> | null;
   /** Prompt T, 2.3 — quem tem o papel "Pagador por Terceiro" (ativo). */
   pagadores?: { id: string; nome: string }[];
   /** Prompt U / S 3-B.4 — cartões ativos para a forma "Cartão de crédito". */
@@ -200,6 +207,12 @@ export function DespesaForm({
   // e o dropdown só oferece categorias de natureza devedora.
   const [categoriaDre, setCategoriaDre] = useState(edit?.categoriaDre ?? "");
   const categoriasDespesa = useMemo(() => categoriasDeDespesa(categorias), [categorias]);
+  // Prompt DP — a categoria da conta escolhida (chave ligada), ou undefined.
+  const categoriaTravada = categoriaDoPlano && contaCef ? categoriaDoPlano[contaCef] : undefined;
+  const travadaEmReceita = !!categoriaTravada && !categoriasDespesa.includes(categoriaTravada);
+  useEffect(() => {
+    if (categoriaTravada && !travadaEmReceita) setCategoriaDre(categoriaTravada);
+  }, [categoriaTravada, travadaEmReceita]);
   // Prompt S, 3-C.4.3 — a recusa de categoria aparece NO CAMPO, com o caminho.
   const [erroCategoria, setErroCategoria] = useState<string | null>(null);
   // 3-C.4.4 — legado do BS-4: categoria credora gravada antes da trava. O select
@@ -1173,8 +1186,18 @@ export function DespesaForm({
           {/* Só categorias de natureza devedora: uma despesa não pode ser
               classificada em conta de receita (item 1.3 / RG-01). */}
           <CampoIA label="Categoria DRE" alerta={alertas.categoriaDre ?? (erroCategoria ? { nivel: "faltando", motivo: erroCategoria } : undefined)}>
+            {categoriaDoPlano && (
+              <p className="mb-1 text-[11.5px] text-[var(--color-ink3)]" data-categoria-travada>
+                {travadaEmReceita
+                  ? `A conta ${contaCef} é de receita no Plano de Contas: escolha uma conta de despesa.`
+                  : categoriaTravada
+                    ? "Definida pela conta no Plano de Contas."
+                    : "Escolha a conta: a categoria vem do Plano de Contas."}
+              </p>
+            )}
             <Select
               value={categoriaDre}
+              disabled={!!categoriaDoPlano && (!!categoriaTravada || !contaCef)}
               aria-invalid={!!erroCategoria || (categoriaLegadaInvalida && categoriaDre === edit?.categoriaDre) || undefined}
               onChange={(e) => {
                 setCategoriaDre(e.target.value);

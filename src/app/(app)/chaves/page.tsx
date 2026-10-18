@@ -10,6 +10,7 @@ import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
 import { previaFluxoDefinicaoNova } from "@/lib/fluxo-caixa";
 import { previaDashboardDefinicaoNova } from "@/lib/dashboard-previa";
 import { previaResumoDefinicaoNova } from "@/lib/resumo-previa";
+import { previaCategoriaDoPlano } from "@/lib/categoria-do-plano-servidor";
 import { getBankAccounts } from "@/lib/queries";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { brl, pct1 } from "@/lib/utils";
@@ -53,6 +54,9 @@ export default async function ChavesPage() {
   const previaDashboard = await previaDashboardDefinicaoNova(ctx.tenant.id, ctx.projects);
   // Prompt AE, 6.2: prévia da chave "resumo_definicao_nova" (só leitura).
   const previaResumo = await previaResumoDefinicaoNova(ctx.tenant.id, ctx.projects);
+  // Prompt DP (BDP-3): prévia da chave "despesa_categoria_do_plano" (só leitura).
+  const previaCategoria = await previaCategoriaDoPlano(ctx.tenant.id);
+  const totalQueMuda = previaCategoria.reduce((a, m) => a + m.despesas, 0);
   // Decisão de 01/10/2026: a prévia é exportada (e guardada) antes de ligar.
   const exportacoes = await ultimasExportacoes(ctx.tenant.id);
   const agora = new Date();
@@ -408,6 +412,49 @@ export default async function ChavesPage() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-categoria">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · Despesa herda a categoria do Plano de Contas</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Despesas da versão Atual, não canceladas, cuja categoria hoje é diferente da categoria da conta no Plano de Contas.
+            Com a chave ligada, elas passam a contar na DRE pela categoria da conta. Nada é regravado. Antes de ligar, confira a
+            categoria de cada conta em{" "}
+            <Link href="/planocontas" className="text-[var(--color-accent2)] hover:underline">
+              Plano de Contas
+            </Link>
+            . Despesa sem conta, ou com conta fora do plano, fica como está.
+          </p>
+          <p className="mt-2 text-[13px] font-medium text-[var(--color-ink)]" data-previa-categoria-total>
+            {totalQueMuda === 0 ? "Nenhuma despesa muda de categoria." : `${totalQueMuda} despesa(s) mudam de categoria.`}
+          </p>
+          {previaCategoria.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-[12.5px]" aria-label="Despesas que mudam de categoria, por conta">
+                <thead>
+                  <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                    <th className="py-1.5 pr-3">Conta</th>
+                    <th className="py-1.5 pr-3">Hoje</th>
+                    <th className="py-1.5 pr-3">Pela conta</th>
+                    <th className="py-1.5 pr-3 text-right">Despesas</th>
+                    <th className="py-1.5 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previaCategoria.map((m) => (
+                    <tr key={`${m.conta}|${m.de}`} className="border-b border-[var(--color-line)]/60" data-previa-categoria={m.conta}>
+                      <td className="py-1.5 pr-3 font-[family-name:var(--font-mono)]">{m.conta}</td>
+                      <td className="py-1.5 pr-3">{m.de}</td>
+                      <td className="py-1.5 pr-3 font-medium">{m.para}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{m.despesas}</td>
+                      <td className="py-1.5 text-right tabular-nums">{brl(m.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </>

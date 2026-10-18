@@ -30,6 +30,7 @@ import {
 } from "@/lib/calc/documento-fiscal";
 import { CATEGORIAS_DRE, type CategoriaDRE } from "@/lib/calc/constants";
 import { getChartAccounts, getStakeholders, getAtualVersion } from "@/lib/queries";
+import { categoriaParaGravar } from "@/lib/categoria-do-plano-servidor";
 import { faturasDasParcelas, valoresDasParcelas, type FaturaDoCiclo } from "@/lib/calc/cartao-ciclo";
 import { gravarVinculos } from "@/lib/conciliacao-db";
 import {
@@ -206,7 +207,12 @@ async function lancarDespesa(
   // Item 1.3 / RG-01 — uma despesa não pode ser classificada em conta de
   // natureza credora. Validar só no formulário não protege nada: esta Server
   // Action é chamável diretamente.
-  const erroCategoria = validarCategoriaDespesa(formData.get("categoriaDre") as string);
+  // Prompt DP — com a chave ligada, a categoria é a da conta no Plano de
+  // Contas, qualquer que seja a enviada.
+  const pelaConta = await categoriaParaGravar(ctx.tenant.id, formData.get("contaCef") as string, formData.get("categoriaDre") as string);
+  if (!pelaConta.ok) throw new Recusa(pelaConta.error);
+  const categoriaFinal = pelaConta.categoria;
+  const erroCategoria = validarCategoriaDespesa(categoriaFinal);
   if (erroCategoria) throw new Recusa(erroCategoria);
 
   // 11.1 — valor maior que zero, finito. Exceção do item 1.4 (modo bottom-up):
@@ -281,7 +287,7 @@ async function lancarDespesa(
     // Compra no cartão não tem conta da empresa: o caixa sai no pagamento da fatura.
     bancoId: cartao ? null : s("bancoId"),
     contaCef: s("contaCef"),
-    categoriaDre: (formData.get("categoriaDre") as CategoriaDRE) || null,
+    categoriaDre: (categoriaFinal as CategoriaDRE) || null,
     competencia: s("competencia"),
     vencimento: cartao ? faturasDoCartao[0].vencimento : pagoPorSocioId ? socioDataPagamento : s("vencimento"),
     // Modo bottom-up: quando o total chega vazio e há parcelas, `valorNum` já é
@@ -658,12 +664,19 @@ export async function updateDespesa(id: string, patch: DespesaPatch): Promise<Re
   if (patch.fornecedorId !== undefined) set.fornecedorId = patch.fornecedorId || null;
   if (patch.bancoId !== undefined) set.bancoId = patch.bancoId || null;
   if (patch.contaCef !== undefined) set.contaCef = patch.contaCef || null;
-  if (patch.categoriaDre !== undefined) {
-    // Item 1.3 / RG-01 — nem na edição uma despesa pode passar para conta de
-    // natureza credora.
-    const erro = validarCategoriaDespesa(patch.categoriaDre);
-    if (erro) return { ok: false, error: erro };
-    set.categoriaDre = patch.categoriaDre as CategoriaDRE;
+  if (patch.categoriaDre !== undefined || patch.contaCef !== undefined) {
+    // Prompt DP — com a chave ligada, a categoria segue a conta (a nova, se
+    // mudou; senão a gravada), qualquer que seja a enviada.
+    const conta = patch.contaCef !== undefined ? patch.contaCef || null : existing.contaCef;
+    const pelaConta = await categoriaParaGravar(ctx.tenant.id, conta, patch.categoriaDre !== undefined ? patch.categoriaDre : existing.categoriaDre);
+    if (!pelaConta.ok) return { ok: false, error: pelaConta.error };
+    if (patch.categoriaDre !== undefined || pelaConta.herdada) {
+      // Item 1.3 / RG-01 — nem na edição uma despesa pode passar para conta de
+      // natureza credora.
+      const erro = validarCategoriaDespesa(pelaConta.categoria);
+      if (erro) return { ok: false, error: erro };
+      set.categoriaDre = pelaConta.categoria as CategoriaDRE;
+    }
   }
   // RG-06 — o PED é imutável depois de criado. Renumerar um documento já
   // emitido quebraria a conferência com a contabilidade e com os anexos que o

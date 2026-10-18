@@ -104,6 +104,17 @@ const texto = async (page, url) => {
   const bal = await texto(page, "/balancodia");
   check("AB2: /balancodia leva ao Caixa com o aviso", page.url().includes("/caixa") && bal.includes("A tela Balanço do Dia saiu"), page.url());
   check("AB2: dias fechados aparecem no Caixa", (await page.locator("[data-dias-fechados]").count()) === 1);
+
+  // DP — categoria da DRE por conta; a chave nasce desligada, com prévia.
+  const plano = await texto(page, "/planocontas");
+  const comCategoria = await page.locator("[data-categoria-conta]").count();
+  check("DP: cada conta do plano mostra a categoria da DRE", comCategoria > 10 && plano.includes("(padrão)"), `${comCategoria} contas`);
+  check("DP: gasto de obra nasce Custo Variável", ((await page.textContent('[data-categoria-conta="1.1"]')) ?? "").includes("Custo Variável"));
+  const chaves = await texto(page, "/chaves");
+  check("DP: a chave aparece desligada com a prévia", chaves.includes("Despesa herda a categoria da DRE do Plano de Contas") && (await page.locator("#previa-categoria [data-previa-categoria-total]").count()) === 1);
+  await page.screenshot({ path: `${OUT}/v3-chaves-categoria.png`, fullPage: false });
+  const desp = await texto(page, "/despesas");
+  check("DP: com a chave desligada, a categoria da despesa segue livre", (await page.locator("[data-categoria-travada]").count()) === 0, desp.length ? "" : "vazio");
   await page.context().close();
 }
 

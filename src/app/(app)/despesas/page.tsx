@@ -11,6 +11,8 @@ import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-ab
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
+import { chaveLigada } from "@/lib/chaves-tenant";
+import { mapaDeCategorias } from "@/lib/categoria-do-plano";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -298,6 +300,8 @@ export default async function DespesasPage({
     contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
     categorias: CATEGORIAS_DRE,
+    // Prompt DP — com a chave ligada, a categoria vem travada da conta.
+    categoriaDoPlano: (await chaveLigada(ctx.tenant.id, "despesa_categoria_do_plano")) ? mapaDeCategorias(contas) : null,
     pagadores,
     cartoes,
     aiConfigured,

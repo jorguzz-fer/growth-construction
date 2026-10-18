@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { categoriasPermitidasDaConta } from "@/lib/categoria-do-plano";
 
 /**
  * Plano de Contas — Parte 1 do Prompt G: RESTYLE, no ponto de uso.
@@ -35,6 +36,11 @@ interface Item {
   name: string;
   natureza: Natureza;
   ativo: boolean;
+  /** Prompt DP — categoria da DRE que vale (escolhida ou padrão). */
+  categoria: string;
+  categoriaPadrao: string;
+  /** null = segue o padrão. */
+  categoriaEscolhida: string | null;
 }
 interface Group {
   code: string;
@@ -189,6 +195,10 @@ function GroupCard({ group, perms }: { group: Group; perms: PlanoPerms }) {
               <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-v2-ink3)]">{it.code}</span>
               {it.name}
               <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", NATUREZA[it.natureza].ponto)} title={NATUREZA[it.natureza].rotulo} />
+              <span className="text-[10.5px] text-[var(--color-v2-ink3)]" data-categoria-conta={it.code} title={it.categoriaEscolhida ? "Categoria da DRE escolhida" : "Categoria da DRE pelo padrão"}>
+                · {it.categoria}
+                {!it.categoriaEscolhida && " (padrão)"}
+              </span>
               {!it.ativo && <span className="text-[10px] text-[var(--color-v2-ink3)]">inativa</span>}
             </span>
           ))}
@@ -290,9 +300,13 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
   const [code, setCode] = useState(item.code);
   const [name, setName] = useState(item.name);
   const [natureza, setNatureza] = useState<Natureza>(item.natureza);
+  // Prompt DP — "" = segue o padrão de boa prática.
+  const [categoria, setCategoria] = useState(item.categoriaEscolhida ?? "");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const dirty = code !== item.code || name !== item.name || natureza !== item.natureza;
+  const opcoesDeCategoria = categoriasPermitidasDaConta(natureza);
+  const categoriaServe = !categoria || (opcoesDeCategoria as string[]).includes(categoria);
+  const dirty = code !== item.code || name !== item.name || natureza !== item.natureza || categoria !== (item.categoriaEscolhida ?? "");
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string } | void>) => {
     setError(null);
@@ -334,6 +348,22 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
         <option value="despesa">Despesa</option>
         <option value="receita">Receita</option>
       </Select>
+      {/* Prompt DP — uma categoria da DRE por conta; vazio = o padrão. */}
+      <Select
+        value={categoriaServe ? categoria : ""}
+        onChange={(e) => setCategoria(e.target.value)}
+        disabled={!perms.editar || pending}
+        className={cn(CAMPO, "w-48")}
+        title="Categoria da DRE da conta"
+        aria-label={`Categoria da DRE de ${item.code}`}
+      >
+        <option value="">Padrão: {natureza === item.natureza ? item.categoriaPadrao : natureza === "receita" ? "Receita" : "pelo grupo"}</option>
+        {opcoesDeCategoria.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
       {!item.ativo && (
         <span className="rounded-full bg-[var(--color-ink4)]/15 px-2 py-0.5 text-[10px] text-[var(--color-ink3)]">
           inativa
@@ -345,7 +375,7 @@ function ItemRow({ item, perms }: { item: Item; perms: PlanoPerms }) {
           variant="outline"
           disabled={pending || !dirty}
           className={BOTAO_SECUNDARIO}
-          onClick={() => run(() => updateChartItem(item.id, { code, name, natureza }))}
+          onClick={() => run(() => updateChartItem(item.id, { code, name, natureza, dreCategory: categoriaServe ? categoria || null : null }))}
         >
           Salvar
         </Button>

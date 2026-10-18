@@ -37,6 +37,7 @@ import {
   type ExtratoExtraido,
 } from "@/lib/ai/extrato-extract";
 import { comUsoDeIa } from "@/lib/ai/uso";
+import { categoriaParaGravar } from "@/lib/categoria-do-plano-servidor";
 
 /** Formatos aceitos na leitura por IA do extrato (PDF/imagens). */
 const EXTRATO_AI_MIME = [
@@ -1243,6 +1244,9 @@ export async function criarLancamentoDoExtrato(input: {
       // ── SAÍDA → nova despesa, já PAGA na data do movimento ────────────────
       const versao = await getAtualVersion(ctx.tenant.id, input.projectId);
       if (!versao) return { ok: false, error: "Versão atual do projeto não encontrada." };
+      // Prompt DP — com a chave ligada, a categoria é a da conta.
+      const pelaConta = await categoriaParaGravar(ctx.tenant.id, input.contaCef, input.categoriaDre);
+      if (!pelaConta.ok) return { ok: false, error: pelaConta.error };
       const numDoc = input.mov.doc?.trim()
         ? input.mov.doc.trim()
         : await reserveDespesaNumber(ctx.tenant.id);
@@ -1254,7 +1258,7 @@ export async function criarLancamentoDoExtrato(input: {
           numDoc,
           fornecedorId: input.fornecedorId || null,
           contaCef: input.contaCef || null,
-          categoriaDre: input.categoriaDre as CategoriaDRE,
+          categoriaDre: pelaConta.categoria as CategoriaDRE,
           competencia: input.competencia || monthKeyFrom(input.mov.data),
           vencimento: input.mov.data || null,
           valor: String(Math.abs(valor)),

@@ -219,13 +219,14 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 **O que se faz:**
 - Grupos CEF / Obra e Grupos Complementares.
 - Criar grupo ou subitem (código, nome, natureza Despesa/Receita), renomear o grupo, editar, inativar ou excluir.
-- As Categorias DRE ficam ao lado e são **fixas**.
+- **Categoria da DRE de cada conta**: aparece ao lado de cada subitem, com "(padrão)" quando segue a boa prática do sistema. Em "Editar", escolha outra categoria ou "Padrão" para voltar. Conta de despesa não aceita "Receita"; conta de receita é sempre "Receita".
+- A lista das Categorias DRE fica ao lado e é **fixa**.
 
 **O que confunde:**
 - A Natureza define o bloco da linha em Orçamentos.
 - Só dá para **excluir** se nenhum Orçamento ou Previsão usa o código. Se usa, **Inative**: a conta some dos novos lançamentos e os valores ficam.
 
-**Não faz:** não edita as categorias DRE e não reclassifica despesas (isso fica na Conferência).
+**Não faz:** não cria categoria DRE nova e não regrava despesas. Com a chave "Despesa herda a categoria" ligada, a categoria da conta passa a valer para as despesas dela nos relatórios e no lançamento.
 
 **Quem acessa:** owner e admin, o membro com a chave desligada (sem excluir) e o contador (leitura).
 

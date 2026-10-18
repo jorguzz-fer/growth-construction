@@ -25,6 +25,8 @@ import {
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
+import { mapaDeCategorias, mapaParaDespesas } from "./categoria-do-plano";
+import type { CategoriaDRE } from "./calc/constants";
 import { entraNosRelatorios } from "./situacao-versao";
 import { saldosReaisDasDespesas } from "./acerto-saldo";
 import { janelaDaMargem, naJanela, orcamentoDaObra, type OrigemDaJanela } from "./dashboard-definicao";
@@ -1759,15 +1761,25 @@ export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
     }));
   }
   const d = await getDespesas(versionId);
+  // Prompt DP — com a chave ligada, a despesa conta pela categoria da conta
+  // no Plano de Contas (conta fora do plano mantém a escolhida). Desligada,
+  // exatamente como antes. Nada é regravado.
+  const mapa = versao && (await chaveLigada(versao.tenantId, "despesa_categoria_do_plano")) ? mapaParaDespesas(await getMapaDeCategorias(versao.tenantId)) : null;
   // Despesas canceladas (exclusão lógica) não compõem a DRE/relatórios.
   return d
     .filter((x) => !x.cancelado)
     .map((x) => ({
       contaCef: x.contaCef,
-      categoriaDre: x.categoriaDre,
+      categoriaDre: (mapa && x.contaCef && mapa[x.contaCef]) || x.categoriaDre,
       competencia: x.competencia,
       valor: Number(x.valor),
     }));
+}
+
+/** Prompt DP — código da conta → categoria da DRE que vale (escolhida ou padrão). */
+export async function getMapaDeCategorias(tenantId: string): Promise<Record<string, CategoriaDRE>> {
+  const contas = await getChartAccounts(tenantId);
+  return mapaDeCategorias(contas);
 }
 
 export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;

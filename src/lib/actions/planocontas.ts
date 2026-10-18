@@ -6,6 +6,8 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { recusaDeCategoriaDaConta } from "@/lib/categoria-do-plano";
+import type { CategoriaDRE } from "@/lib/calc/constants";
 
 type Kind = "cef" | "complementar";
 type Natureza = "receita" | "despesa";
@@ -118,7 +120,7 @@ export async function addChartItem(input: {
 /** Edita o código/nome de um subitem. */
 export async function updateChartItem(
   id: string,
-  patch: { code?: string; name?: string; natureza?: string },
+  patch: { code?: string; name?: string; natureza?: string; dreCategory?: string | null },
 ) {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
@@ -133,7 +135,7 @@ export async function updateChartItem(
     )
     .limit(1);
   if (!current) return;
-  const set: { code?: string; name?: string; natureza?: Natureza } = {};
+  const set: { code?: string; name?: string; natureza?: Natureza; dreCategory?: CategoriaDRE | null } = {};
   if (patch.code && patch.code.trim() && patch.code.trim() !== current.code) {
     if (await codeExists(ctx.tenant.id, patch.code.trim())) {
       throw new Error(`O código "${patch.code.trim()}" já existe.`);
@@ -142,6 +144,20 @@ export async function updateChartItem(
   }
   if (patch.name && patch.name.trim()) set.name = patch.name.trim();
   if (patch.natureza !== undefined) set.natureza = normNatureza(patch.natureza);
+  // Prompt DP — a categoria da DRE da conta: "" ou null volta ao padrão. A
+  // escolha precisa servir à natureza (despesa não é "Receita"); se a natureza
+  // mudou e a escolha gravada não serve mais, volta ao padrão.
+  const naturezaFinal = set.natureza ?? current.natureza;
+  if (patch.dreCategory !== undefined) {
+    const escolha = patch.dreCategory || null;
+    if (escolha) {
+      const recusa = recusaDeCategoriaDaConta(naturezaFinal, escolha);
+      if (recusa) throw new Error(recusa);
+    }
+    if ((escolha ?? null) !== (current.dreCategory ?? null)) set.dreCategory = escolha as CategoriaDRE | null;
+  } else if (set.natureza && current.dreCategory && recusaDeCategoriaDaConta(naturezaFinal, current.dreCategory)) {
+    set.dreCategory = null;
+  }
   if (Object.keys(set).length === 0) return;
   await db
     .update(schema.chartAccounts)

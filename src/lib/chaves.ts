@@ -85,6 +85,14 @@ export const CHAVES = [
     origem: "Prompt AE, Partes 1, 2.3, 2.4, 2.6 e 2.7 (seção 6)",
     previa: { href: "/chaves#previa-resumo", rotulo: "Prévia — os indicadores de hoje × definição nova, por obra" },
   },
+  {
+    id: "despesa_categoria_do_plano",
+    titulo: "Despesa herda a categoria da DRE do Plano de Contas",
+    efeito:
+      "Cada despesa passa a usar a categoria da DRE da sua conta no Plano de Contas: no lançamento, o campo aparece travado; nos relatórios (DRE e card Orçado x Realizado), as despesas já lançadas contam pela categoria da conta. Nada é regravado: desligar volta à categoria escolhida em cada despesa. Antes de ligar, confira no Plano de Contas a categoria de cada conta.",
+    origem: "Prompt DP (Fase 3, BDP-1 a BDP-3)",
+    previa: { href: "/chaves#previa-categoria", rotulo: "Prévia — despesas que mudam de categoria, por conta" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];
