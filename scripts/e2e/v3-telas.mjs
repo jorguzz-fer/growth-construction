@@ -82,6 +82,15 @@ const texto = async (page, url) => {
   await page.waitForURL(/[?&]sem=/, { timeout: 60000 }).catch(() => {});
   check("AD2: navega para as próximas semanas", /[?&]sem=\d{4}-\d{2}-\d{2}/.test(page.url()), page.url());
   await page.screenshot({ path: `${OUT}/v3-fluxo.png`, fullPage: true });
+
+  await texto(page, "/caixa");
+  const primeiro = await page.locator("select option").nth(1).getAttribute("value");
+  const caixa = await texto(page, `/caixa?proj=${primeiro}`);
+  check("L2: Caixa lista os dias fechados", (await page.locator("[data-dias-fechados]").count()) === 1);
+  const previstos = await page.locator("[data-previsto-dia]").count();
+  check("L2: dias de hoje em diante mostram o previsto", previstos >= 1, `${previstos} dia(s)`);
+  check("L2: cartão traz o saldo projetado", caixa.includes("Saldo projetado"));
+  await page.screenshot({ path: `${OUT}/v3-caixa.png`, fullPage: true });
   await page.context().close();
 }
 
