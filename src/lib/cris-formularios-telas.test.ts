@@ -1,0 +1,30 @@
+import { readFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+
+/**
+ * Fase 3, Etapa 3 — as telas de lançamento que se oferecem à Cris. Cada uma
+ * registra o formulário com `useCrisFormulario`; a Cris só PREENCHE, e quem
+ * grava é o botão da tela (regra 4.2.1). Dado pessoal fica de fora do
+ * formulário (o cliente, por exemplo, não vai ao modelo).
+ */
+const TELAS: [arquivo: string, id: string][] = [
+  ["src/components/app/budget-planning-screen.tsx", "formularioDoOrcamento"],
+  ["src/components/app/project-manager.tsx", "formularioDoProjeto"],
+  ["src/components/app/planocontas-cris.tsx", "formularioDoPlano"],
+  ["src/components/app/contas-receber-manager.tsx", '"conta-receber-nova"'],
+  ["src/components/app/liberacao-form.tsx", '"liberacao-nova"'],
+];
+
+describe("Etapa 3 — telas de lançamento com a Cris", () => {
+  it.each(TELAS)("%s registra o formulário", (arquivo, id) => {
+    const src = readFileSync(arquivo, "utf8");
+    expect(src).toContain("useCrisFormulario(");
+    expect(src).toContain(id);
+  });
+
+  it("Contas a Receber não oferece o cliente à Cris", () => {
+    const src = readFileSync("src/components/app/contas-receber-manager.tsx", "utf8");
+    const bloco = src.slice(src.indexOf('id: "conta-receber-nova"'), src.indexOf("(p) =>", src.indexOf('id: "conta-receber-nova"')));
+    expect(bloco).not.toMatch(/cliente/i);
+  });
+});

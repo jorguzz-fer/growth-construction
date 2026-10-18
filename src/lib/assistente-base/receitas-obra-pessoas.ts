@@ -102,6 +102,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
   - São aceitos recebimentos parciais.
 - Anexar arquivos, editar e cancelar. A conta cancelada sai das listas e relatórios, mas fica no histórico.
 - Usar o assistente, que **propõe** pares conta ↔ linha do extrato. Só concilia quando a pessoa clica em "Conciliar".
+- **Lançar com a Cris**: diga, dite ou anexe o que receber (ex.: "sinal de 20 mil da unidade A101 vencendo dia 10"). A Cris preenche o formulário Nova conta a receber (projeto, tipo, valor, vencimento, descrição, unidade e banco) e quem grava é Adicionar. O cliente é escolhido à mão: o nome do comprador não vai ao modelo.
 
 **Campos que confundem:**
 - **Tipo** (Sinal, Parcela mensal, Outros ou Outras Receitas): "Outras Receitas" exige descrição.
@@ -128,6 +129,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 - Editar enquanto a liberação não estiver cancelada. Cancelar exige um motivo, e a linha fica riscada, fora dos totais.
 - As liberações também aparecem no Fluxo de Caixa, no Caixa, na Projeção e no Resumo.
 - Usar o assistente para comparar liberações com medições e com o financiamento previsto nas vendas. Ele só lê.
+- **Lançar com a Cris**: em Nova liberação, diga, dite ou anexe o ofício ou o extrato. A Cris preenche data, origem, valor e observações, e quem grava é Salvar liberação.
 
 **O que ela NÃO faz:** não confere valores com o banco nem cria receita na DRE; não é o financiamento do comprador (que fica no plano da unidade).
 

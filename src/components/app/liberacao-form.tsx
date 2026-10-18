@@ -10,6 +10,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { DateField } from "@/components/ui/date-field";
 import { avisosDoFormulario, type LiberacaoParaAnalise, type MedicaoParaAnalise } from "@/lib/liberacao-analise";
 import { lerValorDaLiberacao } from "@/lib/liberacao-regras";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 
 /**
  * Formulário da liberação de obra (Prompt O, 3-A). Mesmos campos, mesma
@@ -44,6 +45,29 @@ export function LiberacaoForm({
   const [valor, setValor] = useState(initial?.valor ?? "");
   const [data, setData] = useState(initial?.data ?? "");
   const [origem, setOrigem] = useState(initial?.origem ?? "");
+  const [obs, setObs] = useState(initial?.obs ?? "");
+  const [daCris, setDaCris] = useState(false);
+  // Prompt K2 — a Cris preenche a liberação (texto, ditado ou extrato/ofício
+  // anexado); quem grava é o botão Salvar.
+  useCrisFormulario(
+    {
+      id: initial ? "liberacao-edicao" : "liberacao-nova",
+      titulo: initial ? "Editar liberação de obra" : "Nova liberação de obra",
+      campos: [
+        { nome: "data", rotulo: "Data em que o recurso entrou na conta", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "origem", rotulo: "Origem", tipo: "texto", dica: 'ex.: "CEF · medição 03/2026"' },
+        { nome: "valor", rotulo: "Valor", tipo: "numero", dica: "em reais" },
+        { nome: "obs", rotulo: "Observações", tipo: "texto" },
+      ],
+    },
+    (p) => {
+      if (p.valores.data) setData(p.valores.data);
+      if (p.valores.origem) setOrigem(p.valores.origem);
+      if (p.valores.valor) setValor(p.valores.valor);
+      if (p.valores.obs) setObs(p.valores.obs);
+      setDaCris(true);
+    },
+  );
   // 6.2 — avisos do assistente no cadastro: competência com medição e sem
   // liberação, e lançamento igual a um existente. Avisos, nunca preenchimento;
   // não impedem salvar. Na edição, o próprio registro contaria como "igual".
@@ -86,7 +110,7 @@ export function LiberacaoForm({
           </div>
           <div>
             <Label>Observações</Label>
-            <Input name="obs" defaultValue={initial?.obs ?? ""} placeholder="" />
+            <Input name="obs" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="" />
           </div>
           {avisos.length > 0 && (
             <ul className="space-y-1 rounded-[10px] border border-[var(--color-warning)]/40 bg-[#fef3c7]/60 px-3 py-2 text-[12px] text-[#92400e] sm:col-span-2" aria-label="Avisos do assistente">
@@ -94,6 +118,11 @@ export function LiberacaoForm({
                 <li key={a.tipo}>⚠ {a.texto}</li>
               ))}
             </ul>
+          )}
+          {daCris && !aviso && (
+            <p role="status" className="text-[12.5px] text-[var(--color-ink2)] sm:col-span-2" data-cris-preencheu>
+              A Cris preencheu o formulário. Confira e clique em Salvar.
+            </p>
           )}
           {aviso && (
             <p role="status" className="text-[13px] text-[var(--color-danger)] sm:col-span-2">

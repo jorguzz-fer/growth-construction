@@ -204,6 +204,18 @@ const texto = async (page, url) => {
   const cliTxt = await texto(page, "/clientes");
   check("M2: Clientes mostra o perfil da base", (await page.locator("[data-perfil-base]").count()) === 1 && /Perfil da base/.test(cliTxt));
 
+  // K2 — Contas a Receber e Liberações: o formulário se oferece à Cris.
+  const ctxCris = async (url, padrao) => {
+    await texto(page, url);
+    await page.click("[data-chat-botao]");
+    await page.waitForFunction((p) => new RegExp(p).test(document.querySelector("[data-chat-contexto]")?.textContent ?? ""), padrao, { timeout: 15000 }).catch(() => {});
+    const t = (await page.textContent("[data-chat-contexto]")) ?? "";
+    await page.click("[data-chat-botao]");
+    return t;
+  };
+  check("K2: a Cris preenche a nova conta a receber", /Nova conta a receber/.test(await ctxCris(`/contasreceber?proj=${obraParaCadastro}`, "Nova conta a receber")));
+  check("K2: a Cris preenche a nova liberação", /Nova liberação de obra/.test(await ctxCris(`/reembolso/novo?proj=${obraParaCadastro}`, "Nova liberação")));
+
   // D2 — Orçamentos: alteração não salva marca a tela e pede confirmação ao sair.
   await texto(page, `/budget?proj=${obraParaCadastro}`);
   check("D2: abre sem alteração pendente", (await page.locator("[data-nao-salvo]").count()) === 0);
