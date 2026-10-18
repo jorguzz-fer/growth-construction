@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
 import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds, getCartoes } from "@/lib/queries";
@@ -32,10 +33,11 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "apagar" | "semnf" | "parcelas" | "repositorio";
+// Prompt REN (Fase 3): a aba "A Pagar" saiu — repetia a tela Contas a Pagar.
+// Quem chega por `?tab=apagar` (link antigo) é levado para lá.
+type Tab = "lancamentos" | "semnf" | "parcelas" | "repositorio";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
-  { key: "apagar", label: "A Pagar" },
   // Item 1.2 — lançar sem nota é permitido; esta aba é a lista de cobrança.
   { key: "semnf", label: "Pendente de NF" },
   { key: "parcelas", label: "Parcelas" },
@@ -74,6 +76,7 @@ export default async function DespesasPage({
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
   const sp = await searchParams;
+  if (sp.tab === "apagar") redirect(sp.proj ? `/contaspagar?proj=${encodeURIComponent(sp.proj)}` : "/contaspagar");
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const canEdit = can(ctx.perms, "despesas", "criar");
   const canEditar = can(ctx.perms, "despesas", "editar");
@@ -405,20 +408,6 @@ export default async function DespesasPage({
             {...tableRefProps}
           />
         </>
-      )}
-
-      {tab === "apagar" && (
-        <DespesasTable
-          rows={despesas
-            .filter((d) => d.status !== "Pago" && !d.cancelado)
-            .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))
-            .map(toDTO)}
-          venc
-          showOrigem={isAll}
-          canEditar={canEditar}
-          canExcluir={canExcluir}
-          {...tableRefProps}
-        />
       )}
 
       {/* Item 1.2 — despesas ainda sem documento fiscal informado. Lançar sem

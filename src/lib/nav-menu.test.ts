@@ -225,3 +225,23 @@ describe("roleLabel", () => {
     expect(roleLabel("xyz")).toBe("xyz");
   });
 });
+
+describe("Prompt REN (Fase 3) — mudanças de menu e rótulos", () => {
+  const moduloDe = (href: string) => NAV_MENU.find((m) => m.items.some((i) => i.href === href))?.id;
+  const rotuloDe = (href: string) => todos.find((i) => i.href === href)?.label;
+
+  it("Projeção de Receitas mora em Business Intelligence; Cartões, no Caixa", () => {
+    expect(moduloDe("/projecao")).toBe("bi");
+    expect(moduloDe("/cartoes")).toBe("caixa");
+  });
+
+  it("nada em inglês nem 'Obra' genérico nos rótulos renomeados", () => {
+    expect(rotuloDe("/fornecedores")).toBe("Fornecedores e Parceiros");
+    expect(rotuloDe("/medicao")).toBe("Medição de Projeto");
+  });
+
+  it("mover de módulo não muda a chave de permissão", () => {
+    expect(permOf(todos.find((i) => i.href === "/cartoes")!)).toBe("cartoes");
+    expect(permOf(todos.find((i) => i.href === "/projecao")!)).toBe("projecao");
+  });
+});

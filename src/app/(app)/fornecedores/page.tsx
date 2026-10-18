@@ -28,7 +28,7 @@ export default async function FornecedoresPage() {
   return (
     <>
       <PageHeader
-        title="Fornecedores & Stakeholders"
+        title="Fornecedores e Parceiros"
         subtitle={`Registro global do tenant · ${stakeholders.length} cadastrados`}
         actions={
           <Link

@@ -67,7 +67,6 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - Escolher a obra no seletor, ou "Todos os projetos / filiais" para consultar tudo.
 - Abas:
   - **Lançamentos**: formulário e lista, com o último lançamento criado no topo (editar não muda a ordem).
-  - **A Pagar**: o que não está pago, por vencimento.
   - **Pendente de NF**: lançamentos sem documento fiscal.
   - **Parcelas**: só com uma obra escolhida; paga parcela por parcela.
   - **Repositório**: documentos, com ou sem vínculo.
@@ -143,7 +142,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - membro, com a chave do membro desligada: ver, criar e editar, mas cancelar ressarcimento exige excluir;
 - contador: não acessa.
 
-## Cartões de Crédito (/cartoes) — módulo Despesas
+## Cartões de Crédito (/cartoes) — módulo Caixa
 
 **Para que serve:** cadastrar cartões, acompanhar faturas, pagar a fatura e conferir o extrato do cartão.
 
@@ -180,7 +179,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 
 **Quem acessa por padrão:** quem pode **editar Despesas e ver o Caixa**, ou seja, owner, admin e membro. O estorno exige excluir em Despesas (owner e admin). O contador não acessa.
 
-## Fornecedores & Stakeholders (/fornecedores) — módulo Despesas
+## Fornecedores e Parceiros (/fornecedores) — módulo Despesas
 
 **Para que serve:** o cadastro único da empresa (não é por obra) de fornecedores, prestadores, sócios, bancos e demais pessoas.
 

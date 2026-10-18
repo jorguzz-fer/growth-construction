@@ -70,6 +70,8 @@ export const NAV_MENU: NavModule[] = [
       { href: "/dre", label: "DRE" },
       { href: "/fluxocaixa", label: "Fluxo de Caixa" },
       { href: "/resumo", label: "Resumo Executivo" },
+      // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
+      { href: "/projecao", label: "Projeção de Receitas" },
       { href: "/consolidado", label: "Consolidado" },
       { href: "/diagnosticoia", label: "Assistente" },
     ],
@@ -96,7 +98,6 @@ export const NAV_MENU: NavModule[] = [
       { href: "/contasreceber", label: "Contas a Receber" },
       { href: "/reembolso", label: "Liberações de Obra" },
       { href: "/permuta", label: "Permuta" },
-      { href: "/projecao", label: "Projeção de Receitas" },
     ],
   },
   {
@@ -107,10 +108,9 @@ export const NAV_MENU: NavModule[] = [
       { href: "/despesas", label: "Despesas / Lançamentos" },
       { href: "/contaspagar", label: "Contas a Pagar" },
       { href: "/restituicoes", label: "Ressarcimentos" },
-      { href: "/cartoes", label: "Cartões de Crédito" },
       // Pagamento único quitando várias despesas — governado por Despesas.
       { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
-      { href: "/fornecedores", label: "Fornecedores" },
+      { href: "/fornecedores", label: "Fornecedores e Parceiros" },
     ],
   },
   {
@@ -120,6 +120,8 @@ export const NAV_MENU: NavModule[] = [
     items: [
       { href: "/caixa", label: "Caixa" },
       { href: "/contas", label: "Contas Correntes" },
+      // Prompt REN (Fase 3): o cartão é meio de pagamento — mora no Caixa.
+      { href: "/cartoes", label: "Cartões de Crédito" },
       { href: "/balancodia", label: "Balanço do Dia" },
     ],
   },
@@ -131,7 +133,7 @@ export const NAV_MENU: NavModule[] = [
       // Prompt V, 0.2: UM item. /medicao (relatório) e /medicaolanc (lançar e
       // lançadas) continuam como rotas e abas da mesma tela; quem só tem a
       // permissão de lançamento é levado à aba dele pela própria página.
-      { href: "/medicao", label: "Medição de Obra", permAlt: "medicaolanc", hrefAlt: "/medicaolanc", tambem: ["/medicaolanc"] },
+      { href: "/medicao", label: "Medição de Projeto", permAlt: "medicaolanc", hrefAlt: "/medicaolanc", tambem: ["/medicaolanc"] },
       { href: "/estoque", label: "Estoque" },
       { href: "/parametros", label: "Parâmetros / INCC" },
     ],

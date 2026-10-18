@@ -6,8 +6,8 @@ export const TEXTO = `# Base de conhecimento: Receitas, Obra e Pessoas
 Padrões de cada papel; o proprietário ou um administrador pode ajustá-los por membro em Configurações → Gestão de Acessos.
 
 - **Proprietário e Administrador**: acesso total.
-- **Membro**: pode ver, criar e editar em todas as telas desta parte, mas não pode excluir nem cancelar. Se a empresa ligar a chave "Padrão novo do papel membro" em Configurações → Chaves de mudança, o membro passa a ver só Clientes, Unidades, Contas a Receber, Permuta e Medição de Obra.
-- **Contador**: só leitura. Desta parte, vê apenas o Relatório CEF da Medição de Obra.
+- **Membro**: pode ver, criar e editar em todas as telas desta parte, mas não pode excluir nem cancelar. Se a empresa ligar a chave "Padrão novo do papel membro" em Configurações → Chaves de mudança, o membro passa a ver só Clientes, Unidades, Contas a Receber, Permuta e Medição de Projeto.
+- **Contador**: só leitura. Desta parte, vê apenas o Relatório CEF da Medição de Projeto.
 - **Engenheiro**: vê apenas o lançamento de medição.
 - **Dados sensíveis** (dados financeiros e de perfil do cliente, dados pessoais e salariais do funcionário, ASO): permissões à parte que, por padrão, só o proprietário e o administrador têm. Podem ser concedidas na Gestão de Acessos.
 
@@ -156,7 +156,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 
 ---
 
-## Projeção de Receitas (/projecao) — módulo Receitas
+## Projeção de Receitas (/projecao) — módulo Business Intelligence
 
 **Para que serve:** mostra, mês a mês, o que uma obra deve receber das unidades vendidas e das liberações de obra.
 
@@ -175,7 +175,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 
 ---
 
-## Medição de Obra (/medicao e /medicaolanc) — módulo Obra
+## Medição de Projeto (/medicao e /medicaolanc) — módulo Obra
 
 **Para que serve:** registra o valor medido por grupo de obra (grupos CEF do Plano de Contas) em cada competência e compara com o orçado no Relatório CEF. É informação auxiliar: **não entra na DRE**.
 
@@ -307,8 +307,8 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 - Para **ligar o comprador à unidade**, vá em Receitas → Clientes → Novo ou Editar → Unidade comprada e Status do contrato.
 - Para **registrar um recebimento avulso**, vá em Receitas → Contas a Receber → crie a conta → Receber → "Extrato bancário" (para conciliar) ou outra forma, com justificativa.
 - Para **lançar a liberação do banco**, vá em Receitas → Liberações de Obra → "+ Nova liberação".
-- Para **lançar uma medição**, vá em Obra → Medição de Obra → Nova medição. O laudo é anexado em Medições lançadas.
-- Para **ver orçado × medido**, vá em Obra → Medição de Obra → Relatório CEF → Imprimir página.
+- Para **lançar uma medição**, vá em Obra → Medição de Projeto → Nova medição. O laudo é anexado em Medições lançadas.
+- Para **ver orçado × medido**, vá em Obra → Medição de Projeto → Relatório CEF → Imprimir página.
 - Para **atualizar o INCC do mês**, vá em Obra → Parâmetros / INCC → edite o mês na tabela → confirme.
 - Para **dar entrada de material comprado**, vá em Obra → Estoque → Movimentos → Dar entrada → vincule a despesa de compra.
 - Para **lançar as diárias de um autônomo**, vá em Pessoas → Equipes de Projetos → Acumulado por membro → "Lançar em Despesas →".

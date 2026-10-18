@@ -43,7 +43,7 @@ export const SCREENS: Screen[] = [
   { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
-  { id: "medicao", label: "Medição de Obra — Relatório CEF", modulo: "Reports" },
+  { id: "medicao", label: "Medição de Projeto — Relatório CEF", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
   { id: "budget", label: "Orçamentos", modulo: "Planejamento" },
@@ -62,7 +62,7 @@ export const SCREENS: Screen[] = [
   // com owner e admin — ver TELAS_SENSIVEIS.
   { id: "clientesdados", label: "Clientes — dados financeiros e de perfil", modulo: "Receitas" },
   { id: "contasreceber", label: "Contas a Receber", modulo: "Receitas" },
-  { id: "medicaolanc", label: "Medição de Obra — Lançar medição", modulo: "Despesas" },
+  { id: "medicaolanc", label: "Medição de Projeto — Lançar medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
   // O `id` continua "reembolso" DE PROPÓSITO: ele é a chave gravada em
   // `membership.permissions` e o primeiro segmento da rota. Trocar o id
@@ -74,7 +74,7 @@ export const SCREENS: Screen[] = [
   { id: "contaspagar", label: "Contas a Pagar", modulo: "Despesas" },
   { id: "restituicoes", label: "Ressarcimentos (pago por terceiro)", modulo: "Despesas" },
   { id: "cartoes", label: "Cartões de Crédito", modulo: "Despesas" },
-  { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
+  { id: "fornecedores", label: "Fornecedores e Parceiros", modulo: "Despesas" },
   // Prompt AN, Parte 5: a Conferência de lançamentos ganha id próprio (e rota
   // /conferencia) para passar pelo enforcement central. A permissão ACOMPANHA
   // a de Lançamentos de Despesas, inclusive o override de cada membro — ver
