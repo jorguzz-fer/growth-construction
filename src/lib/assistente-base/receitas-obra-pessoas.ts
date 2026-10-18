@@ -266,6 +266,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 - Listar os funcionários, com opção de mostrar os desligados.
 - Cadastrar e abrir a ficha, com identificação, números de documentos, endereço, contrato, dados bancários, observações e dependentes (IR e salário-família).
 - Anexar documentos. O ASO só aparece para quem tem a permissão de ASO, e cada acesso a ele fica registrado.
+- **Com a Cris**: ela preenche só o **vínculo de trabalho** (cargo, setor, obra, tipo e prazo do contrato, admissão e observação) e abre o formulário de novo funcionário. Nome, documentos, nascimento, filiação, endereço, jornada, salário e dados bancários são preenchidos à mão, porque dado pessoal do funcionário não vai ao modelo. Quem cadastra é o botão "Cadastrar".
 - **Desligar** com data: o funcionário sai das alocações, e o histórico fica. É possível **Reativar**. **Excluir** só é possível sem nenhuma alocação em equipe, digitando o nome.
 - **Folha de pagamento e encargos** (/funcionarios/folha), para quem tem permissão de dados do funcionário: arquivo mensal com folha, holerites, guias e comprovantes.
   - Cada folha pode ser vinculada à despesa que a pagou.

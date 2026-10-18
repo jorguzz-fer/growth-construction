@@ -230,6 +230,7 @@ const texto = async (page, url) => {
   // Q2 — INCC: o cartão da série da empresa e a Cris com a tabela.
   check("Q2: a tela de INCC mostra o INCC da empresa", await (async () => { await texto(page, `/parametros?proj=${obraParaCadastro}`); return (await page.locator("[data-incc-empresa]").count()) === 1; })());
   check("Q2: a Cris recebe a tabela do INCC", /Parâmetros \/ INCC/.test(await ctxCris(`/parametros?proj=${obraParaCadastro}`, "Parâmetros / INCC")));
+  check("Z2: a Cris preenche o vínculo do funcionário", /Novo funcionário \(CLT\)/.test(await ctxCris("/funcionarios", "Novo funcionário")));
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));

@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FuncionarioCampos } from "@/components/app/funcionario-campos";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { formularioDoFuncionario, valoresDoFuncionario } from "@/lib/funcionario-cris";
 import { VALORES_VAZIOS, fdDe, type ValoresFuncionario } from "@/lib/funcionario-form";
 
 const dataBR = (iso: string | null) => (iso ? iso.split("-").reverse().join("/") : "—");
@@ -25,6 +27,16 @@ export function FuncionariosManager({ funcionarios, projetos, canCriar, podeDado
   const [mostrarDesligados, setMostrarDesligados] = useState(false);
   const lista = funcionarios.filter((f) => mostrarDesligados || !f.desligamento);
 
+  // Prompt Z2 — a Cris preenche só o vínculo de trabalho (BE-2: dado pessoal
+  // não vai ao modelo). Ela abre o formulário; quem cadastra é o botão.
+  const [crisMsg, setCrisMsg] = useState<string | null>(null);
+  useCrisFormulario(canCriar ? formularioDoFuncionario(projetos) : null, (p) => {
+    const r = valoresDoFuncionario(p.valores, projetos);
+    setNovo(true);
+    setV((x) => ({ ...x, ...r.valores }));
+    setCrisMsg(["A Cris preencheu o vínculo de trabalho. Nome, documentos, endereço, salário e banco você preenche à mão; depois clique em Cadastrar.", ...r.avisos].join(" "));
+  });
+
   const salvar = () =>
     start(async () => {
       const r = await addFuncionario(fdDe(v));
@@ -32,6 +44,7 @@ export function FuncionariosManager({ funcionarios, projetos, canCriar, podeDado
       setMsg({ ok: true, texto: `Funcionário cadastrado.${r.aviso ? ` Atenção: ${r.aviso}` : ""}` });
       setV(VALORES_VAZIOS);
       setNovo(false);
+      setCrisMsg(null);
       router.refresh();
     });
 
@@ -49,6 +62,11 @@ export function FuncionariosManager({ funcionarios, projetos, canCriar, podeDado
           <CardContent className="space-y-3 p-5">
             <h3 className="text-sm font-semibold text-[var(--color-ink)]">Novo funcionário (CLT)</h3>
             <p className="text-[12px] text-[var(--color-ink3)]">Autônomo, engenheiro e mestre de obra que emitem nota ou recibo ficam em Fornecedores. Aqui entra quem tem vínculo CLT.</p>
+            {crisMsg && (
+              <p data-cris-preencheu role="status" className="text-[12.5px] text-[var(--color-accent)]">
+                {crisMsg}
+              </p>
+            )}
             <FuncionarioCampos v={v} onChange={(k, val) => setV({ ...v, [k]: val })} podeDados={podeDados} projetos={projetos} />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setNovo(false)}>Cancelar</Button>

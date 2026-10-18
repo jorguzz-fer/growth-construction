@@ -20,6 +20,7 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/fornecedor-form.tsx", "formularioDoFornecedor"],
   ["src/components/app/medicao-form.tsx", "formularioDaMedicao"],
   ["src/components/app/estoque-manager.tsx", "formularioDoMovimento"],
+  ["src/components/app/funcionarios-manager.tsx", "formularioDoFuncionario"],
 ];
 
 import { TIPOS_DOC_PERMUTA } from "./permuta-regras";
