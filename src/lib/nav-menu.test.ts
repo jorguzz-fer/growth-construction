@@ -66,6 +66,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
   "/equipes": "equipes", // Prompt Z, Parte 3
   "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
+  "/dre/analitica": "dre", // Prompt AC3: mora sob /dre, mesma permissão
 };
 /**
  * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única
@@ -202,11 +203,15 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
     expect(isItemActive("/conferencia", "/contas")).toBe(false);
   });
 
-  it("nenhum par de itens do menu se destaca ao mesmo tempo", () => {
+  it("nenhum par de itens do menu se destaca ao mesmo tempo (o mais específico vence, Prompt AC3)", async () => {
+    const { itemAtivoDoModulo } = await import("./nav-menu");
     for (const x of todos) {
-      const ativos = todos.filter((y) => isItemActive(x.href, y.href));
-      expect(ativos.map((y) => y.href), x.href).toEqual([x.href]);
+      const ativos = NAV_MENU.map((m) => itemAtivoDoModulo(x.href, m.items)).filter(Boolean);
+      expect(ativos, x.href).toEqual([x.href]);
     }
+    // Só /dre e /dre/analitica casam pelo prefixo; nenhum outro par.
+    const pares = todos.flatMap((x) => todos.filter((y) => y !== x && isItemActive(x.href, y.href)).map((y) => `${x.href}>${y.href}`));
+    expect(pares).toEqual(["/dre/analitica>/dre"]);
   });
 
   it("/perfil e rota nula não ativam nada", () => {
@@ -247,5 +252,15 @@ describe("Prompt REN (Fase 3) — mudanças de menu e rótulos", () => {
   it("mover de módulo não muda a chave de permissão", () => {
     expect(permOf(todos.find((i) => i.href === "/cartoes")!)).toBe("cartoes");
     expect(permOf(todos.find((i) => i.href === "/projecao")!)).toBe("projecao");
+  });
+});
+
+describe("Prompt AC3 — DRE Analítica no menu", () => {
+  it("só o item mais específico fica marcado", async () => {
+    const { itemAtivoDoModulo } = await import("./nav-menu");
+    const bi = NAV_MENU.find((m) => m.id === "bi")!.items;
+    expect(itemAtivoDoModulo("/dre/analitica", bi)).toBe("/dre/analitica");
+    expect(itemAtivoDoModulo("/dre", bi)).toBe("/dre");
+    expect(itemAtivoDoModulo("/caixa", bi)).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import { getEncargosByVersion } from "@/lib/actions/pagamentos";
 import { aggregateInputs, emptyInputs, NO_COMP, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
 import { resumirForaDaCascata, type ForaDaCascata } from "@/lib/dre";
 import { chaveLigada } from "@/lib/chaves-tenant";
+import { entradaVazia, type EntradaAnalitica } from "@/lib/dre-analitica";
 
 export async function defaultVersionId(projectId: string): Promise<string | null> {
   return versionIdOfKind(projectId, "atual");
@@ -92,6 +93,37 @@ export async function versionInputsByMonth(
   for (const [mm, v] of Object.entries(encargosMes))
     bucket(mm).byCat["Despesas Financeiras"] =
       (bucket(mm).byCat["Despesas Financeiras"] || 0) + v;
+  return out;
+}
+
+/**
+ * Prompt AC3 — a mesma leitura de `versionInputsByMonth`, sem somar por
+ * categoria: cada despesa leva a conta, para a DRE Analítica abrir em grupo e
+ * conta. As regras da chave "dre_definicao_nova" são as mesmas.
+ */
+export async function versionAnaliticaByMonth(
+  tenantId: string,
+  vid: string,
+  projectId: string,
+  opts: { definicaoNova?: boolean } = {},
+): Promise<Record<string, EntradaAnalitica>> {
+  const nova = !!opts.definicaoNova;
+  const [revenue, despesas, permutas, encargosMes] = await Promise.all([
+    getMonthlyRevenue(vid, projectId),
+    getExpenseRows(vid),
+    getPermutas(tenantId, vid),
+    nova ? getEncargosPorCompetencia(vid) : getEncargosByVersion(vid),
+  ]);
+  const out: Record<string, EntradaAnalitica> = {};
+  const bucket = (mm: string | null) => (out[mm ?? NO_COMP] ??= entradaVazia());
+  for (const [mm, v] of Object.entries(revenue)) bucket(mm).receitaVendas += v;
+  for (const [mm, v] of Object.entries(permutaRevenueByMonth(permToResale(permutas)))) bucket(mm).receitaPermuta += v;
+  for (const d of despesas) {
+    if (!d.categoriaDre) continue;
+    if (nova && d.categoriaDre === "Receita") continue;
+    bucket(d.competencia).lancamentos.push({ categoria: d.categoriaDre, conta: d.contaCef, valor: Number(d.valor) });
+  }
+  for (const [mm, v] of Object.entries(encargosMes)) bucket(mm).encargos += v;
   return out;
 }
 

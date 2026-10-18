@@ -115,6 +115,20 @@ const texto = async (page, url) => {
   await page.screenshot({ path: `${OUT}/v3-chaves-categoria.png`, fullPage: false });
   const desp = await texto(page, "/despesas");
   check("DP: com a chave desligada, a categoria da despesa segue livre", (await page.locator("[data-categoria-travada]").count()) === 0, desp.length ? "" : "vazio");
+
+  // AC3 — DRE Analítica: categoria → grupo → conta, com os totais da DRE.
+  // Precisa de despesa lançada na Atual (o seed não traz; ver o relatório do AC3).
+  const dreTxt = await texto(page, "/dre?proj=all");
+  const resultadoDre = (await page.locator("tr", { hasText: "= Resultado Final" }).first().locator("td").nth(1).textContent())?.trim();
+  const analitica = await texto(page, "/dre/analitica?proj=all");
+  check("AC3: menu traz a DRE Analítica", dreTxt.includes("DRE Analítica"));
+  check("AC3: abre com as categorias e os grupos", (await page.locator('[data-tabela-analitica] tr[data-tipo="grupo"]').count()) > 0, analitica.slice(0, 0));
+  const resultadoAna = (await page.locator('[data-tabela-analitica] tr[data-tipo="final"] td').nth(1).textContent())?.trim();
+  check("AC3: Resultado Final igual ao da DRE", !!resultadoDre && resultadoDre === resultadoAna, `${resultadoDre} × ${resultadoAna}`);
+  await page.click("[data-abrir-tudo]");
+  check("AC3: abre até a conta", (await page.locator('[data-tabela-analitica] tr[data-tipo="conta"]').count()) > 0);
+  check("AC3: só o item DRE Analítica fica marcado no menu", (await page.locator('a[aria-current="page"]').count()) === 1 && ((await page.locator('a[aria-current="page"]').textContent()) ?? "").includes("DRE Analítica"));
+  await page.screenshot({ path: `${OUT}/v3-dre-analitica.png`, fullPage: true });
   await page.context().close();
 }
 

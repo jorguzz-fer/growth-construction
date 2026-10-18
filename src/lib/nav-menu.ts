@@ -68,6 +68,8 @@ export const NAV_MENU: NavModule[] = [
     items: [
       { href: "/dashboard", label: "Dashboard" },
       { href: "/dre", label: "DRE" },
+      // Prompt AC3: mora sob /dre — a permissão é a da DRE.
+      { href: "/dre/analitica", label: "DRE Analítica" },
       { href: "/fluxocaixa", label: "Fluxo de Caixa" },
       { href: "/resumo", label: "Resumo Executivo" },
       // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
@@ -197,6 +199,19 @@ export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): Na
 export function isItemActive(pathname: string | null | undefined, href: string, tambem: readonly string[] = []): boolean {
   if (!pathname) return false;
   return [href, ...tambem].some((h) => pathname === h || pathname.startsWith(h + "/"));
+}
+
+/**
+ * Prompt AC3: com /dre e /dre/analitica no mesmo módulo, as duas casariam com
+ * /dre/analitica. Só o item mais específico fica marcado.
+ */
+export function itemAtivoDoModulo(pathname: string | null | undefined, items: readonly NavItem[]): string | null {
+  let melhor: string | null = null;
+  for (const it of items) {
+    if (!isItemActive(pathname, it.href, it.tambem)) continue;
+    if (!melhor || it.href.length > melhor.length) melhor = it.href;
+  }
+  return melhor;
 }
 
 /** Módulo que contém a rota atual (o que precisa ficar aberto), ou null. */

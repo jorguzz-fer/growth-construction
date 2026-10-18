@@ -78,6 +78,27 @@ Regras gerais:
 
 ---
 
+## DRE Analítica (/dre/analitica) — módulo Business Intelligence
+
+**Para que serve:** a mesma DRE de um cenário, aberta em **categoria → grupo do plano de contas → conta**, com a análise vertical (% da receita).
+
+**O que se faz:**
+- Escolher a obra ou a empresa toda, o período e o cenário (Atual, Previsão Atualizada ou Orçamento), um de cada vez.
+- Clicar numa categoria para abrir os grupos, e num grupo para abrir as contas. "Abrir até a conta" abre tudo.
+- A Receita abre no que a compõe: unidades e liberações, revenda de permuta e o que foi lançado como despesa na categoria Receita.
+- As Despesas Financeiras mostram à parte os encargos dos pagamentos (juros e multas, menos descontos).
+
+**O que confunde:**
+- Os totais são os da DRE no mesmo cenário e período; a analítica só detalha.
+- Cada despesa entra pela categoria escolhida no lançamento. Com a chave "Despesa herda a categoria" ligada, entra pela categoria da conta no Plano de Contas.
+- Despesa sem conta aparece em "Sem conta do plano". No Orçamento e na Previsão, a linha é o grupo: aparece como "Planejado no grupo".
+
+**Não faz:** não mostra o lançamento individual (para na conta) nem compara cenários lado a lado (isso fica na DRE).
+
+**Quem acessa:** quem vê a DRE.
+
+---
+
 ## Fluxo de Caixa (/fluxocaixa) — módulo Business Intelligence
 
 **Para que serve:** entradas e saídas por mês, com saldo acumulado. O previsto vem pelo vencimento e o realizado pela liquidação.

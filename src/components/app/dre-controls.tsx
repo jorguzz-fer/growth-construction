@@ -20,6 +20,7 @@ export function DreControls({
   ate,
   showVersionKind = false,
   versionKind = "atual",
+  base = "/dre",
 }: {
   projects: { id: string; label: string }[];
   proj: string;
@@ -35,6 +36,8 @@ export function DreControls({
   /** Mostra o seletor de TIPO de versão (usado na visão "Empresa toda"). */
   showVersionKind?: boolean;
   versionKind?: string;
+  /** Prompt AC3: a mesma barra serve à DRE Analítica. */
+  base?: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -73,7 +76,7 @@ export function DreControls({
       params.delete("de");
       params.delete("ate");
     }
-    start(() => router.push(`/dre?${params.toString()}`));
+    start(() => router.push(`${base}?${params.toString()}`));
   };
 
   const aplicarCustom = () => go({ periodo: "custom", de: deVal, ate: ateVal });
