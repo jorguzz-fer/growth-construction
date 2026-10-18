@@ -177,6 +177,16 @@ export const MEMBRO_TELAS = new Set([
 export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
 
 /**
+ * Prompt PLAT (Fase 3, revisão V5): telas que só os operadores da plataforma
+ * (super-admins, `src/lib/tenant/superadmin.ts`) alcançam — nem owner nem
+ * admin do cliente. Chaves de mudança ligam regra nova para a empresa
+ * inteira; o backup completo é extração de todos os dados, risco de
+ * segurança se a senha do dono vazar. O dono que precisar pede à plataforma.
+ * Não se concede por override e não aparece na Gestão de Acessos.
+ */
+export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves", "backup"]);
+
+/**
  * Telas que nenhum padrão de papel concede além de owner/admin — mas que,
  * diferente de TELAS_SO_ADMIN, podem ser dadas a alguém por override na Gestão
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
@@ -202,6 +212,11 @@ export interface OpcoesPermissao {
    * Desligado = comportamento de antes, célula por célula.
    */
   membroRestrito?: boolean;
+  /**
+   * Prompt PLAT: o usuário é operador da plataforma (super-admin por e-mail).
+   * Só ele vê TELAS_SO_PLATAFORMA. Ausente = não é.
+   */
+  operadorDaPlataforma?: boolean;
 }
 
 /** Permissões padrão por perfil (role). */
@@ -229,6 +244,8 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
     }
   }
   for (const [filha, mae] of Object.entries(HERDA_DE)) out[filha] = { ...out[mae] };
+  // Prompt PLAT: o padrão de qualquer papel é negado; só o operador da plataforma alcança.
+  for (const id of TELAS_SO_PLATAFORMA) out[id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
   return out;
 }
 
@@ -262,6 +279,8 @@ export function effectivePermissions(
     if (total) base[s.id] = { ...FULL };
     else if (TELAS_SO_ADMIN.has(s.id)) base[s.id] = { ...NONE };
     else if (soLeitura) base[s.id] = { ver: base[s.id].ver, criar: false, editar: false, excluir: false };
+    // Prompt PLAT: por último, acima do papel — owner e admin do cliente não alcançam.
+    if (TELAS_SO_PLATAFORMA.has(s.id)) base[s.id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
   }
   return base;
 }
@@ -323,6 +342,9 @@ export function validarMatriz(payload: unknown): string | null {
     }
     if (!p.ver && (p.criar || p.editar || p.excluir)) {
       return `"${tela}": criar, editar ou excluir exigem "ver".`;
+    }
+    if (TELAS_SO_PLATAFORMA.has(tela) && (p.ver || p.criar || p.editar || p.excluir)) {
+      return `"${tela}" é operada só pela plataforma e não pode ser concedida por override.`;
     }
     if (TELAS_SO_ADMIN.has(tela) && (p.ver || p.criar || p.editar || p.excluir)) {
       return `"${tela}" é exclusiva de owner e admin e não pode ser concedida por override.`;

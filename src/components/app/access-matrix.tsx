@@ -6,6 +6,7 @@ import {
   HERDA_DE,
   SCREENS,
   TELAS_SO_ADMIN,
+  TELAS_SO_PLATAFORMA,
   temTetoDeLeitura,
   type PermMatrix,
   type PermAction,
@@ -191,7 +192,7 @@ function MemberMatrix({
   }
 
   const grouped = useMemo(
-    () => MODULOS.map((mod) => ({ mod, screens: SCREENS.filter((s) => s.modulo === mod) })),
+    () => MODULOS.map((mod) => ({ mod, screens: SCREENS.filter((s) => s.modulo === mod && !TELAS_SO_PLATAFORMA.has(s.id)) })),
     [],
   );
 

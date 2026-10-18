@@ -6,7 +6,7 @@ export const TEXTO = `# Base de conhecimento: Receitas, Obra e Pessoas
 Padrões de cada papel; o proprietário ou um administrador pode ajustá-los por membro em Configurações → Gestão de Acessos.
 
 - **Proprietário e Administrador**: acesso total.
-- **Membro**: pode ver, criar e editar em todas as telas desta parte, mas não pode excluir nem cancelar. Se a empresa ligar a chave "Padrão novo do papel membro" em Configurações → Chaves de mudança, o membro passa a ver só Clientes, Unidades, Contas a Receber, Permuta e Medição de Projeto.
+- **Membro**: pode ver, criar e editar em todas as telas desta parte, mas não pode excluir nem cancelar. Se a chave "Padrão novo do papel membro" estiver ligada para a empresa (a plataforma liga a pedido), o membro passa a ver só Clientes, Unidades, Contas a Receber, Permuta e Medição de Projeto.
 - **Contador**: só leitura. Desta parte, vê apenas o Relatório CEF da Medição de Projeto.
 - **Engenheiro**: vê apenas o lançamento de medição.
 - **Dados sensíveis** (dados financeiros e de perfil do cliente, dados pessoais e salariais do funcionário, ASO): permissões à parte que, por padrão, só o proprietário e o administrador têm. Podem ser concedidas na Gestão de Acessos.

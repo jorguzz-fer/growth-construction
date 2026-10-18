@@ -11,8 +11,6 @@ import { can, screenIdOfPath } from "@/lib/permissions";
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { AppShell } from "@/components/app/app-shell";
 import { AccessDenied } from "@/components/app/access-denied";
-import { BackupReminder } from "@/components/app/backup-reminder";
-import { hasPendingSemesterBackup } from "@/lib/backup";
 import { Suspense } from "react";
 import { ChatAssistente } from "@/components/app/chat-assistente";
 
@@ -101,11 +99,8 @@ export default async function AppLayout({
   const screenId = screenIdOfPath(pathname);
   const denied = screenId ? !can(ctx.perms, screenId, "ver") : false;
 
-  // Aviso de backup: só para quem pode ver a tela de Backup e quando o último
-  // semestre encerrado tem dados a arquivar.
-  const backupPending = can(ctx.perms, "backup", "ver")
-    ? await hasPendingSemesterBackup(ctx.tenant.id)
-    : { has: false, key: "", label: "" };
+  // Prompt PLAT (revisão V5): o aviso de backup semestral saiu do app do
+  // cliente. O backup é operado pela plataforma.
 
   return (
     <AppShell
@@ -115,9 +110,6 @@ export default async function AppLayout({
       userRole={ctx.role}
       perms={ctx.perms}
     >
-      {backupPending.has && (
-        <BackupReminder semesterKey={backupPending.key} label={backupPending.label} />
-      )}
       {/* Conteúdo em largura total da tela (antes: max-w-6xl, ~1150px, encaixotado em monitor largo). */}
       <div className="w-full px-4 pb-10 pt-6 sm:px-6 lg:px-8 lg:pt-8">
         {denied ? <AccessDenied /> : children}

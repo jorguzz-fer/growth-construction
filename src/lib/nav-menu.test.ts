@@ -142,10 +142,11 @@ describe("visibleMenu — não amplia nem reduz acesso", () => {
     });
   }
 
-  it("Chaves de mudança (B4): só owner e admin, mesmo com override", () => {
+  it("Chaves de mudança: só a plataforma (Prompt PLAT), mesmo com override", () => {
     const ve = (perms: PermMatrix) => visiveisNovo(perms).includes("/chaves");
-    expect(ve(defaultPermissions("owner"))).toBe(true);
-    expect(ve(defaultPermissions("admin"))).toBe(true);
+    expect(ve(defaultPermissions("owner"))).toBe(false);
+    expect(ve(defaultPermissions("admin"))).toBe(false);
+    expect(ve(effectivePermissions("owner", null, { operadorDaPlataforma: true }))).toBe(true);
     for (const role of ["membro", "contador", "engenheiro"] as const) {
       expect(ve(defaultPermissions(role)), role).toBe(false);
       const override = { chaves: { ver: true, criar: true, editar: true, excluir: true } };

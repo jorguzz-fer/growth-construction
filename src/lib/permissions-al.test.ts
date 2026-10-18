@@ -11,8 +11,7 @@ import {
   recusaDoTetoDeLeitura,
   temTetoDeLeitura,
   type PermAction,
-  type PermMatrix,
-} from "./permissions";
+  type PermMatrix, TELAS_SO_PLATAFORMA } from "./permissions";
 
 const ACOES: PermAction[] = ["ver", "criar", "editar", "excluir"];
 const FULL = { ver: true, criar: true, editar: true, excluir: true };
@@ -105,6 +104,8 @@ describe("Prompt AL · Partes 2 a 4 — contador configurável com teto de leitu
           const antes = antesDoAL(role, o, restrito);
           const depois = effectivePermissions(role, o, { membroRestrito: restrito });
           for (const s of SCREENS) {
+            // Prompt PLAT: negadas a todo papel de propósito (permissions-plat.test.ts).
+            if (TELAS_SO_PLATAFORMA.has(s.id)) continue;
             for (const a of ACOES) {
               if (depois[s.id][a]) expect(antes[s.id][a], `${role} ${s.id}.${a} seed ${seed}`).toBe(true);
               if (role !== "contador") expect(depois[s.id][a], `${role} ${s.id}.${a}`).toBe(antes[s.id][a]);

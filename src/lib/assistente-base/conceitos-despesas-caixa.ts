@@ -38,7 +38,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 
 ### Chaves de mudança
 - São regras novas que mudam números de relatório ou acessos. **Todas nascem desligadas**; desligadas, o sistema funciona exatamente como antes.
-- São ligadas **por empresa**, em Configurações → Chaves de mudança, **só por owner ou admin**, depois de marcar que a prévia foi conferida.
+- São ligadas **por empresa**, pela plataforma (Growth Tools), depois de conferida a prévia. A empresa pede a mudança; não há tela de chaves para o cliente.
 - Chaves existentes: padrão novo do membro; Contas a Pagar só com a Atual; saída do ressarcimento segue a despesa; Rascunho fora dos relatórios; e definição nova da DRE, do Fluxo de Caixa, do Dashboard e do Resumo Executivo.
 - Algumas telas mostram, só para quem administra chaves, um bloco **"Prévia da chave"**.
 

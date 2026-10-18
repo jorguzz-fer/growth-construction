@@ -292,7 +292,7 @@ Regras gerais:
 - A matriz de owner e admin não se edita ("acesso total"), e ninguém edita a própria.
 - O contador só recebe "Ver".
 - A Conferência acompanha Despesas.
-- Usuários, Gestão de Acessos e Chaves nunca são concedidas.
+- Usuários, Gestão de Acessos e Chaves nunca são concedidas. Chaves e Backup nem aparecem: são operados pela plataforma.
 - Os grupos da matriz (Reports, Config…) não são os módulos do menu.
 
 **Não faz:** não troca o papel da pessoa (isso é em Usuários).
@@ -350,7 +350,7 @@ Regras gerais:
 
 **Não faz:** não apaga nem regrava dados.
 
-**Quem acessa:** só owner e admin.
+**Quem acessa:** só os operadores da plataforma (Growth Tools). Owner e admin da empresa não veem a tela; quem precisar de uma mudança pede à plataforma.
 
 ---
 
@@ -360,14 +360,13 @@ Regras gerais:
 
 **O que se faz:**
 - Lista de semestres com as contagens, a coluna "Último backup" (quando e quem baixou) e o botão "Baixar ZIP".
-- Aviso do semestre encerrado: aparece quando o último semestre encerrado tem dados e ainda não foi baixado depois do fim dele. Depois do download, o aviso some.
 - Cada download vai para a Auditoria, com o que o pacote continha.
 
 **Campos que confundem:** "Encerrado" é só calendário. Semestre encerrado continua recebendo lançamento; um backup baixado e depois alterado fica desatualizado.
 
 **Não faz:** não apaga, não arquiva e **não restaura**. O backup do banco de dados e dos arquivos é outro, feito pela infraestrutura.
 
-**Quem acessa:** owner e admin, e o membro com a chave do membro desligada. O contador não.
+**Quem acessa:** só os operadores da plataforma (Growth Tools). Baixar todos os dados da empresa é risco de segurança se a senha de alguém vazar; o dono que precisar de um backup pede à plataforma. Para analisar dados em outro lugar, use as exportações das telas de relatório.
 
 ---
 
@@ -411,6 +410,6 @@ Regras gerais:
 - Para corrigir despesas sem categoria, vá em **Configurações → Conferência de lançamentos**.
 - Para dar acesso a uma tela, vá em **Configurações → Gestão de Acessos**, escolha a pessoa, marque a tela e clique em Salvar.
 - Para trocar o papel ou a senha de alguém, vá em **Configurações → Usuários**.
-- Para ligar uma regra nova, vá em **Configurações → Chaves de mudança**, exporte a prévia, marque "Conferi a prévia" e clique em Ligar.
+- Para ligar uma regra nova, peça à plataforma (Growth Tools): ela confere a prévia com a empresa e liga a chave.
 - Para baixar a cópia de um semestre, vá em **Configurações → Backup → Baixar ZIP**.
 `;
