@@ -10,6 +10,9 @@ import { previaDreDefinicaoNova } from "@/lib/dre-inputs";
 import { previaFluxoDefinicaoNova } from "@/lib/fluxo-caixa";
 import { previaDashboardDefinicaoNova } from "@/lib/dashboard-previa";
 import { previaResumoDefinicaoNova } from "@/lib/resumo-previa";
+import { previaCategoriaDoPlano } from "@/lib/categoria-do-plano-servidor";
+import { getLinhasDaSerieIncc, toInccRows } from "@/lib/queries";
+import { SERIE_DA_EMPRESA, diferencaDaSerie, mudaAlgo } from "@/lib/incc-empresa";
 import { getBankAccounts } from "@/lib/queries";
 import { saldoDisponivel } from "@/lib/contas-saldo";
 import { brl, pct1 } from "@/lib/utils";
@@ -53,6 +56,14 @@ export default async function ChavesPage() {
   const previaDashboard = await previaDashboardDefinicaoNova(ctx.tenant.id, ctx.projects);
   // Prompt AE, 6.2: prévia da chave "resumo_definicao_nova" (só leitura).
   const previaResumo = await previaResumoDefinicaoNova(ctx.tenant.id, ctx.projects);
+  // Prompt DP (BDP-3): prévia da chave "despesa_categoria_do_plano" (só leitura).
+  const previaCategoria = await previaCategoriaDoPlano(ctx.tenant.id);
+  const totalQueMuda = previaCategoria.reduce((a, m) => a + m.despesas, 0);
+  // Prompt Q2 — o que muda em cada obra se ela passar a ler a série do INCC da empresa.
+  const inccEmpresa = toInccRows(await getLinhasDaSerieIncc(ctx.tenant.id, SERIE_DA_EMPRESA));
+  const previaIncc = inccEmpresa.length
+    ? await Promise.all(ctx.projects.map(async (p) => ({ obra: p.name, ...diferencaDaSerie(toInccRows(await getLinhasDaSerieIncc(ctx.tenant.id, p.id)), inccEmpresa) })))
+    : [];
   // Decisão de 01/10/2026: a prévia é exportada (e guardada) antes de ligar.
   const exportacoes = await ultimasExportacoes(ctx.tenant.id);
   const agora = new Date();
@@ -178,8 +189,8 @@ export default async function ChavesPage() {
           <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
             Versões de Orçamento e Previsão Atualizada que <strong>não estão Aprovadas</strong> nesta empresa.
             {rascunhoLigada
-              ? " Com a chave ligada, os valores abaixo já NÃO entram em DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade."
-              : " Ao ligar a chave, os valores abaixo deixam de entrar em DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade."}{" "}
+              ? " Com a chave ligada, os valores abaixo já NÃO entram em DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade."
+              : " Ao ligar a chave, os valores abaixo deixam de entrar em DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade."}{" "}
             A versão Atual (movimento real) nunca é filtrada. Nada é apagado: cada versão continua inteira na tela dela, e basta Aprovar para voltar a contar.
           </p>
           {naoAprovadas.length === 0 ? (
@@ -408,6 +419,93 @@ export default async function ChavesPage() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-categoria">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · Despesa herda a categoria do Plano de Contas</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Despesas da versão Atual, não canceladas, cuja categoria hoje é diferente da categoria da conta no Plano de Contas.
+            Com a chave ligada, elas passam a contar na DRE pela categoria da conta. Nada é regravado. Antes de ligar, confira a
+            categoria de cada conta em{" "}
+            <Link href="/planocontas" className="text-[var(--color-accent2)] hover:underline">
+              Plano de Contas
+            </Link>
+            . Despesa sem conta, ou com conta fora do plano, fica como está.
+          </p>
+          <p className="mt-2 text-[13px] font-medium text-[var(--color-ink)]" data-previa-categoria-total>
+            {totalQueMuda === 0 ? "Nenhuma despesa muda de categoria." : `${totalQueMuda} despesa(s) mudam de categoria.`}
+          </p>
+          {previaCategoria.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-[12.5px]" aria-label="Despesas que mudam de categoria, por conta">
+                <thead>
+                  <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                    <th className="py-1.5 pr-3">Conta</th>
+                    <th className="py-1.5 pr-3">Hoje</th>
+                    <th className="py-1.5 pr-3">Pela conta</th>
+                    <th className="py-1.5 pr-3 text-right">Despesas</th>
+                    <th className="py-1.5 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previaCategoria.map((m) => (
+                    <tr key={`${m.conta}|${m.de}`} className="border-b border-[var(--color-line)]/60" data-previa-categoria={m.conta}>
+                      <td className="py-1.5 pr-3 font-[family-name:var(--font-mono)]">{m.conta}</td>
+                      <td className="py-1.5 pr-3">{m.de}</td>
+                      <td className="py-1.5 pr-3 font-medium">{m.para}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{m.despesas}</td>
+                      <td className="py-1.5 text-right tabular-nums">{brl(m.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="mt-6" id="previa-incc">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Prévia · INCC da empresa</h2>
+          <p className="mt-1.5 text-[13px] text-[var(--color-ink2)]">
+            Com a chave ligada, cada obra passa a ler a série do INCC da empresa no lugar da própria. As séries das obras ficam
+            guardadas, e desligar volta a elas. A série da empresa é adotada em{" "}
+            <Link href="/parametros" className="text-[var(--color-accent2)] hover:underline">
+              Parâmetros / INCC
+            </Link>
+            , a partir da série de uma obra.
+          </p>
+          <p className="mt-2 text-[13px] font-medium text-[var(--color-ink)]" data-previa-incc-total>
+            {inccEmpresa.length === 0
+              ? "A empresa ainda não adotou uma série: ligar a chave não muda nada."
+              : previaIncc.filter(mudaAlgo).length === 0
+                ? `Série da empresa com ${inccEmpresa.length} meses. Nenhuma obra muda.`
+                : `Série da empresa com ${inccEmpresa.length} meses. ${previaIncc.filter(mudaAlgo).length} obra(s) mudam.`}
+          </p>
+          {previaIncc.some(mudaAlgo) && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-[12.5px]" aria-label="Obras cuja série do INCC difere da série da empresa">
+                <thead>
+                  <tr className="border-b border-[var(--color-line)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">
+                    <th className="py-1.5 pr-3">Obra</th>
+                    <th className="py-1.5 pr-3 text-right">Meses com acumulado diferente</th>
+                    <th className="py-1.5 pr-3 text-right">Meses sem índice na empresa</th>
+                    <th className="py-1.5 text-right">Maior diferença do acumulado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previaIncc.filter(mudaAlgo).map((m) => (
+                    <tr key={m.obra} className="border-b border-[var(--color-line)]/60" data-previa-incc={m.obra}>
+                      <td className="py-1.5 pr-3">{m.obra}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{m.mesesDiferentes}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{m.mesesSemEmpresa}</td>
+                      <td className="py-1.5 text-right tabular-nums">{m.mesDaMaior ? `${m.maiorDiferenca > 0 ? "+" : "−"}${Math.abs(m.maiorDiferenca).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} p.p. em ${m.mesDaMaior}` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </>

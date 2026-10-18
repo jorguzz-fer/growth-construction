@@ -67,6 +67,12 @@ import { resolveCompareVersions } from "@/lib/report-versions";
 import type { Version } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { dadosDasObras } from "@/lib/indicadores-negocio-dados";
+import { indicadoresEscolhidos, painelDeIndicadores } from "@/lib/indicadores-negocio";
+import { IndicadoresNegocio } from "@/components/app/indicadores-negocio";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +109,7 @@ function liberacoesComStatus(rows: Parameters<typeof reembToCalc>[0]) {
 export default async function ResumoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string; vs?: string; proj?: string; project?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; vs?: string; proj?: string; project?: string; ind?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -131,6 +137,7 @@ export default async function ResumoPage({
         ate={spObra.ate ?? ""}
         resumoNovo={resumoNovo}
         rascunhoFora={rascunhoFora}
+        ind={spObra.ind}
       />
     );
   }
@@ -283,8 +290,13 @@ export default async function ResumoPage({
     fmt: brl0,
   });
 
+  // Prompt AE2 — indicadores de negócio selecionáveis (da Atual da obra).
+  const verCustoAE2 = can(ctx.perms, "despesas", "ver");
+  const painel = painelDeIndicadores(await dadosDasObras(ctx.tenant.id, [obra], { verCusto: verCustoAE2, rascunhoFora }), verCustoAE2);
+
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={`${obra.name} · Versão ${version.label}`}
         title="Resumo Executivo"
@@ -293,10 +305,25 @@ export default async function ResumoPage({
           <div className="flex flex-wrap items-end gap-3">
             {projectPicker}
             <DateRangeFilter de={de} ate={ate} />
+            <ExportarPdf arquivo={`Resumo Executivo - ${obra.name}`} />
           </div>
         }
       />
       <div className="mb-4">{versionSelect}</div>
+      <IndicadoresNegocio {...painel} escolhidos={indicadoresEscolhidos(sp.ind, verCustoAE2)} />
+      {/* Prompt IAR — a Cris analisa e simula sobre os números do Resumo. */}
+      <CrisDaTela
+        titulo="Resumo Executivo"
+        dados={{
+          obra: obra.name,
+          versao: `${rotuloDaVersao(version).titulo} “${version.label}”`,
+          indicadoresGerais: indicadores.map((i) => ({ item: i.label, valor: i.value })),
+          unidades: { disponiveis: totals.disp, reservadas: totals.res, vendidas: totals.vend, total: totalUnidades },
+          recebimentosNoPeriodo: hasRange ? recebimentosPeriodo : null,
+          indicadoresDeNegocio: Object.fromEntries(Object.entries(painel.valores).map(([id, v]) => [id, v[0]?.valor ?? null])),
+        }}
+        sugestoes={["Quanto falta vender do VGV?", "E se as unidades disponíveis forem vendidas com 5% de desconto?", "Como está o custo por m²?"]}
+      />
 
       <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
       <div className="min-w-0 flex-1">
@@ -660,6 +687,7 @@ async function ResumoConsolidado({
   ate,
   resumoNovo,
   rascunhoFora,
+  ind,
 }: {
   ctx: NonNullable<Awaited<ReturnType<typeof getTenantContext>>>;
   escopo: "todos" | "ativos" | "finalizados";
@@ -667,6 +695,7 @@ async function ResumoConsolidado({
   ate: string;
   resumoNovo: boolean;
   rascunhoFora: boolean;
+  ind?: string;
 }) {
   const doEscopo = projetosDoEscopo(ctx.projects, escopo);
   const obras = doEscopo.projetos;
@@ -745,8 +774,11 @@ async function ResumoConsolidado({
   const desvioTxt = (real: number | null, orc: number | null) => (real == null || orc == null ? "—" : `${real - orc > 0 ? "+" : real - orc < 0 ? "−" : ""}${brl0(Math.abs(real - orc))}`);
 
   const titulo = rotuloDoEscopo(escopo);
+  // Prompt AE2 — indicadores de negócio selecionáveis, uma coluna por obra e o Total.
+  const painel = painelDeIndicadores(await dadosDasObras(ctx.tenant.id, obras, { verCusto, rascunhoFora }), verCusto);
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={`${titulo} · ${obras.length} projeto${obras.length === 1 ? "" : "s"}`}
         title="Resumo Executivo"
@@ -760,6 +792,7 @@ async function ResumoConsolidado({
               scopeOptions
             />
             <DateRangeFilter de={de} ate={ate} />
+            <ExportarPdf arquivo={`Resumo Executivo - ${titulo}`} />
           </div>
         }
       />
@@ -768,6 +801,19 @@ async function ResumoConsolidado({
           {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as como Ativo ou Finalizado em Projetos.
         </p>
       )}
+      {obras.length > 0 && <IndicadoresNegocio {...painel} escolhidos={indicadoresEscolhidos(ind, verCusto)} />}
+      {/* Prompt IAR — a Cris analisa e simula sobre os números do Resumo consolidado. */}
+      <CrisDaTela
+        titulo="Resumo Executivo (consolidado)"
+        dados={{
+          escopo: titulo,
+          obras: obras.length,
+          porTipoDeVersao: visiveis.map((c) => ({ tipo: c.tipo, obras: c.obras, indicadores: c.indicadores.map((i) => ({ item: i.label, valor: i.value })), unidades: c.unidades })),
+          porObra: comparativo.map((l) => ({ obra: l.obra, vgv: l.vgv, vgvVendido: l.vgvVendido, vendidas: l.vendidas, unidades: l.unidades, custoRealizado: l.custoRealizado, custoOrcado: l.custoOrcado })),
+          indicadoresDeNegocio: { colunas: painel.colunas, valores: Object.fromEntries(Object.entries(painel.valores).map(([id, v]) => [id, v.map((x) => x.valor)])) },
+        }}
+        sugestoes={["Qual obra vendeu proporcionalmente mais?", "Qual obra tem o maior desvio de custo?", "E se todas as obras venderem mais 10% do VGV?"]}
+      />
       {obras.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-[var(--color-ink3)]">Nenhum projeto neste filtro.</CardContent>

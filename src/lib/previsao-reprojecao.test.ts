@@ -53,4 +53,15 @@ describe("Prompt F · reprojeção (8.1–8.4)", () => {
     expect(p.alteradas).toBe(0);
     expect(recusaDaProposta(p)).toMatch(/não muda/);
   });
+
+  it("Prompt F2: com a receita da Atual, a linha Receitas do Projeto também tem os meses passados substituídos", () => {
+    const fixa: PlanningAccountRow = { ...row("Receitas do Projeto", 1000, { "01/2026": 25, "02/2026": 25, "03/2026": 25, "04/2026": 25 }), fixa: true };
+    const outra = row("OR", 500, { "04/2026": 100 });
+    const p = proporDoRealizado({ months, hojeMes: "03/2026", previsao: { receitas: [fixa, outra], despesas: [] }, realizado: {}, receitaRealizada: { "01/2026": 100, "02/2026": 300 } });
+    const r = p.contas.find((c) => c.bloco === "receita")!;
+    expect(r.rowKey).toBe("Receitas do Projeto");
+    expect(r.depois).toEqual({ "01/2026": 10, "02/2026": 30, "03/2026": 30, "04/2026": 30 });
+    expect(p.contas.some((c) => c.rowKey === "OR")).toBe(false);
+    expect(resumoDaProposta(p, (n) => `R$ ${n}`)).toMatch(/receita e despesas da versão Atual/);
+  });
 });

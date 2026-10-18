@@ -18,6 +18,7 @@ import { hashPassword } from "@/lib/password";
 import { logAudit } from "@/lib/audit";
 
 import { PAPEIS_CRIACAO, papelValido } from "@/lib/papeis";
+import { acessoTotal, lerEscolha, matrizDaEscolha } from "@/lib/telas-sugeridas";
 
 export interface ActionResult {
   ok: boolean;
@@ -47,6 +48,21 @@ async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResul
   if (password.length > 0 && password.length < 8) {
     return { ok: false, error: "A senha inicial precisa de no mínimo 8 caracteres." };
   }
+  // Prompt AI2 — as telas escolhidas no formulário (a sugestão do papel,
+  // editada). O que diverge do padrão vira override, como na Gestão de
+  // Acessos. Sem o campo, o vínculo fica com o padrão do papel.
+  const escolha = lerEscolha(formData.get("telas"));
+  let overrides: PermMatrix | null | undefined = undefined;
+  if (escolha && !acessoTotal(role)) {
+    if (!can(ctx.perms, "acessos", "editar")) return { ok: false, error: "Sem permissão para escolher as telas do usuário." };
+    const opts = await opcoesDoTenant(ctx.tenant.id);
+    const matriz = matrizDaEscolha(role, escolha, opts);
+    const erro = validarMatriz(matriz) ?? recusaDoTetoDeLeitura(role, matriz);
+    if (erro) return { ok: false, error: erro };
+    const divergentes = overridesDivergentes(role, matriz, opts);
+    overrides = Object.keys(divergentes).length > 0 ? divergentes : null;
+  } else if (escolha) overrides = null;
+
   const passwordHash = password.length >= 8 ? hashPassword(password) : undefined;
   // Senha definida por outra pessoa é provisória (AI 1.1).
   const provisoria = passwordHash
@@ -76,12 +92,16 @@ async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResul
       .where(eq(schema.users.id, userId));
   }
 
+  // Prompt AI2 (BAI2-1): readicionar quem já era membro com o formulário
+  // novo grava as telas escolhidas agora — antes, as personalizações antigas
+  // ficavam e o papel novo não restringia o que elas davam.
+  const vinculo = overrides === undefined ? {} : { permissions: overrides };
   await db
     .insert(schema.memberships)
-    .values({ userId, tenantId: ctx.tenant.id, role })
+    .values({ userId, tenantId: ctx.tenant.id, role, ...vinculo })
     .onConflictDoUpdate({
       target: [schema.memberships.userId, schema.memberships.tenantId],
-      set: { role },
+      set: { role, ...vinculo },
     });
 
   await logAudit({
@@ -90,9 +110,10 @@ async function invite(formData: FormData, fixedRole?: Role): Promise<ActionResul
     action: "membership.invite",
     entity: "membership",
     entityId: userId,
-    meta: { email, role },
+    meta: { email, role, ...(overrides === undefined ? {} : { telasPersonalizadas: Object.keys(overrides ?? {}).length }) },
   });
   revalidatePath("/usuarios");
+  revalidatePath("/acessos");
   return { ok: true };
 }
 

@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { CONFIRMACAO_RECUO } from "@/lib/numeracao-regras";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 
 function preview(c: SequenceConfig): string {
   const num = String(Math.max(1, c.nextNumber || 1)).padStart(
@@ -36,6 +37,36 @@ export function NumeracaoForm({
   const [c, setC] = useState<SequenceConfig>(initial);
   const [pedeConfirmacao, setPedeConfirmacao] = useState(false);
   const [confirmacao, setConfirmacao] = useState("");
+
+  // Prompt AF2 — a Cris sugere e preenche a numeração; quem grava é o Salvar
+  // (recuo abaixo do maior emitido continua pedindo a confirmação da tela).
+  const [daCris, setDaCris] = useState(false);
+  useCrisFormulario(
+    canEdit
+      ? {
+          id: "numeracao-despesas",
+          titulo: `Numeração de despesas (hoje ${preview(initial)}; maior emitido ${maiorEmitido ?? "nenhum"})`,
+          campos: [
+            { nome: "usarPrefixo", rotulo: "Usar prefixo", tipo: "opcao", opcoes: ["sim", "não"] },
+            { nome: "prefixo", rotulo: "Prefixo", tipo: "texto", dica: "letras, ex.: PED" },
+            { nome: "proximoNumero", rotulo: "Próximo número", tipo: "numero", dica: maiorEmitido != null ? `acima de ${maiorEmitido} para não repetir` : "a partir de 1" },
+            { nome: "digitos", rotulo: "Qtd. de dígitos", tipo: "numero", dica: "1 a 12" },
+          ],
+        }
+      : null,
+    (p) => {
+      const v = p.valores;
+      setC((x) => ({
+        ...x,
+        ...(v.usarPrefixo ? { usePrefix: v.usarPrefixo === "sim" } : {}),
+        ...(v.prefixo ? { prefix: v.prefixo.trim().slice(0, 12) } : {}),
+        ...(v.proximoNumero && Number(v.proximoNumero) >= 1 ? { nextNumber: Math.floor(Number(v.proximoNumero)) } : {}),
+        ...(v.digitos && Number(v.digitos) >= 1 && Number(v.digitos) <= 12 ? { digits: Math.floor(Number(v.digitos)) } : {}),
+      }));
+      setSaved(false);
+      setDaCris(true);
+    },
+  );
 
   const mesmoFormato =
     c.prefix.trim() === initial.prefix &&
@@ -68,6 +99,11 @@ export function NumeracaoForm({
   return (
     <Card className="max-w-xl">
       <CardContent className="space-y-4 p-5">
+        {daCris && (
+          <p data-cris-preencheu role="status" className="text-[12.5px] text-[var(--color-accent)]">
+            A Cris preencheu a numeração. Confira a prévia e clique em Salvar — nada foi gravado ainda.
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <input
             id="usePrefix"

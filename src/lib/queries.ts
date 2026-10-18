@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
 import { chaveCompetencia, chaveDataBR } from "./db/ordem-data";
@@ -25,6 +25,10 @@ import {
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
+import { SERIE_DA_EMPRESA } from "./incc-empresa";
+import type { FiltrosDaAuditoria } from "./auditoria-filtros";
+import { mapaDeCategorias, mapaParaDespesas } from "./categoria-do-plano";
+import type { CategoriaDRE } from "./calc/constants";
 import { entraNosRelatorios } from "./situacao-versao";
 import { saldosReaisDasDespesas } from "./acerto-saldo";
 import { janelaDaMargem, naJanela, orcamentoDaObra, type OrigemDaJanela } from "./dashboard-definicao";
@@ -240,27 +244,56 @@ export interface InccLinhaDaTela extends InccRow {
   fonte: string | null;
 }
 
-/** Tabela INCC da obra com a origem de cada mês oficial e a variante (Prompt Q, 5.1/5.3), para a tela. */
-export async function getInccTabela(tenantId: string, projectId: string): Promise<{ linhas: InccLinhaDaTela[]; variante: string | null }> {
-  const rows = await db
+/**
+ * Prompt Q2 — as linhas de UMA série, sem olhar a chave: a da obra
+ * (`projectId`) ou a da empresa (`SERIE_DA_EMPRESA`, linhas sem projeto).
+ * Quem grava (actions do INCC) e a prévia da chave leem por aqui.
+ */
+export async function getLinhasDaSerieIncc(tenantId: string, alvo: string) {
+  return db
     .select()
     .from(schema.inccRates)
-    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
+    .where(and(eq(schema.inccRates.tenantId, tenantId), alvo === SERIE_DA_EMPRESA ? isNull(schema.inccRates.projectId) : eq(schema.inccRates.projectId, alvo)))
     .orderBy(asc(schema.inccRates.ordem));
+}
+
+/**
+ * Prompt Q2 — a série que os relatórios leem para uma obra: a da empresa, com
+ * a chave "incc_por_empresa" ligada e uma série da empresa adotada; senão, a
+ * da própria obra (o comportamento de antes).
+ */
+export async function serieDoInccDaObra(tenantId: string, projectId: string): Promise<string> {
+  if (projectId === SERIE_DA_EMPRESA) return SERIE_DA_EMPRESA;
+  return (await inccDaEmpresaAtivo(tenantId)) ? SERIE_DA_EMPRESA : projectId;
+}
+
+/** A chave está ligada E a empresa já adotou uma série. */
+export async function inccDaEmpresaAtivo(tenantId: string): Promise<boolean> {
+  if (!(await chaveLigada(tenantId, "incc_por_empresa"))) return false;
+  const [uma] = await db
+    .select({ id: schema.inccRates.id })
+    .from(schema.inccRates)
+    .where(and(eq(schema.inccRates.tenantId, tenantId), isNull(schema.inccRates.projectId)))
+    .limit(1);
+  return !!uma;
+}
+
+/** Tabela INCC da obra com a origem de cada mês oficial e a variante (Prompt Q, 5.1/5.3), para a tela. */
+export async function getInccTabela(tenantId: string, projectId: string): Promise<{ linhas: InccLinhaDaTela[]; variante: string | null }> {
+  const rows = await getLinhasDaSerieIncc(tenantId, await serieDoInccDaObra(tenantId, projectId));
   return {
     linhas: rows.map((r) => ({ m: r.mes, mo: Number(r.monthly), ac: Number(r.accumulated), projected: r.projected, informadoPor: r.informadoPor, informadoEm: r.informadoEm, fonte: r.fonte })),
     variante: rows.find((r) => r.variante)?.variante ?? null,
   };
 }
 
-/** Tabela INCC da obra — da empresa (Prompt Q, 4.2: antes filtrava só o projeto). */
+/**
+ * Tabela INCC que os relatórios aplicam na obra (Prompt Q, 4.2). Prompt Q2:
+ * com a chave "incc_por_empresa" ligada e série da empresa adotada, é a da
+ * empresa; senão, a da obra.
+ */
 export async function getInccRows(tenantId: string, projectId: string): Promise<InccRow[]> {
-  const rows = await db
-    .select()
-    .from(schema.inccRates)
-    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
-    .orderBy(asc(schema.inccRates.ordem));
-  return toInccRows(rows);
+  return toInccRows(await getLinhasDaSerieIncc(tenantId, await serieDoInccDaObra(tenantId, projectId)));
 }
 
 // helpers de conversão para agregados
@@ -1759,15 +1792,25 @@ export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
     }));
   }
   const d = await getDespesas(versionId);
+  // Prompt DP — com a chave ligada, a despesa conta pela categoria da conta
+  // no Plano de Contas (conta fora do plano mantém a escolhida). Desligada,
+  // exatamente como antes. Nada é regravado.
+  const mapa = versao && (await chaveLigada(versao.tenantId, "despesa_categoria_do_plano")) ? mapaParaDespesas(await getMapaDeCategorias(versao.tenantId)) : null;
   // Despesas canceladas (exclusão lógica) não compõem a DRE/relatórios.
   return d
     .filter((x) => !x.cancelado)
     .map((x) => ({
       contaCef: x.contaCef,
-      categoriaDre: x.categoriaDre,
+      categoriaDre: (mapa && x.contaCef && mapa[x.contaCef]) || x.categoriaDre,
       competencia: x.competencia,
       valor: Number(x.valor),
     }));
+}
+
+/** Prompt DP — código da conta → categoria da DRE que vale (escolhida ou padrão). */
+export async function getMapaDeCategorias(tenantId: string): Promise<Record<string, CategoriaDRE>> {
+  const contas = await getChartAccounts(tenantId);
+  return mapaDeCategorias(contas);
 }
 
 export type ParcelaRow = typeof schema.despesaParcelas.$inferSelect;
@@ -2547,6 +2590,12 @@ export async function getMedicoes(tenantId: string, versionId: string, opts: { a
 export async function getMonthlyRevenue(
   versionId: string,
   projectId: string,
+  /**
+   * Prompt AD2 — balde de tempo. Ausente: mês "MM/YYYY", exatamente como
+   * sempre. Com balde (ex.: semana), cada valor cai na chave que ele devolver
+   * para a data ("MM/DD/YYYY") ou a competência ("MM/YYYY") de origem.
+   */
+  bucket?: (data: string) => string | null,
 ): Promise<MonthlyProjection> {
   const versao = await versaoKindETenant(versionId);
   const kind = versao?.kind ?? null;
@@ -2563,7 +2612,10 @@ export async function getMonthlyRevenue(
         ),
       );
     const out: MonthlyProjection = {};
-    for (const l of lines) out[l.mes] = (out[l.mes] || 0) + Number(l.valor);
+    for (const l of lines) {
+      const k = bucket ? bucket(l.mes) : l.mes;
+      if (k) out[k] = (out[k] || 0) + Number(l.valor);
+    }
     return out;
   }
 
@@ -2580,12 +2632,21 @@ export async function getMonthlyRevenue(
     for (const rec of expandUnitReceivables(r.paymentPlan, r.status)) {
       const p = rec.dia.split("/");
       if (p.length !== 3) continue;
-      const mk = `${p[0]}/${p[2]}`;
-      out[mk] = (out[mk] || 0) + rec.valor;
+      const mk = bucket ? bucket(rec.dia) : `${p[0]}/${p[2]}`;
+      if (mk) out[mk] = (out[mk] || 0) + rec.valor;
     }
   }
-  const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  if (bucket) {
+    // Mesma regra de `reembursementsByMonth` (data completa, valor > 0), no balde pedido.
+    for (const r of reembToCalc(reembRows)) {
+      if (!r.data || !(r.valor > 0) || r.data.split("/").length !== 3) continue;
+      const k = bucket(r.data);
+      if (k) out[k] = (out[k] || 0) + r.valor;
+    }
+  } else {
+    const reemb = reembursementsByMonth(reembToCalc(reembRows));
+    for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  }
 
   // CONTAS A RECEBER lançadas do projeto — a projeção de receita futura da
   // versão Atual depende delas. Sem isto, uma receita lançada à mão (fora de um
@@ -2606,8 +2667,8 @@ export async function getMonthlyRevenue(
   for (const c of crRows) {
     const p = (c.vencimento ?? "").split("/");
     if (p.length !== 3) continue;
-    const mk = `${p[0]}/${p[2]}`;
-    out[mk] = (out[mk] || 0) + Number(c.valor);
+    const mk = bucket ? bucket(c.vencimento!) : `${p[0]}/${p[2]}`;
+    if (mk) out[mk] = (out[mk] || 0) + Number(c.valor);
   }
   return out;
 }
@@ -3035,13 +3096,28 @@ export async function getUltimoTesteR2(tenantId: string): Promise<{ ok: boolean;
 export async function getAuditLog(
   tenantId: string,
   limit = 20,
+  /** Prompt AK2 — filtros da tela de Auditoria (todos opcionais). */
+  f: Partial<FiltrosDaAuditoria> = {},
 ): Promise<AuditRow[]> {
+  const conds: SQL[] = [eq(schema.auditLog.tenantId, tenantId)];
+  if (f.usuario === "sistema") conds.push(isNull(schema.auditLog.userId));
+  else if (f.usuario) conds.push(eq(schema.auditLog.userId, f.usuario));
+  if (f.entidade) conds.push(eq(schema.auditLog.entity, f.entidade));
+  if (f.acao) conds.push(sql`${schema.auditLog.action} ilike ${"%" + f.acao.replace(/[%_\\]/g, "") + "%"}`);
+  if (f.de) conds.push(gte(schema.auditLog.createdAt, new Date(`${f.de}T00:00:00`)));
+  if (f.ate) conds.push(lt(schema.auditLog.createdAt, new Date(new Date(`${f.ate}T00:00:00`).getTime() + 86_400_000)));
   return db
     .select()
     .from(schema.auditLog)
-    .where(eq(schema.auditLog.tenantId, tenantId))
+    .where(and(...conds))
     .orderBy(desc(schema.auditLog.createdAt))
     .limit(limit);
+}
+
+/** Prompt AK2 — as entidades que aparecem no log da empresa (para o filtro). */
+export async function getEntidadesDaAuditoria(tenantId: string): Promise<string[]> {
+  const rows = await db.selectDistinct({ e: schema.auditLog.entity }).from(schema.auditLog).where(eq(schema.auditLog.tenantId, tenantId)).limit(100);
+  return rows.map((r) => r.e).filter((e): e is string => !!e).sort();
 }
 
 // ─────────────────────── Conciliação bancária (Caixa) ───────────────────────

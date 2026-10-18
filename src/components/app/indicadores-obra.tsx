@@ -126,7 +126,7 @@ export function IndicadoresObraPanel({ ind }: { ind: IndicadoresObra }) {
         <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Referência da obra</h2>
         <p className="mb-2 rounded-[8px] bg-[var(--color-surface2)] px-3 py-2 text-[12px] text-[var(--color-ink2)]" data-evolucao-desligada>
           Evolução física, liberação e geração de caixa por medição estão desligadas até o cadastro da PLS de cada obra (medição por
-          percentual de cada serviço). A medição por grupo, em Medição de Obra, continua valendo.
+          percentual de cada serviço). A medição por grupo, em Medição de Projeto, continua valendo.
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KPI

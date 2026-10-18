@@ -43,6 +43,9 @@ import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { CenarioMultiSelect } from "@/components/app/cenario-multiselect";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +99,8 @@ export default async function DREPage({
   // Prompt AC, Parte 10 — a definição nova da DRE (nasce desligada).
   const definicaoNova = await chaveLigada(ctx.tenant.id, "dre_definicao_nova");
   const sp = await searchParams;
-  const monthly = sp.view === "mensal";
+  // Prompt AC2 (revisão V5): a visão anual e a mensal aparecem juntas, a
+  // mensal abaixo, com os mesmos seletores. `?view=` antigo é ignorado.
 
   // Obra ou escopo vêm da URL (Prompt A, 19). Sem nada: a obra lembrada pela
   // aba; sem memória, "Todos" (B12). Nunca a obra do cookie.
@@ -194,7 +198,7 @@ export default async function DREPage({
   // Meses da matriz (1.5): os do período, ou o eixo no acumulado.
   const meses = periodMonths ? ordenarMeses(periodMonths) : axis;
   const celulasMensal = meses.length * series.length;
-  const mensalAcimaDoTeto = monthly && multi && celulasMensal > TETO_CELULAS_MENSAL;
+  const mensalAcimaDoTeto = multi && celulasMensal > TETO_CELULAS_MENSAL;
 
   // Valores: por série, a cascata do período (e, no mensal, a de cada mês).
   const totalDe = (s: Serie) => waterfall(s.porProjeto.map((bm) => aggregateInputs(bm, periodMonths)));
@@ -214,113 +218,33 @@ export default async function DREPage({
 
   const semVersao = escopo.tipo === "projeto" && versoesDaObra.length === 0;
 
-  return (
-    <>
-      <PageHeader
-        eyebrow={scopeLabel}
-        title="DRE — Demonstração de Resultado"
-        subtitle={`${periodLabel}${
-          monthly ? " · visão mensal" : multi ? (isAll ? " · comparativo de cenários" : " · comparativo de versões") : " · análise vertical (% da receita)"
-        }`}
-        actions={
-          <div className="flex flex-wrap items-end gap-3">
-            <DreControls
-              projects={ctx.projects.map((p) => ({
-                id: p.id,
-                label: p.kind === "office" ? `${p.name} · Unidade/Escritório` : p.name,
-              }))}
-              proj={projParam}
-              periods={[
-                { value: "acum", label: "Acumulado (todos os anos)" },
-                ...years.map((y) => ({ value: y.value, label: y.label })),
-                { value: "custom", label: "Personalizado (De / Até)" },
-              ]}
-              periodo={periodo}
-              periodDisabled={false}
-              view={monthly ? "mensal" : ""}
-              vs={sp.vs ?? ""}
-              de={customDe}
-              ate={customAte}
-              showVersionKind={false}
-              versionKind="atual"
-            />
-          </div>
-        }
-      />
+  // Prompt E2 — o que a Cris recebe desta tela: os números que ela mostra,
+  // agregados (sem lançamento, sem nome de pessoa).
+  const resumoParaCris = {
+    escopo: scopeLabel,
+    periodo: periodLabel,
+    colunas: series.map((x) => x.titulo),
+    cascata: linhas.map((lbl, ri) => ({
+      item: lbl.label,
+      valores: Object.fromEntries(series.map((x, i) => [x.titulo, totais[i].rows[ri].value])),
+      pctDaReceita: Object.fromEntries(series.map((x, i) => [x.titulo, pctDaReceita(totais[i].rows[ri].value, totais[i].R)])),
+    })),
+    mensal: meses.slice(-24).map((mm) => ({
+      mes: mm,
+      ...Object.fromEntries(series.map((x) => {
+        const r = mesDe(x, mm).rows;
+        return [x.titulo, { receita: r[0]?.value ?? 0, resultado: r[r.length - 1]?.value ?? 0 }];
+      })),
+    })),
+    cobertura,
+  };
 
-      {/* Seletores da comparação abaixo do cabeçalho: com muitas versões, no
-          cabeçalho eles espremiam o título. */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        {escopo.tipo === "projeto" && versoesDaObra.length > 0 && (
-          <VersionMultiSelect
-            versions={versoesDaObra.map((v) => ({
-              id: v.id,
-              label: ehCopia(v) ? `${v.label} · cópia` : v.label,
-              color: v.color,
-              aviso: avisoNoSeletor(v, rascunhoFora),
-            }))}
-            selected={selecionadas.map((v) => v.id)}
-            max={TETO_VERSOES}
-          />
-        )}
-        {isAll && <CenarioMultiSelect selected={cenarios} />}
-      </div>
-      {escopo.tipo === "projeto" && <LembrarProjeto projectId={escopo.projeto.id} />}
-      {doEscopo && doEscopo.semSituacao > 0 && (
-        <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
-          {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as
-          como Ativo ou Finalizado em Projetos.
-        </p>
-      )}
-
-      {doEscopo && doEscopo.projetos.length === 0 ? (
-        // Escopo sem nenhuma obra: estado vazio, nunca uma DRE zerada.
-        <Card>
-          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
-            Nenhuma obra classificada como{" "}
-            {escopo.tipo === "ativos" ? "Ativo" : "Finalizado"}. Classifique as obras em
-            Projetos.
-          </CardContent>
-        </Card>
-      ) : semVersao ? (
-        <Card>
-          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
-            Este projeto não tem nenhuma versão — não há o que demonstrar.
-          </CardContent>
-        </Card>
-      ) : (
-      <Card>
-        <CardContent className="p-5">
-          {/* 1.8 — o cabeçalho declara o recorte e a cobertura. */}
-          <p className="mb-1 text-[12.5px] text-[var(--color-ink2)]" data-recorte>
-            {recorte}
-          </p>
-          {definicaoNova && (
-            <p className="mb-1 text-[12px] text-[var(--color-accent2)]" data-definicao-nova>
-              Definição nova da DRE ligada nesta empresa: “Receita” lançada como despesa fora da receita; encargos na
-              competência da despesa; cenário ausente fora da coluna.
-            </p>
-          )}
-          {cobertura.map((c) => (
-            <p key={c} className="mb-1 text-[12px] text-[var(--color-warning)]" data-cobertura>
-              {c}
-            </p>
-          ))}
-          {selecionadas.length > TETO_VERSOES && (
-            <p className="mb-1 text-[12px] text-[var(--color-warning)]">
-              {selecionadas.length} versões selecionadas — acima de {TETO_VERSOES} a tabela fica larga. Todas estão na tela; desmarque as que não precisa.
-            </p>
-          )}
-          {mensalAcimaDoTeto && (
-            <p role="status" className="mb-2 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
-              {meses.length} meses × {series.length} colunas = {celulasMensal} colunas — acima de {TETO_CELULAS_MENSAL}. Reduza o
-              período (escolha um ano ou De/Até) ou desmarque versões. Abaixo, só o total de cada coluna; nenhuma foi descartada.
-            </p>
-          )}
+  // A mesma tabela nas duas visões: `mensal` liga as colunas por mês.
+  const tabelaDre = (mensal: boolean) => (
           <div className="tbl-scroll mt-2 overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
-                {monthly && multi && !mensalAcimaDoTeto ? (
+                {mensal && multi && !mensalAcimaDoTeto ? (
                   <>
                     <tr className="border-b border-[var(--color-line)]">
                       <th rowSpan={2} className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
@@ -345,7 +269,7 @@ export default async function DREPage({
                 ) : (
                   <tr className="border-b border-[var(--color-line)]">
                     <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Item</th>
-                    {monthly && !multi
+                    {mensal && !multi
                       ? [...meses, "Total"].map((mm) => (
                           <th key={mm} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
                             {mm}
@@ -391,10 +315,10 @@ export default async function DREPage({
                       >
                         {lbl.label}
                       </td>
-                      {monthly && multi && !mensalAcimaDoTeto
+                      {mensal && multi && !mensalAcimaDoTeto
                         ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoMes(s, mm)))),
                            ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoTotal(i)))]
-                        : monthly && !multi
+                        : mensal && !multi
                           ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm, "", temNoMes(series[0], mm))), cel(totais[0].rows[ri].value, "tot", "", temNoTotal(0))]
                           : series.flatMap((s, i) => {
                               const p = pctDaReceita(totais[i].rows[ri].value, totais[i].R);
@@ -411,11 +335,117 @@ export default async function DREPage({
               </tbody>
             </table>
           </div>
-          {monthly && meses.length === 0 && (
-            <p className="mt-2 text-[12px] text-[var(--color-warning)]">
-              Sem datas de início e fim no cadastro do projeto e sem lançamento com competência: não há meses para mostrar. Informe as datas em Projetos.
+  );
+
+  return (
+    <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
+      <PageHeader
+        eyebrow={scopeLabel}
+        title="DRE — Demonstração de Resultado"
+        subtitle={`${periodLabel}${
+          multi ? (isAll ? " · comparativo de cenários" : " · comparativo de versões") : " · análise vertical (% da receita)"
+        } · visão mensal abaixo`}
+        actions={
+          <div className="flex flex-wrap items-end gap-3">
+            <DreControls
+              projects={ctx.projects.map((p) => ({
+                id: p.id,
+                label: p.kind === "office" ? `${p.name} · Unidade/Escritório` : p.name,
+              }))}
+              proj={projParam}
+              periods={[
+                { value: "acum", label: "Acumulado (todos os anos)" },
+                ...years.map((y) => ({ value: y.value, label: y.label })),
+                { value: "custom", label: "Personalizado (De / Até)" },
+              ]}
+              periodo={periodo}
+              periodDisabled={false}
+              vs={sp.vs ?? ""}
+              de={customDe}
+              ate={customAte}
+              showVersionKind={false}
+              versionKind="atual"
+            />
+            <ExportarPdf arquivo={`DRE - ${scopeLabel} - ${periodLabel}`} />
+          </div>
+        }
+      />
+
+      {/* Seletores da comparação abaixo do cabeçalho: com muitas versões, no
+          cabeçalho eles espremiam o título. */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        {escopo.tipo === "projeto" && versoesDaObra.length > 0 && (
+          <VersionMultiSelect
+            versions={versoesDaObra.map((v) => ({
+              id: v.id,
+              label: ehCopia(v) ? `${v.label} · cópia` : v.label,
+              color: v.color,
+              aviso: avisoNoSeletor(v, rascunhoFora),
+            }))}
+            selected={selecionadas.map((v) => v.id)}
+            max={TETO_VERSOES}
+          />
+        )}
+        {isAll && <CenarioMultiSelect selected={cenarios} />}
+      </div>
+      {escopo.tipo === "projeto" && <LembrarProjeto projectId={escopo.projeto.id} />}
+      <CrisDaTela
+        titulo="DRE — Demonstração de Resultado"
+        dados={resumoParaCris}
+        sugestoes={[
+          "Qual linha mais pesa sobre a receita?",
+          "Compare as colunas e explique a maior diferença",
+          "Em que mês o resultado foi pior?",
+          "E se a receita cair 10%, como fica o resultado?",
+        ]}
+      />
+      {doEscopo && doEscopo.semSituacao > 0 && (
+        <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
+          {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as
+          como Ativo ou Finalizado em Projetos.
+        </p>
+      )}
+
+      {doEscopo && doEscopo.projetos.length === 0 ? (
+        // Escopo sem nenhuma obra: estado vazio, nunca uma DRE zerada.
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            Nenhuma obra classificada como{" "}
+            {escopo.tipo === "ativos" ? "Ativo" : "Finalizado"}. Classifique as obras em
+            Projetos.
+          </CardContent>
+        </Card>
+      ) : semVersao ? (
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">
+            Este projeto não tem nenhuma versão — não há o que demonstrar.
+          </CardContent>
+        </Card>
+      ) : (
+      <Card>
+        <CardContent className="p-5">
+          {/* 1.8 — o cabeçalho declara o recorte e a cobertura. */}
+          <p className="mb-1 text-[12.5px] text-[var(--color-ink2)]" data-recorte>
+            {recorte}
+          </p>
+          {definicaoNova && (
+            <p className="mb-1 text-[12px] text-[var(--color-accent2)]" data-definicao-nova>
+              Definição nova da DRE ligada nesta empresa: “Receita” lançada como despesa fora da receita; encargos na
+              competência da despesa; cenário ausente fora da coluna.
             </p>
           )}
+          {cobertura.map((c) => (
+            <p key={c} className="mb-1 text-[12px] text-[var(--color-warning)]" data-cobertura>
+              {c}
+            </p>
+          ))}
+          {selecionadas.length > TETO_VERSOES && (
+            <p className="mb-1 text-[12px] text-[var(--color-warning)]">
+              {selecionadas.length} versões selecionadas — acima de {TETO_VERSOES} a tabela fica larga. Todas estão na tela; desmarque as que não precisa.
+            </p>
+          )}
+          {tabelaDre(false)}
           {/* Partes 4 e 5 — o que não entra na cascata, fora dela (nunca somado em outra linha). */}
           {rodape.length > 0 && (
             <div className="mt-3 rounded-[8px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/5 px-3 py-2 text-[12px] text-[var(--color-ink2)]" data-rodape>
@@ -438,13 +468,37 @@ export default async function DREPage({
             estão incluídos na cascata, como hoje — a classificação contábil dessas três linhas aguarda decisão.
             “—” numa célula: a linha não teve nenhum lançamento; “R$ 0” é soma que deu zero.
           </p>
-          {!monthly && totais.some((t) => t.R <= 0) && (
+          {totais.some((t) => t.R <= 0) && (
             <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
               “—” em % Receita: a coluna não tem receita positiva para servir de base.
             </p>
           )}
         </CardContent>
       </Card>
+      )}
+
+      {/* Prompt AC2 — visão mensal, abaixo da anual, com as mesmas colunas. */}
+      {!(doEscopo && doEscopo.projetos.length === 0) && !semVersao && (
+        <Card className="mt-5" data-dre-mensal>
+          <CardContent className="p-5">
+            <h2 className="mb-1 text-[14px] font-semibold text-[var(--color-ink)]">Visão mensal</h2>
+            <p className="mb-2 text-[12px] text-[var(--color-ink3)]">
+              {periodLabel} · uma coluna por mês{multi ? ` para cada ${isAll ? "cenário" : "versão"}` : ""}, e o total.
+            </p>
+            {mensalAcimaDoTeto && (
+              <p role="status" className="mb-2 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+                {meses.length} meses × {series.length} colunas = {celulasMensal} colunas — acima de {TETO_CELULAS_MENSAL}. Reduza o
+                período (escolha um ano ou De/Até) ou desmarque versões. Os totais de cada coluna estão na visão anual, acima; nenhuma foi descartada.
+              </p>
+            )}
+            {!mensalAcimaDoTeto && tabelaDre(true)}
+            {meses.length === 0 && (
+              <p className="mt-2 text-[12px] text-[var(--color-warning)]">
+                Sem datas de início e fim no cadastro do projeto e sem lançamento com competência: não há meses para mostrar. Informe as datas em Projetos.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
     </>
   );

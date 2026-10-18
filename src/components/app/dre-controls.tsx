@@ -20,13 +20,15 @@ export function DreControls({
   ate,
   showVersionKind = false,
   versionKind = "atual",
+  base = "/dre",
 }: {
   projects: { id: string; label: string }[];
   proj: string;
   periods: { value: string; label: string }[];
   periodo: string;
   periodDisabled: boolean;
-  view: string;
+  /** Prompt AC2: as visões anual e mensal aparecem juntas; `view` não é mais escolhido aqui. */
+  view?: string;
   vs: string;
   /** Recorte customizado (competência interna "MM/YYYY"). */
   de: string;
@@ -34,6 +36,8 @@ export function DreControls({
   /** Mostra o seletor de TIPO de versão (usado na visão "Empresa toda"). */
   showVersionKind?: boolean;
   versionKind?: string;
+  /** Prompt AC3: a mesma barra serve à DRE Analítica. */
+  base?: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -59,8 +63,7 @@ export function DreControls({
       if (patch.vkind && patch.vkind !== "atual") params.set("vkind", patch.vkind);
       else params.delete("vkind");
     }
-    if (next.view) params.set("view", next.view);
-    else params.delete("view");
+    params.delete("view");
     if (next.vs) params.set("vs", next.vs);
     else params.delete("vs");
     // De/Até só valem no recorte customizado.
@@ -73,7 +76,7 @@ export function DreControls({
       params.delete("de");
       params.delete("ate");
     }
-    start(() => router.push(`/dre?${params.toString()}`));
+    start(() => router.push(`${base}?${params.toString()}`));
   };
 
   const aplicarCustom = () => go({ periodo: "custom", de: deVal, ate: ateVal });
@@ -150,15 +153,6 @@ export function DreControls({
           </Button>
         </div>
       )}
-      <Select
-        value={view}
-        disabled={pending}
-        onChange={(e) => go({ view: e.target.value })}
-        className="h-9 w-auto"
-      >
-        <option value="">Consolidado</option>
-        <option value="mensal">Mensal (coluna por mês)</option>
-      </Select>
     </div>
   );
 }

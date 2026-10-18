@@ -27,6 +27,10 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { brl, brl0, dateBR } from "@/lib/utils";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { useAvisoAoSair } from "@/components/app/aviso-ao-sair";
+import { aplicarNaGrade, assinaturaDaGrade, formularioDoOrcamento } from "@/lib/orcamento-cris";
+import { competenciasDecorridas } from "@/lib/previsao-reprojecao";
 
 interface RowState {
   rowKey: string;
@@ -557,6 +561,34 @@ function Bloco({
   const [ok, setOk] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Prompt D2 — alteração não salva: a tela marca e avisa ao sair.
+  const [salvoComo, setSalvoComo] = useState(() => assinaturaDaGrade(rows));
+  const sujo = canEdit && assinaturaDaGrade(rows) !== salvoComo;
+  useAvisoAoSair(sujo);
+  // Prompt D2 — a Cris preenche a grade (texto, ditado ou documento); quem grava é o Salvar.
+  const [crisMsg, setCrisMsg] = useState<string | null>(null);
+  // Prompt F2 — na Previsão, os meses passados vêm da Atual (reprojeção) e a
+  // Cris só mexe nos futuros.
+  const mesesFixos = useMemo(() => {
+    if (!totalReadOnly) return [];
+    const d = new Date();
+    return competenciasDecorridas(months, `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`);
+  }, [totalReadOnly, months]);
+  useCrisFormulario(
+    canEdit && versionId ? formularioDoOrcamento(bloco, rows.filter((r) => r.ativo || r.fixa), months, { totalSoLeitura: totalReadOnly, versao: totalReadOnly ? "Previsão Atualizada" : "Orçamento", mesesFixos }) : null,
+    (p) => {
+      const r = aplicarNaGrade(rows, months, p.valores, { mesesFixos });
+      setRows(r.linhas);
+      setOk(false);
+      setCrisMsg(
+        [
+          r.alteradas.length ? `A Cris preencheu ${r.alteradas.join(", ")}. Confira e clique em Salvar.` : "A Cris não preencheu nenhuma linha.",
+          ...r.avisos,
+          ...Object.entries(p.conferir).map(([c, m]) => `Conferir ${c.replace(/^(total|meses):/, "")}: ${m}`),
+        ].join(" "),
+      );
+    },
+  );
   // 4-A: seleção de linhas — a lista de inclusão e a remoção mexem no servidor
   // (budget_selecao) e refletem aqui sem remontar a grade, para não perder a
   // distribuição que o usuário ainda não salvou.
@@ -640,12 +672,12 @@ function Bloco({
       months: months.map((m) => ({ mes: m, pct: num(r.pct[m]) })),
     }));
     start(async () => {
-      try {
-        await saveBudgetPlanning(versionId, bloco, payload);
-        setOk(true);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao salvar.");
-      }
+      const assinatura = assinaturaDaGrade(rows);
+      const r = await saveBudgetPlanning(versionId, bloco, payload);
+      if (!r.ok) return setError(r.error);
+      setOk(true);
+      setSalvoComo(assinatura);
+      setCrisMsg(null);
     });
   };
 
@@ -767,7 +799,12 @@ function Bloco({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {error && <span className="text-[12px] text-[var(--color-danger)]">{error}</span>}
-            {ok && !error && <span className="text-[12px] text-[var(--color-success)]">Salvo ✓</span>}
+            {ok && !error && !sujo && <span className="text-[12px] text-[var(--color-success)]">Salvo ✓</span>}
+            {sujo && (
+              <span className="text-[12px] font-medium text-[var(--color-warning)]" data-nao-salvo>
+                Alterações não salvas
+              </span>
+            )}
             <Button type="button" variant="outline" onClick={exportar}>
               Exportar planilha
             </Button>
@@ -804,6 +841,11 @@ function Bloco({
         {importMsg && (
           <p className="border-b border-[var(--color-accent2)]/12 bg-[var(--color-accent)]/8 px-4 py-2 text-[12px] text-[var(--color-ink2)]">
             {importMsg}
+          </p>
+        )}
+        {crisMsg && (
+          <p role="status" data-cris-preencheu className="border-b border-[var(--color-accent2)]/12 bg-[var(--color-accent)]/8 px-4 py-2 text-[12px] text-[var(--color-ink2)]">
+            {crisMsg}
           </p>
         )}
         {selMsg && (

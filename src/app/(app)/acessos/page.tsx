@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getTenantContext, type Role } from "@/lib/context";
 import { SCREENS, can, effectivePermissions, type PermAction } from "@/lib/permissions";
 import { membroRestritoNoTenant, opcoesDoTenant } from "@/lib/membro-padrao";
@@ -86,7 +85,7 @@ export default async function AcessosPage() {
               ))}
             </ul>
             <p className="mt-3 text-[12.5px] text-[var(--color-ink3)]">
-              Para ligar: Configurações → <Link href="/chaves" className="text-[var(--color-accent2)] hover:underline">Chaves de mudança</Link>.
+              Quem liga é a plataforma, na tela de chaves de mudança. Peça ao suporte.
             </p>
           </CardContent>
         </Card>

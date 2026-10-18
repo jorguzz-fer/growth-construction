@@ -11,8 +11,7 @@ import {
   recusaDoTetoDeLeitura,
   temTetoDeLeitura,
   type PermAction,
-  type PermMatrix,
-} from "./permissions";
+  type PermMatrix, TELAS_SO_PLATAFORMA } from "./permissions";
 
 const ACOES: PermAction[] = ["ver", "criar", "editar", "excluir"];
 const FULL = { ver: true, criar: true, editar: true, excluir: true };
@@ -49,8 +48,8 @@ function overridesAleatorios(seed: number): PermMatrix {
 }
 
 describe("Prompt AL · Partes 2 a 4 — contador configurável com teto de leitura", () => {
-  it("2.3 — o padrão do contador não mudou: as mesmas oito telas, só Ver", () => {
-    expect([...CONTADOR_VE].sort()).toEqual(["acoes", "consolidado", "despesas", "dre", "fluxocaixa", "medicao", "planocontas", "resumo"]);
+  it("2.3 — o padrão do contador não mudou: as mesmas telas, só Ver (o Consolidado saiu no Prompt AB2)", () => {
+    expect([...CONTADOR_VE].sort()).toEqual(["acoes", "despesas", "dre", "fluxocaixa", "medicao", "planocontas", "resumo"]);
     const p = defaultPermissions("contador");
     for (const s of SCREENS) {
       expect(p[s.id], s.id).toEqual({ ver: CONTADOR_VE.has(HERDA_DE[s.id] ?? s.id), criar: false, editar: false, excluir: false });
@@ -105,6 +104,8 @@ describe("Prompt AL · Partes 2 a 4 — contador configurável com teto de leitu
           const antes = antesDoAL(role, o, restrito);
           const depois = effectivePermissions(role, o, { membroRestrito: restrito });
           for (const s of SCREENS) {
+            // Prompt PLAT: negadas a todo papel de propósito (permissions-plat.test.ts).
+            if (TELAS_SO_PLATAFORMA.has(s.id)) continue;
             for (const a of ACOES) {
               if (depois[s.id][a]) expect(antes[s.id][a], `${role} ${s.id}.${a} seed ${seed}`).toBe(true);
               if (role !== "contador") expect(depois[s.id][a], `${role} ${s.id}.${a}`).toBe(antes[s.id][a]);

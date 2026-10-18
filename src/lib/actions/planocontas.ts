@@ -6,6 +6,9 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { recusaDeCategoriaDaConta } from "@/lib/categoria-do-plano";
+import { MAX_CONTAS_PROPOSTAS, recusaDaContaProposta } from "@/lib/planocontas-cris";
+import type { CategoriaDRE } from "@/lib/calc/constants";
 
 type Kind = "cef" | "complementar";
 type Natureza = "receita" | "despesa";
@@ -118,7 +121,7 @@ export async function addChartItem(input: {
 /** Edita o código/nome de um subitem. */
 export async function updateChartItem(
   id: string,
-  patch: { code?: string; name?: string; natureza?: string },
+  patch: { code?: string; name?: string; natureza?: string; dreCategory?: string | null },
 ) {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, "planocontas", "editar")) return;
@@ -133,7 +136,7 @@ export async function updateChartItem(
     )
     .limit(1);
   if (!current) return;
-  const set: { code?: string; name?: string; natureza?: Natureza } = {};
+  const set: { code?: string; name?: string; natureza?: Natureza; dreCategory?: CategoriaDRE | null } = {};
   if (patch.code && patch.code.trim() && patch.code.trim() !== current.code) {
     if (await codeExists(ctx.tenant.id, patch.code.trim())) {
       throw new Error(`O código "${patch.code.trim()}" já existe.`);
@@ -142,6 +145,20 @@ export async function updateChartItem(
   }
   if (patch.name && patch.name.trim()) set.name = patch.name.trim();
   if (patch.natureza !== undefined) set.natureza = normNatureza(patch.natureza);
+  // Prompt DP — a categoria da DRE da conta: "" ou null volta ao padrão. A
+  // escolha precisa servir à natureza (despesa não é "Receita"); se a natureza
+  // mudou e a escolha gravada não serve mais, volta ao padrão.
+  const naturezaFinal = set.natureza ?? current.natureza;
+  if (patch.dreCategory !== undefined) {
+    const escolha = patch.dreCategory || null;
+    if (escolha) {
+      const recusa = recusaDeCategoriaDaConta(naturezaFinal, escolha);
+      if (recusa) throw new Error(recusa);
+    }
+    if ((escolha ?? null) !== (current.dreCategory ?? null)) set.dreCategory = escolha as CategoriaDRE | null;
+  } else if (set.natureza && current.dreCategory && recusaDeCategoriaDaConta(naturezaFinal, current.dreCategory)) {
+    set.dreCategory = null;
+  }
   if (Object.keys(set).length === 0) return;
   await db
     .update(schema.chartAccounts)
@@ -325,4 +342,62 @@ export async function deleteChartGroup(input: { kind: string; groupCode: string 
   });
   revalidatePath("/planocontas");
   return { ok: true };
+}
+
+/**
+ * Prompt G2 — cria as contas que a Cris propôs e a pessoa marcou na
+ * conferência. Valida cada uma de novo (grupo existe, código livre e do grupo,
+ * categoria que serve à natureza); a que não passa volta com o motivo e as
+ * outras seguem. Só conta em grupo existente (BG2-1). Log com origem
+ * "assistente".
+ */
+export async function criarContasPropostas(
+  lista: { groupCode: string; code: string; name: string; natureza: string; dreCategory: string | null }[],
+): Promise<{ ok: true; criadas: string[]; recusadas: { code: string; motivo: string }[] } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "planocontas", "criar")) return { ok: false, error: "Sem permissão para criar contas." };
+  if (!Array.isArray(lista) || lista.length === 0) return { ok: false, error: "Nenhuma conta marcada." };
+  if (lista.length > MAX_CONTAS_PROPOSTAS) return { ok: false, error: `No máximo ${MAX_CONTAS_PROPOSTAS} contas de uma vez.` };
+  const existentes = await db.select().from(schema.chartAccounts).where(eq(schema.chartAccounts.tenantId, ctx.tenant.id));
+  const grupos = [...new Map(existentes.map((a) => [a.groupCode, { code: a.groupCode, name: a.groupName, kind: normKind(a.kind) }])).values()];
+  const codigos = new Set(existentes.map((a) => a.code));
+  const criadas: string[] = [];
+  const recusadas: { code: string; motivo: string }[] = [];
+  for (const bruta of lista) {
+    const c = {
+      groupCode: String(bruta?.groupCode ?? ""),
+      code: String(bruta?.code ?? "").trim().slice(0, 20),
+      name: String(bruta?.name ?? "").trim().slice(0, 120),
+      natureza: normNatureza(bruta?.natureza),
+      dreCategory: bruta?.dreCategory ? String(bruta.dreCategory) : null,
+    };
+    const motivo = recusaDaContaProposta(c, grupos, codigos);
+    if (motivo) {
+      recusadas.push({ code: c.code || "—", motivo });
+      continue;
+    }
+    const g = grupos.find((x) => x.code === c.groupCode)!;
+    await db.insert(schema.chartAccounts).values({
+      tenantId: ctx.tenant.id,
+      code: c.code,
+      name: c.name,
+      groupCode: g.code,
+      groupName: g.name,
+      kind: g.kind,
+      natureza: c.natureza,
+      dreCategory: (c.dreCategory as CategoriaDRE | null) ?? null,
+    });
+    codigos.add(c.code);
+    criadas.push(c.code);
+    await logAudit({
+      tenantId: ctx.tenant.id,
+      userId: ctx.userId,
+      action: "chart.item.create",
+      entity: "chart_account",
+      meta: { code: c.code, name: c.name, origem: "assistente" },
+    });
+  }
+  if (criadas.length) revalidatePath("/planocontas");
+  return { ok: true, criadas, recusadas };
 }

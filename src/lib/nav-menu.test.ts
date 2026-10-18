@@ -66,6 +66,9 @@ const TELAS_NOVAS: Record<string, string> = {
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
   "/equipes": "equipes", // Prompt Z, Parte 3
   "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
+  "/dre/analitica": "dre", // Prompt AC3: mora sob /dre, mesma permissão
+  "/fluxocaixa/analitico": "fluxocaixa", // Prompt AD3: mora sob /fluxocaixa, mesma permissão
+  "/relatorios": "relatorios", // Prompt RC: tela nova, chave própria
 };
 /**
  * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única
@@ -80,6 +83,9 @@ const SAIRAM = new Set([
   // Prompt AN: a Conferência de lançamentos mudou para /conferencia; a de planos saiu.
   "/diagnostico/categorias-invertidas",
   "/diagnostico/planos-recebiveis",
+  // Prompt AB2: Consolidado e Balanço do Dia saíram (redirecionamento com aviso).
+  "/consolidado",
+  "/balancodia",
 ]);
 const ESPERADO = Object.fromEntries(Object.entries({ ...MENU_ANTIGO, ...TELAS_NOVAS }).filter(([href]) => !SAIRAM.has(href)));
 
@@ -117,10 +123,20 @@ describe("NAV_MENU — nenhuma tela se perde", () => {
   });
 });
 
+/**
+ * Prompt AI2 (BAI2-1) — o item some quando a PÁGINA nega: o Acerto Contábil
+ * exige editar Despesas e ver o Caixa. Não reduz acesso (a página já negava);
+ * tira do menu o link que abria "Acesso negado".
+ */
+const EXIGE_DA_PAGINA: Record<string, [string, "ver" | "editar"][]> = {
+  "/acerto": [["despesas", "editar"], ["caixa", "ver"]],
+};
+
 /** Visibilidade pela regra de sempre, sobre a lista antiga mais as novas. */
 function visiveisAntigo(perms: PermMatrix): string[] {
   return Object.entries(ESPERADO)
     .flatMap(([href, perm]) => {
+      if ((EXIGE_DA_PAGINA[href] ?? []).some(([t, a]) => !perms[t]?.[a])) return [];
       if (perms[perm]?.ver) return [href];
       // item fundido: só com a permissão da outra aba, a rota é a dela
       const alt = FUNDIDAS_NO_ITEM[href];
@@ -142,10 +158,11 @@ describe("visibleMenu — não amplia nem reduz acesso", () => {
     });
   }
 
-  it("Chaves de mudança (B4): só owner e admin, mesmo com override", () => {
+  it("Chaves de mudança: só a plataforma (Prompt PLAT), mesmo com override", () => {
     const ve = (perms: PermMatrix) => visiveisNovo(perms).includes("/chaves");
-    expect(ve(defaultPermissions("owner"))).toBe(true);
-    expect(ve(defaultPermissions("admin"))).toBe(true);
+    expect(ve(defaultPermissions("owner"))).toBe(false);
+    expect(ve(defaultPermissions("admin"))).toBe(false);
+    expect(ve(effectivePermissions("owner", null, { operadorDaPlataforma: true }))).toBe(true);
     for (const role of ["membro", "contador", "engenheiro"] as const) {
       expect(ve(defaultPermissions(role)), role).toBe(false);
       const override = { chaves: { ver: true, criar: true, editar: true, excluir: true } };
@@ -198,11 +215,15 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
     expect(isItemActive("/conferencia", "/contas")).toBe(false);
   });
 
-  it("nenhum par de itens do menu se destaca ao mesmo tempo", () => {
+  it("nenhum par de itens do menu se destaca ao mesmo tempo (o mais específico vence, Prompt AC3)", async () => {
+    const { itemAtivoDoModulo } = await import("./nav-menu");
     for (const x of todos) {
-      const ativos = todos.filter((y) => isItemActive(x.href, y.href));
-      expect(ativos.map((y) => y.href), x.href).toEqual([x.href]);
+      const ativos = NAV_MENU.map((m) => itemAtivoDoModulo(x.href, m.items)).filter(Boolean);
+      expect(ativos, x.href).toEqual([x.href]);
     }
+    // Só os analíticos casam com o relatório-pai pelo prefixo; nenhum outro par.
+    const pares = todos.flatMap((x) => todos.filter((y) => y !== x && isItemActive(x.href, y.href)).map((y) => `${x.href}>${y.href}`));
+    expect(pares).toEqual(["/dre/analitica>/dre", "/fluxocaixa/analitico>/fluxocaixa"]);
   });
 
   it("/perfil e rota nula não ativam nada", () => {
@@ -213,7 +234,7 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
   it("módulo ativo acompanha a tela", () => {
     expect(activeModuleId("/projeto")).toBe("planejamento");
     expect(activeModuleId("/unidades/nova")).toBe("receitas");
-    expect(activeModuleId("/diagnosticoia")).toBe("bi");
+    expect(activeModuleId("/diagnosticoia")).toBe("config"); // Prompt AM2: virou Diagnóstico de IA, em Configurações
     expect(activeModuleId("/conferencia")).toBe("config");
   });
 });
@@ -223,5 +244,35 @@ describe("roleLabel", () => {
     expect(roleLabel("owner")).toBe("Proprietário");
     expect(roleLabel("admin")).toBe("Administrador");
     expect(roleLabel("xyz")).toBe("xyz");
+  });
+});
+
+describe("Prompt REN (Fase 3) — mudanças de menu e rótulos", () => {
+  const moduloDe = (href: string) => NAV_MENU.find((m) => m.items.some((i) => i.href === href))?.id;
+  const rotuloDe = (href: string) => todos.find((i) => i.href === href)?.label;
+
+  it("Projeção de Receitas mora em Business Intelligence; Cartões, no Caixa", () => {
+    expect(moduloDe("/projecao")).toBe("bi");
+    expect(moduloDe("/cartoes")).toBe("caixa");
+  });
+
+  it("nada em inglês nem 'Obra' genérico nos rótulos renomeados", () => {
+    expect(rotuloDe("/fornecedores")).toBe("Fornecedores e Parceiros");
+    expect(rotuloDe("/medicao")).toBe("Medição de Projeto");
+  });
+
+  it("mover de módulo não muda a chave de permissão", () => {
+    expect(permOf(todos.find((i) => i.href === "/cartoes")!)).toBe("cartoes");
+    expect(permOf(todos.find((i) => i.href === "/projecao")!)).toBe("projecao");
+  });
+});
+
+describe("Prompt AC3 — DRE Analítica no menu", () => {
+  it("só o item mais específico fica marcado", async () => {
+    const { itemAtivoDoModulo } = await import("./nav-menu");
+    const bi = NAV_MENU.find((m) => m.id === "bi")!.items;
+    expect(itemAtivoDoModulo("/dre/analitica", bi)).toBe("/dre/analitica");
+    expect(itemAtivoDoModulo("/dre", bi)).toBe("/dre");
+    expect(itemAtivoDoModulo("/caixa", bi)).toBeNull();
   });
 });

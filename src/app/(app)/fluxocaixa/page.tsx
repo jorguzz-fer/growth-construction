@@ -22,6 +22,11 @@ import {
 } from "@/lib/queries";
 import { brl0, brlk, dateBR, monthInRange, pct1 } from "@/lib/utils";
 import { calendarYearWindows } from "@/lib/planning";
+import { ehChaveDeSemana, janelaDeSemanas, linhasSemanais, semanaDe, semanaDeHoje, somarSemanas } from "@/lib/calc/semana-caixa";
+import Link from "next/link";
+
+/** Prompt AD2 — tamanho da janela da visão semanal. */
+const SEMANAS_NA_JANELA = 13;
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -32,6 +37,9 @@ import { ProjectPicker } from "@/components/app/project-picker";
 import { resolveCompareVersions } from "@/lib/report-versions";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +53,8 @@ export default async function FluxoCaixaPage({
     vs?: string;
     proj?: string;
     project?: string;
+    /** Prompt AD2 — segunda-feira que abre a janela semanal ("YYYY-MM-DD"). */
+    sem?: string;
   }>;
 }) {
   const ctx = await getTenantContext();
@@ -108,7 +118,7 @@ export default async function FluxoCaixaPage({
     return (
       <>
         <PageHeader
-          title="Fluxo de Caixa Mensal"
+          title="Fluxo de Caixa"
           actions={<div className="flex flex-wrap items-end gap-3">{projectSelect}</div>}
         />
         <Card>
@@ -126,7 +136,7 @@ export default async function FluxoCaixaPage({
     return (
       <>
         <PageHeader
-          title="Fluxo de Caixa Mensal"
+          title="Fluxo de Caixa"
           actions={<div className="flex flex-wrap items-end gap-3">{projectSelect}</div>}
         />
         <LembrarProjeto projectId={project.id} />
@@ -150,13 +160,13 @@ export default async function FluxoCaixaPage({
    * ATUAL de cada projeto. Sem isto, "Todos os projetos" mostraria apenas a obra
    * ativa.
    */
-  async function flowMapsConsolidado() {
+  async function flowMapsConsolidado(bucket?: (d: string | null) => string | null) {
     const porProjeto = await Promise.all(
       projetosConsolidados.map(async (p) => {
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
         const atual = vs.find((v) => v.kind === "atual") ?? (fluxoNovo ? undefined : vs[0]);
         if (!atual) return { entradas: {}, saidas: {} };
-        return flowMaps(atual, p.id, { definicaoNova: fluxoNovo });
+        return flowMaps(atual, p.id, { definicaoNova: fluxoNovo, bucket });
       }),
     );
     const entradas: Record<string, number> = {};
@@ -169,7 +179,7 @@ export default async function FluxoCaixaPage({
   }
 
   /** Realizado somado de todas as obras, para a visão consolidada. */
-  async function flowMapsRealizadoConsolidado() {
+  async function flowMapsRealizadoConsolidado(bucket?: (d: string | null) => string | null) {
     const entradas: Record<string, number> = {};
     const saidas: Record<string, number> = {};
     const semData = { qtd: 0, valor: 0 };
@@ -178,7 +188,7 @@ export default async function FluxoCaixaPage({
         const vs = await getVersionsDoProjeto(ctx!.tenant.id, p.id);
         const atual = vs.find((v) => v.kind === "atual") ?? (fluxoNovo ? undefined : vs[0]);
         if (!atual) return { entradas: {}, saidas: {}, semData: { qtd: 0, valor: 0 } };
-        return flowMapsRealizado(atual.id);
+        return flowMapsRealizado(atual.id, bucket);
       }),
     );
     for (const m of porProjeto) {
@@ -339,10 +349,36 @@ export default async function FluxoCaixaPage({
     avisoDoRealizado,
   });
 
+  // ── Prompt AD2 — visão semanal ─────────────────────────────────────────
+  // Mesma referência da tabela mensal (a 1ª versão; no consolidado, a Atual
+  // de cada obra), pelas MESMAS funções, só com o balde da semana.
+  const semanaInicial = ehChaveDeSemana(sp.sem) ? sp.sem : somarSemanas(semanaDeHoje(), -4);
+  const janelaSemanal = janelaDeSemanas(semanaInicial, SEMANAS_NA_JANELA);
+  const [previstoSemanal, realizadoSemanal] = await Promise.all([
+    isAll
+      ? flowMapsConsolidado(semanaDe)
+      : flowMaps(compareVersions[0], project!.id, { definicaoNova: fluxoNovo, bucket: semanaDe }),
+    isAll
+      ? flowMapsRealizadoConsolidado(semanaDe)
+      : fluxoNovo
+        ? atualReal
+          ? flowMapsRealizado(atualReal.id, semanaDe)
+          : Promise.resolve({ entradas: {} as Record<string, number>, saidas: {} as Record<string, number>, semData: { qtd: 0, valor: 0 } })
+        : flowMapsRealizado(compareVersions[0].id, semanaDe),
+  ]);
+  const linhasSemana = linhasSemanais(janelaSemanal, previstoSemanal, realizadoSemanal, saldoInicial);
+  const linkDaSemana = (inicio: string) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) if (v && k !== "sem") q.set(k, v);
+    q.set("sem", inicio);
+    return `/fluxocaixa?${q.toString()}#semanal`;
+  };
+
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
-        title="Fluxo de Caixa Mensal"
+        title="Fluxo de Caixa"
         subtitle={
           versoesTabela.length > 1
             ? "Comparando versões mês a mês · por data de vencimento/pagamento"
@@ -356,10 +392,33 @@ export default async function FluxoCaixaPage({
               <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />
             )}
             {versionSelect}
+            <ExportarPdf arquivo={`Fluxo de Caixa - ${project ? project.name : "Empresa"}`} />
           </div>
         }
       />
       {project && <LembrarProjeto projectId={project.id} />}
+      {/* Prompt E2 — o que a Cris recebe: os números da tela, agregados. */}
+      <CrisDaTela
+        titulo="Fluxo de Caixa"
+        dados={{
+          escopo: project ? project.name : rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados"),
+          periodo: hasRange ? `${de || "início"} a ${ate || "fim"}` : String(selectedYear),
+          referencia: versoesTabela[0]?.label ?? "Atual",
+          realizado: versaoDoRealizado,
+          saldoInicial,
+          totais: { entradas: totE, saidas: totS, realizadoEntradas: totRealE, realizadoSaidas: totRealS, saldoAcumuladoFinal: saldoAcumFinal },
+          horizonte: { entradas: horizonteE, saidas: horizonteS },
+          meses: linhas.map((l) => ({ mes: l.mm, entradas: l.e, saidas: l.s, realizadoEntradas: l.realE, realizadoSaidas: l.realS, saldoAcumulado: l.saldo })),
+          semanas: linhasSemana.map((l) => ({ semana: l.rotulo, entradas: l.entradas, saidas: l.saidas, realizadoEntradas: l.realE, realizadoSaidas: l.realS, saldoAcumulado: l.acumulado })),
+          desvio: desvioTotal,
+        }}
+        sugestoes={[
+          "Em que semana o caixa fica mais apertado?",
+          "Qual mês teve o maior desvio entre previsto e realizado?",
+          "E se as entradas atrasarem 30 dias?",
+          "Quanto entra e sai até o fim do ano?",
+        ]}
+      />
       {doEscopo && (
         <p className="mb-4 text-[13px] text-[var(--color-ink3)]">
           {rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados")} ·{" "}
@@ -656,6 +715,69 @@ export default async function FluxoCaixaPage({
           previsto e {desvioTotal.soRealizado} só com realizado não entram na soma.
         </p>
       )}
+
+      {/* Prompt AD2 — visão semanal, abaixo da mensal. */}
+      <Card className="mt-6" id="semanal" data-fluxo-semanal>
+        <CardContent className="p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
+            <div>
+              <h2 className="text-[14px] font-semibold text-[var(--color-ink)]">Visão semanal</h2>
+              <p className="text-[12px] text-[var(--color-ink3)]">
+                {SEMANAS_NA_JANELA} semanas, de segunda a domingo · previsto de {versoesTabela[0]?.label ?? "Atual"} · realizado {versaoDoRealizado}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-[12.5px]">
+              <Link className="text-[var(--color-accent2)] hover:underline" href={linkDaSemana(somarSemanas(semanaInicial, -SEMANAS_NA_JANELA))}>
+                ← Anteriores
+              </Link>
+              <Link className="text-[var(--color-accent2)] hover:underline" href={linkDaSemana(somarSemanas(semanaDeHoje(), -4))}>
+                Hoje
+              </Link>
+              <Link className="text-[var(--color-accent2)] hover:underline" href={linkDaSemana(somarSemanas(semanaInicial, SEMANAS_NA_JANELA))}>
+                Próximas →
+              </Link>
+            </div>
+          </div>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Semana</TH>
+                <TH className="text-right">Entradas</TH>
+                <TH className="text-right">Saídas</TH>
+                <TH className="text-right">Saldo da semana</TH>
+                <TH className="text-right">Realizado ↑</TH>
+                <TH className="text-right">Realizado ↓</TH>
+                <TH className="text-right">Saldo acumulado</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {linhasSemana.map((l) => (
+                <TR key={l.semana} className={l.atual ? "bg-[var(--color-accent4)]" : ""}>
+                  <TD className="whitespace-nowrap">
+                    {l.rotulo}
+                    {l.atual && <span className="ml-1.5 text-[11px] font-medium text-[var(--color-accent2)]">esta semana</span>}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-success)]">{l.entradas ? brl0(l.entradas) : "—"}</TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-danger)]">{l.saidas ? brl0(l.saidas) : "—"}</TD>
+                  <TD className={`text-right font-[family-name:var(--font-mono)] ${l.saldoSemana < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`}>
+                    {l.entradas || l.saidas ? brl0(l.saldoSemana) : "—"}
+                  </TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">{l.realE ? brl0(l.realE) : "—"}</TD>
+                  <TD className="text-right font-[family-name:var(--font-mono)] text-[var(--color-ink2)]">{l.realS ? brl0(l.realS) : "—"}</TD>
+                  <TD className={`text-right font-[family-name:var(--font-mono)] font-semibold ${l.acumulado < 0 ? "text-[var(--color-danger)]" : "text-[var(--color-accent)]"}`}>
+                    {brl0(l.acumulado)}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+          <p className="px-5 pb-4 pt-2 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+            O que tem data (vencimento, liquidação, data prevista) cai na semana dela. O que só tem competência — linha de
+            planejamento, revenda de permuta parcelada — cai na semana do dia 1º do mês. O saldo acumulado parte do mesmo saldo
+            inicial da tabela mensal e soma o previsto de todas as semanas anteriores, pelo previsto.
+          </p>
+        </CardContent>
+      </Card>
       </div>
       <AssistenteFluxo usuario={ctx.userId ?? "anon"} analise={analise} />
       </div>

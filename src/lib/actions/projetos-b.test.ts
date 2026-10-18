@@ -97,6 +97,20 @@ describe.skipIf(!HAS_DB)("Prompt B · actions de Projetos", async () => {
     expect(r5).toEqual({ ok: true, aviso: "Nada mudou." });
   });
 
+  it("Prompt AE2: a área construída grava em m², vazia volta a não informada, zero é recusado", async () => {
+    const [obra] = await db.insert(schema.projects).values({ tenantId, name: "Obra Área", status: "Planejamento" }).returning();
+    await recarregar();
+    expect((await updateProject(obra.id, { metragem: "1.250,5".replace(".", "") })).ok).toBe(true);
+    const ler = async () => (await db.select().from(schema.projects).where(eq(schema.projects.id, obra.id)))[0].metragem;
+    expect(Number(await ler())).toBe(1250.5);
+    await recarregar();
+    expect(await updateProject(obra.id, { metragem: "0" })).toEqual({ ok: false, error: "Área construída: informe os m² (maior que zero)." });
+    expect((await updateProject(obra.id, { metragem: null })).ok).toBe(true);
+    expect(await ler()).toBeNull();
+    // Não deixa a obra para os testes seguintes (que contam os projetos).
+    await db.delete(schema.projects).where(eq(schema.projects.id, obra.id));
+  });
+
   it("origem assistente fica no log (26)", async () => {
     const projs = await projetosDoTenant();
     const alvo = projs.find((p) => p.name === "Obra Dia 25")!;

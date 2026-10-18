@@ -51,7 +51,7 @@ export async function MedicaoDeObra({ ctx, sp, aba }: { ctx: TenantContext; sp: 
   const selecao = lerSelecaoDeProjeto(obras, { proj: sp.proj, project: sp.project });
   const escolhido = selecao.tipo === "projeto" ? await getProjectVersions(ctx.tenant.id, selecao.projeto.id) : null;
   if (!escolhido?.trabalho) {
-    return <PedirProjeto titulo="Medição de Obra" projetos={obras} oQue={aba === "relatorio" ? "ver o Relatório CEF" : "lançar a medição"} />;
+    return <PedirProjeto titulo="Medição de Projeto" projetos={obras} oQue={aba === "relatorio" ? "ver o Relatório CEF" : "lançar a medição"} />;
   }
   const { project, versions } = escolhido;
   const atual = escolhido.trabalho;
@@ -61,7 +61,7 @@ export async function MedicaoDeObra({ ctx, sp, aba }: { ctx: TenantContext; sp: 
     <>
       <PageHeader
         eyebrow={`${project.name} · ${atual.label}`}
-        title="Medição de Obra"
+        title="Medição de Projeto"
         subtitle="Informação auxiliar: alimenta o Relatório CEF (orçado × medido por grupo); não entra na DRE."
         actions={<ProjectPicker projects={obras.map((p) => ({ id: p.id, label: p.name }))} selected={project.id} />}
       />

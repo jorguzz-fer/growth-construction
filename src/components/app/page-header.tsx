@@ -34,7 +34,8 @@ export function PageHeader({
         </h1>
         {subtitle && <p className="mt-1.5 text-sm text-[var(--color-ink2)]">{subtitle}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {/* Prompt PDF: os seletores não vão para o PDF; o título e o recorte, sim. */}
+      {actions && <div className="flex shrink-0 items-center gap-2 print:hidden">{actions}</div>}
     </header>
   );
 }

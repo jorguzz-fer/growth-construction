@@ -30,11 +30,30 @@ export const TELAS_REMOVIDAS = {
     aviso:
       "A Conferência de planos saiu. O dia de vencimento que não existe em algum mês (o 31 em fevereiro) agora é avisado no plano de pagamento da unidade, ao preencher o 1º vencimento.",
   },
+  // Prompt AB2 (Fase 3, BAB-1): o Consolidado saiu. A receita da obra por
+  // fonte está na Projeção de Receitas (comparando versões); pergunta livre,
+  // na Cris. A Projeção usa `?de=` para data, então o aviso vai em `?saiu=`.
+  consolidado: {
+    rotaAntiga: "/consolidado",
+    destino: "/projecao",
+    parametro: "saiu",
+    aviso:
+      "A tela Consolidado saiu. A receita da obra por fonte está aqui: escolha duas ou três versões para ver os totais por fonte. Para outra pergunta, abra a Cris.",
+  },
+  // Prompt AB2: o Balanço do Dia saiu; o histórico dos dias fechados mora no
+  // Caixa (Prompt L2). O Caixa também usa `?de=` para data.
+  balancodia: {
+    rotaAntiga: "/balancodia",
+    destino: "/caixa",
+    parametro: "saiu",
+    aviso:
+      "A tela Balanço do Dia saiu. Os dias fechados ficam aqui no Caixa, em “Dias fechados”, com o mesmo filtro, impressão e exportação.",
+  },
 } as const;
 
 export type TelaRemovida = keyof typeof TELAS_REMOVIDAS;
 
-/** Aviso para o parâmetro `?de=` do redirecionamento; null se não houver. */
+/** Aviso para o parâmetro `?de=` (ou `?saiu=`) do redirecionamento; null se não houver. */
 export function avisoDeTelaRemovida(de: string | string[] | undefined | null): string | null {
   const id = Array.isArray(de) ? de[0] : de;
   if (!id || !Object.prototype.hasOwnProperty.call(TELAS_REMOVIDAS, id)) return null;
@@ -43,8 +62,11 @@ export function avisoDeTelaRemovida(de: string | string[] | undefined | null): s
 
 /** Regras de redirecionamento no formato de `next.config.ts` (307, reversível). */
 export function redirecionamentosDeTelasRemovidas() {
-  return Object.entries(TELAS_REMOVIDAS).flatMap(([id, t]) => [
-    { source: t.rotaAntiga, destination: `${t.destino}?de=${id}`, permanent: false },
-    { source: `${t.rotaAntiga}/:path*`, destination: `${t.destino}?de=${id}`, permanent: false },
-  ]);
+  return Object.entries(TELAS_REMOVIDAS).flatMap(([id, t]) => {
+    const param = "parametro" in t ? t.parametro : "de";
+    return [
+      { source: t.rotaAntiga, destination: `${t.destino}?${param}=${id}`, permanent: false },
+      { source: `${t.rotaAntiga}/:path*`, destination: `${t.destino}?${param}=${id}`, permanent: false },
+    ];
+  });
 }

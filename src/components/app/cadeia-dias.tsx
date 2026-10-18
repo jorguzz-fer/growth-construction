@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { brl0 } from "@/lib/utils";
 import { ROTULO_NATUREZA, type CadeiaDeSaldo, type Natureza } from "@/lib/calc/cadeia-caixa";
 import { FecharDia } from "@/components/app/fechar-dia";
+import type { Atrasados, PrevistoDoDia } from "@/lib/calc/previsto-caixa";
 
 const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -20,11 +21,28 @@ const quando = (iso: string | null | undefined) => {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-export function CadeiaDias({ cadeia, canFechar = false, canReabrir = false }: { cadeia: CadeiaDeSaldo; canFechar?: boolean; canReabrir?: boolean }) {
+export function CadeiaDias({
+  cadeia,
+  canFechar = false,
+  canReabrir = false,
+  previsto,
+}: {
+  cadeia: CadeiaDeSaldo;
+  canFechar?: boolean;
+  canReabrir?: boolean;
+  /** Prompt L2 — o que vence em cada dia (a receber e a pagar em aberto) e o saldo projetado. */
+  previsto?: { porDia: Record<string, PrevistoDoDia>; saldo: Record<string, number>; atrasados: Atrasados };
+}) {
   return (
     <div className="mb-6">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-[var(--color-ink)]">Cadeia de saldo — 2 dias realizados, hoje e 7 à frente</h2>
+        {previsto && (previsto.atrasados.aPagar.qtd > 0 || previsto.atrasados.aReceber.qtd > 0) && (
+          <p className="w-full text-[11.5px] text-[var(--color-warning)]" data-atrasados>
+            Em atraso, fora da projeção: {previsto.atrasados.aPagar.qtd} a pagar ({brl0(previsto.atrasados.aPagar.valor)}) e{" "}
+            {previsto.atrasados.aReceber.qtd} a receber ({brl0(previsto.atrasados.aReceber.valor)}).
+          </p>
+        )}
         <p className="text-[11px] text-[var(--color-ink3)]">
           Faixa fixa, independente do filtro de período da tabela. Parte do {cadeia.inicio.fonte === "fechamento" ? "saldo final gravado no fechamento" : "saldo em conta calculado"} de {cadeia.inicio.dia.split("-").reverse().join("/")}: {brl0(cadeia.inicio.conciliado)}. Fechar o dia registra os números; não trava lançamento.
         </p>
@@ -100,6 +118,22 @@ export function CadeiaDias({ cadeia, canFechar = false, canReabrir = false }: { 
                     </ul>
                   )}
                   {x.rotulo === "Projeção" && <div className="mt-1 text-[10px] text-[var(--color-ink4)]">Projeção: o banco ainda não registrou nada neste dia.</div>}
+                  {previsto && previsto.saldo[x.dia] != null && (
+                    <div className="mt-2 rounded-[8px] bg-[var(--color-surface2)] px-2 py-1.5 text-[10.5px]" data-previsto-dia>
+                      <div className="flex justify-between text-[var(--color-success)]">
+                        <span>Vence a receber</span>
+                        <span className="font-[family-name:var(--font-mono)]">{previsto.porDia[x.dia]?.aReceber ? brl0(previsto.porDia[x.dia].aReceber) : "—"}</span>
+                      </div>
+                      <div className="flex justify-between text-[var(--color-danger)]">
+                        <span>Vence a pagar</span>
+                        <span className="font-[family-name:var(--font-mono)]">{previsto.porDia[x.dia]?.aPagar ? brl0(previsto.porDia[x.dia].aPagar) : "—"}</span>
+                      </div>
+                      <div className="mt-0.5 flex justify-between border-t border-[var(--color-line)] pt-0.5 font-semibold text-[var(--color-ink)]">
+                        <span>Saldo projetado</span>
+                        <span className="font-[family-name:var(--font-mono)]">{brl0(previsto.saldo[x.dia])}</span>
+                      </div>
+                    </div>
+                  )}
                   {x.fechamento && (
                     <div className="mt-2 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-bg)] px-2 py-1.5 text-[10.5px] text-[var(--color-ink2)]" data-fechado="1">
                       <div>

@@ -40,6 +40,12 @@ const nextConfig: NextConfig = {
       { source: "/versao/template", destination: "/projeto/planilha/modelo", permanent: false },
       { source: "/versao", destination: "/projeto?de=versao", permanent: false },
       { source: "/versao/:path*", destination: "/projeto?de=versao", permanent: false },
+      // Prompt AB2: Consolidado e Balanço do Dia saem (aviso em ?saiu=, porque
+      // as telas de destino usam ?de= como data inicial).
+      { source: "/consolidado", destination: "/projecao?saiu=consolidado", permanent: false },
+      { source: "/consolidado/:path*", destination: "/projecao?saiu=consolidado", permanent: false },
+      { source: "/balancodia", destination: "/caixa?saiu=balancodia", permanent: false },
+      { source: "/balancodia/:path*", destination: "/caixa?saiu=balancodia", permanent: false },
     ];
   },
   experimental: {

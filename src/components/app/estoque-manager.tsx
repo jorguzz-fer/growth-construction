@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addStockItem, addStockMovement, deleteStockItem, estornarMovimento, setStockItemAtivo, updateStockItem } from "@/lib/actions/estoque";
 import { ENTRADA_ORIGENS, SAIDA_MOTIVOS, UNIDADES } from "@/lib/estoque-regras";
+import { useCrisFormulario } from "@/components/app/cris-contexto";
+import { formularioDoMovimento, movimentoDaProposta } from "@/lib/estoque-cris";
 import type { DespesaParaEstoque } from "@/lib/queries";
 import type { ConfrontoDaObra, ConsumoDaObra } from "@/lib/calc/estoque-obra";
 import { EstoqueDocs, type DocDoMovimento } from "@/components/app/estoque-docs";
@@ -87,7 +89,7 @@ function urlDe(f: Partial<FiltrosDaTela> & { tab: "itens" | "mov" }): string {
 export type ConsumoView = ConsumoDaObra & { projectName: string };
 export type ConfrontoView = ConfrontoDaObra & { projectName: string };
 
-export function EstoqueManager({ items, movimentos, filtros, projetos, despesas, permutas, docsPorMov, r2, consumo, confronto, canCriar, canEditar, canExcluir }: { items: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[]; canCriar: boolean; canEditar: boolean; canExcluir: boolean }) {
+export function EstoqueManager({ items, movimentos, filtros, projetos, despesas, permutas, docsPorMov, r2, consumo, confronto, canCriar, canEditar, canExcluir, tipoInicial = "entrada" }: { tipoInicial?: "entrada" | "saida"; items: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[]; canCriar: boolean; canEditar: boolean; canExcluir: boolean }) {
   const ativos = items.filter((i) => i.ativo);
   const valorTotal = Math.round(ativos.reduce((a, i) => a + i.valorEstoque, 0) * 100) / 100;
   const abaixoMin = ativos.filter((i) => i.minimo > 0 && i.saldo <= i.minimo).length;
@@ -102,6 +104,7 @@ export function EstoqueManager({ items, movimentos, filtros, projetos, despesas,
         <Resumo label="Saldo negativo" value={String(negativos)} tone={negativos > 0 ? "neg" : undefined} />
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
       <div className="flex w-fit gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">
         {(["itens", "mov"] as const).map((t) => (
           <Link key={t} href={urlDe({ tab: t })} className={`rounded-[6px] px-3 py-1.5 text-xs transition-colors ${filtros.tab === t ? "bg-white text-[var(--color-ink)] shadow-sm" : "text-[var(--color-ink3)]"}`}>
@@ -109,11 +112,19 @@ export function EstoqueManager({ items, movimentos, filtros, projetos, despesas,
           </Link>
         ))}
       </div>
+      {/* Prompt Y2 — a baixa (saída) existia só dentro da segunda aba e não era vista. */}
+      {canCriar && ativos.length > 0 && (
+        <>
+          <Link href="/estoque?tab=mov&lancar=entrada" className="rounded-[8px] border border-[var(--color-success)]/40 px-3 py-1.5 text-xs font-semibold text-[var(--color-success)] hover:bg-[var(--color-success)]/10">↓ Dar entrada</Link>
+          <Link href="/estoque?tab=mov&lancar=saida" data-atalho-baixa className="rounded-[8px] border border-[var(--color-danger)]/40 px-3 py-1.5 text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10">↑ Dar baixa (saída para obra)</Link>
+        </>
+      )}
+      </div>
 
       {filtros.tab === "itens" ? (
         <ItensTab items={items} canCriar={canCriar} canEditar={canEditar} canExcluir={canExcluir} />
       ) : (
-        <MovTab items={ativos} movimentos={movimentos} filtros={filtros} projetos={projetos} despesas={despesas} permutas={permutas} canCriar={canCriar} todosItens={items} docsPorMov={docsPorMov} r2={r2} consumo={consumo} confronto={confronto} />
+        <MovTab key={tipoInicial} tipoInicial={tipoInicial} items={ativos} movimentos={movimentos} filtros={filtros} projetos={projetos} despesas={despesas} permutas={permutas} canCriar={canCriar} todosItens={items} docsPorMov={docsPorMov} r2={r2} consumo={consumo} confronto={confronto} />
       )}
     </div>
   );
@@ -297,14 +308,14 @@ function ItensTab({ items, canCriar, canEditar, canExcluir }: { items: ItemView[
 
 /* ───────────────────────── Movimentos ───────────────────────── */
 
-function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, permutas, canCriar, docsPorMov, r2, consumo, confronto }: { items: ItemView[]; todosItens: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; canCriar: boolean; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[] }) {
+function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, permutas, canCriar, docsPorMov, r2, consumo, confronto, tipoInicial }: { tipoInicial: "entrada" | "saida"; items: ItemView[]; todosItens: ItemView[]; movimentos: { rows: MovView[]; total: number; pagina: number; porPagina: number }; filtros: FiltrosDaTela; projetos: Opt[]; despesas: DespesaParaEstoque[]; permutas: Opt[]; canCriar: boolean; docsPorMov: Record<string, DocDoMovimento[]>; r2: boolean; consumo: ConsumoView[]; confronto: ConfrontoView[] }) {
   const router = useRouter();
   const [docsAbertos, setDocsAbertos] = useState<string | null>(null);
   const [saving, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [tipo, setTipo] = useState<"entrada" | "saida">("entrada");
+  const [tipo, setTipo] = useState<"entrada" | "saida">(tipoInicial);
   const [itemId, setItemId] = useState("");
-  const [origem, setOrigem] = useState<string>(ENTRADA_ORIGENS[0]);
+  const [origem, setOrigem] = useState<string>(tipoInicial === "entrada" ? ENTRADA_ORIGENS[0] : SAIDA_MOTIVOS[0]);
   const [quantidade, setQuantidade] = useState("");
   const [projectId, setProjectId] = useState("");
   const [data, setData] = useState(hojeInterno());
@@ -366,6 +377,26 @@ function MovTab({ items, todosItens, movimentos, filtros, projetos, despesas, pe
       router.refresh();
     });
   };
+  // Prompt Y2 — a Cris preenche a entrada ou a baixa; quem registra é o botão.
+  const materiaisCris = items.map((i) => ({ id: i.id, nome: i.nome, sku: i.sku, unidade: i.unidade }));
+  const obrasCris = projetos.map((p) => ({ id: p.id, rotulo: p.nome ?? p.label ?? "" }));
+  const despesasCris = despesas.map((d) => ({ id: d.id, rotulo: `${d.numDoc ?? "s/ nº"}${d.fornecedor ? ` · ${d.fornecedor}` : ""} · ${brl0(d.valor)}` }));
+  useCrisFormulario(canCriar && items.length > 0 ? formularioDoMovimento(materiaisCris, obrasCris, despesasCris) : null, (p) => {
+    const { mov, avisos } = movimentoDaProposta(p.valores, materiaisCris, obrasCris, despesasCris, tipo);
+    if (mov.tipo && mov.tipo !== tipo) trocarTipo(mov.tipo);
+    if (mov.itemId) setItemId(mov.itemId);
+    if (mov.quantidade) setQuantidade(mov.quantidade);
+    if (mov.origem) setOrigem(mov.origem);
+    if (mov.projectId) setProjectId(mov.projectId);
+    if (mov.despesaId) {
+      setDespesaId(mov.despesaId);
+      setPermutaId("");
+    }
+    if (mov.data) setData(mov.data);
+    if (mov.doc) setDoc(mov.doc);
+    if (mov.obs) setObs(mov.obs);
+    setMsg({ ok: avisos.length === 0, texto: ["A Cris preencheu o movimento. Confira e clique em registrar.", ...avisos].join(" ") });
+  });
   const origens = tipo === "entrada" ? ENTRADA_ORIGENS : SAIDA_MOTIVOS;
   const paginas = Math.max(1, Math.ceil(movimentos.total / movimentos.porPagina));
 

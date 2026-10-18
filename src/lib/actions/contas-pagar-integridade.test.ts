@@ -48,7 +48,7 @@ describe.skipIf(!HAS_DB)("Contas a Pagar — integridade (Prompt I, §10 e §15)
         .returning();
       if (kind === "forecast") forecastId = v.id;
     }
-    ctxRef.current = { tenant: t, projects: [p], userId: null, userEmail: "quem@teste", role: "owner", perms: defaultPermissions("owner") };
+    ctxRef.current = { tenant: t, projects: [p], userId: null, userEmail: "quem@teste", role: "owner", perms: defaultPermissions("owner", { operadorDaPlataforma: true }) }; // Prompt PLAT: liga chave / baixa backup — só a plataforma
     const r = await addDespesa(fd({ projectId, categoriaDre: "Custo Variável", valor: "100", competencia: "09/2026", vencimento: "09/30/2026" }));
     atualId = (r as { id: string }).id;
     const [prev] = await db

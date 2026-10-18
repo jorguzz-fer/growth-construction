@@ -12,6 +12,9 @@ import { assinaturaDoItem } from "@/lib/calc/conferencia-cartao";
 import { cicloAberto } from "@/lib/calc/cartao-ciclo";
 import { estadoDaFatura } from "@/lib/calc/fatura";
 import { getFaturasCartao } from "@/lib/queries";
+import { isAiConfigured } from "@/lib/ai/client";
+import { extractExtratoFromDocument } from "@/lib/ai/extrato-extract";
+import { comUsoDeIa } from "@/lib/ai/uso";
 
 /**
  * Extrato do cartão e estorno (Prompt U, seções 5 e 6).
@@ -27,6 +30,36 @@ export interface ItemImportado {
   descricao: string;
   valor: number;
 }
+
+/**
+ * Prompt U2 — a fatura em PDF ou imagem, lida por IA, vira a lista de
+ * lançamentos para a pessoa conferir. NADA é gravado aqui: o registro do
+ * extrato só acontece quando ela confirma (`importarExtratoCartao`). Sem IA,
+ * o caminho é XLSX/CSV (a leitura de texto por heurística não sabe o sinal de
+ * uma fatura de cartão).
+ */
+export async function lerFaturaCartaoPdf(formData: FormData): Promise<{ ok: true; itens: ItemImportado[] } | { ok: false; error: string }> {
+  const ctx = await getTenantContext();
+  if (!ctx || !can(ctx.perms, "cartoes", "editar")) return { ok: false, error: "Sem permissão para subir extrato de cartão." };
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { ok: false, error: "Selecione o arquivo da fatura." };
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: "Arquivo deve ter até 10 MB. Para faturas maiores, envie XLSX/CSV." };
+  const mime = file.type || "";
+  if (!(MIME_DA_FATURA as readonly string[]).includes(mime)) return { ok: false, error: "Envie um PDF ou imagem (PNG, JPG ou WebP) da fatura, ou XLSX/CSV." };
+  if (!isAiConfigured()) return { ok: false, error: "A leitura de PDF da fatura usa IA, que não está configurada. Envie a fatura em XLSX/CSV." };
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const r = await comUsoDeIa({ tenantId: ctx.tenant.id, userId: ctx.userId, operacao: "extrato" }, () => extractExtratoFromDocument(bytes, mime, "cartao"));
+    const itens = r.movimentos.map((m) => ({ data: m.data, descricao: m.descricao, valor: m.valor })).filter((i) => i.valor !== 0 && ymd(i.data));
+    if (itens.length === 0) return { ok: false, error: "Não identifiquei lançamentos na fatura. Confira o arquivo ou envie XLSX/CSV." };
+    return { ok: true, itens };
+  } catch (e) {
+    console.error("[fatura-cartao] falha ao ler PDF/imagem:", e);
+    return { ok: false, error: "Falha ao ler a fatura. Tente de novo ou envie XLSX/CSV." };
+  }
+}
+
+const MIME_DA_FATURA = ["application/pdf", "image/png", "image/jpeg", "image/webp"] as const;
 
 export type ResultadoImportacao = { ok: true; inseridos: number; ignorados: number; vinculados: number } | { ok: false; error: string };
 

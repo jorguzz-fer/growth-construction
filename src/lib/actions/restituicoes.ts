@@ -1000,6 +1000,8 @@ export async function getSaldosPorTerceiro(
 /** Saldo pendente de restituições por mês previsto (para o fluxo de caixa). */
 export async function getRestituicoesPendentesByVersion(
   versionId: string,
+  /** Prompt AD2 — balde de tempo para a data prevista; ausente, o mês. */
+  bucket?: (data: string) => string | null,
 ): Promise<{ despesaIds: string[]; saidasPrevistas: Record<string, number> }> {
   const rows = await db
     .select({ dt: schema.despesaTerceiros, despesaId: schema.despesas.id })
@@ -1014,7 +1016,7 @@ export async function getRestituicoesPendentesByVersion(
     if (r.dt.status === "Cancelado") continue;
     const saldo = Number(r.dt.valorTotal) - Number(r.dt.valorRestituido);
     const p = (r.dt.dataPrevistaRestituicao ?? "").split("/");
-    const mm = p.length === 3 ? `${p[0]}/${p[2]}` : null;
+    const mm = p.length === 3 ? (bucket ? bucket(r.dt.dataPrevistaRestituicao!) : `${p[0]}/${p[2]}`) : null;
     if (mm && saldo > 0) saidas[mm] = (saidas[mm] || 0) + saldo;
   }
   return { despesaIds, saidasPrevistas: saidas };

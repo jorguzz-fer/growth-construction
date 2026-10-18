@@ -1,3 +1,4 @@
+import { isSuperAdmin } from "@/lib/tenant/superadmin";
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { auth } from "./auth";
@@ -91,7 +92,11 @@ async function resolverSessao(): Promise<Sessao | null> {
     userId: user.id,
     userEmail: user.email,
     role,
-    perms: effectivePermissions(role, membership.permissions ?? null, await opcoesDoTenant(tenant.id)),
+    perms: effectivePermissions(role, membership.permissions ?? null, {
+      ...(await opcoesDoTenant(tenant.id)),
+      // Prompt PLAT: Chaves e Backup só para os operadores da plataforma.
+      operadorDaPlataforma: isSuperAdmin(user.email),
+    }),
   };
 }
 

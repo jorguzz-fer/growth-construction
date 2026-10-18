@@ -1,12 +1,13 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { getInccRows } from "@/lib/queries";
+import { getLinhasDaSerieIncc, inccDaEmpresaAtivo, toInccRows } from "@/lib/queries";
+import { SERIE_DA_EMPRESA } from "@/lib/incc-empresa";
 import { projectIncc, type InccRow } from "@/lib/calc";
 import { diffDeIncc, ehVarianteDoIncc, mesesFuturosOficiais, ordDeHoje, ordDoMes, VARIANTES_DO_INCC } from "@/lib/incc-regras";
 
@@ -19,7 +20,12 @@ export type ResultadoIncc = { ok: true; meses: number } | { ok: false; error: st
  * (`projectFutureIncc`, `marcarComoProjecao`).
  */
 
-const TELAS_DO_INCC = ["/parametros", "/caixa", "/fluxocaixa", "/projecao", "/consolidado", "/simulador"];
+const TELAS_DO_INCC = ["/parametros", "/caixa", "/fluxocaixa", "/projecao", "/simulador", "/dre"];
+
+/** Prompt Q2 — a série que a action toca: a da obra ou a da empresa (linhas sem projeto). */
+const daSerie = (tenantId: string, alvo: string) =>
+  and(eq(schema.inccRates.tenantId, tenantId), alvo === SERIE_DA_EMPRESA ? isNull(schema.inccRates.projectId) : eq(schema.inccRates.projectId, alvo));
+const lerSerie = async (tenantId: string, alvo: string) => toInccRows(await getLinhasDaSerieIncc(tenantId, alvo));
 
 const hojeGravado = () => {
   const d = new Date();
@@ -50,7 +56,7 @@ async function persistir(
       await tx
         .update(schema.inccRates)
         .set({ monthly: r.mo.toString(), accumulated: r.ac.toString(), projected: !!r.projected, ...extra })
-        .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId), eq(schema.inccRates.mes, r.m)));
+        .where(and(daSerie(tenantId, projectId), eq(schema.inccRates.mes, r.m)));
     }
     await logAudit(auditoria, tx);
   });
@@ -64,6 +70,14 @@ async function contexto(projectId: string): Promise<Contexto> {
   const ctx = await getTenantContext();
   if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
   if (!can(ctx.perms, "parametros", "editar")) return { ok: false, error: "Sem permissão para editar o INCC." };
+  // Prompt Q2 — com o INCC da empresa em uso, a série editada é a da empresa;
+  // editar a série guardada de uma obra não mudaria nenhum número.
+  const daEmpresa = await inccDaEmpresaAtivo(ctx.tenant.id);
+  if (projectId === SERIE_DA_EMPRESA) {
+    if (!daEmpresa) return { ok: false, error: "A série da empresa não está em uso. Edite a série da obra." };
+    return { ok: true, ctx, projeto: { id: SERIE_DA_EMPRESA, name: "Empresa (série única)" } };
+  }
+  if (daEmpresa) return { ok: false, error: "O INCC é da empresa: edite a série da empresa na tela de INCC." };
   const projeto = ctx.projects.find((p) => p.id === projectId);
   if (!projeto) return { ok: false, error: "Escolha a obra." };
   return { ok: true, ctx, projeto };
@@ -83,7 +97,7 @@ export async function updateInccMonth(projectId: string, mes: string, mo: number
   const c = await contexto(projectId);
   if (!c.ok) return c;
   if (typeof mo !== "number" || !Number.isFinite(mo)) return { ok: false, error: "Informe um número para a variação mensal." };
-  const antes = await getInccRows(c.ctx.tenant.id, projectId);
+  const antes = await lerSerie(c.ctx.tenant.id, projectId);
   const alvo = antes.find((r) => r.m === mes);
   if (!alvo) return { ok: false, error: `Mês ${mes} não está na tabela desta obra.` };
   const editado = antes.map((r) => (r.m === mes ? { ...r, mo, projected: false } : r));
@@ -119,7 +133,7 @@ export async function updateInccMonth(projectId: string, mes: string, mo: number
 export async function projectFutureIncc(projectId: string): Promise<ResultadoIncc> {
   const c = await contexto(projectId);
   if (!c.ok) return c;
-  const antes = await getInccRows(c.ctx.tenant.id, projectId);
+  const antes = await lerSerie(c.ctx.tenant.id, projectId);
   if (!antes.some((r) => r.projected)) return { ok: false, error: "Nenhum mês está marcado como projeção. Para projetar um mês futuro ainda oficial, use a ação do próprio mês." };
   const depois = projectIncc(antes);
   const mudancas = diffDeIncc(antes, depois);
@@ -145,7 +159,7 @@ export async function marcarComoProjecao(projectId: string, meses: string[]): Pr
   if (!c.ok) return c;
   const pedidos = [...new Set((meses ?? []).map((m) => m.trim()).filter(Boolean))];
   if (pedidos.length === 0) return { ok: false, error: "Informe ao menos um mês." };
-  const antes = await getInccRows(c.ctx.tenant.id, projectId);
+  const antes = await lerSerie(c.ctx.tenant.id, projectId);
   const hoje = ordDeHoje();
   const candidatos = new Set(mesesFuturosOficiais(antes, hoje));
   const foraDaTabela = pedidos.filter((m) => !antes.some((r) => r.m === m));
@@ -188,14 +202,14 @@ export async function definirVarianteIncc(projectId: string, variante: string): 
   const [atual] = await db
     .select({ variante: schema.inccRates.variante })
     .from(schema.inccRates)
-    .where(and(eq(schema.inccRates.tenantId, c.ctx.tenant.id), eq(schema.inccRates.projectId, projectId)))
+    .where(daSerie(c.ctx.tenant.id, projectId))
     .limit(1);
   if (!atual) return { ok: false, error: "Esta obra ainda não tem tabela INCC." };
   await db.transaction(async (tx) => {
     await tx
       .update(schema.inccRates)
       .set({ variante })
-      .where(and(eq(schema.inccRates.tenantId, c.ctx.tenant.id), eq(schema.inccRates.projectId, projectId)));
+      .where(daSerie(c.ctx.tenant.id, projectId));
     await logAudit(
       {
         tenantId: c.ctx.tenant.id,
@@ -209,4 +223,64 @@ export async function definirVarianteIncc(projectId: string, variante: string): 
   });
   revalidatePath("/parametros");
   return { ok: true, meses: 0 };
+}
+
+export type ResultadoAdocao = { ok: true; meses: number; substituiu: boolean } | { ok: false; error: string; jaExiste?: boolean };
+
+/**
+ * Prompt Q2 (BQ2-1) — adota a série de UMA obra como a série da empresa:
+ * copia as linhas (índice, acumulado, projeção, variante e origem) para
+ * linhas sem projeto. A série da obra e as das outras obras ficam como
+ * estão. Se a empresa já tem série, só substitui com `substituir` (a tela
+ * pede a confirmação). Só owner e admin; auditado com o que havia antes.
+ *
+ * Com a chave "incc_por_empresa" desligada, nenhum número muda: a série da
+ * empresa só é lida com a chave ligada.
+ */
+export async function adotarSerieDaObraComoDaEmpresa(projectId: string, substituir = false): Promise<ResultadoAdocao> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "parametros", "editar") || (ctx.role !== "owner" && ctx.role !== "admin")) return { ok: false, error: "Só o proprietário ou um administrador escolhe o INCC da empresa." };
+  const projeto = ctx.projects.find((p) => p.id === projectId);
+  if (!projeto) return { ok: false, error: "Escolha a obra." };
+  const daObra = await getLinhasDaSerieIncc(ctx.tenant.id, projectId);
+  if (daObra.length === 0) return { ok: false, error: "Esta obra não tem tabela INCC." };
+  const atual = await getLinhasDaSerieIncc(ctx.tenant.id, SERIE_DA_EMPRESA);
+  if (atual.length > 0 && !substituir) return { ok: false, jaExiste: true, error: "A empresa já tem uma série do INCC. Confirme para substituir." };
+  await db.transaction(async (tx) => {
+    if (atual.length > 0) await tx.delete(schema.inccRates).where(and(eq(schema.inccRates.tenantId, ctx.tenant.id), isNull(schema.inccRates.projectId)));
+    await tx.insert(schema.inccRates).values(
+      daObra.map((r) => ({
+        tenantId: ctx.tenant.id,
+        projectId: null,
+        mes: r.mes,
+        monthly: r.monthly,
+        accumulated: r.accumulated,
+        ordem: r.ordem,
+        projected: r.projected,
+        variante: r.variante,
+        fonte: r.fonte,
+        informadoPor: r.informadoPor,
+        informadoEm: r.informadoEm,
+      })),
+    );
+    await logAudit(
+      {
+        tenantId: ctx.tenant.id,
+        userId: ctx.userId,
+        action: "incc.adotarDaEmpresa",
+        entity: "incc_rate",
+        meta: {
+          deProjeto: projectId,
+          projeto: projeto.name,
+          meses: daObra.length,
+          substituiu: atual.length > 0,
+          anterior: atual.map((r) => ({ mes: r.mes, mensal: Number(r.monthly), acumulado: Number(r.accumulated), projetado: r.projected })),
+        },
+      },
+      tx,
+    );
+  });
+  for (const t of TELAS_DO_INCC) revalidatePath(t);
+  return { ok: true, meses: daObra.length, substituiu: atual.length > 0 };
 }

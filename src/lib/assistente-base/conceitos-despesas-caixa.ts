@@ -1,4 +1,4 @@
-/** Base de conhecimento do Assistente — Conceitos do produto, Despesas e Caixa. Descreve o sistema de HOJE. */
+/** Base de conhecimento da Cris — Conceitos do produto, Despesas e Caixa. Descreve o sistema de HOJE. */
 export const TEXTO = `# Base de conhecimento C — Conceitos, Despesas e Caixa
 
 ## Conceitos do produto
@@ -32,20 +32,22 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 ### Categoria DRE e plano de contas
 - Toda despesa tem duas classificações:
   - **Conta CEF / Plano de Contas**: o grupo de custo da obra. Os grupos e subitens são editáveis em Planejamento → Plano de Contas.
-  - **Categoria DRE**: é fixa e não se edita. As opções são Receita, Custo Variável, Custo Fixo, Despesa Variável, Despesa Fixa, Retiradas, Investimento, Empréstimos e Despesas Financeiras.
+  - **Categoria DRE**: a lista é fixa: Receita, Custo Variável, Custo Fixo, Despesa Variável, Despesa Fixa, Retiradas, Investimento, Empréstimos e Despesas Financeiras.
+- **Cada conta do Plano de Contas tem uma categoria da DRE.** O sistema traz um padrão de boa prática (gasto de obra é Custo Variável; comissão e marketing, Despesa Variável; escritório, TI e contabilidade, Despesa Fixa; tarifa, juro e multa, Despesas Financeiras). A categoria de cada conta se troca em Planejamento → Plano de Contas.
+- Com a chave "Despesa herda a categoria da DRE do Plano de Contas" ligada, a categoria da despesa vem da conta e aparece travada no lançamento, e os relatórios contam as despesas já lançadas pela categoria da conta. Desligada, a pessoa escolhe a categoria em cada despesa, como antes.
 - Uma despesa não aceita a categoria "Receita". Lançamento antigo com categoria inválida precisa ser trocado antes de salvar.
 - Se tiver dúvida sobre qual conta ou categoria usar, confirme com a sua contabilidade. O sistema só aplica a classificação escolhida.
 
 ### Chaves de mudança
 - São regras novas que mudam números de relatório ou acessos. **Todas nascem desligadas**; desligadas, o sistema funciona exatamente como antes.
-- São ligadas **por empresa**, em Configurações → Chaves de mudança, **só por owner ou admin**, depois de marcar que a prévia foi conferida.
-- Chaves existentes: padrão novo do membro; Contas a Pagar só com a Atual; saída do ressarcimento segue a despesa; Rascunho fora dos relatórios; e definição nova da DRE, do Fluxo de Caixa, do Dashboard e do Resumo Executivo.
+- São ligadas **por empresa**, pela plataforma (Growth Tools), depois de conferida a prévia. A empresa pede a mudança; não há tela de chaves para o cliente.
+- Chaves existentes: padrão novo do membro; Contas a Pagar só com a Atual; saída do ressarcimento segue a despesa; Rascunho fora dos relatórios; definição nova da DRE, do Fluxo de Caixa, do Dashboard e do Resumo Executivo; e despesa herda a categoria do Plano de Contas.
 - Algumas telas mostram, só para quem administra chaves, um bloco **"Prévia da chave"**.
 
 ### Papéis e Gestão de Acessos
 - **owner** (Proprietário) e **admin** (Administrador): acesso total, sempre.
 - **membro**: com a chave "padrão novo do membro" desligada, pode ver, criar e editar em todas as telas fora de Configurações, mas **não exclui nem cancela**. Se a chave for ligada, passa a alcançar só as telas de lançamento e receita: Despesas, Contas a Pagar, Fornecedores, Caixa, Contas Correntes, Medição, Clientes, Unidades, Contas a Receber e Permuta.
-- **contador**: somente leitura. Por padrão vê DRE, Fluxo de Caixa, Medição, Resumo, Consolidado, Plano de Contas, Despesas e Auditoria. Pode receber "ver" em outras telas, mas nunca criar, editar ou excluir.
+- **contador**: somente leitura. Por padrão vê DRE, Fluxo de Caixa, Medição, Resumo, Plano de Contas, Despesas e Auditoria. Pode receber "ver" em outras telas, mas nunca criar, editar ou excluir.
 - **engenheiro**: só o lançamento de Medição.
 - **Gestão de Acessos** (Configurações): owner e admin ajustam, membro a membro, a matriz Ver/Criar/Editar/Excluir de cada tela. Usuários, Gestão de Acessos e Chaves de mudança não podem ser concedidas a outros papéis.
 - Algumas permissões são **ações**, não telas: "Fechar o dia (no Caixa)"; "Conciliação — ajustar e desfazer" (criar = lançar ajuste; excluir = desfazer conciliação e reabrir dia); "Travar e destravar versão"; "Aprovar e desaprovar versão".
@@ -67,7 +69,6 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - Escolher a obra no seletor, ou "Todos os projetos / filiais" para consultar tudo.
 - Abas:
   - **Lançamentos**: formulário e lista, com o último lançamento criado no topo (editar não muda a ordem).
-  - **A Pagar**: o que não está pago, por vencimento.
   - **Pendente de NF**: lançamentos sem documento fiscal.
   - **Parcelas**: só com uma obra escolhida; paga parcela por parcela.
   - **Repositório**: documentos, com ou sem vínculo.
@@ -77,6 +78,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Pagar** (na linha): registra data, valor, conta, juros, multa e desconto, e lança a saída no Caixa. Pagamentos parciais acumulam.
 - **Cancelar despesa**: cancelamento lógico. A despesa sai de relatórios, Contas a Pagar e caixa, mas o histórico fica.
 - **Excluir**: só sem vínculos (pagamento, parcela paga, acerto, ressarcimento, conciliação, nota ou anexo), digitando o PED.
+- **Lançar com a Cris**: diga, dite ou anexe a nota, o boleto ou o recibo. A Cris preenche fornecedor, conta, categoria, competência, vencimento, valor, status, descrição e forma de pagamento, e também a recorrência (quantos meses) e o "paga por terceiro" (quem pagou, quando e se será reembolsado). Quem grava é Salvar.
+- **Paga por terceiro — quem aparece**: quem tem o papel "Pagador por Terceiro" (dado em Ressarcimentos) e quem já pagou pela empresa antes, marcado "já pagou antes, sem o papel". Se ninguém aparece, dê o papel em Ressarcimentos.
 
 **Campos que confundem:**
 - **Status no formulário** (A pagar / Pago): marcar "Pago" ali **só muda o status**. Não registra pagamento nem saída no Caixa; para isso, use **Pagar** ou concilie o extrato.
@@ -136,6 +139,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Obra da saída**: com a chave "Saída do ressarcimento segue a despesa" desligada, cai na obra aberta na tela. Se ela for ligada, o ressarcimento avulso cai na obra da despesa, e o lote continua na obra da tela.
 - **Não confundir** com "Liberações de Obra" (rota /reembolso, módulo Receitas).
 
+- **Com a Cris**: com a janela "Registrar ressarcimento" aberta, a Cris preenche valor, data, conta e comprovante a partir do que a pessoa diz ou dita. Quem registra é o botão **Confirmar**.
+
 **O que NÃO faz:** não lança a despesa nova paga por terceiro. Isso é feito em Despesas, marcando "Paga por terceiro".
 
 **Quem acessa por padrão:**
@@ -143,7 +148,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - membro, com a chave do membro desligada: ver, criar e editar, mas cancelar ressarcimento exige excluir;
 - contador: não acessa.
 
-## Cartões de Crédito (/cartoes) — módulo Despesas
+## Cartões de Crédito (/cartoes) — módulo Caixa
 
 **Para que serve:** cadastrar cartões, acompanhar faturas, pagar a fatura e conferir o extrato do cartão.
 
@@ -154,7 +159,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Faturas**:
   - **Pagar**: só fatura fechada; informa valor, data, conta e obra do lançamento. Pagamento parcial é aceito.
   - **Juros cobrados**: vira uma despesa "Despesas Financeiras".
-- **Extrato do cartão**: subir XLSX ou CSV para conferir o que não foi lançado, o que não apareceu no extrato e as divergências. Também se registra **estorno**.
+- **Extrato do cartão**: subir XLSX ou CSV, ou o **PDF (ou foto) da fatura**, para conferir o que não foi lançado, o que não apareceu no extrato e as divergências. O PDF é lido por IA e aparece numa **prévia**: só com "Registrar" o extrato é guardado, e nenhuma despesa é lançada. Também se registra **estorno**.
+- **Lançar o que faltou**: cada item "No extrato, sem lançamento" tem "Lançar em Despesas →", que abre a despesa já preenchida com valor, cartão, data e descrição. A pessoa confere e salva lá.
 
 **Campos que confundem:**
 - A **compra** é lançada em **Despesas**, com a forma "Cartão de crédito": cartão, data da compra e número de parcelas (1 a 48). Ela nasce "A pagar", **sem saída de caixa**, e cada parcela cai na fatura do ciclo correspondente.
@@ -177,10 +183,11 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - **Diferença** entre o transferido e o vinculado: o sistema a lança como despesa financeira (pago a mais) ou receita financeira (pago a menos), na competência do pagamento, sem ratear no custo das obras. Sobre a classificação contábil, confirme com a sua contabilidade.
 - Aba **Rateio entre obras**: o pagamento a um prestador de várias obras gera **um PED por obra** e uma só saída de caixa, com a base do rateio gravada.
 - Aba **Acertos do período**: histórico, com **estorno**.
+- **Com a Cris** (aba Vincular despesas): ela preenche o cabeçalho do pagamento e **marca** as despesas pelos números dos PEDs (aceita o final do número) ou, em lote, todas as de um fornecedor. Número que não acha ou que bate com mais de um é avisado, e nada é marcado por ele. Quem grava é o botão **Concluir acerto**, depois da conferência.
 
 **Quem acessa por padrão:** quem pode **editar Despesas e ver o Caixa**, ou seja, owner, admin e membro. O estorno exige excluir em Despesas (owner e admin). O contador não acessa.
 
-## Fornecedores & Stakeholders (/fornecedores) — módulo Despesas
+## Fornecedores e Parceiros (/fornecedores) — módulo Despesas
 
 **Para que serve:** o cadastro único da empresa (não é por obra) de fornecedores, prestadores, sócios, bancos e demais pessoas.
 
@@ -188,6 +195,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - Cadastrar PF ou PJ (com leitura opcional do cartão CNPJ ou contrato por IA), com endereço e dados para ressarcimento (banco e PIX).
 - Marcar **papéis**; uma pessoa pode ter vários (Fornecedor de Material, Prestador de Serviço, Sócio/Quotista etc.).
 - Buscar, filtrar por papel, inativar e excluir (digitando o nome para confirmar).
+- **Com a Cris**: anexe na conversa o cartão CNPJ, o contrato ou a nota (ou dite os dados) e peça para preencher. Ela preenche nome, tipo, documento, contato, endereço e papéis, com os mesmos alertas da leitura por upload. Banco, conta e PIX são preenchidos à mão. Quem cadastra é o botão da tela.
 
 **Campos que confundem:**
 - **Inativo** não aparece nos seletores de lançamentos novos, mas continua aparecendo nos lançamentos antigos.
@@ -212,6 +220,8 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
   - **Conciliado**: o que os lançamentos sustentam.
   - Num dia todo conciliado, os dois coincidem.
 - **Cadeia de saldo**: 2 dias realizados, hoje e 7 dias à frente. O botão **Fechar o dia** grava saldo inicial, entradas, saídas, saldo final e divergência. Fechar não trava lançamentos, e reabrir exige um motivo.
+- **O que vence nos próximos dias**: de hoje em diante, o cartão de cada dia mostra "Vence a receber", "Vence a pagar" e o "Saldo projetado". A pagar é o saldo em aberto das contas a pagar da versão Atual; a receber é o que falta receber das contas lançadas e as parcelas dos planos de venda. O que venceu e segue em aberto aparece num aviso à parte, sem entrar em nenhum dia. Título sem data de vencimento não entra.
+- **Dias fechados**: a seção recolhível abaixo da cadeia lista o histórico dos fechamentos (ver "Dias fechados (no Caixa)").
 - **Importar extrato**:
   - escolha a conta e, opcionalmente, o saldo final (que atualiza a conta);
   - envie XLSX, CSV ou PDF (PDF escaneado ou imagem só com IA);
@@ -258,18 +268,18 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 - membro: ver, criar e editar;
 - contador: não acessa.
 
-## Balanço do Dia (/balancodia) — módulo Caixa
+## Dias fechados (no Caixa) — antes, tela Balanço do Dia
 
 **Para que serve:** o **histórico dos fechamentos do dia**: saldo inicial, entradas, saídas, saldo final, saldo em conta, divergências, responsável, data do fechamento e reaberturas com motivo.
 
+**Onde fica:** na tela **Caixa**, na seção recolhível "Dias fechados", abaixo da cadeia de saldo. Aparece com ou sem projeto escolhido, porque o histórico é da empresa. A antiga tela Balanço do Dia saiu; o endereço /balancodia leva ao Caixa.
+
 **O que se faz nela:** filtrar por período, imprimir e exportar CSV.
 
-**O que NÃO faz:** não fecha o dia (isso é feito no cartão da cadeia, na tela Caixa) e não mostra movimento a movimento (isso fica no Caixa).
-
-**Quem acessa por padrão:**
+**Quem vê:** quem tem "ver" em "Dias fechados (no Caixa)" na Gestão de Acessos (a antiga chave do Balanço do Dia):
 - owner e admin;
 - membro, com a chave do membro desligada;
-- contador: não acessa.
+- contador: não vê.
 
 ---
 
@@ -277,7 +287,7 @@ Cada despesa tem três datas, e confundi-las é o erro mais caro do sistema:
 
 - **Despesas × Contas a Pagar**: em Despesas se **lança, edita, paga e cancela**, por obra, com uma linha por PED. Contas a Pagar é **só consulta**, da empresa inteira, por **vencimento**, com uma linha por parcela, fatura ou saldo a ressarcir. A despesa parcelada aparece em várias linhas ali e em uma só em Despesas.
 - **Ressarcimentos × Acerto Contábil**: Ressarcimentos devolve o dinheiro a **um terceiro que pagou pela empresa**. No Acerto Contábil, a **própria empresa** paga várias despesas a fornecedores numa transferência só, e a diferença vira encargo ou desconto financeiro.
-- **Caixa × Contas Correntes × Balanço do Dia**: Contas Correntes é o **cadastro** das contas e do saldo; Caixa é o **dia a dia** (extrato, conciliação, ajustes, fechar o dia); Balanço do Dia é o **histórico** dos dias fechados.
+- **Caixa × Contas Correntes**: Contas Correntes é o **cadastro** das contas e do saldo; Caixa é o **dia a dia** (extrato, conciliação, ajustes, fechar o dia) e guarda o **histórico** dos dias fechados.
 - **Cartões × Despesas**: a compra é lançada em **Despesas** (forma "Cartão de crédito") e entra na DRE pela competência. **Cartões** cuida da **fatura**: acompanhar, pagar (a saída de caixa), juros, estorno e conferência do extrato do cartão.
 
 ## Caminhos comuns

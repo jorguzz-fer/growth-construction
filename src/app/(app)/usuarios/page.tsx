@@ -6,7 +6,7 @@ import { inviteMember } from "@/lib/actions/users";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -16,6 +16,9 @@ import { FormComResultado } from "@/components/app/form-com-resultado";
 import { PAPEIS_CRIACAO } from "@/lib/papeis";
 import { AccessDenied } from "@/components/app/access-denied";
 import { avisoDeTelaRemovida } from "@/lib/telas-removidas";
+import { opcoesDoTenant } from "@/lib/membro-padrao";
+import { telasSugeridas } from "@/lib/telas-sugeridas";
+import { PapelETelas } from "@/components/app/papel-e-telas";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +50,9 @@ export default async function UsuariosPage({
   const podeExcluir = can(ctx.perms, "usuarios", "excluir");
   const temAcoes = podeEditar || podeExcluir;
   const telas = new Set(SCREENS.map((s) => s.id));
+  // Prompt AI2 — a sugestão de telas de cada papel, no padrão em vigor na empresa.
+  const opts = await opcoesDoTenant(ctx.tenant.id);
+  const sugestoes = Object.fromEntries(PAPEIS_CRIACAO.map((p) => [p, telasSugeridas(p as Role, opts)]));
 
   return (
     <>
@@ -81,16 +87,6 @@ export default async function UsuariosPage({
                 <Input name="email" type="email" required />
               </div>
               <div>
-                <Label>Papel</Label>
-                <Select name="role" defaultValue="membro">
-                  {PAPEIS_CRIACAO.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
                 <Label>Senha inicial (opcional)</Label>
                 <PasswordInput
                   name="password"
@@ -103,6 +99,7 @@ export default async function UsuariosPage({
                   Adicionar
                 </Button>
               </div>
+              <PapelETelas papeis={PAPEIS_CRIACAO} sugestoes={sugestoes} />
             </FormComResultado>
             <p className="mt-2 text-xs text-[var(--color-ink3)]">
               Sem senha inicial, o usuário fica com acesso pendente até você

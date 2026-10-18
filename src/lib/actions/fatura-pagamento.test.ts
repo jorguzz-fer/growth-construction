@@ -44,7 +44,7 @@ describe.skipIf(!HAS_DB)("Pagamento da fatura de cartão (Prompt U, 3)", async (
     // fecha dia 10, vence dia 20; compras em fevereiro e março de 2026 (faturas já fechadas em 2026-10-01)
     const [c] = await db.insert(schema.cartoesCredito).values({ tenantId, apelido: "Visa", ultimos4: "9999", diaFechamento: 10, diaVencimento: 20, bankAccountId: bankId, taxaRotativo: "10" }).returning();
     cartaoId = c.id;
-    ctxRef.current = { tenant: t, projects: [p], userId: null, userEmail: "u3@teste", role: "owner", perms: defaultPermissions("owner") };
+    ctxRef.current = { tenant: t, projects: [p], userId: null, userEmail: "u3@teste", role: "owner", perms: defaultPermissions("owner", { operadorDaPlataforma: true }) }; // Prompt PLAT: liga chave / baixa backup — só a plataforma
     const base = { projectId, categoriaDre: "Custo Variável", formaPagamento: "Cartão de crédito", status: "A pagar", cartaoId };
     expect((await addDespesa(fd({ ...base, competencia: "02/2026", valor: "300", cartaoDataCompra: "02/05/2026", cartaoParcelas: "1", obs: "fev" }))).ok).toBe(true); // fatura 02/10
     expect((await addDespesa(fd({ ...base, competencia: "03/2026", valor: "400", cartaoDataCompra: "03/05/2026", cartaoParcelas: "1", obs: "mar" }))).ok).toBe(true); // fatura 03/10

@@ -84,11 +84,11 @@ export async function addReembolso(formData: FormData): Promise<ResultadoLiberac
     entityId: lib.id,
     meta: { projeto: project.name, versao: version.label, valor: lib.valor, data: lib.data, origem: lib.origem },
   });
-  for (const t of ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/consolidado", "/resumo"]) revalidatePath(t);
+  for (const t of ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/resumo"]) revalidatePath(t);
   return { ok: true, id: lib.id };
 }
 
-const TELAS_DA_LIBERACAO = ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/consolidado", "/resumo"];
+const TELAS_DA_LIBERACAO = ["/reembolso", "/fluxocaixa", "/caixa", "/projecao", "/resumo"];
 
 /**
  * Edita uma liberação (Prompt O, 4.3): valor, data, origem e observações,

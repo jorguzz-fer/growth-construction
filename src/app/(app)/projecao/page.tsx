@@ -22,6 +22,8 @@ import {
 import { brl0, monthInRange } from "@/lib/utils";
 import { calendarYearWindows } from "@/lib/planning";
 import { PageHeader } from "@/components/app/page-header";
+import { AvisoTelaRemovida } from "@/components/app/aviso-tela-removida";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { BarChart, CHART_COLORS } from "@/components/app/charts";
@@ -53,7 +55,7 @@ const fmt = (v: number) => (v > 0 ? brl0(v) : "—");
 export default async function ProjecaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string }>;
+  searchParams: Promise<{ ano?: string; de?: string; ate?: string; vs?: string; proj?: string; project?: string; saiu?: string }>;
 }) {
   const ctx = await getTenantContext();
   if (!ctx) return null;
@@ -74,7 +76,7 @@ export default async function ProjecaoPage({
       ? await getProjectVersions(ctx.tenant.id, selecaoObra.projeto.id)
       : null;
   if (!escolhido?.trabalho) {
-    return <PedirProjeto titulo="Projeção de Receitas" projetos={ctx.projects} oQue="ver a projeção" />;
+    return <PedirProjeto titulo="Projeção de Receitas" projetos={ctx.projects} oQue="ver a projeção" aviso={<AvisoTelaRemovida de={spObra.saiu} />} />;
   }
   const { project: obra, versions: versoesDaObra, trabalho: versaoTrabalho } = escolhido;
   const projectPicker = (
@@ -139,6 +141,13 @@ export default async function ProjecaoPage({
               {versionSelect}
             </div>
           }
+        />
+        <AvisoTelaRemovida de={sp.saiu} />
+        {/* Prompt IAR — a Cris compara as versões por fonte. */}
+        <CrisDaTela
+          titulo="Projeção de Receitas (comparação)"
+          dados={{ obra: obra.name, versoes: compareVersions.map((v) => v.label), porFonte: rows.map((r) => ({ fonte: r.label, valores: r.values })), periodo: hasRange ? `${de || "início"} a ${ate || "fim"}` : "todo o horizonte" }}
+          sugestoes={["Qual fonte mais muda entre as versões?", "E se o FGTS atrasar três meses?", "Quanto da receita depende das liberações?"]}
         />
         <VersionCompareTable
           firstColLabel="Fonte"
@@ -244,6 +253,21 @@ export default async function ProjecaoPage({
             {versionSelect}
           </div>
         }
+      />
+      <AvisoTelaRemovida de={sp.saiu} />
+      {/* Prompt IAR — a Cris analisa e simula sobre a projeção da obra (sem dado de cliente). */}
+      <CrisDaTela
+        titulo="Projeção de Receitas"
+        dados={{
+          obra: obra.name,
+          versao: version.label,
+          unidadesVendidas: vendidas,
+          unidades: unitRows.length,
+          totalProjetado: totalGrand,
+          liberacoes: reembGrand,
+          porMes: axis.filter((m) => yearMonths.includes(m)).map((m) => ({ mes: m, unidades: unitsProj[m] || 0, liberacoes: reembMonth[m] || 0 })),
+        }}
+        sugestoes={["Qual o mês de maior recebimento?", "E se 20% das parcelas atrasarem um mês?", "Quanto entra até o fim do ano?"]}
       />
 
       <Card className="mb-6">

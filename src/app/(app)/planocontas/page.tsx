@@ -1,12 +1,14 @@
 import { getTenantContext } from "@/lib/context";
 import { getChartAccounts, getUsoDoPlanoDeContas, type ChartAccountRow } from "@/lib/queries";
 import { analisarPlano } from "@/lib/planocontas-analise";
+import { categoriaDaConta, categoriaPadraoDaConta } from "@/lib/categoria-do-plano";
 import { AssistentePlanoContas } from "@/components/app/assistente-planocontas";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { PlanoContasManager } from "@/components/app/planocontas-manager";
 import { AccessDenied } from "@/components/app/access-denied";
+import { PropostaDeContas } from "@/components/app/planocontas-cris";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,7 @@ interface Group {
   code: string;
   name: string;
   kind: Kind;
-  items: { id: string; code: string; name: string; natureza: Natureza; ativo: boolean }[];
+  items: { id: string; code: string; name: string; natureza: Natureza; ativo: boolean; categoria: string; categoriaPadrao: string; categoriaEscolhida: string | null }[];
 }
 
 function groupBy(rows: ChartAccountRow[], kind: Kind): Group[] {
@@ -31,6 +33,10 @@ function groupBy(rows: ChartAccountRow[], kind: Kind): Group[] {
       name: r.name,
       natureza: (r.natureza === "receita" ? "receita" : "despesa") as Natureza,
       ativo: r.ativo ?? true,
+      // Prompt DP — a categoria da DRE da conta: a escolhida ou o padrão.
+      categoria: categoriaDaConta(r),
+      categoriaPadrao: categoriaPadraoDaConta(r),
+      categoriaEscolhida: r.dreCategory ?? null,
     });
   }
   const groups = [...map.values()];
@@ -95,11 +101,17 @@ export default async function PlanoContasPage() {
     <>
       <PageHeader
         title="Plano de Contas"
-        subtitle="Dupla classificação: Grupo CEF/Obra + Categoria DRE"
+        subtitle="Dupla classificação: Grupo CEF/Obra + Categoria DRE (uma por conta)"
       />
 
       {/* Prompt G, Parte 1 — restyle no ponto de uso (cartão 16px / `--color-line`);
           `Card` compartilhado não muda. Conteúdo, textos e ordem: idênticos. */}
+      {/* Prompt G2 — a Cris propõe contas novas; a pessoa confere e cria. */}
+      <PropostaDeContas
+        grupos={[...cef, ...comp].map((g) => ({ code: g.code, name: g.name, kind: g.kind }))}
+        codigos={rows.map((r) => r.code)}
+        podeCriar={perms.criar}
+      />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <PlanoContasManager cef={cef} comp={comp} perms={perms} />
 
@@ -140,9 +152,11 @@ export default async function PlanoContasPage() {
                 ))}
               </div>
               <p className="mt-4 rounded-[13px] border border-[#EDF1F7] bg-[#FCFDFF] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-v2-ink2)]">
-                ⓘ As categorias DRE são fixas (estrutura do relatório) e não são
-                editáveis. A edição de inserir/editar/excluir vale para os grupos e
-                subitens CEF / complementares.
+                ⓘ As categorias DRE são fixas (estrutura do relatório). Cada conta
+                tem uma categoria: o sistema traz o padrão de boa prática (gasto de
+                obra é custo variável) e você troca em &ldquo;Editar&rdquo;, na própria
+                conta. Com a chave &ldquo;Despesa herda a categoria&rdquo; ligada, o
+                lançamento de despesa usa a categoria da conta, travada.
               </p>
             </CardContent>
           </Card>

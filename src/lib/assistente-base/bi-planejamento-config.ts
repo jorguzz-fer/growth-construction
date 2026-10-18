@@ -1,4 +1,4 @@
-/** Base de conhecimento do Assistente — Business Intelligence, Planejamento e Configurações. Descreve o sistema de HOJE. */
+/** Base de conhecimento da Cris — Business Intelligence, Planejamento e Configurações. Descreve o sistema de HOJE. */
 export const TEXTO = `# Base de conhecimento — Business Intelligence, Planejamento e Configurações
 
 Regras gerais:
@@ -9,7 +9,7 @@ Regras gerais:
 - **Permissões padrão:**
   - Owner e admin têm tudo, sempre.
   - O membro, com a chave "Padrão novo do membro" desligada, vê, cria e edita toda tela fora do grupo Config, mas não exclui. Com a chave ligada, fica só com lançamento e receita.
-  - O contador é só leitura. Por padrão, vê DRE, Fluxo, Medição, Resumo, Consolidado, Plano de Contas, Despesas/Conferência e Auditoria.
+  - O contador é só leitura. Por padrão, vê DRE, Fluxo, Medição, Resumo, Plano de Contas, Despesas/Conferência e Auditoria.
   - O engenheiro só lança medição.
   - Ajustes por pessoa são feitos em Gestão de Acessos.
 - **Assistente:** várias telas têm um painel à direita que só lê os números da tela. As exceções estão indicadas abaixo.
@@ -23,6 +23,8 @@ Regras gerais:
 **O que se faz:**
 - Seletor de projeto (com Todos, Ativos e Finalizados) e período De/Até.
 - Com uma obra, até 3 versões. O padrão é a Atual + o Orçamento e a Previsão mais recentes que não sejam cópia. Ao tentar marcar a quarta, a tela avisa e não troca.
+- **Dois gráficos**, da versão Atual das obras da tela: o **fluxo de caixa em linhas** (entradas e saídas previstas por mês, pelo vencimento, como no Fluxo de Caixa) e a **DRE em barras empilhadas** (em cada mês, a receita dividida em Custo Variável, Despesa Variável, Custo Fixo, Despesa Fixa, demais itens e Resultado; prejuízo fica abaixo do zero). Sem período, mostram os cinco meses anteriores, o atual e os seis seguintes; com período, os meses dele.
+- **Exportar PDF**: o Dashboard sai em PDF pela impressão do navegador, com a faixa da empresa e a data.
 - Com várias obras, uma coluna por tipo de versão ("soma de N obra(s)").
 - Quatro cartões no topo: VGV total, Realizado acum., A receber e A pagar. Abaixo: Status atual, Margem e produtividade e Indicadores da obra (financiamento, BDI, custo referencial).
 - Assistente: explicar indicador, o que mudou desde a última visita, divergências e obras que merecem atenção.
@@ -54,8 +56,8 @@ Regras gerais:
 **O que se faz:**
 - Escopo: projeto (inclusive Matriz/Filial), Empresa toda, Ativos ou Finalizados.
 - Período: Acumulado, um ano ou Personalizado, o mesmo para todas as colunas.
-- Visão: Consolidado (com "% Receita") ou Mensal.
-- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão Atualizada, Atual).
+- Duas visões na mesma tela: a anual (o período escolhido, com "% Receita") em cima e a mensal (uma coluna por mês) logo abaixo.
+- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão Atualizada, Atual). Marque nas caixas de seleção o que entra.
 
 **O que confunde:**
 - "—" significa nenhum lançamento. "R$ 0" é uma soma que deu zero.
@@ -75,6 +77,27 @@ Regras gerais:
 - Rascunho ligada: planejamento não Aprovado sai.
 
 **Quem acessa:** owner e admin, o membro (chave desligada) e o contador (leitura).
+
+---
+
+## DRE Analítica (/dre/analitica) — módulo Business Intelligence
+
+**Para que serve:** a mesma DRE de um cenário, aberta em **categoria → grupo do plano de contas → conta**, com a análise vertical (% da receita).
+
+**O que se faz:**
+- Escolher a obra ou a empresa toda, o período e o cenário (Atual, Previsão Atualizada ou Orçamento), um de cada vez.
+- Clicar numa categoria para abrir os grupos, e num grupo para abrir as contas. "Abrir até a conta" abre tudo.
+- A Receita abre no que a compõe: unidades e liberações, revenda de permuta e o que foi lançado como despesa na categoria Receita.
+- As Despesas Financeiras mostram à parte os encargos dos pagamentos (juros e multas, menos descontos).
+
+**O que confunde:**
+- Os totais são os da DRE no mesmo cenário e período; a analítica só detalha.
+- Cada despesa entra pela categoria escolhida no lançamento. Com a chave "Despesa herda a categoria" ligada, entra pela categoria da conta no Plano de Contas.
+- Despesa sem conta aparece em "Sem conta do plano". No Orçamento e na Previsão, a linha é o grupo: aparece como "Planejado no grupo".
+
+**Não faz:** não mostra o lançamento individual (para na conta) nem compara cenários lado a lado (isso fica na DRE).
+
+**Quem acessa:** quem vê a DRE.
 
 ---
 
@@ -104,6 +127,48 @@ Regras gerais:
 
 ---
 
+## Fluxo de Caixa Analítico (/fluxocaixa/analitico) — módulo Business Intelligence
+
+**Para que serve:** o previsto do Fluxo de Caixa (pelo mês do vencimento) de um cenário, com as saídas abertas em **bloco → grupo → conta** do plano de contas e a análise vertical (% das entradas).
+
+**O que se faz:**
+- Escolher a obra ou a empresa toda, o período e o cenário (Atual, Previsão Atualizada ou Orçamento) e clicar em "Aplicar".
+- As saídas abrem em Obra (grupos CEF), Complementares, Ressarcimentos a terceiros e Sem conta do plano. Clique para abrir os grupos e as contas.
+- As entradas abrem em unidades e liberações, e revenda de permuta. No fim, o saldo do período.
+
+**O que confunde:**
+- São as mesmas parcelas, despesas e ressarcimentos do Fluxo de Caixa: a despesa parcelada entra pelas parcelas, e a paga por terceiro sai no ressarcimento.
+- É o previsto. O realizado (o que passou pela conta) continua no Fluxo de Caixa.
+- No Orçamento e na Previsão, a linha é o grupo: aparece como "Planejado no grupo".
+
+**Não faz:** não mostra o lançamento individual (para na conta) nem o realizado.
+
+**Quem acessa:** quem vê o Fluxo de Caixa.
+
+---
+
+## Relatórios Customizados (/relatorios) — módulo Business Intelligence
+
+**Para que serve:** montar um relatório da DRE ou do Fluxo de Caixa do jeito que a pessoa pedir, com chat próprio.
+
+**O que se faz:**
+- No chat ao lado, descrever o relatório ("DRE da obra X com análise vertical, mês a mês neste ano"). O chat monta e a tela mostra a tabela. Também dá para ditar.
+- Ou escolher nos campos: fonte (DRE, DRE por categoria e grupo, ou Fluxo de Caixa previsto), colunas (por cenário, mês a mês ou por obra), cenários, obra, período De/Até e análise vertical. Clicar em Montar.
+- Baixar CSV ou exportar PDF.
+- O endereço da página guarda o relatório: copiar o link abre o mesmo relatório de novo.
+
+**O que confunde:**
+- Os números são os da DRE e do Fluxo de Caixa, com as mesmas regras e chaves.
+- Por mês ou por obra vale um cenário só (o primeiro marcado); por cenário, até três lado a lado.
+- Mês a mês sem período mostra os cinco meses anteriores, o atual e os seis seguintes; até 24 colunas.
+- Quem abre o link vê só o que o acesso dele permite: sem acesso à DRE, um relatório de DRE não abre.
+
+**Não faz:** não grava o relatório com nome (o link é o jeito de guardar) e não lista lançamentos.
+
+**Quem acessa:** owner e admin por padrão; os outros papéis, se receberem acesso na Gestão de Acessos. Cada relatório exige também ver a DRE ou o Fluxo de Caixa.
+
+---
+
 ## Resumo Executivo (/resumo) — módulo Business Intelligence
 
 **Para que serve:** indicadores de vendas e fontes de recurso: VGV, sinais, parcelas, FGTS, subsídio, permuta e liberações.
@@ -112,6 +177,9 @@ Regras gerais:
 - **Uma obra**: tabela Indicadores Gerais e os cartões Unidades (Disponíveis/Reservadas/Vendidas/Total) e Financiamento Banco. Com um período informado, aparece também "Recebimentos previstos no período".
 - **2–3 versões**: tabela comparativa, sem o filtro de período.
 - **Todos/Ativos/Finalizados**: uma coluna por tipo de versão, com a cobertura. Com mais de uma obra, aparece o comparativo entre projetos. Custo realizado × orçado só para quem vê Despesas.
+- **Indicadores de negócio**, no topo: marque os que quer ver, entre VGV, VGV vendido, % vendido, unidades vendidas, preço médio vendido por m², VGV por m², custo realizado, custo realizado por m², custo orçado por m², desvio de custo e margem orçada. A escolha fica no endereço da página, então o link e o PDF levam os mesmos. Com várias obras, há uma coluna por obra e o Total. Os de custo só aparecem para quem vê Despesas.
+- O custo por m² usa a **área construída** do cadastro do projeto (campo "Área construída (m²)", em Projetos → Custos do projeto). Sem ela, o indicador diz "sem área construída no cadastro". O preço por m² usa o m² de cada unidade.
+- **Exportar PDF** do Resumo.
 
 **O que confunde:**
 - Os indicadores são **acumulados da versão**. O período só afeta o cartão de recebimentos.
@@ -129,23 +197,9 @@ Regras gerais:
 
 ---
 
-## Consolidado (/consolidado) — módulo Business Intelligence
+## Consolidado — saiu
 
-**Para que serve:** a receita projetada de **uma obra**, por fonte, ao longo do tempo. Apesar do nome, não soma obras.
-
-**O que se faz:**
-- Uma obra (sem "Todos"), período e versões.
-- Periodicidade Mensal/Trimestral/Semestral/Anual, com o ano.
-- Linhas: AS/Sinais, Mensais, Semestrais, Anuais, FGTS, Subsídio, Permuta, Liberações de Obra e TOTAL.
-- Com 2–3 versões, mostra o comparativo do total por fonte.
-
-**O que confunde:** as liberações entram no TOTAL, e uma célula zerada aparece como "—".
-
-**Não faz:** não mostra despesa, resultado nem várias obras. Para isso, use Dashboard, DRE, Fluxo ou Resumo em "Todos".
-
-**Chaves:** com Rascunho ligada, planejamento não Aprovado sai dos números.
-
-**Quem acessa:** owner e admin, o membro (chave desligada) e o contador (leitura).
+A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receitas**, que mostra a receita da obra por fonte: escolha duas ou três versões para ver os totais por fonte (AS/Sinais, Mensais, Semestrais, Anuais, FGTS, Subsídio, Permuta, Liberações de Obra). Pergunta livre sobre os números vai para a Cris.
 
 ---
 
@@ -165,6 +219,8 @@ Regras gerais:
 - O Status grava na hora. Projeto novo nasce Ativo.
 - **Excluir** fica numa zona separada e exige digitar o nome. A exclusão apaga junto versões, unidades, despesas, caixa, medições, orçamentos e recebíveis, sem como desfazer.
 - Assistente: cadastro incompleto, inconsistências, funding e documentos. Com IA configurada, ele lê um documento e **propõe** o preenchimento, sem gravar.
+- **Mudar por comando com a Cris**: com o projeto aberto, diga ou dite o que mudar ("a obra termina em 31/12/2027", "valor da construção 2,5 milhões") ou anexe um documento. A Cris preenche os campos do cadastro e a tela mostra quais; nada é gravado até clicar em Salvar, e o log marca que veio do assistente. O cliente, a situação e a trava continuam nos campos e botões da tela.
+- **Alterações não salvas**: com algo mudado no cartão e não salvo, sair por um link ou fechar a aba pede confirmação.
 
 **O que confunde:**
 - As **datas de início e fim** definem o período de Orçamentos e Previsão.
@@ -190,6 +246,8 @@ Regras gerais:
   - cartões Receitas, Despesas, Resultado e Recursos próprios.
 - **Receitas**: o total vem do cadastro. Só a distribuição mensal se edita.
 - **Despesas**: total da linha + % por mês. O valor mensal é calculado, e a soma não pode passar de 100%.
+- **Preencher com a Cris**: diga, dite ou anexe o que planejar (ex.: "fundação 500 mil de 03/2026 a 08/2026"). A Cris preenche o total e a distribuição das linhas — igual entre os meses de um intervalo, ou com o % de cada mês — e a tela mostra o que ela preencheu. Nada é gravado: confira e clique em Salvar receitas ou Salvar despesas. Na Previsão Atualizada, ela só mexe na distribuição.
+- **Alterações não salvas**: com algo mudado e não salvo, a tela mostra o aviso, e sair por um link ou fechar a aba pede confirmação.
 - Ações:
   - incluir linha do Plano de Contas;
   - remover linha (pede confirmação se tiver valor);
@@ -219,6 +277,8 @@ Regras gerais:
 - Limite: 12 previsões por projeto.
 - A grade é igual à de Orçamentos, mas os totais e as linhas são **herdados** do Orçamento. Só os % mensais se editam.
 - Assistente: analisa a distribuição e os desvios. "Reprojetar em uma revisão nova" cria **outra** previsão.
+- **Partir do realizado** substitui os meses passados pelo que a versão Atual teve: as despesas por grupo do plano de contas e a receita da linha Receitas do Projeto (a mesma da DRE). O restante do total vai por igual nos meses futuros, numa revisão nova.
+- **Ajustar os meses futuros com a Cris**: por texto, ditado ou documento ("distribui o resto de 11/2026 a 03/2027"). Os meses passados ficam como estão; o intervalo reparte o que sobra de 100%. Nada é gravado até Salvar.
 
 **Não faz:** não muda totais, não inclui linhas (isso se faz no Orçamento) e não tem botão de excluir previsão.
 
@@ -233,13 +293,15 @@ Regras gerais:
 **O que se faz:**
 - Grupos CEF / Obra e Grupos Complementares.
 - Criar grupo ou subitem (código, nome, natureza Despesa/Receita), renomear o grupo, editar, inativar ou excluir.
-- As Categorias DRE ficam ao lado e são **fixas**.
+- **Categoria da DRE de cada conta**: aparece ao lado de cada subitem, com "(padrão)" quando segue a boa prática do sistema. Em "Editar", escolha outra categoria ou "Padrão" para voltar. Conta de despesa não aceita "Receita"; conta de receita é sempre "Receita".
+- A lista das Categorias DRE fica ao lado e é **fixa**.
+- **Contas novas com a Cris**: diga, dite ou anexe a lista de contas ("crie Topografia no grupo 1, código 1.11"). A Cris propõe até 10 contas por vez, só em grupos que já existem; a tela mostra a lista para conferir, com a categoria da DRE que cada uma vai ter, e quem cria é o botão "Criar as contas marcadas". Criar grupo, inativar, excluir e reordenar continuam pelos botões da tela.
 
 **O que confunde:**
 - A Natureza define o bloco da linha em Orçamentos.
 - Só dá para **excluir** se nenhum Orçamento ou Previsão usa o código. Se usa, **Inative**: a conta some dos novos lançamentos e os valores ficam.
 
-**Não faz:** não edita as categorias DRE e não reclassifica despesas (isso fica na Conferência).
+**Não faz:** não cria categoria DRE nova e não regrava despesas. Com a chave "Despesa herda a categoria" ligada, a categoria da conta passa a valer para as despesas dela nos relatórios e no lançamento.
 
 **Quem acessa:** owner e admin, o membro com a chave desligada (sem excluir) e o contador (leitura).
 
@@ -253,6 +315,7 @@ Regras gerais:
 - Nome e logo. O upload só funciona com armazenamento configurado.
 - **Dados fiscais**: CNPJ, inscrições, regime, item de serviço, CNAE, alíquota de ISS, ambiente (Homologação/Produção), endereço e código IBGE. Um checklist mostra o que "falta" e o que é para "confira".
 - **Alertas do Resumo Executivo**: % e valor de desvio de custo (só alerta quando passa dos dois) e dias de recebível vencido.
+- **Com a Cris**: anexe o cartão CNPJ na conversa (ou dite os dados) e peça para preencher os dados fiscais. O ambiente de emissão é escolhido à mão. Quem grava é o botão dos dados fiscais.
 
 **O que confunde:** os alertas só aparecem com a chave do Resumo ligada. Confira os dados fiscais com a sua contabilidade.
 
@@ -268,12 +331,16 @@ Regras gerais:
 
 **O que se faz:**
 - Novo usuário: nome, e-mail, papel (admin, membro, contador, engenheiro) e senha opcional. Sem senha, o acesso fica pendente. A senha definida aqui é provisória.
+- **Telas sugeridas**: ao escolher o papel, a tela marca as telas que ele alcança por padrão. Dá para desmarcar ou marcar outras antes de adicionar. Tela marcada a mais entra com ver (o contador é só leitura) ou com ver, criar e editar (os outros papéis). Excluir e as telas de dado sensível ficam na Gestão de Acessos. Owner e admin têm acesso total.
+- **Com a Cris**: ela escolhe o papel e as telas a incluir ou tirar; nome e e-mail são digitados na tela. Quem adiciona é o botão "Adicionar".
 - Na tabela: trocar o papel, Editar, Senha e Remover.
 - Promover a owner pede confirmação.
 - Quem tem telas personalizadas, ao trocar de papel, escolhe entre manter as personalizações ou voltar ao padrão.
 - Ninguém remove a si mesmo.
 
-**Não faz:** não ajusta tela a tela (isso é na Gestão de Acessos) e não cria owner direto.
+**Não faz:** não ajusta ação por ação (isso é na Gestão de Acessos) e não cria owner direto.
+
+**Restrição que "não funciona":** com a chave do padrão novo do membro desligada, o papel "membro" alcança tudo fora de Configurações. Para restringir um membro, desmarque as telas aqui ao criar, ou use a Gestão de Acessos.
 
 **Quem acessa:** só owner e admin, sem concessão possível.
 
@@ -292,7 +359,7 @@ Regras gerais:
 - A matriz de owner e admin não se edita ("acesso total"), e ninguém edita a própria.
 - O contador só recebe "Ver".
 - A Conferência acompanha Despesas.
-- Usuários, Gestão de Acessos e Chaves nunca são concedidas.
+- Usuários, Gestão de Acessos e Chaves nunca são concedidas. Chaves e Backup nem aparecem: são operados pela plataforma.
 - Os grupos da matriz (Reports, Config…) não são os módulos do menu.
 
 **Não faz:** não troca o papel da pessoa (isso é em Usuários).
@@ -305,11 +372,13 @@ Regras gerais:
 
 **Para que serve:** ver quem alterou o quê.
 
-**O que mostra:** os **200 eventos mais recentes**, com data, usuário, ação, entidade e "de → para".
+**O que mostra:** os **200 eventos mais recentes** (ou os 200 mais recentes do filtro), com data, usuário, ação, entidade e "de → para".
+
+**Filtro:** usuário (ou "sistema"), entidade, trecho da ação e período. **Com a Cris**: peça, por exemplo, "só o que o Messias lançou este mês"; ela preenche o filtro, e quem filtra é o botão "Filtrar".
 
 **O que confunde:** quem não é owner nem admin vê os dados pessoais de compradores apenas como "alterado".
 
-**Não faz:** não filtra, não busca, não exporta e não mostra eventos além dos 200.
+**Não faz:** não busca no texto dos detalhes, não exporta e não mostra eventos além dos 200.
 
 **Quem acessa:** owner e admin, e o contador. O membro só por concessão.
 
@@ -323,6 +392,8 @@ Regras gerais:
 - A tela recusa um número já usado.
 - Para salvar abaixo do maior emitido, é preciso digitar CONFIRMO.
 - Número de despesa excluída não volta a ser usado.
+
+**Com a Cris**: ela vê a numeração atual e o maior número emitido, sugere e preenche prefixo, próximo número e dígitos. Quem grava é o botão Salvar, e o recuo continua pedindo CONFIRMO.
 
 **Não faz:** não renumera despesas antigas.
 
@@ -350,7 +421,7 @@ Regras gerais:
 
 **Não faz:** não apaga nem regrava dados.
 
-**Quem acessa:** só owner e admin.
+**Quem acessa:** só os operadores da plataforma (Growth Tools). Owner e admin da empresa não veem a tela; quem precisar de uma mudança pede à plataforma.
 
 ---
 
@@ -360,14 +431,13 @@ Regras gerais:
 
 **O que se faz:**
 - Lista de semestres com as contagens, a coluna "Último backup" (quando e quem baixou) e o botão "Baixar ZIP".
-- Aviso do semestre encerrado: aparece quando o último semestre encerrado tem dados e ainda não foi baixado depois do fim dele. Depois do download, o aviso some.
 - Cada download vai para a Auditoria, com o que o pacote continha.
 
 **Campos que confundem:** "Encerrado" é só calendário. Semestre encerrado continua recebendo lançamento; um backup baixado e depois alterado fica desatualizado.
 
 **Não faz:** não apaga, não arquiva e **não restaura**. O backup do banco de dados e dos arquivos é outro, feito pela infraestrutura.
 
-**Quem acessa:** owner e admin, e o membro com a chave do membro desligada. O contador não.
+**Quem acessa:** só os operadores da plataforma (Growth Tools). Baixar todos os dados da empresa é risco de segurança se a senha de alguém vazar; o dono que precisar de um backup pede à plataforma. Para analisar dados em outro lugar, use as exportações das telas de relatório.
 
 ---
 
@@ -393,10 +463,10 @@ Regras gerais:
 
 - **Orçamentos × Previsão Atualizada:** o Orçamento define linhas e totais. A Previsão nasce dele, herda tudo e só redistribui os % mensais (até 12 por projeto).
 - **DRE × Fluxo de Caixa:** a DRE é resultado (competência e vencimento) até o Resultado Final. O Fluxo é dinheiro: previsto pelo vencimento, realizado pela liquidação e saldo a partir das contas correntes.
-- **Dashboard × Resumo Executivo × Consolidado:**
+- **Dashboard × Resumo Executivo × Projeção de Receitas:**
   - o Dashboard é o painel geral (VGV, realizado, a receber, a pagar, margem);
   - o Resumo detalha vendas e fontes de recurso e as unidades por status;
-  - o Consolidado é a receita de **uma** obra por fonte e período.
+  - a Projeção é a receita de **uma** obra mês a mês e, comparando versões, por fonte.
 - **Usuários × Gestão de Acessos:** papel × ajuste fino por tela.
 - **Situação × Trava:** a situação documenta a etapa e, com a chave de Rascunho, decide se a versão entra nos relatórios. A trava impede editar.
 - **Rodapé da DRE × Conferência:** o rodapé conta o que ficou fora. A Conferência lista e corrige a categoria.
@@ -411,6 +481,6 @@ Regras gerais:
 - Para corrigir despesas sem categoria, vá em **Configurações → Conferência de lançamentos**.
 - Para dar acesso a uma tela, vá em **Configurações → Gestão de Acessos**, escolha a pessoa, marque a tela e clique em Salvar.
 - Para trocar o papel ou a senha de alguém, vá em **Configurações → Usuários**.
-- Para ligar uma regra nova, vá em **Configurações → Chaves de mudança**, exporte a prévia, marque "Conferi a prévia" e clique em Ligar.
+- Para ligar uma regra nova, peça à plataforma (Growth Tools): ela confere a prévia com a empresa e liga a chave.
 - Para baixar a cópia de um semestre, vá em **Configurações → Backup → Baixar ZIP**.
 `;

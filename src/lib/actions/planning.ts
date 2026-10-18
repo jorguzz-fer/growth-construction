@@ -1,5 +1,7 @@
 "use server";
 
+import { capturar } from "@/lib/resultado";
+
 import { TELA_APROVA, trocaDeSituacao } from "@/lib/situacao-versao";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -44,6 +46,15 @@ function screenOf(kind: string): "budget" | "forecast" | null {
  * mecanismo. NÃO toca no bloco oposto nem em outras versões.
  */
 export async function saveBudgetPlanning(
+  versionId: string,
+  bloco: "receita" | "despesa",
+  accounts: PlanningAccountInput[],
+) {
+  // Prompt D2 — devolve { ok, error }: a recusa chega à tela também em produção.
+  return capturar(() => gravarPlanejamento(versionId, bloco, accounts), "saveBudgetPlanning");
+}
+
+async function gravarPlanejamento(
   versionId: string,
   bloco: "receita" | "despesa",
   accounts: PlanningAccountInput[],

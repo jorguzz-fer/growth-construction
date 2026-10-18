@@ -195,15 +195,27 @@ export function opcoesDeSelecao(
     .map((s) => ({ id: s.id, nome: s.ativo ? s.nome : `${s.nome} (inativo)` }));
 }
 
-/** 1.5 — "Quem desembolsou": só quem tem o papel de Pagador por Terceiro, ativo. */
+/**
+ * 1.5 — "Quem desembolsou": quem tem o papel de Pagador por Terceiro, ativo.
+ *
+ * Prompt S3 (o bug da lista vazia): quem já pagou pela empresa antes — tem
+ * obrigação registrada — também aparece, mesmo sem o papel, marcado assim.
+ * Antes do Prompt T a lista era a dos sócios; quem pagou nessa época ficava de
+ * fora até alguém conceder o papel, e a lista vinha vazia. BS3-1 em aberto
+ * (todo cadastro de Ressarcimentos?): só quem tem o papel ou já pagou.
+ */
 export function pagadoresPorTerceiro(
   todos: readonly { id: string; nome: string; ativo: boolean; papeis: readonly string[] }[],
   manter: readonly (string | null | undefined)[] = [],
+  jaPagaram: ReadonlySet<string> = new Set(),
 ): OpcaoDeCadastro[] {
   const ids = new Set(manter.filter((x): x is string => !!x));
   return todos
-    .filter((s) => (s.ativo && s.papeis.includes(PAPEL_PAGADOR_TERCEIRO)) || ids.has(s.id))
-    .map((s) => ({ id: s.id, nome: s.ativo ? s.nome : `${s.nome} (inativo)` }));
+    .filter((s) => (s.ativo && ((s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO) || jaPagaram.has(s.id))) || ids.has(s.id))
+    .map((s) => ({
+      id: s.id,
+      nome: !s.ativo ? `${s.nome} (inativo)` : (s.papeis ?? []).includes(PAPEL_PAGADOR_TERCEIRO) ? s.nome : `${s.nome} (já pagou antes, sem o papel)`,
+    }));
 }
 
 // ───────────────────────── Listagem (seção 6) ─────────────────────────

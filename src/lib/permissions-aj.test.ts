@@ -12,8 +12,7 @@ import {
   type PermAction,
   type PermMatrix,
   type ScreenPerm,
-  TELAS_SENSIVEIS,
-} from "./permissions";
+  TELAS_SENSIVEIS, TELAS_SO_PLATAFORMA } from "./permissions";
 import type { Role } from "./context";
 
 const ROLES: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
@@ -101,7 +100,7 @@ describe("11.2 — chave desligada: tudo igual a antes, fora o clamp", () => {
         const antes = antigoEfetivo(role, o);
         const depois = effectivePermissions(role, o, { membroRestrito: false });
         for (const s of SCREENS) {
-          if (TELAS_SO_ADMIN.has(s.id)) expect(depois[s.id]).toEqual(NONE);
+          if (TELAS_SO_PLATAFORMA.has(s.id) || TELAS_SO_ADMIN.has(s.id)) expect(depois[s.id]).toEqual(NONE);
           // Prompt AL, Parte 3: o contador tem teto de leitura — a única
           // diferença aceitável é a escrita negada; "ver" segue igual.
           else if (role === "contador") expect(depois[s.id], s.id).toEqual({ ...NONE, ver: antes[s.id].ver });
@@ -216,7 +215,7 @@ describe("Parte 3 — clamp de papel", () => {
   it("owner e admin com override restritivo continuam com acesso total", () => {
     for (const role of ["owner", "admin"] as Role[]) {
       const ef = effectivePermissions(role, OVERRIDES.restritivo);
-      for (const s of SCREENS) expect(ef[s.id], `${role}.${s.id}`).toEqual(FULL);
+      for (const s of SCREENS) expect(ef[s.id], `${role}.${s.id}`).toEqual(TELAS_SO_PLATAFORMA.has(s.id) ? NONE : FULL);
     }
   });
 });

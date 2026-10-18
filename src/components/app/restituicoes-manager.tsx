@@ -1,5 +1,6 @@
 "use client";
 
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 import Link from "next/link";
 
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -427,6 +428,33 @@ function RestituicaoModal({
     obs: "",
   });
 
+  // Prompt T2 — a Cris preenche o ressarcimento; quem registra é o Confirmar.
+  const [crisMsg, setCrisMsg] = useState(false);
+  useCrisFormulario(
+    {
+      id: "ressarcimento",
+      titulo: `Ressarcimento a ${dt.pagador} (saldo pendente ${brl0(dt.saldoPendente)})`,
+      campos: [
+        { nome: "valor", rotulo: "Valor a ressarcir", tipo: "numero", dica: `até ${dt.saldoPendente}` },
+        { nome: "dataRestituicao", rotulo: "Data", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "banco", rotulo: "Conta bancária", tipo: "opcao", opcoes: bancos.map((b) => `${b.banco} · ${b.tipo}`) },
+        { nome: "comprovante", rotulo: "Comprovante / observação", tipo: "texto" },
+      ],
+    },
+    (p) => {
+      const v = p.valores;
+      const banco = v.banco ? bancos.find((b) => `${b.banco} · ${b.tipo}` === v.banco) : undefined;
+      setF((x) => ({
+        ...x,
+        ...(v.valor ? { valor: v.valor } : {}),
+        ...(v.dataRestituicao ? { dataRestituicao: v.dataRestituicao } : {}),
+        ...(banco ? { bankAccountId: banco.id } : {}),
+        ...(v.comprovante ? { comprovante: v.comprovante } : {}),
+      }));
+      setCrisMsg(true);
+    },
+  );
+
   // Uma chave por abertura do modal: confirmar duas vezes (duplo clique, Enter
   // repetido) registra UMA restituição — a segunda chamada devolve a primeira.
   const chave = useRef(novaChave());
@@ -489,6 +517,11 @@ function RestituicaoModal({
             Gera a saída de caixa na data informada e liquida a obrigação. Não
             cria nova despesa na DRE.
           </p>
+          {crisMsg && (
+            <p data-cris-preencheu className="mt-2 text-sm text-[var(--color-accent)]">
+              A Cris preencheu o ressarcimento. Confira e clique em Confirmar.
+            </p>
+          )}
           {error && <p className="mt-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={pending}>Cancelar</Button>

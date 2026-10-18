@@ -36,15 +36,19 @@ export interface Screen {
 export const SCREENS: Screen[] = [
   { id: "dashboard", label: "Dashboard", modulo: "Reports" },
   { id: "projecao", label: "Projeção de Receitas", modulo: "Reports" },
-  { id: "consolidado", label: "Consolidado", modulo: "Reports" },
+  // Prompt AB2: o Consolidado saiu (redireciona para a Projeção de Receitas).
   { id: "caixa", label: "Controle de Caixa", modulo: "Conciliação de Caixa" },
   // Prompt L, Parte 9: a rota /fechamento saiu; "criar" aqui é fechar o dia no cartão do Caixa.
   { id: "fechamento", label: "Fechar o dia (no Caixa)", modulo: "Conciliação de Caixa" },
-  { id: "balancodia", label: "Balanço do Dia", modulo: "Reports" },
+  // Prompt AB2: a tela saiu; a chave ficou e governa a lista "Dias fechados" do Caixa.
+  { id: "balancodia", label: "Dias fechados (no Caixa)", modulo: "Reports" },
   { id: "dre", label: "DRE", modulo: "Reports" },
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
-  { id: "medicao", label: "Medição de Obra — Relatório CEF", modulo: "Reports" },
+  { id: "medicao", label: "Medição de Projeto — Relatório CEF", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
+  // Prompt RC: tela nova. Dentro dela, cada relatório também exige ver a DRE
+  // ou o Fluxo — a tela não abre número que a pessoa não vê nas telas de origem.
+  { id: "relatorios", label: "Relatórios Customizados", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
   { id: "budget", label: "Orçamentos", modulo: "Planejamento" },
   { id: "forecast", label: "Previsão Atualizada", modulo: "Planejamento" },
@@ -62,7 +66,7 @@ export const SCREENS: Screen[] = [
   // com owner e admin — ver TELAS_SENSIVEIS.
   { id: "clientesdados", label: "Clientes — dados financeiros e de perfil", modulo: "Receitas" },
   { id: "contasreceber", label: "Contas a Receber", modulo: "Receitas" },
-  { id: "medicaolanc", label: "Medição de Obra — Lançar medição", modulo: "Despesas" },
+  { id: "medicaolanc", label: "Medição de Projeto — Lançar medição", modulo: "Despesas" },
   { id: "simulador", label: "Simulador", modulo: "Receitas" },
   // O `id` continua "reembolso" DE PROPÓSITO: ele é a chave gravada em
   // `membership.permissions` e o primeiro segmento da rota. Trocar o id
@@ -74,7 +78,7 @@ export const SCREENS: Screen[] = [
   { id: "contaspagar", label: "Contas a Pagar", modulo: "Despesas" },
   { id: "restituicoes", label: "Ressarcimentos (pago por terceiro)", modulo: "Despesas" },
   { id: "cartoes", label: "Cartões de Crédito", modulo: "Despesas" },
-  { id: "fornecedores", label: "Fornecedores & Stakeholders", modulo: "Despesas" },
+  { id: "fornecedores", label: "Fornecedores e Parceiros", modulo: "Despesas" },
   // Prompt AN, Parte 5: a Conferência de lançamentos ganha id próprio (e rota
   // /conferencia) para passar pelo enforcement central. A permissão ACOMPANHA
   // a de Lançamentos de Despesas, inclusive o override de cada membro — ver
@@ -109,7 +113,7 @@ export const SCREENS: Screen[] = [
   { id: "chaves", label: "Chaves de mudança", modulo: "Config" },
   // Prompt AP: "versao" saiu (a tela virou redirecionamento para Projetos).
   // A trava foi para `versaotrava`; a planilha, para a tela Projetos.
-  { id: "diagnosticoia", label: "Assistente (e diagnóstico de IA)", modulo: "Config" },
+  { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
 ];
 
 export const SCREEN_IDS = SCREENS.map((s) => s.id);
@@ -139,7 +143,6 @@ export const CONTADOR_VE: ReadonlySet<string> = new Set([
   "fluxocaixa",
   "medicao",
   "resumo",
-  "consolidado",
   "planocontas",
   "despesas",
   "acoes",
@@ -177,6 +180,16 @@ export const MEMBRO_TELAS = new Set([
 export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
 
 /**
+ * Prompt PLAT (Fase 3, revisão V5): telas que só os operadores da plataforma
+ * (super-admins, `src/lib/tenant/superadmin.ts`) alcançam — nem owner nem
+ * admin do cliente. Chaves de mudança ligam regra nova para a empresa
+ * inteira; o backup completo é extração de todos os dados, risco de
+ * segurança se a senha do dono vazar. O dono que precisar pede à plataforma.
+ * Não se concede por override e não aparece na Gestão de Acessos.
+ */
+export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves", "backup"]);
+
+/**
  * Telas que nenhum padrão de papel concede além de owner/admin — mas que,
  * diferente de TELAS_SO_ADMIN, podem ser dadas a alguém por override na Gestão
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
@@ -202,6 +215,11 @@ export interface OpcoesPermissao {
    * Desligado = comportamento de antes, célula por célula.
    */
   membroRestrito?: boolean;
+  /**
+   * Prompt PLAT: o usuário é operador da plataforma (super-admin por e-mail).
+   * Só ele vê TELAS_SO_PLATAFORMA. Ausente = não é.
+   */
+  operadorDaPlataforma?: boolean;
 }
 
 /** Permissões padrão por perfil (role). */
@@ -229,6 +247,8 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
     }
   }
   for (const [filha, mae] of Object.entries(HERDA_DE)) out[filha] = { ...out[mae] };
+  // Prompt PLAT: o padrão de qualquer papel é negado; só o operador da plataforma alcança.
+  for (const id of TELAS_SO_PLATAFORMA) out[id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
   return out;
 }
 
@@ -262,6 +282,8 @@ export function effectivePermissions(
     if (total) base[s.id] = { ...FULL };
     else if (TELAS_SO_ADMIN.has(s.id)) base[s.id] = { ...NONE };
     else if (soLeitura) base[s.id] = { ver: base[s.id].ver, criar: false, editar: false, excluir: false };
+    // Prompt PLAT: por último, acima do papel — owner e admin do cliente não alcançam.
+    if (TELAS_SO_PLATAFORMA.has(s.id)) base[s.id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
   }
   return base;
 }
@@ -323,6 +345,9 @@ export function validarMatriz(payload: unknown): string | null {
     }
     if (!p.ver && (p.criar || p.editar || p.excluir)) {
       return `"${tela}": criar, editar ou excluir exigem "ver".`;
+    }
+    if (TELAS_SO_PLATAFORMA.has(tela) && (p.ver || p.criar || p.editar || p.excluir)) {
+      return `"${tela}" é operada só pela plataforma e não pode ser concedida por override.`;
     }
     if (TELAS_SO_ADMIN.has(tela) && (p.ver || p.criar || p.editar || p.excluir)) {
       return `"${tela}" é exclusiva de owner e admin e não pode ser concedida por override.`;

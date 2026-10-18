@@ -17,6 +17,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { AccessDenied } from "@/components/app/access-denied";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { perfilDaBase } from "@/lib/perfil-clientes";
+import { PerfilDaBaseCard } from "@/components/app/perfil-da-base";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -52,8 +57,28 @@ export default async function ClientesPage({
   const primeiro = total === 0 ? 0 : (filtros.pagina - 1) * CLIENTES_POR_PAGINA + 1;
   const ultimo = Math.min(total, filtros.pagina * CLIENTES_POR_PAGINA);
 
+  // Prompt M2 — o perfil da base: só contagens de campos não sensíveis.
+  const perfil = perfilDaBase(
+    await db
+      .select({
+        statusContrato: schema.clientes.statusContrato,
+        cidadeEstado: schema.clientes.cidadeEstado,
+        morarOuInvestir: schema.clientes.morarOuInvestir,
+        comoConheceu: schema.clientes.comoConheceu,
+        nascimento: schema.clientes.nascimento,
+        unitCode: schema.clientes.unitCode,
+      })
+      .from(schema.clientes)
+      .where(eq(schema.clientes.tenantId, ctx.tenant.id)),
+  );
+
   return (
     <>
+      <CrisDaTela
+        titulo="Clientes — perfil da base"
+        dados={{ perfilDaBase: perfil }}
+        sugestoes={["Qual o perfil predominante da base?", "Quantos clientes compram para investir?", "Qual canal mais trouxe clientes?"]}
+      />
       <PageHeader
         title="Clientes (Compradores)"
         actions={
@@ -64,6 +89,8 @@ export default async function ClientesPage({
           ) : undefined
         }
       />
+
+      <PerfilDaBaseCard perfil={perfil} />
 
       <form method="get" className="mb-4 flex flex-wrap items-center gap-2">
         <Input

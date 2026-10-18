@@ -1,5 +1,6 @@
 "use client";
 
+import { dadosOuErro } from "@/lib/resultado";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -90,7 +91,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
     }
     start(async () => {
       try {
-        await saveBudgetLines(props.versionId, tab, cells);
+        dadosOuErro(await saveBudgetLines(props.versionId, tab, cells));
         setMsg("Lançamento salvo.");
         router.refresh();
       } catch (e) {
@@ -128,7 +129,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
                 disabled={pending}
                 onClick={() =>
                   window.confirm("Importar os lançamentos do Orçamento (substitui os atuais)?") &&
-                  acao(() => importFromBudget(props.versionId), "Dados do Orçamento importados.")
+                  acao(async () => dadosOuErro(await importFromBudget(props.versionId)), "Dados do Orçamento importados.")
                 }
               >
                 ⬇ Importar do Orçamento
@@ -139,7 +140,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
                 disabled={pending}
                 onClick={() =>
                   window.confirm("Replicar os dados da versão Atual (substitui os atuais)?") &&
-                  acao(() => replicateFromAtual(props.versionId), "Dados da Atual replicados.")
+                  acao(async () => dadosOuErro(await replicateFromAtual(props.versionId)), "Dados da Atual replicados.")
                 }
               >
                 ⟳ Replicar da Atual
@@ -153,7 +154,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
               disabled={pending}
               onClick={() =>
                 window.confirm("Replicar os dados da versão Atual (substitui os atuais)?") &&
-                acao(() => replicateFromAtual(props.versionId), "Dados da Atual replicados.")
+                acao(async () => dadosOuErro(await replicateFromAtual(props.versionId)), "Dados da Atual replicados.")
               }
             >
               ⟳ Replicar da Atual
@@ -177,7 +178,7 @@ export function BudgetMatrix(props: BudgetMatrixProps) {
               const fd = new FormData();
               fd.set("versionId", props.versionId);
               fd.set("file", f);
-              acao(() => importBudgetXlsx(fd), "Planilha importada.");
+              acao(async () => dadosOuErro(await importBudgetXlsx(fd)), "Planilha importada.");
             }}
           />
           <Button

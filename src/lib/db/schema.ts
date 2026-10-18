@@ -15,6 +15,7 @@ import {
   index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
 import type { PaymentPlan } from "@/lib/calc/types";
 
@@ -617,6 +618,11 @@ export const chartAccounts = pgTable(
     natureza: text("natureza").notNull().default("despesa"),
     /** Conta ativa: inativas não aparecem em novos lançamentos, mas ficam no histórico. */
     ativo: boolean("ativo").notNull().default(true),
+    /**
+     * Prompt DP: a categoria da DRE escolhida para a conta. NULL = o padrão de
+     * boa prática (`categoriaPadraoDaConta`): conta sem categoria não existe.
+     */
+    dreCategory: dreCategoryEnum("dre_category"),
   },
   (c) => [unique("chart_account_tenant_code_uq").on(c.tenantId, c.code)],
 );
@@ -1560,14 +1566,16 @@ export const contaReceberRecebimentos = pgTable("conta_receber_recebimento", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
-/** Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6. */
+/**
+ * Tabela INCC por projeto (48 meses, editável). Ver docs/SPEC.md §6.
+ * Prompt Q2 (0068): linha SEM projeto = a série da empresa (uma por mês),
+ * lida no lugar da série da obra quando a chave "incc_por_empresa" está ligada.
+ */
 export const inccRates = pgTable(
   "incc_rate",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
@@ -1588,7 +1596,7 @@ export const inccRates = pgTable(
     informadoPor: text("informado_por"),
     informadoEm: text("informado_em"),
   },
-  (r) => [unique("incc_project_mes_uq").on(r.projectId, r.mes)],
+  (r) => [unique("incc_project_mes_uq").on(r.projectId, r.mes), uniqueIndex("incc_empresa_mes_uq").on(r.tenantId, r.mes).where(sql`${r.projectId} is null`)],
 );
 
 // ─────────────────────────────── Auditoria ──────────────────────────────

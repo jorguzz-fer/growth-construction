@@ -1,5 +1,6 @@
 "use client";
 
+import { useCrisFormulario } from "@/components/app/cris-contexto";
 import { useMemo, useRef, useState, useTransition } from "react";
 import {
   createContaReceber,
@@ -64,11 +65,45 @@ function NovaConta({
   const [tipo, setTipo] = useState<string>(prefill?.descricao ? "Outras Receitas" : "Sinal");
   const [valor, setValor] = useState(prefill?.valor ?? "");
   const [projectId, setProjectId] = useState(projetoSelecionado ?? projetos[0]?.id ?? "");
+  const [vencimento, setVencimento] = useState(prefill?.vencimento ?? "");
+  const [descricao, setDescricao] = useState(prefill?.descricao ?? "");
+  const [unitCode, setUnitCode] = useState("");
+  const [bancoId, setBancoId] = useState("");
   const [pending, start] = useTransition();
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   // CR-07 — só as unidades da obra escolhida no próprio formulário.
   const unidades = unidadesPorObra[projectId] ?? [];
+  // Prompt K2 — a Cris preenche (texto, ditado ou documento); quem grava é Adicionar.
+  // O cliente fica de fora: o nome do comprador não vai ao modelo.
+  useCrisFormulario(
+    {
+      id: "conta-receber-nova",
+      titulo: "Nova conta a receber",
+      campos: [
+        { nome: "projeto", rotulo: "Projeto", tipo: "opcao", opcoes: projetos.map((p) => p.nome) },
+        { nome: "tipo", rotulo: "Tipo", tipo: "opcao", opcoes: [...TIPOS_RECEITA] },
+        { nome: "valor", rotulo: "Valor", tipo: "numero", dica: "em reais" },
+        { nome: "vencimento", rotulo: "Vencimento", tipo: "data", dica: "MM/DD/YYYY" },
+        { nome: "descricao", rotulo: "Descrição", tipo: "texto", dica: "obrigatória em Outras Receitas" },
+        { nome: "unidade", rotulo: "Unidade", tipo: "opcao", opcoes: unidades },
+        { nome: "banco", rotulo: "Banco", tipo: "opcao", opcoes: bancos.map((b) => b.nome) },
+      ],
+    },
+    (p) => {
+      const v = p.valores;
+      const proj = v.projeto ? projetos.find((x) => x.nome === v.projeto) : undefined;
+      if (proj) setProjectId(proj.id);
+      if (v.tipo) setTipo(v.tipo);
+      if (v.valor) setValor(v.valor);
+      if (v.vencimento) setVencimento(v.vencimento);
+      if (v.descricao) setDescricao(v.descricao);
+      if (v.unidade) setUnitCode(v.unidade);
+      const banco = v.banco ? bancos.find((b) => b.nome === v.banco) : undefined;
+      if (banco) setBancoId(banco.id);
+      setAviso({ ok: true, texto: "A Cris preencheu o formulário. Confira e clique em Adicionar." });
+    },
+  );
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -84,6 +119,10 @@ function NovaConta({
       formRef.current?.reset();
       setValor("");
       setTipo("Sinal");
+      setVencimento("");
+      setDescricao("");
+      setUnitCode("");
+      setBancoId("");
     });
   };
   return (
@@ -117,23 +156,23 @@ function NovaConta({
           </div>
           <div>
             <Label>Vencimento</Label>
-            <DateField name="vencimento" defaultValue={prefill?.vencimento ?? ""} />
+            <DateField name="vencimento" value={vencimento} onChange={setVencimento} />
           </div>
           {tipo === "Outras Receitas" && (
             <div className="sm:col-span-4">
               <Label>Descrição (obrigatória para Outras Receitas) *</Label>
-              <Input name="descricao" required placeholder="Origem/natureza da receita" defaultValue={prefill?.descricao ?? ""} />
+              <Input name="descricao" required placeholder="Origem/natureza da receita" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
             </div>
           )}
           {tipo !== "Outras Receitas" && (
             <div className="sm:col-span-2">
               <Label>Descrição</Label>
-              <Input name="descricao" placeholder="Opcional" />
+              <Input name="descricao" placeholder="Opcional" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
             </div>
           )}
           <div>
             <Label>Unidade (opcional)</Label>
-            <Select name="unitCode" defaultValue="">
+            <Select name="unitCode" value={unitCode} onChange={(e) => setUnitCode(e.target.value)}>
               <option value="">—</option>
               {unidades.map((u) => (
                 <option key={u} value={u}>
@@ -155,7 +194,7 @@ function NovaConta({
           </div>
           <div>
             <Label>Banco (opcional)</Label>
-            <Select name="bancoId" defaultValue="">
+            <Select name="bancoId" value={bancoId} onChange={(e) => setBancoId(e.target.value)}>
               <option value="">—</option>
               {bancos.map((b) => (
                 <option key={b.id} value={b.id}>

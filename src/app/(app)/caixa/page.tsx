@@ -6,6 +6,10 @@ import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-ab
 import { isContaDaEmpresa, saldoDisponivel } from "@/lib/contas-saldo";
 import { cadeiaDeSaldo, diasDesdeAtualizacao } from "@/lib/calc/cadeia-caixa";
 import { CadeiaDias } from "@/components/app/cadeia-dias";
+import { BalancoDiaTable } from "@/components/app/balanco-dia-table";
+import { CrisDaTela } from "@/components/app/cris-contexto";
+import { AvisoTelaRemovida } from "@/components/app/aviso-tela-removida";
+import { isoDaData, previstoPorDia, saldosProjetados } from "@/lib/calc/previsto-caixa";
 import { SaldosCaixa } from "@/components/app/saldos-caixa";
 import { hojeISO } from "@/lib/despesa-status";
 import {
@@ -14,6 +18,9 @@ import {
   getCash,
   getConciliacaoData,
   getContasPagar,
+  getContasReceber,
+  getReceivables,
+  getDailyClosings,
   getAutoresDosAjustes,
 } from "@/lib/queries";
 import { ConciliacaoReview } from "@/components/app/conciliacao-review";
@@ -41,6 +48,12 @@ import {
 import { resolveCompareVersions } from "@/lib/report-versions";
 import { AccessDenied } from "@/components/app/access-denied";
 
+/** "dd/mm/aaaa hh:mm" de um fechamento. */
+function dataHoraBR(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export const dynamic = "force-dynamic";
 
 // Prompt L, 3-A.4 — duas abas: Conciliação (com a tabela de movimentos) e
@@ -63,7 +76,8 @@ export default async function CaixaPage({
     vs?: string;
     proj?: string;
     project?: string;
-      conta?: string;
+    conta?: string;
+    saiu?: string;
   }>;
 }) {
   // Só a empresa: a obra vem da URL desta tela, nunca de um "projeto ativo"
@@ -81,6 +95,36 @@ export default async function CaixaPage({
   const de = sp.de ?? "";
   const ate = sp.ate ?? "";
 
+  // Prompt L2/AB2 — o histórico dos dias fechados é da empresa, não da obra:
+  // aparece no Caixa com ou sem projeto escolhido (o Balanço do Dia saiu).
+  const verDiasFechados = can(ctx.perms, "balancodia", "ver");
+  const fechamentosHistorico = (verDiasFechados ? await getDailyClosings(ctx.tenant.id) : []).map((c) => ({
+    id: c.id,
+    dia: c.dia,
+    saldoInicial: Number(c.saldoInicial),
+    totalEntradas: Number(c.totalEntradas),
+    totalSaidas: Number(c.totalSaidas),
+    saldoFinal: Number(c.saldoFinal),
+    divergencias: Number(c.divergencias),
+    responsavelNome: c.responsavelNome,
+    projectName: c.projectName,
+    clienteNome: c.clienteNome,
+    fechadoEm: dataHoraBR(c.closedAt),
+    saldoEmConta: c.saldoEmConta == null ? null : Number(c.saldoEmConta),
+    reabertoEm: c.reabertoEm ? dataHoraBR(c.reabertoEm) : null,
+    reabertoPor: c.reabertoPor,
+    motivoReabertura: c.motivoReabertura,
+  }));
+  const diasFechados = verDiasFechados ? (
+    <details className="mb-6" data-dias-fechados open={sp.saiu === "balancodia" || undefined}>
+      <summary className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">Dias fechados ({fechamentosHistorico.length})</summary>
+      <div className="mt-3">
+        <BalancoDiaTable rows={fechamentosHistorico} />
+      </div>
+    </details>
+  ) : null;
+  const avisoRemovida = <AvisoTelaRemovida de={sp.saiu} />;
+
   const pickerProjetos = ctx.projects.map((p) => ({ id: p.id, label: p.name }));
   const selecao = lerSelecaoDeProjeto(ctx.projects, sp);
   const escolhido =
@@ -94,6 +138,7 @@ export default async function CaixaPage({
             <ProjectPicker projects={pickerProjetos} selected={escolhido?.project.id ?? ""} />
           }
         />
+        {avisoRemovida}
         {escolhido ? (
           // Projeto sem nenhuma versão: nada a mostrar, e nada é gravado em
           // versão de outra obra (antes caía na obra do cookie).
@@ -113,6 +158,7 @@ export default async function CaixaPage({
             </Card>
           </RecuperarProjeto>
         )}
+        <div className="mt-6">{diasFechados}</div>
       </>
     );
   }
@@ -162,6 +208,7 @@ export default async function CaixaPage({
           subtitle="Comparativo de versões · movimentação real de caixa no período"
           actions={projectPicker}
         />
+        {avisoRemovida}
         {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <DateRangeFilter de={de} ate={ate} />
@@ -231,9 +278,28 @@ export default async function CaixaPage({
   const baixadoComDias = { ...baixado, dias: baixado.maisAntigoISO ? Math.max(0, Math.round((Date.parse(hoje) - Date.parse(baixado.maisAntigoISO)) / 86_400_000)) : null };
   // Parte 8-A — o assistente: puro, sobre o que a página carregou. Propõe; a
   // pessoa confirma (pela mesma conciliarMovimento do revisor). Sem ajuste.
-  const abertas = (await getContasPagar(ctx.tenant.id))
+  const contasPagarDoTenant = await getContasPagar(ctx.tenant.id);
+  // Prompt L2 — tudo o que vai sair (despesa, parcela e restituição), da Atual.
+  const abertasTodas = contasPagarDoTenant.filter((c) => c.versionKind === "atual" && c.saldo > 0.005 && c.status !== "Pago" && c.status !== "Cancelada");
+  const abertas = contasPagarDoTenant
     .filter((c) => c.versionKind === "atual" && (c.origem ?? "despesa") === "despesa" && !c.parcela && c.saldo > 0.005 && c.status !== "Pago" && c.status !== "Cancelada")
     .map((c) => ({ despesaId: c.despesaId ?? c.id, numDoc: c.numDoc, fornecedor: c.fornecedorNome, saldo: c.saldo, vencimento: c.vencimento }));
+  // Prompt L2 — o que vence na faixa (a pagar em aberto, a receber em aberto)
+  // e o saldo projetado. Só a versão Atual entra, como no Contas a Pagar.
+  const [contasReceberAbertas, recebiveisDasVendas] = await Promise.all([getContasReceber(ctx.tenant.id), getReceivables(ctx.tenant.id)]);
+  const aReceberEmAberto = [
+    // Contas lançadas: o que falta receber, inclusive as vencidas (contam como atraso).
+    ...contasReceberAbertas.filter((c) => c.status !== "Recebido").map((c) => ({ vencimento: c.vencimento, saldo: c.valor - c.valorRecebido })),
+    // Parcelas dos planos de venda: não guardam recebimento, então só as de hoje em diante.
+    ...recebiveisDasVendas.filter((r) => (isoDaData(r.dia) ?? "") >= hoje).map((r) => ({ vencimento: r.dia, saldo: r.valor })),
+  ];
+  const { porDia: previstoPorDiaDaFaixa, atrasados } = previstoPorDia(
+    cadeia.dias.map((d) => d.dia),
+    hoje,
+    aReceberEmAberto,
+    abertasTodas.map((c) => ({ vencimento: c.vencimento, saldo: c.saldo })),
+  );
+  const previstoDaFaixa = { porDia: previstoPorDiaDaFaixa, saldo: saldosProjetados(cadeia.dias, hoje, previstoPorDiaDaFaixa), atrasados };
   const analise = analisarCaixa({
     pendentes: conciliacaoData.pendentes,
     abertas,
@@ -280,6 +346,7 @@ export default async function CaixaPage({
         subtitle="Conciliação do extrato com os lançamentos · role a faixa para ver até uma semana à frente"
         actions={projectPicker}
       />
+      {avisoRemovida}
       {/* Filtros numa linha própria: no cabeçalho, os três juntos espremiam o título. */}
       <div className="mb-5 flex flex-wrap items-end gap-3">
         <DateRangeFilter de={de} ate={ate} />
@@ -346,7 +413,23 @@ export default async function CaixaPage({
       />
 
       {/* Prompt L, 1.4-A — cadeia de saldo com inicial e final, em conta e conciliado. */}
-      <CadeiaDias cadeia={cadeia} canFechar={can(ctx.perms, "fechamento", "criar")} canReabrir={can(ctx.perms, "conciliacao", "excluir")} />
+      {/* Prompt E2/L2 — o que a Cris recebe desta tela: saldos e projeção, agregados. */}
+      <CrisDaTela
+        titulo="Caixa e conciliação"
+        dados={{
+          saldoTotalEmConta: saldoTotal,
+          contas: saldosPorConta.map((c) => ({ conta: c.nome, emConta: c.emConta, conciliado: c.conciliado, diasDesdeAtualizacao: c.diasDesde, conectada: c.conectada })),
+          dias: cadeia.dias.map((d) => ({ dia: d.dia, rotulo: d.rotulo, entradas: d.entradas, saidas: d.saidas, conciliadoFinal: d.conciliado.final, emContaFinal: d.emConta?.final ?? null, diferenca: d.diferenca, fechado: d.fechado, venceReceber: previstoDaFaixa.porDia[d.dia]?.aReceber ?? null, vencePagar: previstoDaFaixa.porDia[d.dia]?.aPagar ?? null, saldoProjetado: previstoDaFaixa.saldo[d.dia] ?? null })),
+          atrasados: previstoDaFaixa.atrasados,
+          pendentesDeConciliar: conciliacaoData.pendentes.length,
+          ajustes: totalAjustes,
+        }}
+        sugestoes={["Por que o conciliado não bate com o extrato?", "Como fica o saldo nos próximos 7 dias?", "Quais pendências conciliar primeiro?", "Como conecto a conta pelo Open Finance?"]}
+      />
+      <CadeiaDias cadeia={cadeia} canFechar={can(ctx.perms, "fechamento", "criar")} canReabrir={can(ctx.perms, "conciliacao", "excluir")} previsto={previstoDaFaixa} />
+
+      {/* Prompt L2 — o histórico dos dias fechados mora aqui (o Balanço do Dia sai, AB2). */}
+      {diasFechados}
 
       {/* Abas */}
       <div className="mb-5 flex gap-1 rounded-[8px] bg-[var(--color-surface3)] p-1">

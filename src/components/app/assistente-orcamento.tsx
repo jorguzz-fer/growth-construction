@@ -131,7 +131,7 @@ function Reprojecao({ versionId, canCriar, temOrigem }: { versionId: string; can
     <div className="space-y-2" data-reprojecao>
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant="outline" disabled={pending || !temOrigem} title={temOrigem ? "Copiar a distribuição mensal do Orçamento de origem" : "Esta previsão não tem Orçamento de origem registrado"} onClick={() => propor("orcamento")}>Partir do Orçamento</Button>
-        <Button type="button" size="sm" variant="outline" disabled={pending} title="Despesas da versão Atual nas competências decorridas; o restante por igual nos meses futuros" onClick={() => propor("realizado")}>Partir do realizado</Button>
+        <Button type="button" size="sm" variant="outline" disabled={pending} title="Receita (Receitas do Projeto) e despesas da versão Atual nas competências decorridas; o restante por igual nos meses futuros" onClick={() => propor("realizado")}>Partir do realizado</Button>
       </div>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`rounded-[8px] px-2 py-1 text-[11.5px] ${msg.ok ? "bg-[var(--color-success)]/10 text-[var(--color-success)]" : "bg-[var(--color-danger)]/10 text-[var(--color-danger)]"}`}>{msg.texto}</p>}
       {pending && !proposta && <p className={li}>Calculando…</p>}

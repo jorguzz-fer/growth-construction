@@ -67,7 +67,7 @@ export function AssistenteMedicao({ usuario, analise, laudos, iaDisponivel }: { 
   const pct = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
   return (
-    <aside aria-label="Assistente da Medição de Obra" className="w-full shrink-0 rounded-[16px] border border-[var(--color-line)] bg-white p-4 shadow-sm min-[1180px]:sticky min-[1180px]:top-20 min-[1180px]:w-[300px]">
+    <aside aria-label="Assistente da Medição de Projeto" className="w-full shrink-0 rounded-[16px] border border-[var(--color-line)] bg-white p-4 shadow-sm min-[1180px]:sticky min-[1180px]:top-20 min-[1180px]:w-[300px]">
       <div className="mb-3 flex items-start gap-2.5">
         <Faisca />
         <div className="min-w-0 flex-1">

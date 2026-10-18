@@ -84,7 +84,6 @@ export async function fecharDia(input: { dia: string; obs?: string | null }): Pr
     meta: { ...r, dia: brDe(dia), diaISO: dia, autor: ctx.userEmail ?? ctx.userId ?? null },
   });
   revalidatePath("/caixa");
-  revalidatePath("/balancodia");
   return { ok: true, id };
 }
 
@@ -95,7 +94,7 @@ export async function reabrirDia(input: { id: string; motivo: string }): Promise
     return { ok: false, error: "Reabrir o dia exige a permissão \"Conciliação — ajustar e desfazer: excluir\", que o seu usuário não tem." };
   }
   const motivo = (input.motivo ?? "").trim();
-  if (!motivo) return { ok: false, error: "Informe o motivo da reabertura — ele fica na auditoria e no Balanço do Dia." };
+  if (!motivo) return { ok: false, error: "Informe o motivo da reabertura — ele fica na auditoria e nos Dias fechados do Caixa." };
   const [row] = await db.select().from(schema.dailyClosings).where(and(eq(schema.dailyClosings.id, input.id), eq(schema.dailyClosings.tenantId, ctx.tenant.id))).limit(1);
   if (!row) return { ok: false, error: "Fechamento não encontrado." };
   if (row.reabertoEm) return { ok: false, error: "Este fechamento já foi reaberto." };
@@ -110,6 +109,5 @@ export async function reabrirDia(input: { id: string; motivo: string }): Promise
     meta: { dia: row.dia, motivo, saldoFinalGravado: row.saldoFinal, divergenciaGravada: row.divergencias, autor: por },
   });
   revalidatePath("/caixa");
-  revalidatePath("/balancodia");
   return { ok: true, id: row.id };
 }

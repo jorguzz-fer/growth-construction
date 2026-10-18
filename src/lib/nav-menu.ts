@@ -41,6 +41,12 @@ export interface NavItem {
   permAlt?: string;
   /** Rota do item para quem só tem `permAlt` (a guarda central nega `href`). */
   hrefAlt?: string;
+  /**
+   * Prompt AI2 (BAI2-1) — permissões que a PÁGINA exige além de "ver" da
+   * chave. Sem isto, o item aparecia para quem a página nega (o Acerto
+   * Contábil aparecia para o contador e abria "Acesso negado").
+   */
+  exige?: { tela: string; acao: "ver" | "criar" | "editar" | "excluir" }[];
   /** Outras rotas que destacam este item (as abas da tela única). */
   tambem?: string[];
 }
@@ -68,10 +74,16 @@ export const NAV_MENU: NavModule[] = [
     items: [
       { href: "/dashboard", label: "Dashboard" },
       { href: "/dre", label: "DRE" },
+      // Prompt AC3: mora sob /dre — a permissão é a da DRE.
+      { href: "/dre/analitica", label: "DRE Analítica" },
       { href: "/fluxocaixa", label: "Fluxo de Caixa" },
+      // Prompt AD3: mora sob /fluxocaixa — a permissão é a do Fluxo.
+      { href: "/fluxocaixa/analitico", label: "Fluxo de Caixa Analítico" },
       { href: "/resumo", label: "Resumo Executivo" },
-      { href: "/consolidado", label: "Consolidado" },
-      { href: "/diagnosticoia", label: "Assistente" },
+      // Prompt RC: tela própria, com chat próprio (decisão de 18/10).
+      { href: "/relatorios", label: "Relatórios Customizados" },
+      // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
+      { href: "/projecao", label: "Projeção de Receitas" },
     ],
   },
   {
@@ -96,7 +108,6 @@ export const NAV_MENU: NavModule[] = [
       { href: "/contasreceber", label: "Contas a Receber" },
       { href: "/reembolso", label: "Liberações de Obra" },
       { href: "/permuta", label: "Permuta" },
-      { href: "/projecao", label: "Projeção de Receitas" },
     ],
   },
   {
@@ -107,10 +118,9 @@ export const NAV_MENU: NavModule[] = [
       { href: "/despesas", label: "Despesas / Lançamentos" },
       { href: "/contaspagar", label: "Contas a Pagar" },
       { href: "/restituicoes", label: "Ressarcimentos" },
-      { href: "/cartoes", label: "Cartões de Crédito" },
       // Pagamento único quitando várias despesas — governado por Despesas.
-      { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
-      { href: "/fornecedores", label: "Fornecedores" },
+      { href: "/acerto", label: "Acerto Contábil", perm: "despesas", exige: [{ tela: "despesas", acao: "editar" }, { tela: "caixa", acao: "ver" }] },
+      { href: "/fornecedores", label: "Fornecedores e Parceiros" },
     ],
   },
   {
@@ -120,7 +130,8 @@ export const NAV_MENU: NavModule[] = [
     items: [
       { href: "/caixa", label: "Caixa" },
       { href: "/contas", label: "Contas Correntes" },
-      { href: "/balancodia", label: "Balanço do Dia" },
+      // Prompt REN (Fase 3): o cartão é meio de pagamento — mora no Caixa.
+      { href: "/cartoes", label: "Cartões de Crédito" },
     ],
   },
   {
@@ -131,7 +142,7 @@ export const NAV_MENU: NavModule[] = [
       // Prompt V, 0.2: UM item. /medicao (relatório) e /medicaolanc (lançar e
       // lançadas) continuam como rotas e abas da mesma tela; quem só tem a
       // permissão de lançamento é levado à aba dele pela própria página.
-      { href: "/medicao", label: "Medição de Obra", permAlt: "medicaolanc", hrefAlt: "/medicaolanc", tambem: ["/medicaolanc"] },
+      { href: "/medicao", label: "Medição de Projeto", permAlt: "medicaolanc", hrefAlt: "/medicaolanc", tambem: ["/medicaolanc"] },
       { href: "/estoque", label: "Estoque" },
       { href: "/parametros", label: "Parâmetros / INCC" },
     ],
@@ -159,6 +170,8 @@ export const NAV_MENU: NavModule[] = [
       { href: "/numeracao", label: "Numeração de despesas" },
       { href: "/chaves", label: "Chaves de mudança" },
       { href: "/backup", label: "Backup de dados" },
+      // Prompt AM2: o Assistente saiu (a Cris explica o sistema); a rota fica como diagnóstico da IA.
+      { href: "/diagnosticoia", label: "Diagnóstico de IA" },
       // Prompt AN: id próprio (acompanha Despesas). A Conferência de planos
       // saiu; a data impossível virou aviso no cadastro da unidade.
       { href: "/conferencia", label: "Conferência de lançamentos" },
@@ -174,6 +187,7 @@ export function permOf(item: NavItem): string {
 /**
  * Só os itens com "ver"; módulo sem nenhum item visível some inteiro
  * (seção 21). Mesma regra do menu antigo — não amplia nem reduz acesso.
+ * Prompt AI2: item com `exige` só aparece para quem a página deixa entrar.
  */
 export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): NavModule[] {
   return menu
@@ -181,6 +195,7 @@ export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): Na
       ...m,
       items: m.items
         .filter((it) => can(perms, permOf(it), "ver") || (!!it.permAlt && can(perms, it.permAlt, "ver")))
+        .filter((it) => (it.exige ?? []).every((e) => can(perms, e.tela, e.acao)))
         // Só com a permissão alternativa: o item aponta para a rota dela (a
         // guarda central negaria `href`); a página de lá abre na aba certa.
         .map((it) => (!can(perms, permOf(it), "ver") && it.hrefAlt ? { ...it, href: it.hrefAlt, tambem: [...(it.tambem ?? []), it.href] } : it)),
@@ -196,6 +211,19 @@ export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): Na
 export function isItemActive(pathname: string | null | undefined, href: string, tambem: readonly string[] = []): boolean {
   if (!pathname) return false;
   return [href, ...tambem].some((h) => pathname === h || pathname.startsWith(h + "/"));
+}
+
+/**
+ * Prompt AC3: com /dre e /dre/analitica no mesmo módulo, as duas casariam com
+ * /dre/analitica. Só o item mais específico fica marcado.
+ */
+export function itemAtivoDoModulo(pathname: string | null | undefined, items: readonly NavItem[]): string | null {
+  let melhor: string | null = null;
+  for (const it of items) {
+    if (!isItemActive(pathname, it.href, it.tambem)) continue;
+    if (!melhor || it.href.length > melhor.length) melhor = it.href;
+  }
+  return melhor;
 }
 
 /** Módulo que contém a rota atual (o que precisa ficar aberto), ou null. */

@@ -5,8 +5,7 @@ import {
   defaultPermissions,
   effectivePermissions,
   screenIdOfPath,
-  type PermMatrix,
-} from "./permissions";
+  type PermMatrix, TELAS_SO_PLATAFORMA } from "./permissions";
 
 /**
  * Teste de REGRESSÃO das permissões.
@@ -74,7 +73,7 @@ describe("perfil contador — somente leitura", () => {
   });
 
   it("enxerga os relatórios essenciais", () => {
-    for (const id of ["dre", "fluxocaixa", "consolidado"]) {
+    for (const id of ["dre", "fluxocaixa", "resumo"]) {
       expect(can(perms, id, "ver")).toBe(true);
     }
   });
@@ -95,6 +94,8 @@ describe("owner — acesso total", () => {
   it("pode tudo em todas as telas", () => {
     const perms = defaultPermissions("owner");
     for (const s of SCREENS) {
+      // Prompt PLAT: Chaves e Backup são da plataforma, não do owner.
+      if (TELAS_SO_PLATAFORMA.has(s.id)) continue;
       expect(can(perms, s.id, "ver")).toBe(true);
       expect(can(perms, s.id, "excluir")).toBe(true);
     }

@@ -49,7 +49,7 @@ export const CHAVES = [
     id: "rascunho_fora_dos_relatorios",
     titulo: "Orçamento em Rascunho não entra em relatório",
     efeito:
-      "Versões de Orçamento e Previsão Atualizada que não estejam Aprovadas deixam de alimentar DRE, Fluxo de Caixa, Dashboard, Consolidado, Projeção, Resumo, Medição e Contabilidade. A versão Atual (movimento real) nunca é filtrada. Nada é apagado: o rascunho continua nas telas de edição.",
+      "Versões de Orçamento e Previsão Atualizada que não estejam Aprovadas deixam de alimentar DRE, Fluxo de Caixa, Dashboard, Projeção, Resumo, Medição e Contabilidade. A versão Atual (movimento real) nunca é filtrada. Nada é apagado: o rascunho continua nas telas de edição.",
     origem: "Prompt H, seções 1 e 5",
     previa: { href: "/chaves#previa-rascunho", rotulo: "Lista de conferência — o que sairia dos relatórios" },
   },
@@ -84,6 +84,22 @@ export const CHAVES = [
       "No Resumo Executivo: os sinais S1, S2 e S3 multiplicam pela quantidade (como o Ato e como a Projeção); permuta e liberação canceladas saem dos totais; a permuta por tipo compara com o cadastro e mostra \"outros tipos\" (a soma fecha); unidades Permutadas aparecem e o Total é a contagem de unidades; e a tela ganha os blocos Vendas, Exposição e Atenção. Nada é gravado.",
     origem: "Prompt AE, Partes 1, 2.3, 2.4, 2.6 e 2.7 (seção 6)",
     previa: { href: "/chaves#previa-resumo", rotulo: "Prévia — os indicadores de hoje × definição nova, por obra" },
+  },
+  {
+    id: "despesa_categoria_do_plano",
+    titulo: "Despesa herda a categoria da DRE do Plano de Contas",
+    efeito:
+      "Cada despesa passa a usar a categoria da DRE da sua conta no Plano de Contas: no lançamento, o campo aparece travado; nos relatórios (DRE e card Orçado x Realizado), as despesas já lançadas contam pela categoria da conta. Nada é regravado: desligar volta à categoria escolhida em cada despesa. Antes de ligar, confira no Plano de Contas a categoria de cada conta.",
+    origem: "Prompt DP (Fase 3, BDP-1 a BDP-3)",
+    previa: { href: "/chaves#previa-categoria", rotulo: "Prévia — despesas que mudam de categoria, por conta" },
+  },
+  {
+    id: "incc_por_empresa",
+    titulo: "INCC da empresa: uma série para todas as obras",
+    efeito:
+      "Todas as obras passam a ler a série do INCC da empresa (adotada na tela de INCC a partir da série de uma obra) onde o INCC corrige as parcelas: Caixa, comparação da Projeção e Simulador. O seletor de obra sai da tela de INCC. As séries de cada obra ficam guardadas, sem alteração: desligar volta a elas. Sem série da empresa adotada, ligar não muda nada.",
+    origem: "Prompt Q2 (Fase 3, BQ2-1)",
+    previa: { href: "/chaves#previa-incc", rotulo: "Prévia — obras cuja série difere da série da empresa" },
   },
 ] as const satisfies readonly Chave[];
 

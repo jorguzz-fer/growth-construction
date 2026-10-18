@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/context";
 import { lerSelecaoDeProjeto, TODOS_OS_PROJETOS } from "@/lib/projeto-selecao";
 import { getChartAccounts, getDespesas, getDespesasByTenant, getDespesaNoTenant, getStakeholders, getBankAccounts, getDocumentsByDespesa, getAtualVersion, getDocumentsByDespesaIds, getCartoes } from "@/lib/queries";
@@ -10,6 +13,8 @@ import { LembrarProjeto, RecuperarProjeto } from "@/components/app/projeto-da-ab
 import { isR2Configured, readUrl } from "@/lib/storage/r2";
 import { isAiConfigured } from "@/lib/ai/despesa-extract";
 import { CATEGORIAS_DRE } from "@/lib/calc/constants";
+import { chaveLigada } from "@/lib/chaves-tenant";
+import { mapaDeCategorias } from "@/lib/categoria-do-plano";
 import { brl0 } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,10 +37,11 @@ import { AccessDenied } from "@/components/app/access-denied";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "lancamentos" | "apagar" | "semnf" | "parcelas" | "repositorio";
+// Prompt REN (Fase 3): a aba "A Pagar" saiu — repetia a tela Contas a Pagar.
+// Quem chega por `?tab=apagar` (link antigo) é levado para lá.
+type Tab = "lancamentos" | "semnf" | "parcelas" | "repositorio";
 const TABS: { key: Tab; label: string }[] = [
   { key: "lancamentos", label: "Lançamentos" },
-  { key: "apagar", label: "A Pagar" },
   // Item 1.2 — lançar sem nota é permitido; esta aba é a lista de cobrança.
   { key: "semnf", label: "Pendente de NF" },
   { key: "parcelas", label: "Parcelas" },
@@ -74,6 +80,7 @@ export default async function DespesasPage({
   // não roda de novo na navegação dentro do app.
   if (!can(ctx.perms, "despesas", "ver")) return <AccessDenied />;
   const sp = await searchParams;
+  if (sp.tab === "apagar") redirect(sp.proj ? `/contaspagar?proj=${encodeURIComponent(sp.proj)}` : "/contaspagar");
   const tab: Tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as Tab) : "lancamentos";
   const canEdit = can(ctx.perms, "despesas", "criar");
   const canEditar = can(ctx.perms, "despesas", "editar");
@@ -137,7 +144,18 @@ export default async function DespesasPage({
   // Prompt S 3-B.3 / T 2.3 — "pago por terceiro" oferece só quem tem o papel
   // de Pagador por Terceiro (ativo), concedido em Ressarcimentos; antes era a
   // lista de sócios. A obrigação continua nascendo aqui, em addDespesa.
-  const pagadores = pagadoresPorTerceiro(fornecedores);
+  // Prompt S3 — quem já pagou pela empresa (tem obrigação) também aparece.
+  const jaPagaram = new Set(
+    (
+      await db
+        .selectDistinct({ id: schema.despesaTerceiros.pagadorTerceiroId })
+        .from(schema.despesaTerceiros)
+        .where(eq(schema.despesaTerceiros.tenantId, ctx.tenant.id))
+    )
+      .map((r) => r.id)
+      .filter((x): x is string => !!x),
+  );
+  const pagadores = pagadoresPorTerceiro(fornecedores, [], jaPagaram);
   const despesas: Array<
     Awaited<ReturnType<typeof getDespesas>>[number] & { origem?: string }
   > = despesasRaw;
@@ -295,6 +313,8 @@ export default async function DespesasPage({
     contas: contasOrdenadas.map((c) => ({ code: c.code, name: c.name })),
     bancos: bancos.map((b) => ({ id: b.id, banco: b.banco, tipo: b.tipo })),
     categorias: CATEGORIAS_DRE,
+    // Prompt DP — com a chave ligada, a categoria vem travada da conta.
+    categoriaDoPlano: (await chaveLigada(ctx.tenant.id, "despesa_categoria_do_plano")) ? mapaDeCategorias(contas) : null,
     pagadores,
     cartoes,
     aiConfigured,
@@ -405,20 +425,6 @@ export default async function DespesasPage({
             {...tableRefProps}
           />
         </>
-      )}
-
-      {tab === "apagar" && (
-        <DespesasTable
-          rows={despesas
-            .filter((d) => d.status !== "Pago" && !d.cancelado)
-            .sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""))
-            .map(toDTO)}
-          venc
-          showOrigem={isAll}
-          canEditar={canEditar}
-          canExcluir={canExcluir}
-          {...tableRefProps}
-        />
       )}
 
       {/* Item 1.2 — despesas ainda sem documento fiscal informado. Lançar sem
