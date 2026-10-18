@@ -3,7 +3,6 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { AiDiagnosticPanel } from "@/components/app/ai-diagnostic-panel";
-import { AssistenteProduto } from "@/components/app/assistente-produto";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -23,6 +22,21 @@ export default async function DiagnosticoIaPage() {
   if (!can(ctx.perms, "diagnosticoia", "ver")) return <AccessDenied />;
   // 6.3: o bloco de configuração (teste, modelo, consumo) é de quem edita a tela.
   const configura = can(ctx.perms, "diagnosticoia", "editar");
+  // Prompt AM2 (revisão V5): o Assistente do produto saiu — a Cris explica o
+  // sistema em qualquer tela. Fica só o diagnóstico, para quem configura.
+  if (!configura) {
+    return (
+      <>
+        <PageHeader title="Diagnóstico de IA" />
+        <Card>
+          <CardContent className="p-6 text-[13px] text-[var(--color-ink2)]">
+            O Assistente agora é a <strong>Cris</strong>: o botão no canto inferior direito de qualquer tela. Ela explica como o
+            sistema funciona, analisa os números da tela e ajuda a lançar.
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
 
   const desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const [uso, ultimo] = configura ? await Promise.all([getUsoDaIa(ctx.tenant.id, desde), getUltimoTesteDeIa(ctx.tenant.id)]) : [[], null];
@@ -32,14 +46,10 @@ export default async function DiagnosticoIaPage() {
 
   return (
     <>
-      {/* Prompt AM: a tela vira o Assistente — um chat que explica o sistema. A rota não muda. */}
-      <PageHeader title="Assistente" subtitle="Como o sistema funciona — sem acesso aos dados da empresa" />
-      <AssistenteProduto />
+      <PageHeader title="Diagnóstico de IA" subtitle="Chave, modelo, teste de conexão e consumo da IA desta empresa" />
       {configura && (
-        // 7.1 — o diagnóstico fica, como bloco secundário e recolhido, para quem configura.
-        <details className="mt-6 space-y-4" data-diagnostico-ia>
-          <summary className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">Diagnóstico de IA (configuração)</summary>
-          <div className="mt-4 space-y-4">
+        <div className="space-y-4" data-diagnostico-ia>
+          <div className="space-y-4">
           {/* 7.3 — o estado, que antes só aparecia depois de clicar no teste. */}
           <Card data-estado-ia>
             <CardContent className="space-y-2 p-5 text-[13px]">
@@ -110,7 +120,7 @@ export default async function DiagnosticoIaPage() {
 
           <AiDiagnosticPanel />
           </div>
-        </details>
+        </div>
       )}
     </>
   );

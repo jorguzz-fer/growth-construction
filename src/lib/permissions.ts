@@ -109,7 +109,7 @@ export const SCREENS: Screen[] = [
   { id: "chaves", label: "Chaves de mudança", modulo: "Config" },
   // Prompt AP: "versao" saiu (a tela virou redirecionamento para Projetos).
   // A trava foi para `versaotrava`; a planilha, para a tela Projetos.
-  { id: "diagnosticoia", label: "Assistente (e diagnóstico de IA)", modulo: "Config" },
+  { id: "diagnosticoia", label: "Diagnóstico de IA", modulo: "Config" },
 ];
 
 export const SCREEN_IDS = SCREENS.map((s) => s.id);

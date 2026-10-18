@@ -1,4 +1,4 @@
-/** Base de conhecimento do Assistente — Business Intelligence, Planejamento e Configurações. Descreve o sistema de HOJE. */
+/** Base de conhecimento da Cris — Business Intelligence, Planejamento e Configurações. Descreve o sistema de HOJE. */
 export const TEXTO = `# Base de conhecimento — Business Intelligence, Planejamento e Configurações
 
 Regras gerais:

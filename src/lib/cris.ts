@@ -10,12 +10,15 @@
  *  - Etapa 3 autorizada (15/10, item 1): nas telas de lançamento a Cris
  *    PROPÕE o preenchimento do formulário. Quem grava é o botão da tela,
  *    pela mesma action de sempre (regra 4.2.1; pedido do dono em 18/10).
- *  - Absorve o Assistente do produto (`/diagnosticoia`): explica o sistema
- *    pela mesma base de conhecimento.
+ *  - Absorve o Assistente do produto (Prompt AM2: `/diagnosticoia` virou só
+ *    o diagnóstico da IA): explica o sistema pela mesma base de conhecimento.
  *  - Lê documento anexado (PDF ou imagem) para propor o preenchimento —
  *    "vai ao modelo só o documento" (decisão de 01/10, privacidade da leitura).
  */
-import { ROTAS_CONHECIDAS } from "@/lib/assistente-produto";
+import { NAV_MENU } from "@/lib/nav-menu";
+
+/** Rotas que existem no menu — os únicos links que a resposta pode virar. */
+export const ROTAS_CONHECIDAS: ReadonlySet<string> = new Set(NAV_MENU.flatMap((m) => m.items.flatMap((i) => [i.href, ...(i.tambem ?? [])])));
 
 export const NOME_DA_CRIS = "Cris";
 export const MAX_MENSAGEM = 1500;

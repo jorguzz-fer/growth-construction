@@ -73,7 +73,6 @@ export const NAV_MENU: NavModule[] = [
       // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
       { href: "/projecao", label: "Projeção de Receitas" },
       { href: "/consolidado", label: "Consolidado" },
-      { href: "/diagnosticoia", label: "Assistente" },
     ],
   },
   {
@@ -161,6 +160,8 @@ export const NAV_MENU: NavModule[] = [
       { href: "/numeracao", label: "Numeração de despesas" },
       { href: "/chaves", label: "Chaves de mudança" },
       { href: "/backup", label: "Backup de dados" },
+      // Prompt AM2: o Assistente saiu (a Cris explica o sistema); a rota fica como diagnóstico da IA.
+      { href: "/diagnosticoia", label: "Diagnóstico de IA" },
       // Prompt AN: id próprio (acompanha Despesas). A Conferência de planos
       // saiu; a data impossível virou aviso no cadastro da unidade.
       { href: "/conferencia", label: "Conferência de lançamentos" },

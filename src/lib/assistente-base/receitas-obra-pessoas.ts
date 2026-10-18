@@ -1,4 +1,4 @@
-/** Base de conhecimento do Assistente — Receitas, Obra e Pessoas. Descreve o sistema de HOJE. */
+/** Base de conhecimento da Cris — Receitas, Obra e Pessoas. Descreve o sistema de HOJE. */
 export const TEXTO = `# Base de conhecimento: Receitas, Obra e Pessoas
 
 ## Quem acessa (padrão por papel)

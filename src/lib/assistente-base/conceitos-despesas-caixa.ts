@@ -1,4 +1,4 @@
-/** Base de conhecimento do Assistente — Conceitos do produto, Despesas e Caixa. Descreve o sistema de HOJE. */
+/** Base de conhecimento da Cris — Conceitos do produto, Despesas e Caixa. Descreve o sistema de HOJE. */
 export const TEXTO = `# Base de conhecimento C — Conceitos, Despesas e Caixa
 
 ## Conceitos do produto

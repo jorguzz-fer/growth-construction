@@ -214,7 +214,7 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
   it("módulo ativo acompanha a tela", () => {
     expect(activeModuleId("/projeto")).toBe("planejamento");
     expect(activeModuleId("/unidades/nova")).toBe("receitas");
-    expect(activeModuleId("/diagnosticoia")).toBe("bi");
+    expect(activeModuleId("/diagnosticoia")).toBe("config"); // Prompt AM2: virou Diagnóstico de IA, em Configurações
     expect(activeModuleId("/conferencia")).toBe("config");
   });
 });

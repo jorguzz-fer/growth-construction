@@ -1,5 +1,5 @@
 /**
- * Base de conhecimento do Assistente do produto (Prompt AM, Parte 2).
+ * Base de conhecimento da Cris (Prompt E2; antes, do Assistente do produto, Prompt AM, Parte 2).
  *
  * Texto versionado no repositório, descrevendo o sistema DE HOJE (BAM-1). Fica
  * em módulos .ts porque o build de produção (standalone) não leva `docs/`.
