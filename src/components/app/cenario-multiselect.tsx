@@ -28,20 +28,24 @@ export function CenarioMultiSelect({ selected }: { selected: Cenario[] }) {
       {CENARIOS.map((c) => {
         const on = selected.includes(c);
         return (
-          <button
+          // Prompt AC2 (revisão V5): caixa de seleção.
+          <label
             key={c}
-            type="button"
-            disabled={pending}
-            aria-pressed={on}
-            onClick={() => toggle(c)}
-            className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+            className={`flex cursor-pointer items-center gap-1.5 rounded-[8px] border px-2 py-1 text-[12px] transition-colors ${
               on
                 ? "border-[var(--color-accent2)] bg-[var(--color-accent4)] text-[var(--color-ink)]"
                 : "border-[var(--color-accent2)]/20 text-[var(--color-ink3)] hover:bg-[var(--color-surface2)]"
-            }`}
+            } ${pending ? "opacity-60" : ""}`}
           >
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={pending}
+              onChange={() => toggle(c)}
+              className="h-3.5 w-3.5 accent-[var(--color-accent2)]"
+            />
             {ROTULO_CENARIO[c]}
-          </button>
+          </label>
         );
       })}
     </div>

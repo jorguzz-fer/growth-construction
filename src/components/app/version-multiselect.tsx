@@ -69,16 +69,22 @@ export function VersionMultiSelect({
       {versions.map((v) => {
         const on = selected.includes(v.id);
         return (
-          <button
+          // Prompt AC2 (revisão V5): caixa de seleção — fica claro o que está e o que não está marcado.
+          <label
             key={v.id}
-            disabled={pending}
-            onClick={() => toggle(v.id)}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+            className={`flex cursor-pointer items-center gap-1.5 rounded-[8px] border px-2 py-1 text-[12px] transition-colors ${
               on
                 ? "border-[var(--color-accent2)] bg-[var(--color-accent4)] text-[var(--color-ink)]"
                 : "border-[var(--color-accent2)]/20 text-[var(--color-ink3)] hover:bg-[var(--color-surface2)]"
-            }`}
+            } ${pending ? "opacity-60" : ""}`}
           >
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={pending}
+              onChange={() => toggle(v.id)}
+              className="h-3.5 w-3.5 accent-[var(--color-accent2)]"
+            />
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: v.color }} />
             {v.label}
             {v.marca && (
@@ -89,7 +95,7 @@ export function VersionMultiSelect({
                 {v.aviso}
               </span>
             )}
-          </button>
+          </label>
         );
       })}
       <span className="text-[11px] text-[var(--color-ink4)]">(até {max})</span>

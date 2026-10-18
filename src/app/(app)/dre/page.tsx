@@ -96,7 +96,8 @@ export default async function DREPage({
   // Prompt AC, Parte 10 — a definição nova da DRE (nasce desligada).
   const definicaoNova = await chaveLigada(ctx.tenant.id, "dre_definicao_nova");
   const sp = await searchParams;
-  const monthly = sp.view === "mensal";
+  // Prompt AC2 (revisão V5): a visão anual e a mensal aparecem juntas, a
+  // mensal abaixo, com os mesmos seletores. `?view=` antigo é ignorado.
 
   // Obra ou escopo vêm da URL (Prompt A, 19). Sem nada: a obra lembrada pela
   // aba; sem memória, "Todos" (B12). Nunca a obra do cookie.
@@ -194,7 +195,7 @@ export default async function DREPage({
   // Meses da matriz (1.5): os do período, ou o eixo no acumulado.
   const meses = periodMonths ? ordenarMeses(periodMonths) : axis;
   const celulasMensal = meses.length * series.length;
-  const mensalAcimaDoTeto = monthly && multi && celulasMensal > TETO_CELULAS_MENSAL;
+  const mensalAcimaDoTeto = multi && celulasMensal > TETO_CELULAS_MENSAL;
 
   // Valores: por série, a cascata do período (e, no mensal, a de cada mês).
   const totalDe = (s: Serie) => waterfall(s.porProjeto.map((bm) => aggregateInputs(bm, periodMonths)));
@@ -214,14 +215,112 @@ export default async function DREPage({
 
   const semVersao = escopo.tipo === "projeto" && versoesDaObra.length === 0;
 
+  // A mesma tabela nas duas visões: `mensal` liga as colunas por mês.
+  const tabelaDre = (mensal: boolean) => (
+          <div className="tbl-scroll mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                {mensal && multi && !mensalAcimaDoTeto ? (
+                  <>
+                    <tr className="border-b border-[var(--color-line)]">
+                      <th rowSpan={2} className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                        Item
+                      </th>
+                      {[...meses, "Total"].map((mm) => (
+                        <th key={mm} colSpan={series.length} className="border-l border-[var(--color-line)] px-2 py-1.5 text-center font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                          {mm}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-[var(--color-line)]">
+                      {[...meses, "Total"].flatMap((mm) =>
+                        series.map((s, i) => (
+                          <th key={`${mm}-${s.key}`} className={`px-2 py-1.5 text-right text-[11px] font-medium text-[var(--color-ink2)] ${i === 0 ? "border-l border-[var(--color-line)]" : ""}`}>
+                            {s.titulo}
+                          </th>
+                        )),
+                      )}
+                    </tr>
+                  </>
+                ) : (
+                  <tr className="border-b border-[var(--color-line)]">
+                    <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Item</th>
+                    {mensal && !multi
+                      ? [...meses, "Total"].map((mm) => (
+                          <th key={mm} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                            {mm}
+                          </th>
+                        ))
+                      : series.map((s) => [
+                          <th key={s.key} className="px-2 py-2 text-right text-[12px] font-semibold text-[var(--color-ink)]">
+                            <span className="inline-flex items-center gap-1.5">
+                              {s.color && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />}
+                              {s.titulo}
+                            </span>
+                            {s.complemento && <span className="block text-[10.5px] font-normal text-[var(--color-ink3)]">{s.complemento}</span>}
+                          </th>,
+                          <th key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
+                            % Receita
+                          </th>,
+                        ])}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {linhas.map((lbl, ri) => {
+                  const isSub = lbl.kind !== "item";
+                  const cel = (v: number, key: string, extra = "", presente = true) => (
+                    <td
+                      title={presente ? undefined : "Sem nenhum lançamento nesta linha"}
+                      key={key}
+                      className={`whitespace-nowrap px-2 py-2 text-right font-[family-name:var(--font-mono)] ${extra} ${isSub ? "font-semibold" : ""} ${
+                        v < 0 ? "text-[var(--color-danger)]" : lbl.kind === "final" || lbl.kind === "sub" ? "text-[var(--color-success)]" : "text-[var(--color-ink)]"
+                      }`}
+                    >
+                      {presente ? brl0(v) : <span className="text-[var(--color-ink4)]">—</span>}
+                    </td>
+                  );
+                  const temNoMes = (x: Serie, mm: string) => linhaTemLancamento(lbl.label, [porMesDaSerie.get(x.key)![mm]].filter(Boolean));
+                  const temNoTotal = (i: number) => linhaTemLancamento(lbl.label, agregados[i]);
+                  return (
+                    <tr key={lbl.label} className={`border-b border-[var(--color-line)] ${isSub ? "bg-[var(--color-surface2)]" : ""}`}>
+                      <td
+                        className={`sticky left-0 z-10 whitespace-nowrap px-2 py-2 ${isSub ? "bg-[var(--color-surface2)]" : "bg-white"} ${
+                          lbl.kind === "final" ? "font-semibold text-[var(--color-accent)]" : isSub ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink2)]"
+                        }`}
+                      >
+                        {lbl.label}
+                      </td>
+                      {mensal && multi && !mensalAcimaDoTeto
+                        ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoMes(s, mm)))),
+                           ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoTotal(i)))]
+                        : mensal && !multi
+                          ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm, "", temNoMes(series[0], mm))), cel(totais[0].rows[ri].value, "tot", "", temNoTotal(0))]
+                          : series.flatMap((s, i) => {
+                              const p = pctDaReceita(totais[i].rows[ri].value, totais[i].R);
+                              return [
+                                cel(totais[i].rows[ri].value, s.key, "", temNoTotal(i)),
+                                <td key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
+                                  {p == null ? "—" : pct1(p)}
+                                </td>,
+                              ];
+                            })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+  );
+
   return (
     <>
       <PageHeader
         eyebrow={scopeLabel}
         title="DRE — Demonstração de Resultado"
         subtitle={`${periodLabel}${
-          monthly ? " · visão mensal" : multi ? (isAll ? " · comparativo de cenários" : " · comparativo de versões") : " · análise vertical (% da receita)"
-        }`}
+          multi ? (isAll ? " · comparativo de cenários" : " · comparativo de versões") : " · análise vertical (% da receita)"
+        } · visão mensal abaixo`}
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <DreControls
@@ -237,7 +336,6 @@ export default async function DREPage({
               ]}
               periodo={periodo}
               periodDisabled={false}
-              view={monthly ? "mensal" : ""}
               vs={sp.vs ?? ""}
               de={customDe}
               ate={customAte}
@@ -311,111 +409,7 @@ export default async function DREPage({
               {selecionadas.length} versões selecionadas — acima de {TETO_VERSOES} a tabela fica larga. Todas estão na tela; desmarque as que não precisa.
             </p>
           )}
-          {mensalAcimaDoTeto && (
-            <p role="status" className="mb-2 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
-              {meses.length} meses × {series.length} colunas = {celulasMensal} colunas — acima de {TETO_CELULAS_MENSAL}. Reduza o
-              período (escolha um ano ou De/Até) ou desmarque versões. Abaixo, só o total de cada coluna; nenhuma foi descartada.
-            </p>
-          )}
-          <div className="tbl-scroll mt-2 overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                {monthly && multi && !mensalAcimaDoTeto ? (
-                  <>
-                    <tr className="border-b border-[var(--color-line)]">
-                      <th rowSpan={2} className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                        Item
-                      </th>
-                      {[...meses, "Total"].map((mm) => (
-                        <th key={mm} colSpan={series.length} className="border-l border-[var(--color-line)] px-2 py-1.5 text-center font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                          {mm}
-                        </th>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-[var(--color-line)]">
-                      {[...meses, "Total"].flatMap((mm) =>
-                        series.map((s, i) => (
-                          <th key={`${mm}-${s.key}`} className={`px-2 py-1.5 text-right text-[11px] font-medium text-[var(--color-ink2)] ${i === 0 ? "border-l border-[var(--color-line)]" : ""}`}>
-                            {s.titulo}
-                          </th>
-                        )),
-                      )}
-                    </tr>
-                  </>
-                ) : (
-                  <tr className="border-b border-[var(--color-line)]">
-                    <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">Item</th>
-                    {monthly && !multi
-                      ? [...meses, "Total"].map((mm) => (
-                          <th key={mm} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                            {mm}
-                          </th>
-                        ))
-                      : series.map((s) => [
-                          <th key={s.key} className="px-2 py-2 text-right text-[12px] font-semibold text-[var(--color-ink)]">
-                            <span className="inline-flex items-center gap-1.5">
-                              {s.color && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />}
-                              {s.titulo}
-                            </span>
-                            {s.complemento && <span className="block text-[10.5px] font-normal text-[var(--color-ink3)]">{s.complemento}</span>}
-                          </th>,
-                          <th key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-ink3)]">
-                            % Receita
-                          </th>,
-                        ])}
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {linhas.map((lbl, ri) => {
-                  const isSub = lbl.kind !== "item";
-                  const cel = (v: number, key: string, extra = "", presente = true) => (
-                    <td
-                      title={presente ? undefined : "Sem nenhum lançamento nesta linha"}
-                      key={key}
-                      className={`whitespace-nowrap px-2 py-2 text-right font-[family-name:var(--font-mono)] ${extra} ${isSub ? "font-semibold" : ""} ${
-                        v < 0 ? "text-[var(--color-danger)]" : lbl.kind === "final" || lbl.kind === "sub" ? "text-[var(--color-success)]" : "text-[var(--color-ink)]"
-                      }`}
-                    >
-                      {presente ? brl0(v) : <span className="text-[var(--color-ink4)]">—</span>}
-                    </td>
-                  );
-                  const temNoMes = (x: Serie, mm: string) => linhaTemLancamento(lbl.label, [porMesDaSerie.get(x.key)![mm]].filter(Boolean));
-                  const temNoTotal = (i: number) => linhaTemLancamento(lbl.label, agregados[i]);
-                  return (
-                    <tr key={lbl.label} className={`border-b border-[var(--color-line)] ${isSub ? "bg-[var(--color-surface2)]" : ""}`}>
-                      <td
-                        className={`sticky left-0 z-10 whitespace-nowrap px-2 py-2 ${isSub ? "bg-[var(--color-surface2)]" : "bg-white"} ${
-                          lbl.kind === "final" ? "font-semibold text-[var(--color-accent)]" : isSub ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink2)]"
-                        }`}
-                      >
-                        {lbl.label}
-                      </td>
-                      {monthly && multi && !mensalAcimaDoTeto
-                        ? [...meses.flatMap((mm) => series.map((s, i) => cel(mesDe(s, mm).rows[ri].value, `${mm}-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoMes(s, mm)))),
-                           ...series.map((s, i) => cel(totais[i].rows[ri].value, `tot-${s.key}`, i === 0 ? "border-l border-[var(--color-line)]" : "", temNoTotal(i)))]
-                        : monthly && !multi
-                          ? [...meses.map((mm) => cel(mesDe(series[0], mm).rows[ri].value, mm, "", temNoMes(series[0], mm))), cel(totais[0].rows[ri].value, "tot", "", temNoTotal(0))]
-                          : series.flatMap((s, i) => {
-                              const p = pctDaReceita(totais[i].rows[ri].value, totais[i].R);
-                              return [
-                                cel(totais[i].rows[ri].value, s.key, "", temNoTotal(i)),
-                                <td key={`${s.key}-pct`} className="px-2 py-2 text-right font-[family-name:var(--font-mono)] text-[var(--color-ink3)]">
-                                  {p == null ? "—" : pct1(p)}
-                                </td>,
-                              ];
-                            })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {monthly && meses.length === 0 && (
-            <p className="mt-2 text-[12px] text-[var(--color-warning)]">
-              Sem datas de início e fim no cadastro do projeto e sem lançamento com competência: não há meses para mostrar. Informe as datas em Projetos.
-            </p>
-          )}
+          {tabelaDre(false)}
           {/* Partes 4 e 5 — o que não entra na cascata, fora dela (nunca somado em outra linha). */}
           {rodape.length > 0 && (
             <div className="mt-3 rounded-[8px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/5 px-3 py-2 text-[12px] text-[var(--color-ink2)]" data-rodape>
@@ -438,13 +432,37 @@ export default async function DREPage({
             estão incluídos na cascata, como hoje — a classificação contábil dessas três linhas aguarda decisão.
             “—” numa célula: a linha não teve nenhum lançamento; “R$ 0” é soma que deu zero.
           </p>
-          {!monthly && totais.some((t) => t.R <= 0) && (
+          {totais.some((t) => t.R <= 0) && (
             <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]">
               “—” em % Receita: a coluna não tem receita positiva para servir de base.
             </p>
           )}
         </CardContent>
       </Card>
+      )}
+
+      {/* Prompt AC2 — visão mensal, abaixo da anual, com as mesmas colunas. */}
+      {!(doEscopo && doEscopo.projetos.length === 0) && !semVersao && (
+        <Card className="mt-5" data-dre-mensal>
+          <CardContent className="p-5">
+            <h2 className="mb-1 text-[14px] font-semibold text-[var(--color-ink)]">Visão mensal</h2>
+            <p className="mb-2 text-[12px] text-[var(--color-ink3)]">
+              {periodLabel} · uma coluna por mês{multi ? ` para cada ${isAll ? "cenário" : "versão"}` : ""}, e o total.
+            </p>
+            {mensalAcimaDoTeto && (
+              <p role="status" className="mb-2 rounded-[8px] bg-[var(--color-warning)]/10 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]">
+                {meses.length} meses × {series.length} colunas = {celulasMensal} colunas — acima de {TETO_CELULAS_MENSAL}. Reduza o
+                período (escolha um ano ou De/Até) ou desmarque versões. Os totais de cada coluna estão na visão anual, acima; nenhuma foi descartada.
+              </p>
+            )}
+            {!mensalAcimaDoTeto && tabelaDre(true)}
+            {meses.length === 0 && (
+              <p className="mt-2 text-[12px] text-[var(--color-warning)]">
+                Sem datas de início e fim no cadastro do projeto e sem lançamento com competência: não há meses para mostrar. Informe as datas em Projetos.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
     </>
   );

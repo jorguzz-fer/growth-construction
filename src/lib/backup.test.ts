@@ -26,7 +26,7 @@ describe.skipIf(!HAS_DB)("backup — histórico (Prompt AO, Parte 6)", async () 
     const [p] = await db.insert(schema.projects).values({ tenantId, name: "P" }).returning();
     const [v] = await db.insert(schema.versions).values({ projectId: p.id, tenantId, key: "atual", kind: "atual", label: "Atual", color: "#000" }).returning();
     await db.insert(schema.despesas).values({ tenantId, versionId: v.id, categoriaDre: "Custo Variável", valor: "10", status: "Pago", competencia: "03/2026" });
-    ctxRef.current = { tenant: { id: tenantId, name: "tenant-backup-ao" }, projects: [p], userId: null, userEmail: "t@t", role: "owner", perms: defaultPermissions("owner") };
+    ctxRef.current = { tenant: { id: tenantId, name: "tenant-backup-ao" }, projects: [p], userId: null, userEmail: "t@t", role: "owner", perms: defaultPermissions("owner", { operadorDaPlataforma: true }) }; // Prompt PLAT: liga chave / baixa backup — só a plataforma
   });
   afterAll(async () => {
     if (tenantId) await db.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));

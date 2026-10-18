@@ -26,7 +26,8 @@ export function DreControls({
   periods: { value: string; label: string }[];
   periodo: string;
   periodDisabled: boolean;
-  view: string;
+  /** Prompt AC2: as visões anual e mensal aparecem juntas; `view` não é mais escolhido aqui. */
+  view?: string;
   vs: string;
   /** Recorte customizado (competência interna "MM/YYYY"). */
   de: string;
@@ -59,8 +60,7 @@ export function DreControls({
       if (patch.vkind && patch.vkind !== "atual") params.set("vkind", patch.vkind);
       else params.delete("vkind");
     }
-    if (next.view) params.set("view", next.view);
-    else params.delete("view");
+    params.delete("view");
     if (next.vs) params.set("vs", next.vs);
     else params.delete("vs");
     // De/Até só valem no recorte customizado.
@@ -150,15 +150,6 @@ export function DreControls({
           </Button>
         </div>
       )}
-      <Select
-        value={view}
-        disabled={pending}
-        onChange={(e) => go({ view: e.target.value })}
-        className="h-9 w-auto"
-      >
-        <option value="">Consolidado</option>
-        <option value="mensal">Mensal (coluna por mês)</option>
-      </Select>
     </div>
   );
 }

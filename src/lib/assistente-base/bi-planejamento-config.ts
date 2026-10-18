@@ -54,8 +54,8 @@ Regras gerais:
 **O que se faz:**
 - Escopo: projeto (inclusive Matriz/Filial), Empresa toda, Ativos ou Finalizados.
 - Período: Acumulado, um ano ou Personalizado, o mesmo para todas as colunas.
-- Visão: Consolidado (com "% Receita") ou Mensal.
-- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão Atualizada, Atual).
+- Duas visões na mesma tela: a anual (o período escolhido, com "% Receita") em cima e a mensal (uma coluna por mês) logo abaixo.
+- Com um projeto, compara **versões**. Com vários, compara **cenários** (Orçamento, Previsão Atualizada, Atual). Marque nas caixas de seleção o que entra.
 
 **O que confunde:**
 - "—" significa nenhum lançamento. "R$ 0" é uma soma que deu zero.

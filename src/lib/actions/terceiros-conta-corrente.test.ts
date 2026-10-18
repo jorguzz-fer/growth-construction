@@ -64,7 +64,7 @@ describe.skipIf(!HAS_DB)("Terceiros — saída segue a despesa e conta corrente 
     }
     const [s] = await db.insert(schema.stakeholders).values({ tenantId, nome: "Sócio B11", papeis: ["Sócio/Quotista"] }).returning();
     socioId = s.id;
-    ctxRef.current = { tenant: t, projects: [a, b], userId: null, userEmail: "quem@teste", role: "owner", perms: defaultPermissions("owner") };
+    ctxRef.current = { tenant: t, projects: [a, b], userId: null, userEmail: "quem@teste", role: "owner", perms: defaultPermissions("owner", { operadorDaPlataforma: true }) }; // Prompt PLAT: liga chave / baixa backup — só a plataforma
   });
   afterAll(async () => {
     if (tenantId) await db.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));

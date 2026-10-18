@@ -26,7 +26,8 @@ describe.skipIf(!HAS_DB)("Chaves de mudança por empresa (B4)", async () => {
     userId: null,
     userEmail: "quem@teste",
     role,
-    perms: effectivePermissions(role, null),
+    // Prompt PLAT: quem liga chave é o operador da plataforma.
+    perms: effectivePermissions(role, null, { operadorDaPlataforma: true }),
   });
   const fd = (campos: Record<string, string>) => {
     const f = new FormData();
@@ -56,6 +57,13 @@ describe.skipIf(!HAS_DB)("Chaves de mudança por empresa (B4)", async () => {
       ...ctx(tA, "membro"),
       perms: effectivePermissions("membro", { chaves: { ver: true, criar: true, editar: true, excluir: true } }),
     };
+    const r = await definirChave(fd({ chave: "membro_padrao_restrito", ligar: "1", viPrevia: "on" }));
+    expect(r.ok).toBe(false);
+    expect(await membroRestritoNoTenant(tA.id)).toBe(false);
+  });
+
+  it("Prompt PLAT: owner do cliente, sem ser operador da plataforma, não liga", async () => {
+    ctxRef.current = { ...ctx(tA, "owner"), perms: effectivePermissions("owner", null) };
     const r = await definirChave(fd({ chave: "membro_padrao_restrito", ligar: "1", viPrevia: "on" }));
     expect(r.ok).toBe(false);
     expect(await membroRestritoNoTenant(tA.id)).toBe(false);
@@ -148,7 +156,7 @@ describe.skipIf(!HAS_DB)("Chaves de mudança por empresa (B4)", async () => {
       const { GET } = await import("@/app/(app)/chaves/previa/route");
       ctxRef.current = ctx(tB, "owner");
       expect((await GET(new Request("http://x/chaves/previa?chave=membro_padrao_restrito"))).status).toBe(400);
-      ctxRef.current = ctx(tB, "membro");
+      ctxRef.current = { ...ctx(tB, "membro"), perms: effectivePermissions("membro", null) };
       expect((await GET(new Request("http://x/chaves/previa?chave=dre_definicao_nova"))).status).toBe(403);
     });
   });
