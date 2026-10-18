@@ -62,6 +62,11 @@ describe.skipIf(!HAS_DB)("Prompt D · grade de Orçamentos", async () => {
     expect(d.despesas.map((r) => r.rowKey)).toEqual(["1", "F"]);
   });
 
+  it("Prompt D2: a recusa volta como { ok: false, error } (chega à tela em produção)", async () => {
+    expect(await saveBudgetPlanning(budgetId, "despesa", [conta("1", 500, [-10, 0, 0])])).toEqual({ ok: false, error: 'Percentual negativo em "1".' });
+    expect(await saveBudgetPlanning("00000000-0000-0000-0000-000000000000", "despesa", [])).toEqual({ ok: false, error: "Versão não encontrada." });
+  });
+
   it("salvar receitas sem mandar a legada NÃO a apaga (BG-11); o total da fixa é o do cadastro, não o do cliente", async () => {
     await saveBudgetPlanning(budgetId, "receita", [conta(RECEITAS_PROJETO_KEY, 999, [50, 50, 0], "Receita"), conta("OR", 1000, [100, 0, 0], "Receita")]);
     expect(await contasGravadas("receita")).toEqual(["OR=1000", "Receita=204140.4", `${RECEITAS_PROJETO_KEY}=270000`]);

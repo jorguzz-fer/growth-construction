@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ContextoDeTela, FormularioDaTela, PropostaDePreenchimento } from "@/lib/cris";
+import { repartirProposta, unirFormularios } from "@/lib/cris-formularios";
 
 /**
  * Prompt E2 — o que a tela aberta conta para a Cris.
@@ -35,24 +36,37 @@ export function CrisProvider({ children }: { children: React.ReactNode }) {
   const sp = useSearchParams();
   const rota = `${pathname}${sp.toString() ? `?${sp.toString()}` : ""}`;
   const [base, setBase] = useState<Omit<ContextoDeTela, "rota" | "formulario"> | null>(null);
-  const [formulario, setFormulario] = useState<FormularioDaTela | null>(null);
-  const aplicarRef = useRef<Aplicar | null>(null);
+  // Prompt D2: a tela pode ter mais de um formulário (ex.: Receitas e
+  // Despesas do Orçamento). Com mais de um, a Cris vê um só, com os campos
+  // prefixados pelo id de cada um; a proposta é repartida de volta.
+  const [formularios, setFormularios] = useState<FormularioDaTela[]>([]);
+  const aplicarRef = useRef(new Map<string, Aplicar>());
   const [pedidoPendente, setPedido] = useState<string | null>(null);
 
   const registrarFormulario = useCallback((f: FormularioDaTela, aplicar: Aplicar) => {
-    setFormulario(f);
-    aplicarRef.current = aplicar;
+    setFormularios((lista) => [...lista.filter((x) => x.id !== f.id), f]);
+    aplicarRef.current.set(f.id, aplicar);
     return () => {
-      setFormulario((atual) => (atual?.id === f.id ? null : atual));
-      if (aplicarRef.current === aplicar) aplicarRef.current = null;
+      setFormularios((lista) => lista.filter((x) => x.id !== f.id));
+      if (aplicarRef.current.get(f.id) === aplicar) aplicarRef.current.delete(f.id);
     };
   }, []);
 
+  const formulario = useMemo(() => unirFormularios(formularios), [formularios]);
+
   const aplicarProposta = useCallback((p: PropostaDePreenchimento) => {
-    if (!aplicarRef.current || !formulario || formulario.id !== p.formulario) return false;
-    aplicarRef.current(p);
-    return true;
-  }, [formulario]);
+    if (!formulario || formulario.id !== p.formulario) return false;
+    const partes = formularios.length > 1 ? repartirProposta(p, formularios) : [p];
+    let aplicou = false;
+    for (const parte of partes) {
+      const fn = aplicarRef.current.get(parte.formulario);
+      if (fn) {
+        fn(parte);
+        aplicou = true;
+      }
+    }
+    return aplicou;
+  }, [formulario, formularios]);
 
   const tela = useMemo<ContextoDeTela | null>(() => {
     if (!base && !formulario) return null;

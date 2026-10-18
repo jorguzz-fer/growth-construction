@@ -1,5 +1,6 @@
 "use client";
 
+import { dadosOuErro } from "@/lib/resultado";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
@@ -95,7 +96,7 @@ export function ReceitaProjetosMatrix({
     setMsg(null);
     start(async () => {
       try {
-        const res = await saveBudgetReceita(kind, collectCells());
+        const res = dadosOuErro(await saveBudgetReceita(kind, collectCells()));
         if (res?.skipped?.length)
           setMsg(`Salvo — exceto: ${res.skipped.join(", ")}. Descongele a versão para editar.`);
         else setMsg("Receitas salvas.");
@@ -151,7 +152,7 @@ export function ReceitaProjetosMatrix({
           });
         }
         setData(next);
-        const res = await saveBudgetReceita(kind, cells);
+        const res = dadosOuErro(await saveBudgetReceita(kind, cells));
         // Resumo do processamento (item 3): anos, valores, linhas, não encontrados.
         const partes = [
           `${linhasDados} linha(s) lida(s)`,

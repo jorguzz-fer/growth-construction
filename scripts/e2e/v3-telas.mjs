@@ -190,6 +190,26 @@ const texto = async (page, url) => {
   const obraParaCadastro = await page.locator("select option").nth(1).getAttribute("value");
   await texto(page, `/projeto?proj=${obraParaCadastro}`);
   check("AE2: cadastro do projeto tem a área construída", (await page.locator('input[aria-label="Área construída (m²)"]').count()) >= 1);
+
+  // D2 — Orçamentos: alteração não salva marca a tela e pede confirmação ao sair.
+  await texto(page, `/budget?proj=${obraParaCadastro}`);
+  check("D2: abre sem alteração pendente", (await page.locator("[data-nao-salvo]").count()) === 0);
+  await page.click("[data-chat-botao]");
+  check("D2: a Cris sabe a grade do Orçamento (receitas e despesas)", /Receitas do Orçamento.*Despesas do Orçamento/.test((await page.textContent("[data-chat-contexto]")) ?? ""), ((await page.textContent("[data-chat-contexto]")) ?? "").slice(0, 120));
+  await page.click("[data-chat-botao]");
+  const celula = page.locator("table tbody input").first();
+  await celula.fill("7");
+  await celula.blur();
+  check("D2: editar marca 'Alterações não salvas'", (await page.locator("[data-nao-salvo]").count()) >= 1);
+  let perguntou = "";
+  page.once("dialog", async (d) => { perguntou = d.message(); await d.dismiss(); });
+  await page.locator('a[href="/projeto"]:visible').first().click();
+  await page.waitForTimeout(800);
+  check("D2: sair pelo menu pede confirmação e cancelar fica na tela", /não salvas/.test(perguntou) && page.url().includes("/budget"), perguntou);
+  page.once("dialog", (d) => d.accept());
+  await page.locator('a[href="/projeto"]:visible').first().click();
+  await page.waitForURL(/\/projeto/, { timeout: 60000 }).catch(() => {});
+  check("D2: confirmar sai sem gravar", page.url().includes("/projeto"), page.url());
   await page.context().close();
 }
 

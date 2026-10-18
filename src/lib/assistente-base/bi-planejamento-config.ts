@@ -244,6 +244,8 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
   - cartões Receitas, Despesas, Resultado e Recursos próprios.
 - **Receitas**: o total vem do cadastro. Só a distribuição mensal se edita.
 - **Despesas**: total da linha + % por mês. O valor mensal é calculado, e a soma não pode passar de 100%.
+- **Preencher com a Cris**: diga, dite ou anexe o que planejar (ex.: "fundação 500 mil de 03/2026 a 08/2026"). A Cris preenche o total e a distribuição das linhas — igual entre os meses de um intervalo, ou com o % de cada mês — e a tela mostra o que ela preencheu. Nada é gravado: confira e clique em Salvar receitas ou Salvar despesas. Na Previsão Atualizada, ela só mexe na distribuição.
+- **Alterações não salvas**: com algo mudado e não salvo, a tela mostra o aviso, e sair por um link ou fechar a aba pede confirmação.
 - Ações:
   - incluir linha do Plano de Contas;
   - remover linha (pede confirmação se tiver valor);

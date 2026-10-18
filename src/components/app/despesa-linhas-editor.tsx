@@ -1,5 +1,6 @@
 "use client";
 
+import { dadosOuErro } from "@/lib/resultado";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
@@ -132,7 +133,7 @@ export function DespesaLinhasEditor({
     setMsg(null);
     start(async () => {
       try {
-        await saveBudgetDespesaLinhas(kind, collect());
+        dadosOuErro(await saveBudgetDespesaLinhas(kind, collect()));
         setMsg("Despesas salvas.");
         router.refresh();
       } catch (e) {
@@ -198,14 +199,14 @@ export function DespesaLinhasEditor({
         setLinhas(next);
         // IMPORTANTE (item 3): usa TODOS os meses parseados de cada linha — não os
         // meses exibidos — para não descartar anos além do horizonte atual.
-        await saveBudgetDespesaLinhas(
+        dadosOuErro(await saveBudgetDespesaLinhas(
           kind,
           next.map((l) => ({
             projectId: l.projectId, grupoCode: l.grupoCode, dreCategory: l.dreCategory,
             cef: byGrupoCode.get(l.grupoCode)?.cef ?? false,
             values: Object.entries(l.values).map(([mes, v]) => ({ mes, valor: Number(v) || 0 })),
           })),
-        );
+        ));
         const valoresImportados = next.reduce((a, l) => a + Object.keys(l.values).length, 0);
         const partes = [
           `${linhasDados} linha(s) lida(s)`,

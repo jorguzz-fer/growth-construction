@@ -10,6 +10,7 @@ import { getAtualVersion, getBudgetPlanning, getDespesas } from "@/lib/queries";
 import { hojeISO } from "@/lib/despesa-status";
 import { contasParaGravar, proporDoOrcamento, proporDoRealizado, recusaDaProposta, type OrigemDaReprojecao, type PropostaDeReprojecao } from "@/lib/previsao-reprojecao";
 import { duplicateForecast, saveBudgetPlanning } from "@/lib/actions/planning";
+import { dadosOuErro } from "@/lib/resultado";
 
 /**
  * Reprojeção sugerida pelo assistente (Prompt F, 8.1–8.5).
@@ -87,7 +88,7 @@ export async function criarRevisaoComReprojecao(versionId: string, origem: Orige
   try {
     for (const bloco of ["receita", "despesa"] as const) {
       const contas = contasParaGravar(proposta.proposta, bloco, bloco === "receita" ? nova.receitas : nova.despesas, nova.months);
-      if (contas.length > 0) await saveBudgetPlanning(criada.id, bloco, contas);
+      if (contas.length > 0) dadosOuErro(await saveBudgetPlanning(criada.id, bloco, contas));
     }
   } catch (e) {
     return { ok: false, error: `A revisão “${nome}” foi criada, mas a distribuição não pôde ser aplicada: ${e instanceof Error ? e.message : "falha ao salvar"}.` };

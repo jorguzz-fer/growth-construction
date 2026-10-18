@@ -1,5 +1,7 @@
 "use server";
 
+import { capturar } from "@/lib/resultado";
+
 import * as XLSX from "xlsx";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -117,7 +119,7 @@ async function replaceLines(
 }
 
 /** Salva o lançamento simplificado (uma aba: receita ou despesa) de uma versão. */
-export async function saveBudgetLines(
+async function _saveBudgetLines(
   versionId: string,
   kind: "receita" | "despesa",
   cells: BudgetCell[],
@@ -218,10 +220,10 @@ async function receitaTotal(versionId: string, isOutras: boolean): Promise<numbe
     .reduce((a, r) => a + Number(r.valor), 0);
 }
 
-export async function saveBudgetReceita(
+async function _saveBudgetReceita(
   kind: "budget" | "forecast",
   cells: ReceitaProjetoCell[],
-): Promise<{ skipped: string[] }> {
+): Promise< { skipped: string[] }> {
   const ctx = await getTenantContext();
   if (!ctx || !can(ctx.perms, kind, "editar")) throw new Error("Sem permissão.");
 
@@ -291,7 +293,7 @@ export async function saveBudgetReceita(
 }
 
 /** Copia os lançamentos do Budget do projeto para a versão Forecast. */
-export async function importFromBudget(forecastVersionId: string) {
+async function _importFromBudget(forecastVersionId: string) {
   const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const target = await loadBudgetTarget(ctx, forecastVersionId);
@@ -382,7 +384,7 @@ const groupCode = (label: string): string => {
  * Importa uma planilha (mesmo formato do export: abas Receitas e Despesas,
  * linhas × meses) para o lançamento simplificado da versão.
  */
-export async function importBudgetXlsx(formData: FormData) {
+async function _importBudgetXlsx(formData: FormData) {
   const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const versionId = (formData.get("versionId") as string) || "";
@@ -461,7 +463,7 @@ export interface DespesaLinhaInput {
  * pelas linhas enviadas (trata inclusões, edições e remoções). Grupos CEF
  * (custo direto de obra) só podem ser vinculados a projetos (obras).
  */
-export async function saveBudgetDespesaLinhas(
+async function _saveBudgetDespesaLinhas(
   kind: "budget" | "forecast",
   lines: DespesaLinhaInput[],
 ) {
@@ -540,7 +542,7 @@ export async function saveBudgetDespesaLinhas(
 }
 
 /** Deriva os lançamentos simplificados a partir da versão "atual" (detalhada). */
-export async function replicateFromAtual(targetVersionId: string) {
+async function _replicateFromAtual(targetVersionId: string) {
   const ctx = await getTenantContext();
   if (!ctx) throw new Error("Sem permissão.");
   const target = await loadBudgetTarget(ctx, targetVersionId);
@@ -594,4 +596,34 @@ export async function replicateFromAtual(targetVersionId: string) {
     meta: { receita: receitaCells.length, despesa: despMap.size },
   });
   revalidateLancamento();
+}
+
+// Prompt D2 — as ações da tela devolvem { ok, error } (ver lib/resultado.ts).
+export async function saveBudgetLines(
+  versionId: string,
+  kind: "receita" | "despesa",
+  cells: BudgetCell[],
+) {
+  return capturar(() => _saveBudgetLines(versionId, kind, cells), "saveBudgetLines");
+}
+export async function saveBudgetReceita(
+  kind: "budget" | "forecast",
+  cells: ReceitaProjetoCell[],
+) {
+  return capturar(() => _saveBudgetReceita(kind, cells), "saveBudgetReceita");
+}
+export async function importFromBudget(forecastVersionId: string) {
+  return capturar(() => _importFromBudget(forecastVersionId), "importFromBudget");
+}
+export async function importBudgetXlsx(formData: FormData) {
+  return capturar(() => _importBudgetXlsx(formData), "importBudgetXlsx");
+}
+export async function saveBudgetDespesaLinhas(
+  kind: "budget" | "forecast",
+  lines: DespesaLinhaInput[],
+) {
+  return capturar(() => _saveBudgetDespesaLinhas(kind, lines), "saveBudgetDespesaLinhas");
+}
+export async function replicateFromAtual(targetVersionId: string) {
+  return capturar(() => _replicateFromAtual(targetVersionId), "replicateFromAtual");
 }
