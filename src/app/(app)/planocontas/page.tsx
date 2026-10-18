@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { PlanoContasManager } from "@/components/app/planocontas-manager";
 import { AccessDenied } from "@/components/app/access-denied";
+import { PropostaDeContas } from "@/components/app/planocontas-cris";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,12 @@ export default async function PlanoContasPage() {
 
       {/* Prompt G, Parte 1 — restyle no ponto de uso (cartão 16px / `--color-line`);
           `Card` compartilhado não muda. Conteúdo, textos e ordem: idênticos. */}
+      {/* Prompt G2 — a Cris propõe contas novas; a pessoa confere e cria. */}
+      <PropostaDeContas
+        grupos={[...cef, ...comp].map((g) => ({ code: g.code, name: g.name, kind: g.kind }))}
+        codigos={rows.map((r) => r.code)}
+        podeCriar={perms.criar}
+      />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <PlanoContasManager cef={cef} comp={comp} perms={perms} />
 

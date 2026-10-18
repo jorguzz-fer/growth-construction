@@ -109,6 +109,10 @@ const texto = async (page, url) => {
   const plano = await texto(page, "/planocontas");
   const comCategoria = await page.locator("[data-categoria-conta]").count();
   check("DP: cada conta do plano mostra a categoria da DRE", comCategoria > 10 && plano.includes("(padrão)"), `${comCategoria} contas`);
+  await page.click("[data-chat-botao]");
+  await page.waitForFunction(() => /Novas contas do Plano de Contas/.test(document.querySelector("[data-chat-contexto]")?.textContent ?? ""), null, { timeout: 15000 }).catch(() => {});
+  check("G2: a Cris pode propor contas no Plano de Contas", /Novas contas do Plano de Contas/.test((await page.textContent("[data-chat-contexto]")) ?? ""));
+  await page.click("[data-chat-botao]");
   check("DP: gasto de obra nasce Custo Variável", ((await page.textContent('[data-categoria-conta="1.1"]')) ?? "").includes("Custo Variável"));
   const chaves = await texto(page, "/chaves");
   check("DP: a chave aparece desligada com a prévia", chaves.includes("Despesa herda a categoria da DRE do Plano de Contas") && (await page.locator("#previa-categoria [data-previa-categoria-total]").count()) === 1);
