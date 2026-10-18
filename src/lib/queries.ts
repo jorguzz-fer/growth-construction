@@ -2547,6 +2547,12 @@ export async function getMedicoes(tenantId: string, versionId: string, opts: { a
 export async function getMonthlyRevenue(
   versionId: string,
   projectId: string,
+  /**
+   * Prompt AD2 — balde de tempo. Ausente: mês "MM/YYYY", exatamente como
+   * sempre. Com balde (ex.: semana), cada valor cai na chave que ele devolver
+   * para a data ("MM/DD/YYYY") ou a competência ("MM/YYYY") de origem.
+   */
+  bucket?: (data: string) => string | null,
 ): Promise<MonthlyProjection> {
   const versao = await versaoKindETenant(versionId);
   const kind = versao?.kind ?? null;
@@ -2563,7 +2569,10 @@ export async function getMonthlyRevenue(
         ),
       );
     const out: MonthlyProjection = {};
-    for (const l of lines) out[l.mes] = (out[l.mes] || 0) + Number(l.valor);
+    for (const l of lines) {
+      const k = bucket ? bucket(l.mes) : l.mes;
+      if (k) out[k] = (out[k] || 0) + Number(l.valor);
+    }
     return out;
   }
 
@@ -2580,12 +2589,21 @@ export async function getMonthlyRevenue(
     for (const rec of expandUnitReceivables(r.paymentPlan, r.status)) {
       const p = rec.dia.split("/");
       if (p.length !== 3) continue;
-      const mk = `${p[0]}/${p[2]}`;
-      out[mk] = (out[mk] || 0) + rec.valor;
+      const mk = bucket ? bucket(rec.dia) : `${p[0]}/${p[2]}`;
+      if (mk) out[mk] = (out[mk] || 0) + rec.valor;
     }
   }
-  const reemb = reembursementsByMonth(reembToCalc(reembRows));
-  for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  if (bucket) {
+    // Mesma regra de `reembursementsByMonth` (data completa, valor > 0), no balde pedido.
+    for (const r of reembToCalc(reembRows)) {
+      if (!r.data || !(r.valor > 0) || r.data.split("/").length !== 3) continue;
+      const k = bucket(r.data);
+      if (k) out[k] = (out[k] || 0) + r.valor;
+    }
+  } else {
+    const reemb = reembursementsByMonth(reembToCalc(reembRows));
+    for (const [mm, v] of Object.entries(reemb)) out[mm] = (out[mm] || 0) + v;
+  }
 
   // CONTAS A RECEBER lançadas do projeto — a projeção de receita futura da
   // versão Atual depende delas. Sem isto, uma receita lançada à mão (fora de um
@@ -2606,8 +2624,8 @@ export async function getMonthlyRevenue(
   for (const c of crRows) {
     const p = (c.vencimento ?? "").split("/");
     if (p.length !== 3) continue;
-    const mk = `${p[0]}/${p[2]}`;
-    out[mk] = (out[mk] || 0) + Number(c.valor);
+    const mk = bucket ? bucket(c.vencimento!) : `${p[0]}/${p[2]}`;
+    if (mk) out[mk] = (out[mk] || 0) + Number(c.valor);
   }
   return out;
 }

@@ -46,10 +46,18 @@ export async function flowMaps(
    * permuta (fato) NÃO entra na coluna de planejamento (1.2): Orçamento e
    * Previsão ficam só com `budget_line`. Desligada: exatamente o de antes.
    */
-  opts: { definicaoNova?: boolean } = {},
+  opts: {
+    definicaoNova?: boolean;
+    /**
+     * Prompt AD2 — balde de tempo (ex.: `semanaDe`). Ausente: o mês, como
+     * sempre (`vencMonth`); nenhum número mensal muda por causa disto.
+     */
+    bucket?: (data: string | null) => string | null;
+  } = {},
 ): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
+  const b = opts.bucket ?? vencMonth;
   const [entradas, despesas, permutas, parcelas] = await Promise.all([
-    getMonthlyRevenue(version.id, projectId),
+    getMonthlyRevenue(version.id, projectId, opts.bucket ? (d) => opts.bucket!(d) : undefined),
     getDespesas(version.id),
     getPermutas(version.tenantId, version.id),
     getParcelasByVersion(version.id),
@@ -59,7 +67,9 @@ export async function flowMaps(
   if (!(opts.definicaoNova && isBudgetVersion(version.kind))) {
     const permCash = permutaCashByMonth(permToResale(permutas));
     for (const [mm, v] of Object.entries(permCash)) {
-      entradas[mm] = (entradas[mm] || 0) + v;
+      // A revenda parcelada só tem o mês: no balde semanal, a semana do dia 1º.
+      const k = opts.bucket ? opts.bucket(mm) : mm;
+      if (k) entradas[k] = (entradas[k] || 0) + v;
     }
   }
 
@@ -68,14 +78,14 @@ export async function flowMaps(
     // Budget/Forecast: saídas do lançamento simplificado (por competência).
     const expenses = await getExpenseRows(version.id);
     for (const e of expenses) {
-      const mm = vencMonth(e.competencia);
+      const mm = b(e.competencia);
       if (mm) saidas[mm] = (saidas[mm] || 0) + e.valor;
     }
   } else {
     // Versão detalhada: despesas pagas por terceiro NÃO geram saída na
     // competência — a saída ocorre só na restituição (Fase 4).
     const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
-      await getRestituicoesPendentesByVersion(version.id);
+      await getRestituicoesPendentesByVersion(version.id, opts.bucket ? (d) => opts.bucket!(d) : undefined);
     const excluir = new Set(terceiroIds);
     const comParcela = new Set(parcelas.map((p) => p.despesaId));
     // Despesas CANCELADAS não geram saída. Antes só as parcelas canceladas eram
@@ -89,12 +99,12 @@ export async function flowMaps(
         canceladas.has(p.despesaId)
       )
         continue;
-      const mm = vencMonth(p.vencimento);
+      const mm = b(p.vencimento);
       if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
     }
     for (const d of despesas) {
       if (comParcela.has(d.id) || excluir.has(d.id) || d.cancelado) continue;
-      const mm = vencMonth(d.vencimento) ?? vencMonth(d.competencia);
+      const mm = b(d.vencimento) ?? b(d.competencia);
       if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
     }
     for (const [mm, v] of Object.entries(restPrevistas)) {
@@ -126,6 +136,8 @@ export async function flowMaps(
  */
 export async function flowMapsRealizado(
   versionId: string,
+  /** Prompt AD2 — balde de tempo; ausente, o mês. */
+  bucket: (data: string | null) => string | null = vencMonth,
 ): Promise<{ entradas: Record<string, number>; saidas: Record<string, number>; semData: { qtd: number; valor: number } }> {
   const entradas: Record<string, number> = {};
   const saidas: Record<string, number> = {};
@@ -136,7 +148,7 @@ export async function flowMapsRealizado(
     // Sem data não há competência de caixa a atribuir — o lançamento existe,
     // mas não entra em nenhum mês (e some-lo do total seria pior do que
     // reportá-lo em mês errado).
-    const mm = vencMonth(c.data);
+    const mm = bucket(c.data);
     if (!mm) {
       const v = Number(c.valor);
       if (Number.isFinite(v) && v !== 0) {

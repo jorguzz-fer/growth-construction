@@ -59,6 +59,16 @@ const texto = async (page, url) => {
   check("AC2: cenários em caixas de seleção", caixas >= 3, `${caixas} caixas`);
   check("AC2: seletor Consolidado/Mensal saiu", !(await page.locator('option[value="mensal"]').count()));
   await page.screenshot({ path: `${OUT}/v3-dre.png`, fullPage: true });
+
+  const fluxo = await texto(page, "/fluxocaixa?proj=all");
+  check("AD2: Fluxo de Caixa tem a visão semanal", fluxo.includes("Visão semanal"));
+  const linhasSem = await page.locator("[data-fluxo-semanal] tbody tr").count();
+  check("AD2: janela de 13 semanas", linhasSem === 13, `${linhasSem} linhas`);
+  check("AD2: marca a semana atual", fluxo.includes("esta semana"));
+  await page.click("text=Próximas →");
+  await page.waitForURL(/[?&]sem=/, { timeout: 60000 }).catch(() => {});
+  check("AD2: navega para as próximas semanas", /[?&]sem=\d{4}-\d{2}-\d{2}/.test(page.url()), page.url());
+  await page.screenshot({ path: `${OUT}/v3-fluxo.png`, fullPage: true });
   await page.context().close();
 }
 
