@@ -86,7 +86,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 22 | **M2** | Clientes: cadastro por foto e perfil da base | **Feito em parte em 18/10** ([relatório](./V3-PROMPT-M2-FINAL.md)): perfil da base; o cadastro por foto espera BM2-1 | Leitura de documento nova (documento pessoal: regra de privacidade BE-2 vale). Perfil da base é relatório (IAR). |
 | 23 | **K2** | Contas a Receber e Liberações: chat lança | **Feito em 18/10** ([relatório](./V3-PROMPT-K2-FINAL.md)) | Edição por linha já existe; confirmar o que falta. |
 | 24 | **P2** | Permuta: documentos do ativo e chat | **Feito em 18/10** ([relatório](./V3-PROMPT-P2-FINAL.md)) | Upload de documento e foto do ativo. |
-| 25 | **N2** | Simulador | **espera a conferência do Thiago** | O dono pediu a ele em 18/10. |
+| 25 | **N2** | Simulador | **Feito em 18/10** ([relatório](./V3-PROMPT-N2-FINAL.md)), a pedido do dono, sem a conferência do Thiago | Volta ao parcelamento da planilha; proposta ao cliente em PDF com a Cris. |
 | 26 | **AG2** | Emissão de NF-e no menu de Receitas | BAG2-1 | A tela não está neste repositório. Entra quando chegar. |
 
 ## Bloco 4 · Despesas, Caixa, Obra, Pessoas e Configurações
@@ -166,8 +166,8 @@ Sem resposta pendente, podem começar agora: **REN**, **AC2**, **AD2**,
 **PLAT** (com BPLAT-1 respondido em uma linha) e a base de **PDF**. Depois
 **E2**, que destrava o resto. **DP** assim que o Thiago fizer a associação
 do cliente na tela (o prompt entrega o campo e o padrão; a chave liga depois).
-**L2** antes de **AB2**. **N2** espera a conferência do Thiago sobre o
-Simulador; o resto está liberado pelas respostas de 18/10.
+**L2** antes de **AB2**. **N2** foi liberado pelo dono em 18/10, antes da
+conferência do Thiago; o resto está liberado pelas respostas de 18/10.
 
 ```
 REN, AC2, AD2, PLAT, PDF: independentes

@@ -238,6 +238,23 @@ const texto = async (page, url) => {
   await texto(page, "/acoes?acao=membership");
   check("AK2: o filtro por ação funciona", (await page.locator("tbody tr").count()) >= 1 && !((await page.textContent("tbody")) ?? "").match(/\bdespesa\.(create|update)\b/));
   check("AF2: a Cris sugere a numeração", /Numeração de despesas/.test(await ctxCris("/numeracao", "Numeração de despesas")));
+  // N2 — Simulador: parcelamento da planilha, proposta ao cliente e a Cris sem a renda.
+  await texto(page, `/simulador?proj=${obraParaCadastro}`);
+  await page.fill('input[aria-label="Valor do imóvel"]', "537027");
+  await page.fill('input[aria-label="Ato de assinatura"]', "30000");
+  await page.fill('input[aria-label="Sinal 1"]', "3000");
+  await page.fill('input[aria-label="Nº de mensais"]', "90");
+  await page.fill('input[aria-label="Renda familiar"]', "16000");
+  await page.waitForSelector("[data-proposta]", { timeout: 15000 }).catch(() => {});
+  check("N2: o simulador mostra os cinco números da planilha", (await page.locator("[data-kpis-simulador] > *").count()) === 5);
+  check("N2: o comprometimento de renda aparece em %", /Comprometimento de renda: \d/.test((await page.textContent("[data-comprometimento]").catch(() => "")) ?? ""));
+  check("N2: a proposta ao cliente lista o plano", /Ato \(assinatura\)[\s\S]*Sinal 1[\s\S]*90 mensais/.test((await page.textContent("[data-plano-da-proposta]").catch(() => "")) ?? ""));
+  check("N2: a proposta não mostra a renda nem o limite", !/16\.000|renda|limite/i.test((await page.textContent("[data-proposta]").catch(() => "")) ?? ""));
+  await page.click("[data-chat-botao]");
+  await page.waitForFunction(() => /Simulador de Unidade/.test(document.querySelector("[data-chat-contexto]")?.textContent ?? ""), null, { timeout: 15000 }).catch(() => {});
+  const ctxSim = (await page.textContent("[data-chat-contexto]")) ?? "";
+  check("N2: a Cris conhece a simulação", /Simulador de Unidade/.test(ctxSim));
+  await page.click("[data-chat-botao]");
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));
