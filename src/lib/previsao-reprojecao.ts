@@ -95,17 +95,30 @@ export function proporDoOrcamento(args: { months: string[]; previsao: { receitas
 
 /**
  * 8.1-2: despesas da versão Atual nas competências decorridas; o restante do
- * total, por igual, nos meses futuros. Receitas não mudam (o realizado de
- * receita não vem de despesa). `realizado` = rowKey → mês → valor (R$).
+ * total, por igual, nos meses futuros. `realizado` = rowKey → mês → valor (R$).
+ *
+ * Prompt F2 (revisão V5: "substitui os meses passados pelo Atual"): com
+ * `receitaRealizada` (mês → R$, a receita da DRE na Atual), a linha Receitas
+ * do Projeto entra também: os meses passados com a receita da Atual, o resto
+ * do total por igual nos futuros. As outras linhas de receita não mudam.
  */
-export function proporDoRealizado(args: { months: string[]; hojeMes: string; previsao: { receitas: PlanningAccountRow[]; despesas: PlanningAccountRow[] }; realizado: Record<string, Record<string, number>> }): PropostaDeReprojecao {
-  const { months, hojeMes, previsao, realizado } = args;
+export function proporDoRealizado(args: {
+  months: string[];
+  hojeMes: string;
+  previsao: { receitas: PlanningAccountRow[]; despesas: PlanningAccountRow[] };
+  realizado: Record<string, Record<string, number>>;
+  receitaRealizada?: Record<string, number>;
+}): PropostaDeReprojecao {
+  const { months, hojeMes, previsao, realizado, receitaRealizada } = args;
   const decorridas = competenciasDecorridas(months, hojeMes);
   const futuras = months.filter((m) => !decorridas.includes(m));
   const contas: ContaReprojetada[] = [];
-  for (const row of previsao.despesas) {
+  const linhas = [
+    ...(receitaRealizada ? previsao.receitas.filter((r) => r.fixa).map((row) => ({ row, bloco: "receita" as const, real: receitaRealizada })) : []),
+    ...previsao.despesas.map((row) => ({ row, bloco: "despesa" as const, real: realizado[row.rowKey] ?? {} })),
+  ];
+  for (const { row, bloco, real } of linhas) {
     if (row.total <= 0) continue;
-    const real = realizado[row.rowKey] ?? {};
     const depois: Record<string, number> = {};
     let usado = 0;
     for (const m of decorridas) {
@@ -117,7 +130,7 @@ export function proporDoRealizado(args: { months: string[]; hojeMes: string; pre
     const estouro = sobra < -0.005 ? r2(-sobra) : null;
     const porMes = futuras.length > 0 && sobra > 0 ? pct2((sobra / row.total) * 100 / futuras.length) : 0;
     for (const m of futuras) depois[m] = porMes;
-    contas.push(montarConta(row, "despesa", months, depois, estouro));
+    contas.push(montarConta(row, bloco, months, depois, estouro));
   }
   return fechar({ origem: "realizado", decorridas, contas });
 }
@@ -137,6 +150,9 @@ export function recusaDaProposta(p: PropostaDeReprojecao): string | null {
 }
 
 export function resumoDaProposta(p: PropostaDeReprojecao, brl: (n: number) => string): string {
-  const base = p.origem === "orcamento" ? "distribuição do Orçamento de origem" : `realizado da versão Atual em ${p.decorridas.length} competência(s) decorrida(s), restante por igual nos meses futuros`;
+  const base =
+    p.origem === "orcamento"
+      ? "distribuição do Orçamento de origem"
+      : `${p.contas.some((c) => c.bloco === "receita") ? "receita e despesas" : "despesas"} da versão Atual em ${p.decorridas.length} competência(s) decorrida(s), restante por igual nos meses futuros`;
   return `${p.alteradas} conta(s) mudam (${base}); variação mensal somada de ${brl(p.variacaoTotal)}${p.estouros ? `; ${p.estouros} com estouro` : ""}.`;
 }

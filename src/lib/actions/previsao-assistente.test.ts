@@ -102,7 +102,8 @@ describe.skipIf(!HAS_DB)("Prompt F · reprojeção proposta pelo assistente", as
     if (!f2.ok) throw new Error(f2.error);
     await db.insert(schema.despesas).values({ tenantId, versionId: a2.id, valor: "150", contaCef: "1.1", competencia: `01/${anoP}`, categoriaDre: "Custo Variável" });
     const prop = await proporReprojecao(f2.id, "realizado");
-    expect(prop.ok && prop.proposta.contas[0].estouro).toBe(50);
+    // Prompt F2: a linha Receitas do Projeto também entra; o estouro é da despesa.
+    expect(prop.ok && prop.proposta.contas.find((c) => c.bloco === "despesa")!.estouro).toBe(50);
     const r = await criarRevisaoComReprojecao(f2.id, "realizado", "R2");
     expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/acima do total herdado/) });
     const versoes = await db.select().from(schema.versions).where(and(eq(schema.versions.projectId, p2.id), eq(schema.versions.kind, "forecast")));

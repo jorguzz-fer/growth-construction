@@ -30,6 +30,7 @@ import { brl, brl0, dateBR } from "@/lib/utils";
 import { useCrisFormulario } from "@/components/app/cris-contexto";
 import { useAvisoAoSair } from "@/components/app/aviso-ao-sair";
 import { aplicarNaGrade, assinaturaDaGrade, formularioDoOrcamento } from "@/lib/orcamento-cris";
+import { competenciasDecorridas } from "@/lib/previsao-reprojecao";
 
 interface RowState {
   rowKey: string;
@@ -566,10 +567,17 @@ function Bloco({
   useAvisoAoSair(sujo);
   // Prompt D2 — a Cris preenche a grade (texto, ditado ou documento); quem grava é o Salvar.
   const [crisMsg, setCrisMsg] = useState<string | null>(null);
+  // Prompt F2 — na Previsão, os meses passados vêm da Atual (reprojeção) e a
+  // Cris só mexe nos futuros.
+  const mesesFixos = useMemo(() => {
+    if (!totalReadOnly) return [];
+    const d = new Date();
+    return competenciasDecorridas(months, `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`);
+  }, [totalReadOnly, months]);
   useCrisFormulario(
-    canEdit && versionId ? formularioDoOrcamento(bloco, rows.filter((r) => r.ativo || r.fixa), months, { totalSoLeitura: totalReadOnly, versao: totalReadOnly ? "Previsão Atualizada" : "Orçamento" }) : null,
+    canEdit && versionId ? formularioDoOrcamento(bloco, rows.filter((r) => r.ativo || r.fixa), months, { totalSoLeitura: totalReadOnly, versao: totalReadOnly ? "Previsão Atualizada" : "Orçamento", mesesFixos }) : null,
     (p) => {
-      const r = aplicarNaGrade(rows, months, p.valores);
+      const r = aplicarNaGrade(rows, months, p.valores, { mesesFixos });
       setRows(r.linhas);
       setOk(false);
       setCrisMsg(

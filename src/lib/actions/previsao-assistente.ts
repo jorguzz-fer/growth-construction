@@ -6,7 +6,7 @@ import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { getAtualVersion, getBudgetPlanning, getDespesas } from "@/lib/queries";
+import { getAtualVersion, getBudgetPlanning, getDespesas, getMonthlyRevenue } from "@/lib/queries";
 import { hojeISO } from "@/lib/despesa-status";
 import { contasParaGravar, proporDoOrcamento, proporDoRealizado, recusaDaProposta, type OrigemDaReprojecao, type PropostaDeReprojecao } from "@/lib/previsao-reprojecao";
 import { duplicateForecast, saveBudgetPlanning } from "@/lib/actions/planning";
@@ -62,7 +62,9 @@ async function montarProposta(tenantId: string, v: typeof schema.versions.$infer
     const grupo = d.contaCef.split(".")[0];
     (realizado[grupo] ??= {})[d.competencia] = (realizado[grupo]?.[d.competencia] ?? 0) + Number(d.valor);
   }
-  return { ok: true, proposta: proporDoRealizado({ months: previsao.months, hojeMes: mesDeHoje(), previsao: { receitas: previsao.receitas, despesas: previsao.despesas }, realizado }) };
+  // Prompt F2: a receita da Atual (a mesma da DRE, por competência) substitui os meses passados.
+  const receitaRealizada = await getMonthlyRevenue(atual.id, v.projectId);
+  return { ok: true, proposta: proporDoRealizado({ months: previsao.months, hojeMes: mesDeHoje(), previsao: { receitas: previsao.receitas, despesas: previsao.despesas }, realizado, receitaRealizada }) };
 }
 
 export async function proporReprojecao(versionId: string, origem: OrigemDaReprojecao): Promise<ResultadoProposta> {

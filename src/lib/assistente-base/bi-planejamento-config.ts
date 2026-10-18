@@ -277,6 +277,8 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 - Limite: 12 previsões por projeto.
 - A grade é igual à de Orçamentos, mas os totais e as linhas são **herdados** do Orçamento. Só os % mensais se editam.
 - Assistente: analisa a distribuição e os desvios. "Reprojetar em uma revisão nova" cria **outra** previsão.
+- **Partir do realizado** substitui os meses passados pelo que a versão Atual teve: as despesas por grupo do plano de contas e a receita da linha Receitas do Projeto (a mesma da DRE). O restante do total vai por igual nos meses futuros, numa revisão nova.
+- **Ajustar os meses futuros com a Cris**: por texto, ditado ou documento ("distribui o resto de 11/2026 a 03/2027"). Os meses passados ficam como estão; o intervalo reparte o que sobra de 100%. Nada é gravado até Salvar.
 
 **Não faz:** não muda totais, não inclui linhas (isso se faz no Orçamento) e não tem botão de excluir previsão.
 

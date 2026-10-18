@@ -52,3 +52,18 @@ describe("Prompt D2 — a Cris preenche a grade do Orçamento", () => {
     expect(partes).toEqual([{ formulario: "orcamento-despesa", valores: { "total:1": "10" }, conferir: {}, observacao: null }]);
   });
 });
+
+describe("Prompt F2 — na Previsão, a Cris só mexe nos meses futuros", () => {
+  it("o intervalo reparte o que sobra; os passados ficam", () => {
+    expect(distribuicaoDosMeses("01/2026 a 04/2026", MESES, { "01/2026": 30, "02/2026": 20 })).toEqual({ pct: { "01/2026": 30, "02/2026": 20, "03/2026": 25, "04/2026": 25 } });
+    expect(distribuicaoDosMeses("02/2026=10", MESES, { "02/2026": 20 })).toEqual({ erro: "02/2026 já passou: vem da Atual e não muda aqui." });
+    expect(distribuicaoDosMeses("03/2026=60; 04/2026=60", MESES, { "01/2026": 10 })).toEqual({ erro: "A soma passaria de 100%." });
+    expect(distribuicaoDosMeses("01/2026 a 02/2026", MESES, { "01/2026": 50, "02/2026": 50 })).toEqual({ erro: "Esses meses já passaram: vêm da Atual." });
+  });
+
+  it("aplicar na grade usa o % atual dos meses fixos de cada linha", () => {
+    const r = aplicarNaGrade([{ rowKey: "1", label: "Prel", total: "100", pct: { "01/2026": "40", "02/2026": "" } }], MESES, { "meses:1": "02/2026 a 04/2026" }, { mesesFixos: ["01/2026"] });
+    expect(r.linhas[0].pct).toEqual({ "01/2026": "40", "02/2026": "20", "03/2026": "20", "04/2026": "20" });
+    expect(formularioDoOrcamento("despesa", [], MESES, { mesesFixos: ["01/2026"] }).titulo).toContain("meses editáveis: 02/2026 a 04/2026");
+  });
+});

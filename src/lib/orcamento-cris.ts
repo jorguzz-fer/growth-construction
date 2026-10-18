@@ -26,12 +26,13 @@ export function formularioDoOrcamento(
   bloco: "receita" | "despesa",
   linhas: readonly LinhaDaGrade[],
   meses: readonly string[],
-  opts: { totalSoLeitura?: boolean; versao?: string } = {},
+  opts: { totalSoLeitura?: boolean; versao?: string; mesesFixos?: readonly string[] } = {},
 ): FormularioDaTela {
-  const intervalo = meses.length ? `${meses[0]} a ${meses[meses.length - 1]}` : "";
+  const editaveis = meses.filter((m) => !opts.mesesFixos?.includes(m));
+  const intervalo = editaveis.length ? `${editaveis[0]} a ${editaveis[editaveis.length - 1]}` : "";
   return {
     id: `orcamento-${bloco}`,
-    titulo: `${bloco === "receita" ? "Receitas" : "Despesas"} do ${opts.versao ?? "Orçamento"} (meses da grade: ${intervalo})`,
+    titulo: `${bloco === "receita" ? "Receitas" : "Despesas"} do ${opts.versao ?? "Orçamento"} (meses ${opts.mesesFixos?.length ? "editáveis" : "da grade"}: ${intervalo})`,
     campos: linhas.flatMap((l) => [
       ...(opts.totalSoLeitura || l.fixa ? [] : [{ nome: `total:${l.rowKey}`, rotulo: `${l.label} — total`, tipo: "numero" as const, dica: "em reais" }]),
       {
@@ -52,18 +53,29 @@ const norm = (m: string, a: string) => `${m.padStart(2, "0")}/${a}`;
  * ou lista explícita de "mês=%". Devolve o % de cada mês da grade (os outros
  * ficam em 0) ou a recusa.
  */
-export function distribuicaoDosMeses(texto: string, meses: readonly string[]): { pct: Record<string, number> } | { erro: string } {
+export function distribuicaoDosMeses(
+  texto: string,
+  meses: readonly string[],
+  /**
+   * Prompt F2 — na Previsão, os meses passados vêm da Atual e ficam como
+   * estão (mês → %). O intervalo reparte só o que sobra de 100%.
+   */
+  fixos: Readonly<Record<string, number>> = {},
+): { pct: Record<string, number> } | { erro: string } {
   const t = texto.trim();
   const pares = [...t.matchAll(/(\d{1,2})\/(\d{4})\s*=\s*(-?[\d.,]+)\s*%?/g)];
-  const pct: Record<string, number> = Object.fromEntries(meses.map((m) => [m, 0]));
+  const pct: Record<string, number> = Object.fromEntries(meses.map((m) => [m, fixos[m] ?? 0]));
+  const somaFixos = r2(Object.values(fixos).reduce((a, v) => a + v, 0));
   if (pares.length) {
     for (const p of pares) {
       const mes = norm(p[1], p[2]);
       const v = Number(p[3].replace(",", "."));
       if (!meses.includes(mes)) return { erro: `${mes} não está nos meses da grade.` };
+      if (mes in fixos) return { erro: `${mes} já passou: vem da Atual e não muda aqui.` };
       if (!Number.isFinite(v) || v < 0) return { erro: `Percentual inválido em ${mes}.` };
       pct[mes] = r2(v);
     }
+    if (r2(Object.values(pct).reduce((a, v) => a + v, 0)) > 100.005) return { erro: "A soma passaria de 100%." };
     return { pct };
   }
   const ms = [...t.matchAll(MES)].map((m) => norm(m[1], m[2]));
@@ -72,9 +84,13 @@ export function distribuicaoDosMeses(texto: string, meses: readonly string[]): {
   const a = idx(ms[0]);
   const b = idx(ms[ms.length - 1]);
   if (a < 0 || b < 0) return { erro: `${a < 0 ? ms[0] : ms[ms.length - 1]} não está nos meses da grade.` };
-  const escolhidos = meses.slice(Math.min(a, b), Math.max(a, b) + 1);
-  const cada = Math.floor((100 / escolhidos.length) * 100) / 100;
-  escolhidos.forEach((m, i) => (pct[m] = i === escolhidos.length - 1 ? r2(100 - cada * (escolhidos.length - 1)) : cada));
+  const escolhidos = meses.slice(Math.min(a, b), Math.max(a, b) + 1).filter((m) => !(m in fixos));
+  if (!escolhidos.length) return { erro: "Esses meses já passaram: vêm da Atual." };
+  const resto = r2(100 - somaFixos);
+  if (resto <= 0) return { erro: "Os meses passados já somam 100%." };
+  // Fora do intervalo e fora dos fixos, zera: a distribuição é a dita.
+  const cada = Math.floor((resto / escolhidos.length) * 100) / 100;
+  escolhidos.forEach((m, i) => (pct[m] = i === escolhidos.length - 1 ? r2(resto - cada * (escolhidos.length - 1)) : cada));
   return { pct };
 }
 
@@ -86,6 +102,8 @@ export function aplicarNaGrade<T extends LinhaDaGrade>(
   linhas: readonly T[],
   meses: readonly string[],
   valores: Record<string, string>,
+  /** Prompt F2 — meses que não mudam (na Previsão, os passados). */
+  opts: { mesesFixos?: readonly string[] } = {},
 ): { linhas: T[]; alteradas: string[]; avisos: string[] } {
   const alteradas = new Set<string>();
   const avisos: string[] = [];
@@ -101,7 +119,8 @@ export function aplicarNaGrade<T extends LinhaDaGrade>(
     }
     const dist = valores[`meses:${l.rowKey}`];
     if (dist != null) {
-      const d = distribuicaoDosMeses(dist, meses);
+      const fixos = Object.fromEntries((opts.mesesFixos ?? []).map((m) => [m, Number(l.pct[m]) || 0]));
+      const d = distribuicaoDosMeses(dist, meses, fixos);
       if ("erro" in d) avisos.push(`${l.label}: ${d.erro}`);
       else {
         x = { ...x, pct: Object.fromEntries(meses.map((m) => [m, d.pct[m] ? String(d.pct[m]) : ""])) };
