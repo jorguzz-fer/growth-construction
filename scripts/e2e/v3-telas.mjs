@@ -144,6 +144,14 @@ const texto = async (page, url) => {
   await page.emulateMedia({ media: "print" });
   check("PDF: na impressão, a faixa aparece e os seletores somem", (await page.locator("[data-cabecalho-impressao]").isVisible()) && !(await page.locator("[data-exportar-pdf]").isVisible()));
   await page.emulateMedia({ media: "screen" });
+
+  // AA2 — Dashboard: fluxo em linhas, DRE em barras empilhadas, e o PDF.
+  await texto(page, "/dashboard?proj=all");
+  await page.waitForSelector("[data-graficos-dashboard] canvas", { timeout: 30000 }).catch(() => {});
+  check("AA2: gráfico do fluxo de caixa", (await page.locator('[data-grafico="fluxo"] canvas').count()) === 1);
+  check("AA2: gráfico da DRE em barras", (await page.locator('[data-grafico="dre"] canvas').count()) === 1);
+  check("AA2: Dashboard exporta PDF", (await page.locator("[data-exportar-pdf]").count()) === 1);
+  await page.screenshot({ path: `${OUT}/v3-dashboard.png`, fullPage: true });
   await page.context().close();
 }
 

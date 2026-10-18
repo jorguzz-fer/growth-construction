@@ -44,6 +44,12 @@ import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { flowMaps } from "@/lib/fluxo-caixa";
+import { versionInputsByMonth } from "@/lib/dre-inputs";
+import { mesesDoGrafico, seriesDaDre, seriesDoFluxo, temValor } from "@/lib/dashboard-graficos";
+import { GraficosDashboard } from "@/components/app/graficos-dashboard";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -193,6 +199,23 @@ export default async function DashboardPage({
     dashNovo ? { definicaoNova: true, de, ate } : {},
   );
 
+  // ── Prompt AA2 — os gráficos: Fluxo e DRE da versão Atual de cada obra ──
+  // Mesmas funções e chaves do Fluxo de Caixa e da DRE; obra sem Atual fica fora.
+  const [fluxoNovoG, dreNovaG] = await Promise.all([
+    chaveLigada(ctx.tenant.id, "fluxo_definicao_nova"),
+    chaveLigada(ctx.tenant.id, "dre_definicao_nova"),
+  ]);
+  const mesesGrafico = mesesDoGrafico(new Date(), de, ate);
+  const atuaisDaTela = (
+    await Promise.all(projetosDaTela.map(async (p) => ({ p, v: (await getVersionsDoProjeto(ctx.tenant.id, p.id)).find((x) => x.kind === "atual") })))
+  ).filter((x): x is { p: (typeof projetosDaTela)[number]; v: Version } => !!x.v);
+  const [mapasDoFluxo, inputsDaDre] = await Promise.all([
+    Promise.all(atuaisDaTela.map(({ p, v }) => flowMaps(v, p.id, { definicaoNova: fluxoNovoG }))),
+    Promise.all(atuaisDaTela.map(({ p, v }) => versionInputsByMonth(ctx.tenant.id, v.id, p.id, { definicaoNova: dreNovaG }))),
+  ]);
+  const graficoFluxo = seriesDoFluxo(mapasDoFluxo, mesesGrafico);
+  const graficoDre = seriesDaDre(inputsDaDre, mesesGrafico);
+
   // ── Versão "Atual — caixa real": dados reais ────────────────────────────
   // Budget/Forecast permanecem estritamente em suas seções. A versão Atual
   // reflete o caixa real do período: (a) fechamentos já realizados (entradas
@@ -310,6 +333,7 @@ export default async function DashboardPage({
 
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={
           project
@@ -329,6 +353,7 @@ export default async function DashboardPage({
               scopeOptions
             />
             <DateRangeFilter de={de} ate={ate} />
+            <ExportarPdf arquivo={`Dashboard - ${project ? project.name : ctx.tenant.name}`} />
           </div>
         }
       />
@@ -423,6 +448,19 @@ export default async function DashboardPage({
       </p>
       </>
       )}
+
+      {/* Prompt AA2 — fluxo de caixa em linhas e DRE em barras empilhadas. */}
+      <GraficosDashboard
+        fluxo={graficoFluxo}
+        dre={graficoDre}
+        temFluxo={temValor(graficoFluxo.entradas, graficoFluxo.saidas)}
+        temDre={temValor(graficoDre.receita, ...Object.values(graficoDre.partes))}
+      />
+      <p className="mt-2 text-[11.5px] text-[var(--color-ink3)]" data-recorte-painel="graficos">
+        <strong className="text-[var(--color-ink2)]">Os dois gráficos</strong> mostram {mesesGrafico[0]} a {mesesGrafico[mesesGrafico.length - 1]} da versão Atual
+        {atuaisDaTela.length < projetosDaTela.length ? ` (${projetosDaTela.length - atuaisDaTela.length} obra(s) sem Atual ficaram fora)` : ""}; sem período, os
+        cinco meses anteriores, o atual e os seis seguintes.
+      </p>
 
       {/* Indicadores físico-financeiros da obra (BDI, evolução, liberação). */}
       <StatusProjetoPanel st={statusProjeto} />

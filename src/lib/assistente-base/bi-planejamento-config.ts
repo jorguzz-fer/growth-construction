@@ -23,6 +23,8 @@ Regras gerais:
 **O que se faz:**
 - Seletor de projeto (com Todos, Ativos e Finalizados) e período De/Até.
 - Com uma obra, até 3 versões. O padrão é a Atual + o Orçamento e a Previsão mais recentes que não sejam cópia. Ao tentar marcar a quarta, a tela avisa e não troca.
+- **Dois gráficos**, da versão Atual das obras da tela: o **fluxo de caixa em linhas** (entradas e saídas previstas por mês, pelo vencimento, como no Fluxo de Caixa) e a **DRE em barras empilhadas** (em cada mês, a receita dividida em Custo Variável, Despesa Variável, Custo Fixo, Despesa Fixa, demais itens e Resultado; prejuízo fica abaixo do zero). Sem período, mostram os cinco meses anteriores, o atual e os seis seguintes; com período, os meses dele.
+- **Exportar PDF**: o Dashboard sai em PDF pela impressão do navegador, com a faixa da empresa e a data.
 - Com várias obras, uma coluna por tipo de versão ("soma de N obra(s)").
 - Quatro cartões no topo: VGV total, Realizado acum., A receber e A pagar. Abaixo: Status atual, Margem e produtividade e Indicadores da obra (financiamento, BDI, custo referencial).
 - Assistente: explicar indicador, o que mudou desde a última visita, divergências e obras que merecem atenção.
