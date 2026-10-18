@@ -123,10 +123,20 @@ describe("NAV_MENU — nenhuma tela se perde", () => {
   });
 });
 
+/**
+ * Prompt AI2 (BAI2-1) — o item some quando a PÁGINA nega: o Acerto Contábil
+ * exige editar Despesas e ver o Caixa. Não reduz acesso (a página já negava);
+ * tira do menu o link que abria "Acesso negado".
+ */
+const EXIGE_DA_PAGINA: Record<string, [string, "ver" | "editar"][]> = {
+  "/acerto": [["despesas", "editar"], ["caixa", "ver"]],
+};
+
 /** Visibilidade pela regra de sempre, sobre a lista antiga mais as novas. */
 function visiveisAntigo(perms: PermMatrix): string[] {
   return Object.entries(ESPERADO)
     .flatMap(([href, perm]) => {
+      if ((EXIGE_DA_PAGINA[href] ?? []).some(([t, a]) => !perms[t]?.[a])) return [];
       if (perms[perm]?.ver) return [href];
       // item fundido: só com a permissão da outra aba, a rota é a dela
       const alt = FUNDIDAS_NO_ITEM[href];

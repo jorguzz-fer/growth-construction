@@ -330,12 +330,16 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 
 **O que se faz:**
 - Novo usuário: nome, e-mail, papel (admin, membro, contador, engenheiro) e senha opcional. Sem senha, o acesso fica pendente. A senha definida aqui é provisória.
+- **Telas sugeridas**: ao escolher o papel, a tela marca as telas que ele alcança por padrão. Dá para desmarcar ou marcar outras antes de adicionar. Tela marcada a mais entra com ver (o contador é só leitura) ou com ver, criar e editar (os outros papéis). Excluir e as telas de dado sensível ficam na Gestão de Acessos. Owner e admin têm acesso total.
+- **Com a Cris**: ela escolhe o papel e as telas a incluir ou tirar; nome e e-mail são digitados na tela. Quem adiciona é o botão "Adicionar".
 - Na tabela: trocar o papel, Editar, Senha e Remover.
 - Promover a owner pede confirmação.
 - Quem tem telas personalizadas, ao trocar de papel, escolhe entre manter as personalizações ou voltar ao padrão.
 - Ninguém remove a si mesmo.
 
-**Não faz:** não ajusta tela a tela (isso é na Gestão de Acessos) e não cria owner direto.
+**Não faz:** não ajusta ação por ação (isso é na Gestão de Acessos) e não cria owner direto.
+
+**Restrição que "não funciona":** com a chave do padrão novo do membro desligada, o papel "membro" alcança tudo fora de Configurações. Para restringir um membro, desmarque as telas aqui ao criar, ou use a Gestão de Acessos.
 
 **Quem acessa:** só owner e admin, sem concessão possível.
 

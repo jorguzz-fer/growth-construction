@@ -41,6 +41,12 @@ export interface NavItem {
   permAlt?: string;
   /** Rota do item para quem só tem `permAlt` (a guarda central nega `href`). */
   hrefAlt?: string;
+  /**
+   * Prompt AI2 (BAI2-1) — permissões que a PÁGINA exige além de "ver" da
+   * chave. Sem isto, o item aparecia para quem a página nega (o Acerto
+   * Contábil aparecia para o contador e abria "Acesso negado").
+   */
+  exige?: { tela: string; acao: "ver" | "criar" | "editar" | "excluir" }[];
   /** Outras rotas que destacam este item (as abas da tela única). */
   tambem?: string[];
 }
@@ -113,7 +119,7 @@ export const NAV_MENU: NavModule[] = [
       { href: "/contaspagar", label: "Contas a Pagar" },
       { href: "/restituicoes", label: "Ressarcimentos" },
       // Pagamento único quitando várias despesas — governado por Despesas.
-      { href: "/acerto", label: "Acerto Contábil", perm: "despesas" },
+      { href: "/acerto", label: "Acerto Contábil", perm: "despesas", exige: [{ tela: "despesas", acao: "editar" }, { tela: "caixa", acao: "ver" }] },
       { href: "/fornecedores", label: "Fornecedores e Parceiros" },
     ],
   },
@@ -181,6 +187,7 @@ export function permOf(item: NavItem): string {
 /**
  * Só os itens com "ver"; módulo sem nenhum item visível some inteiro
  * (seção 21). Mesma regra do menu antigo — não amplia nem reduz acesso.
+ * Prompt AI2: item com `exige` só aparece para quem a página deixa entrar.
  */
 export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): NavModule[] {
   return menu
@@ -188,6 +195,7 @@ export function visibleMenu(perms: PermMatrix, menu: NavModule[] = NAV_MENU): Na
       ...m,
       items: m.items
         .filter((it) => can(perms, permOf(it), "ver") || (!!it.permAlt && can(perms, it.permAlt, "ver")))
+        .filter((it) => (it.exige ?? []).every((e) => can(perms, e.tela, e.acao)))
         // Só com a permissão alternativa: o item aponta para a rota dela (a
         // guarda central negaria `href`); a página de lá abre na aba certa.
         .map((it) => (!can(perms, permOf(it), "ver") && it.hrefAlt ? { ...it, href: it.hrefAlt, tambem: [...(it.tambem ?? []), it.href] } : it)),
