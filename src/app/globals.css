@@ -141,3 +141,37 @@ body {
 .scroll-x-always {
   scrollbar-width: auto;
 }
+
+/*
+ * Prompt PDF (Fase 3): relatório em PDF pelo "Exportar PDF" do navegador.
+ * A4, sem o menu, o cabeçalho do app e a Cris (já `print:hidden`); o
+ * cabeçalho de impressão (`[data-cabecalho-impressao]`) só aparece aqui.
+ * Tabela e cartão não quebram no meio quando cabem numa página.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 10mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .tbl-scroll,
+  .scroll-x-always {
+    overflow: visible !important;
+  }
+  tr,
+  [data-pdf-bloco] {
+    break-inside: avoid;
+  }
+  [data-sem-impressao] {
+    display: none !important;
+  }
+}

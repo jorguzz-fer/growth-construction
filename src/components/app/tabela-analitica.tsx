@@ -43,7 +43,7 @@ export function TabelaAnalitica({
 
   return (
     <div>
-      <div className="mb-2 flex gap-3 text-[12px]">
+      <div className="mb-2 flex gap-3 text-[12px] print:hidden">
         <button type="button" onClick={todas} className="text-[var(--color-accent2)] hover:underline" data-abrir-tudo>
           Abrir até a conta
         </button>

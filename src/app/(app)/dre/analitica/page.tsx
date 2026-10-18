@@ -14,6 +14,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DreControls } from "@/components/app/dre-controls";
 import { TabelaAnalitica } from "@/components/app/tabela-analitica";
 import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
 
@@ -88,6 +90,7 @@ export default async function DreAnaliticaPage({
 
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={scopeLabel}
         title="DRE Analítica"
@@ -111,6 +114,7 @@ export default async function DreAnaliticaPage({
               showVersionKind
               versionKind={cenario}
             />
+            <ExportarPdf arquivo={`DRE Analitica - ${scopeLabel} - ${periodLabel}`} />
           </div>
         }
       />

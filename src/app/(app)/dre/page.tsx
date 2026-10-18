@@ -44,6 +44,8 @@ import { CenarioMultiSelect } from "@/components/app/cenario-multiselect";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
 import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -337,6 +339,7 @@ export default async function DREPage({
 
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={scopeLabel}
         title="DRE — Demonstração de Resultado"
@@ -364,6 +367,7 @@ export default async function DREPage({
               showVersionKind={false}
               versionKind="atual"
             />
+            <ExportarPdf arquivo={`DRE - ${scopeLabel} - ${periodLabel}`} />
           </div>
         }
       />

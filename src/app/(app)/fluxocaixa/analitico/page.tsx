@@ -15,6 +15,8 @@ import { ProjectPicker } from "@/components/app/project-picker";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { TabelaAnalitica } from "@/components/app/tabela-analitica";
 import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
 
@@ -77,6 +79,7 @@ export default async function FluxoAnaliticoPage({
 
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         eyebrow={scopeLabel}
         title="Fluxo de Caixa Analítico"
@@ -100,6 +103,7 @@ export default async function FluxoAnaliticoPage({
                 Aplicar
               </Button>
             </form>
+            <ExportarPdf arquivo={`Fluxo de Caixa Analitico - ${scopeLabel}`} />
           </div>
         }
       />

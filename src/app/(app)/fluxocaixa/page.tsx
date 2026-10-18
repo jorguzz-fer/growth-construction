@@ -38,6 +38,8 @@ import { resolveCompareVersions } from "@/lib/report-versions";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
 import { CrisDaTela } from "@/components/app/cris-contexto";
+import { ExportarPdf } from "@/components/app/pdf";
+import { CabecalhoDeImpressao } from "@/components/app/cabecalho-impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -374,6 +376,7 @@ export default async function FluxoCaixaPage({
 
   return (
     <>
+      <CabecalhoDeImpressao empresa={ctx.tenant.name} geradoPor={ctx.userEmail} />
       <PageHeader
         title="Fluxo de Caixa"
         subtitle={
@@ -389,6 +392,7 @@ export default async function FluxoCaixaPage({
               <ProjecaoYearSelect years={years} selected={selectedYear} basePath="/fluxocaixa" />
             )}
             {versionSelect}
+            <ExportarPdf arquivo={`Fluxo de Caixa - ${project ? project.name : "Empresa"}`} />
           </div>
         }
       />

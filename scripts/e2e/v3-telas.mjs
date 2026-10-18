@@ -137,6 +137,13 @@ const texto = async (page, url) => {
   check("AD3: traz o saldo do período", (await page.locator('[data-tabela-analitica] tr[data-tipo="final"]').count()) === 1);
   check("AD3: só o item analítico fica marcado", ((await page.locator('a[aria-current="page"]').textContent()) ?? "").includes("Fluxo de Caixa Analítico") && (await page.locator('a[aria-current="page"]').count()) === 1);
   await page.screenshot({ path: `${OUT}/v3-fluxo-analitico.png`, fullPage: true });
+
+  // PDF — os relatórios exportam pelo navegador, com a faixa da empresa só no PDF.
+  check("PDF: botão Exportar PDF no Fluxo Analítico", (await page.locator("[data-exportar-pdf]").count()) === 1);
+  check("PDF: a faixa da empresa fica escondida na tela", !(await page.locator("[data-cabecalho-impressao]").isVisible()));
+  await page.emulateMedia({ media: "print" });
+  check("PDF: na impressão, a faixa aparece e os seletores somem", (await page.locator("[data-cabecalho-impressao]").isVisible()) && !(await page.locator("[data-exportar-pdf]").isVisible()));
+  await page.emulateMedia({ media: "screen" });
   await page.context().close();
 }
 
