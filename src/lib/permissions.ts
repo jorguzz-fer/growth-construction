@@ -46,6 +46,9 @@ export const SCREENS: Screen[] = [
   { id: "fluxocaixa", label: "Fluxo de Caixa", modulo: "Reports" },
   { id: "medicao", label: "Medição de Projeto — Relatório CEF", modulo: "Reports" },
   { id: "resumo", label: "Resumo Executivo", modulo: "Reports" },
+  // Prompt RC: tela nova. Dentro dela, cada relatório também exige ver a DRE
+  // ou o Fluxo — a tela não abre número que a pessoa não vê nas telas de origem.
+  { id: "relatorios", label: "Relatórios Customizados", modulo: "Reports" },
   { id: "unidades", label: "Unidades / Dados de Venda", modulo: "Receitas" },
   { id: "budget", label: "Orçamentos", modulo: "Planejamento" },
   { id: "forecast", label: "Previsão Atualizada", modulo: "Planejamento" },

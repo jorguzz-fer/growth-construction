@@ -152,6 +152,27 @@ const texto = async (page, url) => {
   check("AA2: gráfico da DRE em barras", (await page.locator('[data-grafico="dre"] canvas').count()) === 1);
   check("AA2: Dashboard exporta PDF", (await page.locator("[data-exportar-pdf]").count()) === 1);
   await page.screenshot({ path: `${OUT}/v3-dashboard.png`, fullPage: true });
+
+  // RC — Relatórios Customizados: receita na URL, campos, tabela e chat.
+  const rc0 = await texto(page, "/relatorios");
+  check("RC: menu traz Relatórios Customizados", rc0.includes("Relatórios Customizados"));
+  check("RC: sem pedido, a tela orienta", (await page.locator("[data-relatorio-vazio]").count()) === 1);
+  await page.selectOption('[data-relatorio-campos] select[name="colunas"]', "mes");
+  await page.check('[data-relatorio-campos] input[name="av"]');
+  await page.click('[data-relatorio-campos] button[type="submit"]');
+  await page.waitForURL(/fonte=dre/, { timeout: 60000 });
+  await page.waitForLoadState("networkidle");
+  const colunasRc = await page.locator("[data-relatorio-tabela] thead th").count();
+  check("RC: pelos campos, a DRE mês a mês com vertical", colunasRc === 1 + 13 * 2, `${colunasRc} cabeçalhos`);
+  const linkRc = page.url();
+  await texto(page, linkRc.replace("http://localhost:3400", ""));
+  check("RC: o link refaz o relatório", (await page.locator("[data-relatorio-tabela]").count()) === 1);
+  check("RC: baixa CSV e exporta PDF", (await page.locator("[data-baixar-csv]").count()) === 1 && (await page.locator("[data-exportar-pdf]").count()) === 1);
+  await page.fill('textarea[aria-label="Pedido de relatório"]', "DRE por obra");
+  await page.click('[data-relatorio-chat] button[type="submit"]');
+  await page.waitForSelector("[data-relatorio-chat] [role=alert], [data-relatorio-fala=cris]", { timeout: 60000 });
+  check("RC: o chat responde (sem chave de IA, manda usar os campos)", /campos/.test((await page.textContent("[data-relatorio-chat]")) ?? ""));
+  await page.screenshot({ path: `${OUT}/v3-relatorios.png`, fullPage: true });
   await page.context().close();
 }
 

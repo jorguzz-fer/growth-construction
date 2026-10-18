@@ -147,6 +147,28 @@ Regras gerais:
 
 ---
 
+## Relatórios Customizados (/relatorios) — módulo Business Intelligence
+
+**Para que serve:** montar um relatório da DRE ou do Fluxo de Caixa do jeito que a pessoa pedir, com chat próprio.
+
+**O que se faz:**
+- No chat ao lado, descrever o relatório ("DRE da obra X com análise vertical, mês a mês neste ano"). O chat monta e a tela mostra a tabela. Também dá para ditar.
+- Ou escolher nos campos: fonte (DRE, DRE por categoria e grupo, ou Fluxo de Caixa previsto), colunas (por cenário, mês a mês ou por obra), cenários, obra, período De/Até e análise vertical. Clicar em Montar.
+- Baixar CSV ou exportar PDF.
+- O endereço da página guarda o relatório: copiar o link abre o mesmo relatório de novo.
+
+**O que confunde:**
+- Os números são os da DRE e do Fluxo de Caixa, com as mesmas regras e chaves.
+- Por mês ou por obra vale um cenário só (o primeiro marcado); por cenário, até três lado a lado.
+- Mês a mês sem período mostra os cinco meses anteriores, o atual e os seis seguintes; até 24 colunas.
+- Quem abre o link vê só o que o acesso dele permite: sem acesso à DRE, um relatório de DRE não abre.
+
+**Não faz:** não grava o relatório com nome (o link é o jeito de guardar) e não lista lançamentos.
+
+**Quem acessa:** owner e admin por padrão; os outros papéis, se receberem acesso na Gestão de Acessos. Cada relatório exige também ver a DRE ou o Fluxo de Caixa.
+
+---
+
 ## Resumo Executivo (/resumo) — módulo Business Intelligence
 
 **Para que serve:** indicadores de vendas e fontes de recurso: VGV, sinais, parcelas, FGTS, subsídio, permuta e liberações.

@@ -68,6 +68,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
   "/dre/analitica": "dre", // Prompt AC3: mora sob /dre, mesma permissão
   "/fluxocaixa/analitico": "fluxocaixa", // Prompt AD3: mora sob /fluxocaixa, mesma permissão
+  "/relatorios": "relatorios", // Prompt RC: tela nova, chave própria
 };
 /**
  * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única

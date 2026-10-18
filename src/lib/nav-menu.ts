@@ -74,6 +74,8 @@ export const NAV_MENU: NavModule[] = [
       // Prompt AD3: mora sob /fluxocaixa — a permissão é a do Fluxo.
       { href: "/fluxocaixa/analitico", label: "Fluxo de Caixa Analítico" },
       { href: "/resumo", label: "Resumo Executivo" },
+      // Prompt RC: tela própria, com chat próprio (decisão de 18/10).
+      { href: "/relatorios", label: "Relatórios Customizados" },
       // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
       { href: "/projecao", label: "Projeção de Receitas" },
     ],
