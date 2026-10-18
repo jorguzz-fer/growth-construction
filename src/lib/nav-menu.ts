@@ -71,6 +71,8 @@ export const NAV_MENU: NavModule[] = [
       // Prompt AC3: mora sob /dre — a permissão é a da DRE.
       { href: "/dre/analitica", label: "DRE Analítica" },
       { href: "/fluxocaixa", label: "Fluxo de Caixa" },
+      // Prompt AD3: mora sob /fluxocaixa — a permissão é a do Fluxo.
+      { href: "/fluxocaixa/analitico", label: "Fluxo de Caixa Analítico" },
       { href: "/resumo", label: "Resumo Executivo" },
       // Prompt REN (Fase 3): a Projeção de Receitas é relatório — saiu de Receitas.
       { href: "/projecao", label: "Projeção de Receitas" },

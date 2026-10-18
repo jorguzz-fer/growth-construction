@@ -129,6 +129,14 @@ const texto = async (page, url) => {
   check("AC3: abre até a conta", (await page.locator('[data-tabela-analitica] tr[data-tipo="conta"]').count()) > 0);
   check("AC3: só o item DRE Analítica fica marcado no menu", (await page.locator('a[aria-current="page"]').count()) === 1 && ((await page.locator('a[aria-current="page"]').textContent()) ?? "").includes("DRE Analítica"));
   await page.screenshot({ path: `${OUT}/v3-dre-analitica.png`, fullPage: true });
+
+  // AD3 — Fluxo de Caixa Analítico: bloco → grupo → conta, pelo vencimento.
+  const fluxoAna = await texto(page, "/fluxocaixa/analitico?proj=all");
+  check("AD3: menu traz o Fluxo de Caixa Analítico", fluxoAna.includes("Fluxo de Caixa Analítico"));
+  check("AD3: saídas abertas em obra e complementares", fluxoAna.includes("Obra (grupos CEF)") && fluxoAna.includes("Complementares"));
+  check("AD3: traz o saldo do período", (await page.locator('[data-tabela-analitica] tr[data-tipo="final"]').count()) === 1);
+  check("AD3: só o item analítico fica marcado", ((await page.locator('a[aria-current="page"]').textContent()) ?? "").includes("Fluxo de Caixa Analítico") && (await page.locator('a[aria-current="page"]').count()) === 1);
+  await page.screenshot({ path: `${OUT}/v3-fluxo-analitico.png`, fullPage: true });
   await page.context().close();
 }
 

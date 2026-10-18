@@ -67,6 +67,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/equipes": "equipes", // Prompt Z, Parte 3
   "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
   "/dre/analitica": "dre", // Prompt AC3: mora sob /dre, mesma permissão
+  "/fluxocaixa/analitico": "fluxocaixa", // Prompt AD3: mora sob /fluxocaixa, mesma permissão
 };
 /**
  * Prompt V, 0.2: /medicaolanc SAIU do menu (continua rota e aba da tela única
@@ -209,9 +210,9 @@ describe("isItemActive — prefixo na fronteira de segmento", () => {
       const ativos = NAV_MENU.map((m) => itemAtivoDoModulo(x.href, m.items)).filter(Boolean);
       expect(ativos, x.href).toEqual([x.href]);
     }
-    // Só /dre e /dre/analitica casam pelo prefixo; nenhum outro par.
+    // Só os analíticos casam com o relatório-pai pelo prefixo; nenhum outro par.
     const pares = todos.flatMap((x) => todos.filter((y) => y !== x && isItemActive(x.href, y.href)).map((y) => `${x.href}>${y.href}`));
-    expect(pares).toEqual(["/dre/analitica>/dre"]);
+    expect(pares).toEqual(["/dre/analitica>/dre", "/fluxocaixa/analitico>/fluxocaixa"]);
   });
 
   it("/perfil e rota nula não ativam nada", () => {

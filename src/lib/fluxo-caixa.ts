@@ -37,80 +37,109 @@ export { vencMonth };
  */
 
 
-/** Mapas de entradas e saídas mensais de uma versão (budget-aware). */
-export async function flowMaps(
-  version: Version,
-  projectId: string,
+/** Prompt AD3 — uma saída prevista, com a conta do plano (quando há). */
+export interface SaidaDoFluxo {
+  /** Balde de tempo (mês "MM/YYYY", ou a semana com `bucket`). */
+  mes: string;
+  /** Conta do plano de contas; no planejamento, a linha (grupo ou conta). */
+  conta: string | null;
+  origem: "planejamento" | "parcela" | "despesa" | "ressarcimento";
+  valor: number;
+}
+
+export type OpcoesDoFluxo = {
   /**
    * Prompt AD — chave "fluxo_definicao_nova" (nasce desligada). Ligada, a
    * permuta (fato) NÃO entra na coluna de planejamento (1.2): Orçamento e
    * Previsão ficam só com `budget_line`. Desligada: exatamente o de antes.
    */
-  opts: {
-    definicaoNova?: boolean;
-    /**
-     * Prompt AD2 — balde de tempo (ex.: `semanaDe`). Ausente: o mês, como
-     * sempre (`vencMonth`); nenhum número mensal muda por causa disto.
-     */
-    bucket?: (data: string | null) => string | null;
-  } = {},
-): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
-  const b = opts.bucket ?? vencMonth;
-  const [entradas, despesas, permutas, parcelas] = await Promise.all([
-    getMonthlyRevenue(version.id, projectId, opts.bucket ? (d) => opts.bucket!(d) : undefined),
-    getDespesas(version.id),
-    getPermutas(version.tenantId, version.id),
-    getParcelasByVersion(version.id),
-  ]);
+  definicaoNova?: boolean;
+  /**
+   * Prompt AD2 — balde de tempo (ex.: `semanaDe`). Ausente: o mês, como
+   * sempre (`vencMonth`); nenhum número mensal muda por causa disto.
+   */
+  bucket?: (data: string | null) => string | null;
+};
 
+/**
+ * Entradas previstas de uma versão, separadas pela origem: as unidades e
+ * liberações (`getMonthlyRevenue`) e a revenda de bens de permuta.
+ */
+export async function entradasDoFluxo(
+  version: Version,
+  projectId: string,
+  opts: OpcoesDoFluxo = {},
+): Promise<{ vendas: Record<string, number>; permuta: Record<string, number> }> {
+  const [vendas, permutas] = await Promise.all([
+    getMonthlyRevenue(version.id, projectId, opts.bucket ? (d) => opts.bucket!(d) : undefined),
+    getPermutas(version.tenantId, version.id),
+  ]);
+  const permuta: Record<string, number> = {};
   // Recebimentos da revenda de bens recebidos em permuta (item 10).
   if (!(opts.definicaoNova && isBudgetVersion(version.kind))) {
     const permCash = permutaCashByMonth(permToResale(permutas));
     for (const [mm, v] of Object.entries(permCash)) {
       // A revenda parcelada só tem o mês: no balde semanal, a semana do dia 1º.
       const k = opts.bucket ? opts.bucket(mm) : mm;
-      if (k) entradas[k] = (entradas[k] || 0) + v;
+      if (k) permuta[k] = (permuta[k] || 0) + v;
     }
   }
+  return { vendas, permuta };
+}
 
-  const saidas: Record<string, number> = {};
+/**
+ * Saídas previstas de uma versão, uma a uma, com a conta. É a fonte única:
+ * `flowMaps` soma esta lista por mês, e o Fluxo Analítico (AD3) a abre por
+ * grupo e conta.
+ */
+export async function saidasDoFluxo(version: Version, opts: OpcoesDoFluxo = {}): Promise<SaidaDoFluxo[]> {
+  const b = opts.bucket ?? vencMonth;
+  const out: SaidaDoFluxo[] = [];
   if (isBudgetVersion(version.kind)) {
     // Budget/Forecast: saídas do lançamento simplificado (por competência).
     const expenses = await getExpenseRows(version.id);
     for (const e of expenses) {
       const mm = b(e.competencia);
-      if (mm) saidas[mm] = (saidas[mm] || 0) + e.valor;
+      if (mm) out.push({ mes: mm, conta: e.contaCef, origem: "planejamento", valor: e.valor });
     }
-  } else {
-    // Versão detalhada: despesas pagas por terceiro NÃO geram saída na
-    // competência — a saída ocorre só na restituição (Fase 4).
-    const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
-      await getRestituicoesPendentesByVersion(version.id, opts.bucket ? (d) => opts.bucket!(d) : undefined);
-    const excluir = new Set(terceiroIds);
-    const comParcela = new Set(parcelas.map((p) => p.despesaId));
-    // Despesas CANCELADAS não geram saída. Antes só as parcelas canceladas eram
-    // puladas, então uma despesa cancelada seguia inflando o fluxo — enquanto
-    // sumia de Contas a Pagar, que filtra cancelado.
-    const canceladas = new Set(despesas.filter((d) => d.cancelado).map((d) => d.id));
-    for (const p of parcelas) {
-      if (
-        p.status === "Cancelado" ||
-        excluir.has(p.despesaId) ||
-        canceladas.has(p.despesaId)
-      )
-        continue;
-      const mm = b(p.vencimento);
-      if (mm) saidas[mm] = (saidas[mm] || 0) + Number(p.valorOriginal);
-    }
-    for (const d of despesas) {
-      if (comParcela.has(d.id) || excluir.has(d.id) || d.cancelado) continue;
-      const mm = b(d.vencimento) ?? b(d.competencia);
-      if (mm) saidas[mm] = (saidas[mm] || 0) + Number(d.valor);
-    }
-    for (const [mm, v] of Object.entries(restPrevistas)) {
-      saidas[mm] = (saidas[mm] || 0) + v;
-    }
+    return out;
   }
+  const [despesas, parcelas] = await Promise.all([getDespesas(version.id), getParcelasByVersion(version.id)]);
+  // Versão detalhada: despesas pagas por terceiro NÃO geram saída na
+  // competência — a saída ocorre só na restituição (Fase 4).
+  const { despesaIds: terceiroIds, saidasPrevistas: restPrevistas } =
+    await getRestituicoesPendentesByVersion(version.id, opts.bucket ? (d) => opts.bucket!(d) : undefined);
+  const excluir = new Set(terceiroIds);
+  const comParcela = new Set(parcelas.map((p) => p.despesaId));
+  // Despesas CANCELADAS não geram saída. Antes só as parcelas canceladas eram
+  // puladas, então uma despesa cancelada seguia inflando o fluxo — enquanto
+  // sumia de Contas a Pagar, que filtra cancelado.
+  const canceladas = new Set(despesas.filter((d) => d.cancelado).map((d) => d.id));
+  for (const p of parcelas) {
+    if (p.status === "Cancelado" || excluir.has(p.despesaId) || canceladas.has(p.despesaId)) continue;
+    const mm = b(p.vencimento);
+    if (mm) out.push({ mes: mm, conta: p.contaCef, origem: "parcela", valor: Number(p.valorOriginal) });
+  }
+  for (const d of despesas) {
+    if (comParcela.has(d.id) || excluir.has(d.id) || d.cancelado) continue;
+    const mm = b(d.vencimento) ?? b(d.competencia);
+    if (mm) out.push({ mes: mm, conta: d.contaCef, origem: "despesa", valor: Number(d.valor) });
+  }
+  for (const [mm, v] of Object.entries(restPrevistas)) out.push({ mes: mm, conta: null, origem: "ressarcimento", valor: v });
+  return out;
+}
+
+/** Mapas de entradas e saídas mensais de uma versão (budget-aware). */
+export async function flowMaps(
+  version: Version,
+  projectId: string,
+  opts: OpcoesDoFluxo = {},
+): Promise<{ entradas: Record<string, number>; saidas: Record<string, number> }> {
+  const [{ vendas, permuta }, lista] = await Promise.all([entradasDoFluxo(version, projectId, opts), saidasDoFluxo(version, opts)]);
+  const entradas = vendas;
+  for (const [k, v] of Object.entries(permuta)) entradas[k] = (entradas[k] || 0) + v;
+  const saidas: Record<string, number> = {};
+  for (const x of lista) saidas[x.mes] = (saidas[x.mes] || 0) + x.valor;
   return { entradas, saidas };
 }
 

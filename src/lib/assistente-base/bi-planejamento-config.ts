@@ -125,6 +125,26 @@ Regras gerais:
 
 ---
 
+## Fluxo de Caixa Analítico (/fluxocaixa/analitico) — módulo Business Intelligence
+
+**Para que serve:** o previsto do Fluxo de Caixa (pelo mês do vencimento) de um cenário, com as saídas abertas em **bloco → grupo → conta** do plano de contas e a análise vertical (% das entradas).
+
+**O que se faz:**
+- Escolher a obra ou a empresa toda, o período e o cenário (Atual, Previsão Atualizada ou Orçamento) e clicar em "Aplicar".
+- As saídas abrem em Obra (grupos CEF), Complementares, Ressarcimentos a terceiros e Sem conta do plano. Clique para abrir os grupos e as contas.
+- As entradas abrem em unidades e liberações, e revenda de permuta. No fim, o saldo do período.
+
+**O que confunde:**
+- São as mesmas parcelas, despesas e ressarcimentos do Fluxo de Caixa: a despesa parcelada entra pelas parcelas, e a paga por terceiro sai no ressarcimento.
+- É o previsto. O realizado (o que passou pela conta) continua no Fluxo de Caixa.
+- No Orçamento e na Previsão, a linha é o grupo: aparece como "Planejado no grupo".
+
+**Não faz:** não mostra o lançamento individual (para na conta) nem o realizado.
+
+**Quem acessa:** quem vê o Fluxo de Caixa.
+
+---
+
 ## Resumo Executivo (/resumo) — módulo Business Intelligence
 
 **Para que serve:** indicadores de vendas e fontes de recurso: VGV, sinais, parcelas, FGTS, subsídio, permuta e liberações.
