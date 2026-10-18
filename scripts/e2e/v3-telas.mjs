@@ -192,6 +192,7 @@ const texto = async (page, url) => {
   check("AE2: cadastro do projeto tem a área construída", (await page.locator('input[aria-label="Área construída (m²)"]').count()) >= 1);
   // B2 — o cadastro do projeto aberto se oferece à Cris; alteração pendente avisa ao sair.
   await page.click("[data-chat-botao]");
+  await page.waitForFunction(() => /Cadastro do projeto/.test(document.querySelector("[data-chat-contexto]")?.textContent ?? ""), null, { timeout: 15000 }).catch(() => {});
   check("B2: a Cris sabe o cadastro do projeto aberto", /Cadastro do projeto/.test((await page.textContent("[data-chat-contexto]")) ?? ""));
   await page.click("[data-chat-botao]");
 
@@ -199,6 +200,8 @@ const texto = async (page, url) => {
   await texto(page, `/budget?proj=${obraParaCadastro}`);
   check("D2: abre sem alteração pendente", (await page.locator("[data-nao-salvo]").count()) === 0);
   await page.click("[data-chat-botao]");
+  // O formulário se registra num efeito do cliente: espera em vez de ler uma vez só.
+  await page.waitForFunction(() => /Despesas do Orçamento/.test(document.querySelector("[data-chat-contexto]")?.textContent ?? ""), null, { timeout: 15000 }).catch(() => {});
   check("D2: a Cris sabe a grade do Orçamento (receitas e despesas)", /Receitas do Orçamento.*Despesas do Orçamento/.test((await page.textContent("[data-chat-contexto]")) ?? ""), ((await page.textContent("[data-chat-contexto]")) ?? "").slice(0, 120));
   await page.click("[data-chat-botao]");
   const celula = page.locator("table tbody input").first();
