@@ -1,40 +1,72 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { perguntarAoAssistente, type RespostaDoChat } from "@/lib/actions/assistente-chat";
-import { MAX_PERGUNTA } from "@/lib/assistente-chat";
+import { perguntarACris } from "@/lib/actions/cris";
+import { MAX_ANEXO_BYTES, MAX_MENSAGEM, NOME_DA_CRIS, TIPOS_DE_ANEXO, trechosDaCris, type FalaDaCris, type PropostaDePreenchimento } from "@/lib/cris";
+import { useCris } from "@/components/app/cris-contexto";
+import { BotaoDeVoz } from "@/components/app/cris-voz";
 import { Faisca } from "@/components/app/assistente-funcionarios";
 import { Button } from "@/components/ui/button";
 
 /**
- * Prompt E, Etapa 2 — chat suspenso, SOMENTE LEITURA (decisão de 01/10/2026).
- * Botão no canto inferior direito, em qualquer tela; abre por cima, sem
- * navegar. O contexto (obra da tela) vem da URL e é validado no servidor.
- * A conversa fica só na memória desta aba: nada é gravado.
+ * Prompt E2 — a Cris, chat flutuante em todas as telas (revisão V5: "fica
+ * flutuante, sabe em que tela está, pode ir em outros lugares buscar").
+ *
+ * - Sabe a tela pelo `CrisProvider`: o título, o resumo dos números e, nas
+ *   telas de lançamento, o formulário que ela pode preencher.
+ * - Responde sobre o sistema (base de conhecimento), analisa e simula sobre os
+ *   números da tela, e busca números de outras telas com o acesso da pessoa.
+ * - Preenche, não grava: a proposta vira "Preencher a tela"; quem grava é o
+ *   botão Salvar da própria tela.
+ * - A conversa fica só na memória desta aba. Nada é gravado.
  */
-type Mensagem = { de: "voce"; texto: string } | { de: "assistente"; resposta: RespostaDoChat } | { de: "erro"; texto: string };
 
-export function ChatAssistente({ projetos }: { projetos: { id: string; name: string }[] }) {
-  const sp = useSearchParams();
-  const proj = sp.get("proj") ?? sp.get("project");
-  const daTela = proj ? (projetos.find((p) => p.id === proj) ?? null) : null;
+type Mensagem =
+  | { de: "usuario"; texto: string; anexo?: string }
+  | { de: "cris"; texto: string; proposta: PropostaDePreenchimento | null; aplicada?: boolean }
+  | { de: "erro"; texto: string };
+
+const SUGESTOES_PADRAO = [
+  "O que dá para fazer nesta tela?",
+  "Qual o saldo das contas hoje?",
+  "Qual o desvio de custo contra o orçado?",
+  "Onde lanço uma despesa paga por um sócio?",
+];
+
+async function lerAnexo(f: File): Promise<{ tipo: string; base64: string; nome: string }> {
+  const buf = new Uint8Array(await f.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return { tipo: f.type, base64: btoa(bin), nome: f.name };
+}
+
+export function ChatAssistente() {
+  const cris = useCris();
+  const tela = cris?.tela ?? null;
   const [aberto, setAberto] = useState(false);
   const [texto, setTexto] = useState("");
   const [conversa, setConversa] = useState<Mensagem[]>([]);
+  const [anexo, setAnexo] = useState<File | null>(null);
+  const [erroAnexo, setErroAnexo] = useState<string | null>(null);
   const [pendente, start] = useTransition();
   const fim = useRef<HTMLDivElement>(null);
+  const arquivo = useRef<HTMLInputElement>(null);
 
-  const enviar = () => {
-    const pergunta = texto.trim();
-    if (!pergunta || pendente) return;
+  const enviar = (pergunta: string) => {
+    const q = pergunta.trim();
+    if ((!q && !anexo) || pendente) return;
+    const textoDaFala = q || (tela?.formulario ? "Preencha a tela com este documento." : "O que tem neste documento?");
+    const nova: Mensagem[] = [...conversa, { de: "usuario", texto: textoDaFala, anexo: anexo?.name }];
+    setConversa(nova);
     setTexto("");
-    setConversa((c) => [...c, { de: "voce", texto: pergunta }]);
+    const anexoAgora = anexo;
+    setAnexo(null);
     start(async () => {
       try {
-        const r = await perguntarAoAssistente(pergunta, daTela?.id ?? null);
-        setConversa((c) => [...c, r.ok ? { de: "assistente", resposta: r.resposta } : { de: "erro", texto: r.error }]);
+        const falas: FalaDaCris[] = nova.filter((m): m is Exclude<Mensagem, { de: "erro" }> => m.de !== "erro").map((m) => ({ de: m.de, texto: m.texto }));
+        const r = await perguntarACris({ conversa: falas, tela, anexo: anexoAgora ? await lerAnexo(anexoAgora) : undefined });
+        setConversa((c) => [...c, r.ok ? { de: "cris", texto: r.texto, proposta: r.proposta } : { de: "erro", texto: r.error }]);
       } catch {
         setConversa((c) => [...c, { de: "erro", texto: "Não consegui responder agora. Tente de novo." }]);
       }
@@ -42,99 +74,184 @@ export function ChatAssistente({ projetos }: { projetos: { id: string; name: str
     });
   };
 
+  // Pergunta pronta vinda de um painel ("Perguntar à Cris").
+  useEffect(() => {
+    if (cris?.pedidoPendente) {
+      setAberto(true);
+      enviar(cris.pedidoPendente);
+      cris.consumirPedido();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cris?.pedidoPendente]);
+
+  const preencher = (i: number) => {
+    const m = conversa[i];
+    if (!cris || m.de !== "cris" || !m.proposta) return;
+    if (cris.aplicarProposta(m.proposta)) setConversa((c) => c.map((x, j) => (j === i && x.de === "cris" ? { ...x, aplicada: true } : x)));
+    else setConversa((c) => [...c, { de: "erro", texto: "O formulário desta proposta não está mais aberto na tela." }]);
+  };
+
+  const rotuloDoCampo = (nome: string) => tela?.formulario?.campos.find((c) => c.nome === nome)?.rotulo ?? nome;
+  const sugestoes = tela?.sugestoes?.length ? tela.sugestoes : SUGESTOES_PADRAO;
+
   return (
     <>
       <button
         type="button"
         onClick={() => setAberto((a) => !a)}
-        aria-label={aberto ? "Fechar o assistente" : "Abrir o assistente"}
+        aria-label={aberto ? `Fechar a ${NOME_DA_CRIS}` : `Falar com a ${NOME_DA_CRIS}`}
         aria-expanded={aberto}
         data-chat-botao
-        className="fixed bottom-5 right-5 z-[90] flex h-12 w-12 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] shadow-lg hover:shadow-xl print:hidden"
+        className="fixed bottom-5 right-5 z-[90] flex h-12 items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-4 shadow-lg hover:shadow-xl print:hidden"
       >
         <Faisca />
+        <span className="text-[13px] font-semibold text-[var(--color-ink)]">{NOME_DA_CRIS}</span>
       </button>
       {aberto && (
         <div
           role="dialog"
-          aria-label="Assistente"
+          aria-label={`${NOME_DA_CRIS}, assistente`}
           data-chat
-          className="fixed bottom-20 right-5 z-[90] flex max-h-[70vh] w-[min(380px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-2xl print:hidden"
+          className="fixed bottom-20 right-5 z-[90] flex max-h-[75vh] w-[min(420px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-2xl print:hidden"
         >
           <div className="border-b border-[var(--color-line)] px-4 py-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-[var(--color-ink)]">Assistente</span>
-              <button type="button" onClick={() => setAberto(false)} className="text-[12px] text-[var(--color-ink3)] hover:text-[var(--color-ink)]">
-                fechar
-              </button>
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
+                <Faisca /> {NOME_DA_CRIS}
+              </span>
+              <div className="flex items-center gap-3">
+                {conversa.length > 0 && (
+                  <button type="button" onClick={() => setConversa([])} className="text-[12px] text-[var(--color-ink3)] hover:text-[var(--color-ink)]">
+                    nova conversa
+                  </button>
+                )}
+                <button type="button" onClick={() => setAberto(false)} className="text-[12px] text-[var(--color-ink3)] hover:text-[var(--color-ink)]">
+                  fechar
+                </button>
+              </div>
             </div>
             <p className="mt-1 text-[11.5px] text-[var(--color-ink3)]" data-chat-contexto>
-              Contexto: {daTela ? daTela.name : "todas as obras que você vê"}. Responde sobre receita, custo, desvio e saldo; não grava nada.
+              {tela?.titulo ? <>Tela: <strong className="font-medium text-[var(--color-ink2)]">{tela.titulo}</strong>. </> : null}
+              {tela?.formulario ? `Posso preencher “${tela.formulario.titulo}” para você conferir e salvar.` : "Explico o sistema, analiso os números da tela e busco números de outras telas."}
             </p>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px]">
             {conversa.length === 0 && (
-              <div className="space-y-1.5 text-[12.5px] text-[var(--color-ink2)]">
-                <p>Exemplos:</p>
-                <ul className="list-disc space-y-0.5 pl-4">
-                  <li>Quanto já gastamos nesta obra este ano?</li>
-                  <li>Qual o desvio de custo contra o orçado?</li>
-                  <li>Qual a receita orçada de todas as obras?</li>
-                  <li>Qual o saldo das contas hoje?</li>
-                </ul>
-                <p className="pt-1 text-[11.5px] text-[var(--color-ink3)]">
-                  Só a sua pergunta vai ao modelo de IA, para entender o que você quer. Nenhum dado do sistema vai junto: o número é
-                  calculado aqui, com o seu acesso.
+              <div className="space-y-2 text-[12.5px] text-[var(--color-ink2)]">
+                <div className="flex flex-wrap gap-1.5">
+                  {sugestoes.map((s) => (
+                    <button key={s} type="button" onClick={() => enviar(s)} className="rounded-full border border-[var(--color-line)] px-2.5 py-1 text-left text-[12px] hover:border-[var(--color-accent2)]">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <p className="pt-1 text-[11.5px] leading-relaxed text-[var(--color-ink3)]">
+                  Vão ao modelo de IA a sua pergunta, os números que esta tela mostra e o documento que você anexar. Dado pessoal não vai.
+                  A {NOME_DA_CRIS} não grava nada: o que ela preenche, você confere e salva.
                 </p>
               </div>
             )}
             {conversa.map((m, i) =>
-              m.de === "voce" ? (
+              m.de === "usuario" ? (
                 <p key={i} className="ml-8 rounded-[10px] bg-[var(--color-surface2)] px-3 py-2 text-[var(--color-ink)]">
                   {m.texto}
+                  {m.anexo && <span className="mt-1 block text-[11px] text-[var(--color-ink3)]">📎 {m.anexo}</span>}
                 </p>
               ) : m.de === "erro" ? (
                 <p key={i} className="text-[var(--color-danger)]" role="alert">
                   {m.texto}
                 </p>
               ) : (
-                <div key={i} className="space-y-1" data-chat-resposta>
-                  {m.resposta.entendido && <p className="text-[11px] uppercase tracking-wide text-[var(--color-ink3)]">Entendi: {m.resposta.entendido}</p>}
-                  <p className="font-medium text-[var(--color-ink)]">{m.resposta.texto}</p>
-                  {m.resposta.detalhes.length > 0 && (
-                    <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-[var(--color-ink2)]">
-                      {m.resposta.detalhes.map((d) => (
-                        <li key={d}>{d}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {m.resposta.link && (
-                    <Link href={m.resposta.link.href} className="text-[12px] text-[var(--color-accent2)] hover:underline">
-                      {m.resposta.link.rotulo} →
-                    </Link>
+                <div key={i} className="space-y-2" data-chat-resposta>
+                  <p className="whitespace-pre-wrap text-[var(--color-ink)]">
+                    {trechosDaCris(m.texto).map((t, k) =>
+                      t.tipo === "link" ? (
+                        <Link key={k} href={t.href} className="text-[var(--color-accent2)] hover:underline">
+                          {t.texto}
+                        </Link>
+                      ) : (
+                        <span key={k}>{t.texto}</span>
+                      ),
+                    )}
+                  </p>
+                  {m.proposta && (
+                    <div className="rounded-[10px] border border-[#e9d5ff] bg-[#fcfaff] p-3" data-cris-proposta>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink3)]">Proposta para a tela</p>
+                      <ul className="space-y-0.5 text-[12px]">
+                        {Object.entries(m.proposta.valores).map(([k, v]) => (
+                          <li key={k}>
+                            <span className="text-[var(--color-ink3)]">{rotuloDoCampo(k)}:</span> <span className="text-[var(--color-ink)]">{v}</span>
+                            {m.proposta!.conferir[k] && <span className="ml-1 text-[11px] text-[#92400e]">· conferir: {m.proposta!.conferir[k]}</span>}
+                          </li>
+                        ))}
+                        {Object.entries(m.proposta.conferir)
+                          .filter(([k]) => !(k in m.proposta!.valores))
+                          .map(([k, motivo]) => (
+                            <li key={k} className="text-[#92400e]">
+                              {rotuloDoCampo(k)}: faltando · {motivo}
+                            </li>
+                          ))}
+                      </ul>
+                      {m.proposta.observacao && <p className="mt-1 text-[11.5px] text-[var(--color-ink2)]">{m.proposta.observacao}</p>}
+                      {m.aplicada ? (
+                        <p className="mt-2 text-[12px] font-medium text-[var(--color-success)]">Preenchido. Confira na tela e clique em Salvar.</p>
+                      ) : (
+                        <Button type="button" size="sm" className="mt-2" onClick={() => preencher(i)} data-cris-preencher>
+                          Preencher a tela
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </div>
               ),
             )}
-            {pendente && <p className="text-[12px] text-[var(--color-ink3)]">Calculando…</p>}
+            {pendente && <p className="text-[12px] text-[var(--color-ink3)]">{NOME_DA_CRIS} está pensando…</p>}
             <div ref={fim} />
           </div>
+          {anexo && (
+            <div className="flex items-center justify-between border-t border-[var(--color-line)] px-3 py-1.5 text-[12px] text-[var(--color-ink2)]">
+              <span className="truncate">📎 {anexo.name}</span>
+              <button type="button" onClick={() => setAnexo(null)} className="text-[var(--color-ink3)] hover:text-[var(--color-danger)]">
+                tirar
+              </button>
+            </div>
+          )}
+          {erroAnexo && <p className="border-t border-[var(--color-line)] px-3 py-1.5 text-[12px] text-[var(--color-danger)]">{erroAnexo}</p>}
           <form
-            className="flex gap-2 border-t border-[var(--color-line)] p-3"
+            className="flex items-center gap-2 border-t border-[var(--color-line)] p-3"
             onSubmit={(e) => {
               e.preventDefault();
-              enviar();
+              enviar(texto);
             }}
           >
             <input
+              ref={arquivo}
+              type="file"
+              accept={TIPOS_DE_ANEXO.join(",")}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                e.target.value = "";
+                setErroAnexo(null);
+                if (!f) return;
+                if (f.size > MAX_ANEXO_BYTES) return setErroAnexo("Arquivo maior que 4 MB.");
+                if (!(TIPOS_DE_ANEXO as readonly string[]).includes(f.type)) return setErroAnexo("Envie PDF ou imagem (PNG, JPG, WEBP).");
+                setAnexo(f);
+              }}
+            />
+            <button type="button" onClick={() => arquivo.current?.click()} title="Anexar documento (PDF ou imagem)" aria-label="Anexar documento" className="text-[16px] text-[var(--color-ink3)] hover:text-[var(--color-ink)]">
+              📎
+            </button>
+            <BotaoDeVoz onTexto={(t) => setTexto((atual) => (atual ? `${atual} ${t}` : t))} />
+            <input
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
-              maxLength={MAX_PERGUNTA}
-              placeholder="Pergunte sobre receita, custo, desvio ou saldo"
-              aria-label="Pergunta"
+              maxLength={MAX_MENSAGEM}
+              placeholder={tela?.formulario ? "Diga o que lançar, ou anexe o documento" : `Pergunte à ${NOME_DA_CRIS}`}
+              aria-label="Mensagem para a Cris"
               className="h-9 min-w-0 flex-1 rounded-[8px] border border-[var(--color-line)] bg-transparent px-3 text-[13px] outline-none focus:border-[var(--color-accent2)]"
             />
-            <Button type="submit" size="sm" disabled={pendente || !texto.trim()}>
+            <Button type="submit" size="sm" disabled={pendente || (!texto.trim() && !anexo)}>
               Enviar
             </Button>
           </form>

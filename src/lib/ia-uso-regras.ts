@@ -5,7 +5,7 @@
  * produto): são muitas perguntas curtas. As leituras de documento não têm
  * limite — só são medidas — para não travar lançamento em produção.
  */
-export const OPERACOES_DE_CONVERSA = ["chat", "assistente"] as const;
+export const OPERACOES_DE_CONVERSA = ["chat", "assistente", "cris"] as const;
 
 /** Números adotados (decisão pendente com o dono — ver o relatório do AM). */
 export const LIMITES_DE_CONVERSA = { porPessoaPorHora: 30, porEmpresaPorHora: 300 } as const;
@@ -22,6 +22,7 @@ export const ROTULO_DA_OPERACAO: Record<string, string> = {
   medicao: "Laudo de medição",
   chat: "Chat com dados",
   assistente: "Assistente do produto",
+  cris: "Cris (chat)",
   teste: "Teste de conexão",
 };
 

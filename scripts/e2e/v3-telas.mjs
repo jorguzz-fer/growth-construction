@@ -60,6 +60,19 @@ const texto = async (page, url) => {
   check("AC2: seletor Consolidado/Mensal saiu", !(await page.locator('option[value="mensal"]').count()));
   await page.screenshot({ path: `${OUT}/v3-dre.png`, fullPage: true });
 
+  // E2 — a Cris sabe a tela e responde (sem chave de IA: pelo cálculo local).
+  await page.click("[data-chat-botao]");
+  const ctxCris = (await page.textContent("[data-chat-contexto]")) ?? "";
+  check("E2: Cris abre com o nome e a tela", /DRE/.test(ctxCris) && (await page.locator("[data-chat]").getAttribute("aria-label"))?.startsWith("Cris"), ctxCris.slice(0, 80));
+  check("E2: Cris traz as sugestões da tela", ((await page.textContent("[data-chat]")) ?? "").includes("Qual linha mais pesa sobre a receita?"));
+  await page.fill('input[aria-label="Mensagem para a Cris"]', "Qual o saldo das contas hoje?");
+  await page.click('[data-chat] button[type="submit"]');
+  await page.waitForSelector("[data-chat-resposta], [data-chat] [role=alert]", { timeout: 60000 });
+  const resp = (await page.textContent("[data-chat]")) ?? "";
+  check("E2: Cris responde o saldo", /Saldo disponível/.test(resp), resp.slice(-160));
+  await page.screenshot({ path: `${OUT}/v3-cris.png` });
+  await page.click("[data-chat-botao]");
+
   const fluxo = await texto(page, "/fluxocaixa?proj=all");
   check("AD2: Fluxo de Caixa tem a visão semanal", fluxo.includes("Visão semanal"));
   const linhasSem = await page.locator("[data-fluxo-semanal] tbody tr").count();

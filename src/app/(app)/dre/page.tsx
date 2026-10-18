@@ -43,6 +43,7 @@ import { VersionMultiSelect } from "@/components/app/version-multiselect";
 import { CenarioMultiSelect } from "@/components/app/cenario-multiselect";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,27 @@ export default async function DREPage({
 
   const semVersao = escopo.tipo === "projeto" && versoesDaObra.length === 0;
 
+  // Prompt E2 — o que a Cris recebe desta tela: os números que ela mostra,
+  // agregados (sem lançamento, sem nome de pessoa).
+  const resumoParaCris = {
+    escopo: scopeLabel,
+    periodo: periodLabel,
+    colunas: series.map((x) => x.titulo),
+    cascata: linhas.map((lbl, ri) => ({
+      item: lbl.label,
+      valores: Object.fromEntries(series.map((x, i) => [x.titulo, totais[i].rows[ri].value])),
+      pctDaReceita: Object.fromEntries(series.map((x, i) => [x.titulo, pctDaReceita(totais[i].rows[ri].value, totais[i].R)])),
+    })),
+    mensal: meses.slice(-24).map((mm) => ({
+      mes: mm,
+      ...Object.fromEntries(series.map((x) => {
+        const r = mesDe(x, mm).rows;
+        return [x.titulo, { receita: r[0]?.value ?? 0, resultado: r[r.length - 1]?.value ?? 0 }];
+      })),
+    })),
+    cobertura,
+  };
+
   // A mesma tabela nas duas visões: `mensal` liga as colunas por mês.
   const tabelaDre = (mensal: boolean) => (
           <div className="tbl-scroll mt-2 overflow-x-auto">
@@ -364,6 +386,16 @@ export default async function DREPage({
         {isAll && <CenarioMultiSelect selected={cenarios} />}
       </div>
       {escopo.tipo === "projeto" && <LembrarProjeto projectId={escopo.projeto.id} />}
+      <CrisDaTela
+        titulo="DRE — Demonstração de Resultado"
+        dados={resumoParaCris}
+        sugestoes={[
+          "Qual linha mais pesa sobre a receita?",
+          "Compare as colunas e explique a maior diferença",
+          "Em que mês o resultado foi pior?",
+          "E se a receita cair 10%, como fica o resultado?",
+        ]}
+      />
       {doEscopo && doEscopo.semSituacao > 0 && (
         <p className="mb-4 rounded-[8px] bg-[var(--color-surface3)] px-3 py-2 text-[13px] text-[var(--color-ink2)]">
           {doEscopo.semSituacao} obra(s) sem status ficaram fora deste filtro. Classifique-as

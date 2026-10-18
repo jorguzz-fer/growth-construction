@@ -46,11 +46,11 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
 | 1 | **NOM** | Nomenclatura das versões | — | **Feito.** |
-| 2 | **E2** | Chat — arquitetura da Fase 3 | BE2-1 · BE2-2 · BE2-3 · BE2-4 | Reabre BE-2; libera a Etapa 3; o chat flutuante passa a saber a tela, a ler os números dela, a cruzar telas e a **explicar o sistema** (absorve o Assistente). Nome do chat. **Todo prompt dos Blocos 2 a 4 depende dele.** |
-| 3 | **VOZ** | Entrada por voz | BV2-1 | Captura no navegador e transcrição; o texto entra no mesmo caminho do texto digitado. Em todas as telas de cadastro e lançamento. Depende de E2. |
+| 2 | **E2** | Chat — arquitetura da Fase 3 | **Feito em 18/10** ([relatório](./V3-PROMPT-E2-FINAL.md)) | Reabre BE-2; libera a Etapa 3; o chat flutuante passa a saber a tela, a ler os números dela, a cruzar telas e a **explicar o sistema** (absorve o Assistente). Nome do chat. **Todo prompt dos Blocos 2 a 4 depende dele.** |
+| 3 | **VOZ** | Entrada por voz | **Feito em 18/10** ([relatório](./V3-PROMPT-VOZ-FINAL.md)) | Captura no navegador e transcrição; o texto entra no mesmo caminho do texto digitado. Em todas as telas de cadastro e lançamento. Depende de E2. |
 | 4 | **PDF** | Geração de PDF | BPDF-1 | Gerador no servidor para o Dashboard e, depois, outras telas. |
-| 5 | **REN** | Renomeações e mudanças de menu | — | Fornecedores e Parceiros; Medição de Projeto; Cartões → Caixa; Projeção → BI; aba "A Pagar" de Despesas sai. Só rótulo e menu. **Pode ir já.** |
-| 6 | **PLAT** | Chaves e Backup só na plataforma | BPLAT-1 | Tiram-se do menu do cliente; o console `/plataforma` opera. O aviso de backup some. |
+| 5 | **REN** | Renomeações e mudanças de menu | **Feito em 18/10** | Fornecedores e Parceiros; Medição de Projeto; Cartões → Caixa; Projeção → BI; aba "A Pagar" de Despesas sai. Só rótulo e menu. **Pode ir já.** |
+| 6 | **PLAT** | Chaves e Backup só na plataforma | **Feito em 18/10** (BPLAT-1 em aberto) | Tiram-se do menu do cliente; o console `/plataforma` opera. O aviso de backup some. |
 
 ## Bloco 1 · O que sai
 
@@ -66,9 +66,9 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | # | Prompt | Tela | Bloqueios | Observação |
 |---|---|---|---|---|
 | 9 | **DP** | De-para no Plano de Contas | BDP-3 | (Mudou: campo "categoria da DRE" em `chart_account`, com padrão de boa prática e edição.) Despesa passa a herdar e travar a categoria. **Altera a DRE: chave desligada + prévia.** Pré-requisito de AC3 e AD3. |
-| 10 | **AC2** | DRE anual com a mensal abaixo | BAC2-2 | (Mudou: mesma tela, mensal abaixo da anual; cenários em caixas de seleção.) Verificar a versão padrão ao abrir. Pode ir antes de E2. |
+| 10 | **AC2** | DRE anual com a mensal abaixo | **Feito em 18/10** | (Mudou: mesma tela, mensal abaixo da anual; cenários em caixas de seleção.) Verificar a versão padrão ao abrir. Pode ir antes de E2. |
 | 11 | **AC3** | DRE Analítica (nova) | BAC3-1 | Drill-down categoria → grupo → plano de contas, vertical. Depende de DP. |
-| 12 | **AD2** | Fluxo de Caixa mensal e semanal | BAD2-1 | Pode ir antes de E2. |
+| 12 | **AD2** | Fluxo de Caixa mensal e semanal | **Feito em 18/10** | Pode ir antes de E2. |
 | 13 | **AD3** | Fluxo de Caixa Analítico (novo) | BAD3-1 | Grupo CEF, subgrupo e plano de contas, vertical. Depende de DP. |
 | 14 | **AA2** | Dashboard: gráficos e PDF | BAA-1 (I §54–57) · critério de conciliação · PDF | (Especificado: fluxo de caixa em linhas, DRE em barras empilhadas.) |
 | 15 | **RC** | Relatórios Customizados (nova) | BRC-1 | (Confirmado em 18/10: tela própria, com chat próprio. O chat do Dashboard não a substitui.) Depende de E2. |

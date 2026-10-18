@@ -37,6 +37,7 @@ import { ProjectPicker } from "@/components/app/project-picker";
 import { resolveCompareVersions } from "@/lib/report-versions";
 import { can } from "@/lib/permissions";
 import { AccessDenied } from "@/components/app/access-denied";
+import { CrisDaTela } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -392,6 +393,28 @@ export default async function FluxoCaixaPage({
         }
       />
       {project && <LembrarProjeto projectId={project.id} />}
+      {/* Prompt E2 — o que a Cris recebe: os números da tela, agregados. */}
+      <CrisDaTela
+        titulo="Fluxo de Caixa"
+        dados={{
+          escopo: project ? project.name : rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados"),
+          periodo: hasRange ? `${de || "início"} a ${ate || "fim"}` : String(selectedYear),
+          referencia: versoesTabela[0]?.label ?? "Atual",
+          realizado: versaoDoRealizado,
+          saldoInicial,
+          totais: { entradas: totE, saidas: totS, realizadoEntradas: totRealE, realizadoSaidas: totRealS, saldoAcumuladoFinal: saldoAcumFinal },
+          horizonte: { entradas: horizonteE, saidas: horizonteS },
+          meses: linhas.map((l) => ({ mes: l.mm, entradas: l.e, saidas: l.s, realizadoEntradas: l.realE, realizadoSaidas: l.realS, saldoAcumulado: l.saldo })),
+          semanas: linhasSemana.map((l) => ({ semana: l.rotulo, entradas: l.entradas, saidas: l.saidas, realizadoEntradas: l.realE, realizadoSaidas: l.realS, saldoAcumulado: l.acumulado })),
+          desvio: desvioTotal,
+        }}
+        sugestoes={[
+          "Em que semana o caixa fica mais apertado?",
+          "Qual mês teve o maior desvio entre previsto e realizado?",
+          "E se as entradas atrasarem 30 dias?",
+          "Quanto entra e sai até o fim do ano?",
+        ]}
+      />
       {doEscopo && (
         <p className="mb-4 text-[13px] text-[var(--color-ink3)]">
           {rotuloDoEscopo(escopo.tipo as "todos" | "ativos" | "finalizados")} ·{" "}

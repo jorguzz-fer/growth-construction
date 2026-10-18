@@ -13,6 +13,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { AccessDenied } from "@/components/app/access-denied";
 import { Suspense } from "react";
 import { ChatAssistente } from "@/components/app/chat-assistente";
+import { CrisProvider } from "@/components/app/cris-contexto";
 
 export const dynamic = "force-dynamic";
 
@@ -110,13 +111,18 @@ export default async function AppLayout({
       userRole={ctx.role}
       perms={ctx.perms}
     >
-      {/* Conteúdo em largura total da tela (antes: max-w-6xl, ~1150px, encaixotado em monitor largo). */}
-      <div className="w-full px-4 pb-10 pt-6 sm:px-6 lg:px-8 lg:pt-8">
-        {denied ? <AccessDenied /> : children}
-      </div>
-      {/* Prompt E, Etapa 2 — chat somente leitura, em qualquer tela. */}
+      {/* Prompt E2 — a Cris sabe a tela aberta: o provedor envolve o conteúdo e o chat. */}
       <Suspense fallback={null}>
-        <ChatAssistente projetos={ctx.projects.map((p) => ({ id: p.id, name: p.name }))} />
+        <CrisProvider>
+          {/* Conteúdo em largura total da tela (antes: max-w-6xl, ~1150px, encaixotado em monitor largo). */}
+          <div className="w-full px-4 pb-10 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+            {denied ? <AccessDenied /> : children}
+          </div>
+          {/* Prompt E2 — a Cris, em qualquer tela. */}
+          <Suspense fallback={null}>
+            <ChatAssistente />
+          </Suspense>
+        </CrisProvider>
       </Suspense>
     </AppShell>
   );
