@@ -237,14 +237,17 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 
 ## Parâmetros / INCC (/parametros) — módulo Obra
 
-**Para que serve:** guarda a tabela do INCC **de cada obra**, com a variação mensal e o acumulado. Essa tabela é usada para corrigir as parcelas a partir da 5ª.
+**Para que serve:** guarda a tabela do INCC, com a variação mensal e o acumulado. Essa tabela é usada para corrigir as parcelas a partir da 5ª.
+
+**INCC da empresa (uma série só):** o INCC vai ser um por empresa. Hoje cada obra ainda tem a própria tabela. Na tela, o proprietário ou um administrador **adota a série de uma obra como a da empresa** (as tabelas das obras ficam guardadas). A série da empresa só passa a valer quando a plataforma liga a chave "INCC da empresa": aí todas as obras leem a mesma série, o seletor de obra sai da tela e a edição vale para a empresa. Desligar volta às tabelas de cada obra.
 
 **O que se faz nela:**
 - Escolher a variante (DI, M ou 10) e informar a fonte do índice.
 - Editar a variação de um mês na tabela. A edição pede confirmação, marca o mês como **Oficial** e recalcula só os meses projetados. Pode ser negativa, e um valor fora da faixa usual gera aviso, mas pode ser salvo.
 - **Recalcular projeção**: preenche os meses "Projeção" com a média móvel. Meses oficiais nunca são sobrescritos.
 - **Projetar**: devolve à projeção um mês futuro que foi marcado como oficial por engano.
-- Usar o assistente, que aponta meses sem índice oficial e a cobertura dos vencimentos. **Ele não sugere índice.**
+- Usar o assistente, que aponta meses sem índice oficial e a cobertura dos vencimentos. **Ele não sugere índice oficial.**
+- **Com a Cris**: ela recebe a tabela e explica a correção. Pode **projetar** os meses à frente pela média de 12 meses, como conta na conversa. Nada é gravado: o botão "Recalcular projeção" é que grava.
 
 **Campos que confundem:**
 - **Mês**: é o mês de referência do índice, normalmente divulgado no mês seguinte.

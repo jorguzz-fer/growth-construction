@@ -93,6 +93,14 @@ export const CHAVES = [
     origem: "Prompt DP (Fase 3, BDP-1 a BDP-3)",
     previa: { href: "/chaves#previa-categoria", rotulo: "Prévia — despesas que mudam de categoria, por conta" },
   },
+  {
+    id: "incc_por_empresa",
+    titulo: "INCC da empresa: uma série para todas as obras",
+    efeito:
+      "Todas as obras passam a ler a série do INCC da empresa (adotada na tela de INCC a partir da série de uma obra) onde o INCC corrige as parcelas: Caixa, comparação da Projeção e Simulador. O seletor de obra sai da tela de INCC. As séries de cada obra ficam guardadas, sem alteração: desligar volta a elas. Sem série da empresa adotada, ligar não muda nada.",
+    origem: "Prompt Q2 (Fase 3, BQ2-1)",
+    previa: { href: "/chaves#previa-incc", rotulo: "Prévia — obras cuja série difere da série da empresa" },
+  },
 ] as const satisfies readonly Chave[];
 
 export type ChaveId = (typeof CHAVES)[number]["id"];

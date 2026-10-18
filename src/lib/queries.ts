@@ -25,6 +25,7 @@ import {
 import { fillHorizonForward } from "./horizon";
 import { OUTRAS_RECEITAS_KEY, OUTRAS_RECEITAS_PID } from "./budget/config";
 import { chaveLigada } from "./chaves-tenant";
+import { SERIE_DA_EMPRESA } from "./incc-empresa";
 import { mapaDeCategorias, mapaParaDespesas } from "./categoria-do-plano";
 import type { CategoriaDRE } from "./calc/constants";
 import { entraNosRelatorios } from "./situacao-versao";
@@ -242,27 +243,56 @@ export interface InccLinhaDaTela extends InccRow {
   fonte: string | null;
 }
 
-/** Tabela INCC da obra com a origem de cada mês oficial e a variante (Prompt Q, 5.1/5.3), para a tela. */
-export async function getInccTabela(tenantId: string, projectId: string): Promise<{ linhas: InccLinhaDaTela[]; variante: string | null }> {
-  const rows = await db
+/**
+ * Prompt Q2 — as linhas de UMA série, sem olhar a chave: a da obra
+ * (`projectId`) ou a da empresa (`SERIE_DA_EMPRESA`, linhas sem projeto).
+ * Quem grava (actions do INCC) e a prévia da chave leem por aqui.
+ */
+export async function getLinhasDaSerieIncc(tenantId: string, alvo: string) {
+  return db
     .select()
     .from(schema.inccRates)
-    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
+    .where(and(eq(schema.inccRates.tenantId, tenantId), alvo === SERIE_DA_EMPRESA ? isNull(schema.inccRates.projectId) : eq(schema.inccRates.projectId, alvo)))
     .orderBy(asc(schema.inccRates.ordem));
+}
+
+/**
+ * Prompt Q2 — a série que os relatórios leem para uma obra: a da empresa, com
+ * a chave "incc_por_empresa" ligada e uma série da empresa adotada; senão, a
+ * da própria obra (o comportamento de antes).
+ */
+export async function serieDoInccDaObra(tenantId: string, projectId: string): Promise<string> {
+  if (projectId === SERIE_DA_EMPRESA) return SERIE_DA_EMPRESA;
+  return (await inccDaEmpresaAtivo(tenantId)) ? SERIE_DA_EMPRESA : projectId;
+}
+
+/** A chave está ligada E a empresa já adotou uma série. */
+export async function inccDaEmpresaAtivo(tenantId: string): Promise<boolean> {
+  if (!(await chaveLigada(tenantId, "incc_por_empresa"))) return false;
+  const [uma] = await db
+    .select({ id: schema.inccRates.id })
+    .from(schema.inccRates)
+    .where(and(eq(schema.inccRates.tenantId, tenantId), isNull(schema.inccRates.projectId)))
+    .limit(1);
+  return !!uma;
+}
+
+/** Tabela INCC da obra com a origem de cada mês oficial e a variante (Prompt Q, 5.1/5.3), para a tela. */
+export async function getInccTabela(tenantId: string, projectId: string): Promise<{ linhas: InccLinhaDaTela[]; variante: string | null }> {
+  const rows = await getLinhasDaSerieIncc(tenantId, await serieDoInccDaObra(tenantId, projectId));
   return {
     linhas: rows.map((r) => ({ m: r.mes, mo: Number(r.monthly), ac: Number(r.accumulated), projected: r.projected, informadoPor: r.informadoPor, informadoEm: r.informadoEm, fonte: r.fonte })),
     variante: rows.find((r) => r.variante)?.variante ?? null,
   };
 }
 
-/** Tabela INCC da obra — da empresa (Prompt Q, 4.2: antes filtrava só o projeto). */
+/**
+ * Tabela INCC que os relatórios aplicam na obra (Prompt Q, 4.2). Prompt Q2:
+ * com a chave "incc_por_empresa" ligada e série da empresa adotada, é a da
+ * empresa; senão, a da obra.
+ */
 export async function getInccRows(tenantId: string, projectId: string): Promise<InccRow[]> {
-  const rows = await db
-    .select()
-    .from(schema.inccRates)
-    .where(and(eq(schema.inccRates.tenantId, tenantId), eq(schema.inccRates.projectId, projectId)))
-    .orderBy(asc(schema.inccRates.ordem));
-  return toInccRows(rows);
+  return toInccRows(await getLinhasDaSerieIncc(tenantId, await serieDoInccDaObra(tenantId, projectId)));
 }
 
 // helpers de conversão para agregados

@@ -117,6 +117,7 @@ const texto = async (page, url) => {
   const chaves = await texto(page, "/chaves");
   check("DP: a chave aparece desligada com a prévia", chaves.includes("Despesa herda a categoria da DRE do Plano de Contas") && (await page.locator("#previa-categoria [data-previa-categoria-total]").count()) === 1);
   await page.screenshot({ path: `${OUT}/v3-chaves-categoria.png`, fullPage: false });
+  check("Q2: a chave do INCC da empresa aparece com a prévia", chaves.includes("INCC da empresa: uma série para todas as obras") && (await page.locator("#previa-incc [data-previa-incc-total]").count()) === 1);
   const desp = await texto(page, "/despesas");
   check("DP: com a chave desligada, a categoria da despesa segue livre", (await page.locator("[data-categoria-travada]").count()) === 0, desp.length ? "" : "vazio");
 
@@ -226,6 +227,9 @@ const texto = async (page, url) => {
   await page.waitForSelector("text=Registrar baixa", { timeout: 15000 }).catch(() => {});
   check("Y2: o atalho abre o formulário na baixa", (await page.locator("button:has-text('Registrar baixa')").count()) === 1);
   check("Y2: a Cris preenche o movimento de estoque", /Movimento de estoque/.test(await ctxCris("/estoque?tab=mov&lancar=saida", "Movimento de estoque")));
+  // Q2 — INCC: o cartão da série da empresa e a Cris com a tabela.
+  check("Q2: a tela de INCC mostra o INCC da empresa", await (async () => { await texto(page, `/parametros?proj=${obraParaCadastro}`); return (await page.locator("[data-incc-empresa]").count()) === 1; })());
+  check("Q2: a Cris recebe a tabela do INCC", /Parâmetros \/ INCC/.test(await ctxCris(`/parametros?proj=${obraParaCadastro}`, "Parâmetros / INCC")));
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));
