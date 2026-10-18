@@ -18,6 +18,7 @@ const TELAS: [arquivo: string, id: string][] = [
   ["src/components/app/acerto-manager.tsx", '"acerto-vincular"'],
   ["src/components/app/restituicoes-manager.tsx", '"ressarcimento"'],
   ["src/components/app/fornecedor-form.tsx", "formularioDoFornecedor"],
+  ["src/components/app/medicao-form.tsx", "formularioDaMedicao"],
 ];
 
 import { TIPOS_DOC_PERMUTA } from "./permuta-regras";

@@ -216,6 +216,7 @@ const texto = async (page, url) => {
   check("K2: a Cris preenche a nova conta a receber", /Nova conta a receber/.test(await ctxCris(`/contasreceber?proj=${obraParaCadastro}`, "Nova conta a receber")));
   check("P2: a Cris preenche o novo ativo de permuta", /Novo ativo de permuta/.test(await ctxCris(`/permuta/novo?proj=${obraParaCadastro}`, "Novo ativo de permuta")));
   check("S3: a Cris preenche a nova despesa", /Nova despesa/.test(await ctxCris("/despesas?proj=all", "Nova despesa")));
+  check("V2b: a Cris preenche a nova medição", /Nova medição de projeto/.test(await ctxCris(`/medicaolanc?aba=nova&proj=${obraParaCadastro}`, "Nova medição de projeto")));
   check("U2: a Cris conhece os Cartões", /Cartões de Crédito/.test(await ctxCris("/cartoes", "Cartões de Crédito")));
   check("U2: o extrato aceita o PDF da fatura", /PDF da fatura/.test((await page.textContent("main")) ?? ""));
   check("W2: a Cris lê o documento do fornecedor", /Novo cadastro de Fornecedores/.test(await ctxCris("/fornecedores", "Novo cadastro de Fornecedores")));

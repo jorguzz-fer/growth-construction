@@ -201,7 +201,7 @@ Quase toda tela pede a obra no seletor do topo; com a versão de trabalho congel
 **O que ela NÃO faz:**
 - Não gera o formulário oficial da Caixa (PLS/RAE). A impressão serve para conferência.
 - Não lança a liberação do banco, que fica em Liberações de Obra.
-- O assistente pode ler o laudo anexado com IA e apontar divergências, mas **não preenche nada**.
+- O assistente pode ler o laudo anexado com IA e apontar divergências, mas **não lança nada**. Na aba Nova medição, a Cris **preenche** o formulário com o que o engenheiro diz ou dita pelo microfone do chat (competência, grupo, valor e observação, uma medição por vez). Quem lança é o botão "Lançar medição", depois da conferência.
 
 **Quem acessa:**
 - Proprietário e administrador: as três abas.
