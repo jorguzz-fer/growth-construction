@@ -201,24 +201,16 @@ function sheetFromAoa(rows: (string | number)[][]) {
 }
 
 /**
- * Monta o ZIP de backup de um semestre: uma planilha com os dados do período
- * (Despesas, Contas a Receber, Caixa) e os documentos salvos no período.
- * NÃO remove nada do banco — é apenas uma cópia de segurança.
+ * A planilha legível de 3 abas (Despesas, Contas a Receber, Caixa). É a MESMA
+ * do backup simples e do pacote completo (Prompt AO, 3.1 e 11.1): quem já usa
+ * o arquivo não muda nada.
  */
-export async function buildSemesterZip(
-  tenantId: string,
-  key: string,
-  tenantName: string,
-): Promise<{ filename: string; bytes: Uint8Array; conteudo: ConteudoDoPacote } | null> {
-  const info = semesterInfo(key);
-  if (!info) return null;
+export async function planilhaDoSemestre(tenantId: string, info: SemesterInfo) {
   const monthSet = new Set(info.months);
-
-  const [despesas, receber, caixa, documentos] = await Promise.all([
+  const [despesas, receber, caixa] = await Promise.all([
     getDespesasByTenant(tenantId),
     getContasReceber(tenantId),
     getCashByTenant(tenantId),
-    getDocuments(tenantId),
   ]);
 
   const despRows = despesas.filter((d) => monthSet.has(d.competencia ?? ""));
@@ -226,9 +218,6 @@ export async function buildSemesterZip(
     internalDateInSemester(r.vencimento ?? r.dataRecebimento, info),
   );
   const cxRows = caixa.filter((c) => internalDateInSemester(c.data, info));
-  const docRows = documentos.filter(
-    (doc) => semKeyOfDate(doc.uploadedAt ?? null) === key,
-  );
 
   // ── Planilha (XLSX) ────────────────────────────────────────────────────────
   const wb = XLSX.utils.book_new();
@@ -287,6 +276,26 @@ export async function buildSemesterZip(
   );
 
   const xlsxBytes = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Uint8Array;
+  return { xlsxBytes, despRows, recRows, cxRows };
+}
+
+/**
+ * Monta o ZIP de backup de um semestre: uma planilha com os dados do período
+ * (Despesas, Contas a Receber, Caixa) e os documentos salvos no período.
+ * NÃO remove nada do banco — é apenas uma cópia de segurança.
+ */
+export async function buildSemesterZip(
+  tenantId: string,
+  key: string,
+  tenantName: string,
+): Promise<{ filename: string; bytes: Uint8Array; conteudo: ConteudoDoPacote } | null> {
+  const info = semesterInfo(key);
+  if (!info) return null;
+
+  const [{ xlsxBytes, despRows, recRows, cxRows }, documentos] = await Promise.all([planilhaDoSemestre(tenantId, info), getDocuments(tenantId)]);
+  const docRows = documentos.filter(
+    (doc) => semKeyOfDate(doc.uploadedAt ?? null) === key,
+  );
 
   // ── ZIP (planilha + documentos) ────────────────────────────────────────────
   const zip = new JSZip();

@@ -94,3 +94,39 @@ export async function readUrl(key: string, expiresIn = 600): Promise<string> {
     { expiresIn },
   );
 }
+
+/**
+ * Prompt AO, 4.3 — envia um arquivo do disco sem carregá-lo inteiro na
+ * memória (o pacote completo pode ser grande). Limite do PUT único: 5 GB.
+ */
+export async function putObjectFile(key: string, caminho: string, contentType: string): Promise<number> {
+  const { createReadStream } = await import("node:fs");
+  const { stat } = await import("node:fs/promises");
+  const { size } = await stat(caminho);
+  await client().send(
+    new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: key,
+      Body: createReadStream(caminho),
+      ContentLength: size,
+      ContentType: contentType,
+    }),
+  );
+  return size;
+}
+
+/**
+ * Link temporário de download com nome de arquivo. NUNCA usa o domínio público
+ * do bucket: o pacote de backup tem dado pessoal e não pode ter link permanente.
+ */
+export async function presignDownload(key: string, filename: string, expiresIn = 300): Promise<string> {
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename.replace(/[^\w.-]+/g, "_")}"`,
+    }),
+    { expiresIn },
+  );
+}

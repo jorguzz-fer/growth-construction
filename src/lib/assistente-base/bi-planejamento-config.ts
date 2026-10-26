@@ -359,7 +359,8 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 - A matriz de owner e admin não se edita ("acesso total"), e ninguém edita a própria.
 - O contador só recebe "Ver".
 - A Conferência acompanha Despesas.
-- Usuários, Gestão de Acessos e Chaves nunca são concedidas. Chaves e Backup nem aparecem: são operados pela plataforma.
+- Usuários, Gestão de Acessos e Chaves nunca são concedidas. Chaves nem aparece: é operada pela plataforma.
+- Backup nasce só com proprietário e administrador e pode ser concedido a outra pessoa, porque o pacote completo leva dado pessoal.
 - Os grupos da matriz (Reports, Config…) não são os módulos do menu.
 
 **Não faz:** não troca o papel da pessoa (isso é em Usuários).
@@ -427,17 +428,21 @@ A tela Consolidado saiu. O endereço /consolidado leva à **Projeção de Receit
 
 ## Backup de dados (/backup) — módulo Configurações
 
-**Para que serve:** baixar um ZIP por semestre, com a planilha de Despesas, Contas a Receber e Caixa mais os documentos do período.
+**Para que serve:** guardar uma cópia dos dados lançados, por semestre. Há dois arquivos:
+- **Baixar ZIP** (simples): a planilha de Despesas, Contas a Receber e Caixa mais os documentos do período.
+- **Pacote completo**: além da planilha, todas as tabelas de lançamento em arquivos com todas as colunas e chaves, o manifesto (linhas e somas de controle) e os documentos. É gerado em segundo plano; a tela mostra o progresso e o histórico, e o pacote fica disponível para baixar.
 
 **O que se faz:**
-- Lista de semestres com as contagens, a coluna "Último backup" (quando e quem baixou) e o botão "Baixar ZIP".
+- Lista de semestres com as contagens, a coluna "Último backup" (quando e quem baixou), o botão "Baixar ZIP" e o botão "Gerar pacote completo".
 - Cada download vai para a Auditoria, com o que o pacote continha.
 
 **Campos que confundem:** "Encerrado" é só calendário. Semestre encerrado continua recebendo lançamento; um backup baixado e depois alterado fica desatualizado.
 
 **Não faz:** não apaga, não arquiva e **não restaura**. O backup do banco de dados e dos arquivos é outro, feito pela infraestrutura.
 
-**Quem acessa:** só os operadores da plataforma (Growth Tools). Baixar todos os dados da empresa é risco de segurança se a senha de alguém vazar; o dono que precisar de um backup pede à plataforma. Para analisar dados em outro lugar, use as exportações das telas de relatório.
+**Dado pessoal:** o pacote completo leva CPF, endereço e telefone de clientes, fornecedores e funcionários. Os dados sensíveis ficam fora (renda, FGTS, score e estado civil do comprador; salário, endereço e banco do funcionário; ASO). O leia-me dentro do pacote diz isso e que a guarda é de quem baixou.
+
+**Quem acessa:** proprietário e administrador; outra pessoa só se receber a permissão "Backup de dados" na Gestão de Acessos. Para analisar dados em outro lugar, use as exportações das telas de relatório.
 
 ---
 

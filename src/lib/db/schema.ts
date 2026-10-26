@@ -2180,3 +2180,34 @@ export const notaServicoEventos = pgTable(
   },
   (t) => [index("nota_servico_evento_nota_idx").on(t.notaId, t.createdAt)],
 );
+
+/**
+ * Prompt AO, 4.3 — pacote completo de backup gerado em segundo plano: o pedido,
+ * o progresso e onde o ZIP ficou no R2. Só registro; nenhum dado de negócio.
+ */
+export const backupPacotes = pgTable(
+  "backup_pacote",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    semestre: text("semestre").notNull(),
+    /** "gerando" | "pronto" | "falhou". */
+    status: text("status").notNull().default("gerando"),
+    etapa: text("etapa"),
+    feitas: integer("feitas").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    storageKey: text("storage_key"),
+    arquivo: text("arquivo"),
+    bytes: bigint("bytes", { mode: "number" }),
+    /** resumo do manifesto (linhas por tabela, documentos, falhas) — sem dado pessoal. */
+    resumo: jsonb("resumo").$type<Record<string, unknown>>(),
+    erro: text("erro"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+    concluidoEm: timestamp("concluido_em", { mode: "date" }),
+  },
+  (t) => [index("backup_pacote_tenant_idx").on(t.tenantId, t.createdAt)],
+);

@@ -194,7 +194,15 @@ export const TELAS_SO_ADMIN = new Set(["usuarios", "acessos", "chaves"]);
  * segurança se a senha do dono vazar. O dono que precisar pede à plataforma.
  * Não se concede por override e não aparece na Gestão de Acessos.
  */
-export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves", "backup"]);
+export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves"]);
+
+/**
+ * Prompt AO, BAO-2 (decisão de 26/10/2026, revendo o PLAT de 18/10): o Backup
+ * deixa de ser só da plataforma. Vira tela SENSÍVEL — nasce só com owner e
+ * admin e pode ser concedida na Gestão de Acessos — porque o pacote completo
+ * leva dado pessoal. O operador da plataforma continua alcançando.
+ */
+export const OPERADOR_SEMPRE_ALCANCA: ReadonlySet<string> = new Set(["backup"]);
 
 /**
  * Telas que nenhum padrão de papel concede além de owner/admin — mas que,
@@ -202,7 +210,7 @@ export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves", "back
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
  * admin").
  */
-export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava", "versaoaprova", "notaemitir", "notacancelar"]);
+export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava", "versaoaprova", "notaemitir", "notacancelar", "backup"]);
 
 /**
  * Papéis com TETO DE LEITURA (Prompt AL, Parte 3 · decisão BAL-2 = opção 1):
@@ -256,6 +264,7 @@ export function defaultPermissions(role: Role, opts: OpcoesPermissao = {}): Perm
   for (const [filha, mae] of Object.entries(HERDA_DE)) out[filha] = { ...out[mae] };
   // Prompt PLAT: o padrão de qualquer papel é negado; só o operador da plataforma alcança.
   for (const id of TELAS_SO_PLATAFORMA) out[id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
+  if (opts.operadorDaPlataforma) for (const id of OPERADOR_SEMPRE_ALCANCA) out[id] = { ...FULL };
   return out;
 }
 
@@ -291,6 +300,7 @@ export function effectivePermissions(
     else if (soLeitura) base[s.id] = { ver: base[s.id].ver, criar: false, editar: false, excluir: false };
     // Prompt PLAT: por último, acima do papel — owner e admin do cliente não alcançam.
     if (TELAS_SO_PLATAFORMA.has(s.id)) base[s.id] = opts.operadorDaPlataforma ? { ...FULL } : { ...NONE };
+    if (opts.operadorDaPlataforma && OPERADOR_SEMPRE_ALCANCA.has(s.id)) base[s.id] = { ...FULL };
   }
   return base;
 }
