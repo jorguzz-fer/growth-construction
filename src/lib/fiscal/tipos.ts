@@ -42,6 +42,11 @@ export interface ResultadoNota {
   urlDanfse?: string | null;
   erros?: ErroNota[];
   /**
+   * Código HTTP da resposta. 5xx, 408 e 429 dizem "não sei se chegou" — quem
+   * chama trata como falta de resposta, nunca como rejeição.
+   */
+  http?: number;
+  /**
    * Resposta crua do provedor, para gravar no log de eventos.
    *
    * Rejeição de prefeitura vem com mensagem obscura e específica do município;

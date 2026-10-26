@@ -14,10 +14,10 @@
  */
 import type { EntradaNfse, RetencoesFederais } from "@/lib/calc/nfse";
 import type { EmitenteFiscal } from "@/lib/calc/emitente-fiscal";
-import { cepValido, codigoMunicipioValido, ufValida } from "@/lib/calc/emitente-fiscal";
+import { cepValido, checarProntidaoFiscal, codigoMunicipioValido, ufValida } from "@/lib/calc/emitente-fiscal";
 import { cpfValido } from "@/lib/stakeholder-regras";
 import { montarPayloadNfse, type DadosEmissaoNfse, type MontagemNfse, type ObraFiscal } from "@/lib/fiscal/nfse-payload";
-import { refDaNota, refValida, type AmbienteFiscal, type StatusNota } from "@/lib/fiscal/tipos";
+import { refDaNota, refValida, type AmbienteFiscal, type ResultadoNota, type StatusNota } from "@/lib/fiscal/tipos";
 
 // ── Ciclo de vida (seção 2) ───────────────────────────────────────────────
 export const SITUACOES_DA_NOTA = ["rascunho", "processando", "autorizada", "rejeitada", "cancelada"] as const;
@@ -381,4 +381,93 @@ export function emitenteDoTenant(t: {
     telefone: t.telefone,
     email: t.emailFiscal,
   };
+}
+
+// ── Envio (seção 4) ───────────────────────────────────────────────────────
+/** Dados fiscais da obra: o ISS da construção é devido no município da OBRA. */
+export function obraFiscalDoProjeto(p: { codigoMunicipioObra?: string | null; codigoObra?: string | null; art?: string | null }): ObraFiscal {
+  return { codigoMunicipio: p.codigoMunicipioObra ?? null, codigoObra: p.codigoObra ?? null, art: p.art ?? null };
+}
+
+/**
+ * Em que ambiente a nota sai. O rascunho nunca enviado segue o ambiente atual
+ * da empresa; a rejeitada fica no ambiente em que foi tentada — mudar no meio
+ * misturaria teste com nota de verdade.
+ */
+export function ambienteDoEnvio(
+  n: { status: string; tentativa: number; ambiente: string },
+  daEmpresa: AmbienteFiscal,
+): { ok: true; ambiente: AmbienteFiscal } | { ok: false; error: string } {
+  if (n.tentativa === 0) return { ok: true, ambiente: daEmpresa };
+  const dela: AmbienteFiscal = n.ambiente === "producao" ? "producao" : "homologacao";
+  if (dela !== daEmpresa)
+    return {
+      ok: false,
+      error: `Esta nota já foi tentada em ${ROTULO_DO_AMBIENTE[dela]}; a empresa agora emite em ${ROTULO_DO_AMBIENTE[daEmpresa]}. Monte uma nota nova.`,
+    };
+  return { ok: true, ambiente: dela };
+}
+
+/** O que impede de oferecer o envio. Vazio = o botão aparece (4.1). */
+export function bloqueiosDoEnvio(i: {
+  status: string;
+  podeEmitir: boolean;
+  recusaDoTenant: string | null;
+  focusConfigurado: boolean;
+  ambiente: AmbienteFiscal;
+  emitente: EmitenteFiscal;
+}): string[] {
+  const b: string[] = [];
+  if (!podeEnviar(i.status)) b.push("Só rascunho ou nota rejeitada pode ser enviada.");
+  if (!i.podeEmitir) b.push("Você não tem a permissão “Emitir nota fiscal (NFS-e)”.");
+  if (i.recusaDoTenant) b.push(i.recusaDoTenant);
+  if (!i.focusConfigurado) b.push(`O token da Focus NFe para ${ROTULO_DO_AMBIENTE[i.ambiente]} não está configurado no servidor.`);
+  for (const p of checarProntidaoFiscal(i.emitente)) if (p.severidade === "bloqueio") b.push(`Empresa: ${p.mensagem}`);
+  return b;
+}
+
+/** "Não sei se chegou": 5xx, 408 e 429. Nunca vira rejeição (3.3). */
+export function semResposta(r: Pick<ResultadoNota, "http">): boolean {
+  return r.http !== undefined && (r.http >= 500 || r.http === 408 || r.http === 429);
+}
+
+/**
+ * Consulta só vale com 2xx ou 404. Um 401/403 (token errado ou trocado) ou um
+ * 5xx não diz nada sobre a nota — ler isso como "erro" marcaria rejeitada uma
+ * nota que pode estar sendo autorizada.
+ */
+export function consultaSemValor(r: Pick<ResultadoNota, "http">): boolean {
+  return r.http !== undefined && !(r.http >= 200 && r.http < 300) && r.http !== 404;
+}
+
+/** Texto dos erros devolvidos pelo provedor, para a tela e o histórico. */
+export function mensagemDoRetorno(r: Pick<ResultadoNota, "erros">): string | null {
+  const t = (r.erros ?? [])
+    .map((e) => [e.codigo ? `${e.codigo}: ` : "", e.mensagem, e.correcao ? ` (${e.correcao})` : ""].join(""))
+    .filter((x) => x.trim());
+  return t.length ? t.join("\n").slice(0, 2000) : null;
+}
+
+/**
+ * Depois de um POST que voltou "erro": a nota só vira REJEITADA se a consulta
+ * confirmar que o provedor não tem nota nesta ref (ou que ela deu erro). Se a
+ * consulta disser processando/autorizada, o "erro" era só a ref repetida — vale
+ * a consulta. Sem consulta, nada muda: rejeitada libera nova tentativa, e
+ * liberar por engano emitiria nota em dobro.
+ */
+export function retornoQueVale(post: ResultadoNota, consulta: ResultadoNota | null): ResultadoNota | null {
+  if (post.status !== "erro") return post;
+  if (!consulta || consultaSemValor(consulta)) return null;
+  if (consulta.status === "nao_encontrada") return post;
+  return consulta;
+}
+
+/** Data de emissão no fuso de Brasília (sem horário de verão desde 2019). */
+export function dataDeEmissao(agora: Date = new Date()): string {
+  return new Date(agora.getTime() - 3 * 3600_000).toISOString().slice(0, 19) + "-03:00";
+}
+
+/** Link vindo do provedor só vira link se for https — nada de javascript: na tela. */
+export function urlSegura(u: string | null | undefined): string | null {
+  return u && /^https:\/\/[^\s"'<>]+$/i.test(u.trim()) ? u.trim() : null;
 }
