@@ -102,7 +102,7 @@ interface RespostaFocus {
   correcao?: string;
 }
 
-function mapear(ref: string, corpo: RespostaFocus, httpOk: boolean): ResultadoNota {
+function mapear(ref: string, corpo: RespostaFocus, httpOk: boolean, http?: number): ResultadoNota {
   // Erro de pré-validação (4xx) vem como {codigo, mensagem} — sem `status`.
   const erros: ErroNota[] =
     corpo.erros ??
@@ -126,6 +126,7 @@ function mapear(ref: string, corpo: RespostaFocus, httpOk: boolean): ResultadoNo
     caminhoXmlCancelamento: corpo.caminho_xml_cancelamento ?? null,
     urlDanfse: corpo.url_danfse ?? null,
     erros: erros.length > 0 ? erros : undefined,
+    http,
     bruto: corpo,
   };
 }
@@ -186,13 +187,13 @@ export async function emitirNfse(
   if (!refValida(ref)) {
     throw new Error("Referência inválida: use apenas letras e números.");
   }
-  const { ok, json } = await chamar(
+  const { ok, json, http } = await chamar(
     ambiente,
     "POST",
     `/nfse?ref=${encodeURIComponent(ref)}`,
     payload,
   );
-  return mapear(ref, json, ok);
+  return mapear(ref, json, ok, http);
 }
 
 /** Consulta o estado atual da nota pela referência. */
@@ -206,9 +207,9 @@ export async function consultarNfse(
     `/nfse/${encodeURIComponent(ref)}`,
   );
   if (http === 404) {
-    return { status: "nao_encontrada", ref, bruto: json };
+    return { status: "nao_encontrada", ref, http, bruto: json };
   }
-  return mapear(ref, json, ok);
+  return mapear(ref, json, ok, http);
 }
 
 /**
@@ -223,11 +224,11 @@ export async function cancelarNfse(
   ref: string,
   justificativa?: string,
 ): Promise<ResultadoNota> {
-  const { ok, json } = await chamar(
+  const { ok, json, http } = await chamar(
     ambiente,
     "DELETE",
     `/nfse/${encodeURIComponent(ref)}`,
     justificativa?.trim() ? { justificativa: justificativa.trim() } : undefined,
   );
-  return mapear(ref, json, ok);
+  return mapear(ref, json, ok, http);
 }

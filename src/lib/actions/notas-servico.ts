@@ -1,13 +1,34 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { lerRascunhoDaNota, podeEditar, type RascunhoDaNota } from "@/lib/nota-servico";
-import { resolverAmbiente } from "@/lib/fiscal/focus";
+import {
+  ambienteDoEnvio,
+  bloqueiosDoEnvio,
+  conferirAntesDoEnvio,
+  consultaSemValor,
+  dataDeEmissao,
+  emitenteDoTenant,
+  lerRascunhoDaNota,
+  mensagemDoRetorno,
+  obraFiscalDoProjeto,
+  podeEditar,
+  podeEnviar,
+  recusaDoTenant,
+  refDaTentativa,
+  retornoQueVale,
+  semResposta,
+  situacaoDoRetorno,
+  transicaoPermitida,
+  type RascunhoDaNota,
+  type SituacaoDaNota,
+} from "@/lib/nota-servico";
+import { consultarNfse, emitirNfse, focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
+import type { AmbienteFiscal, ResultadoNota as RetornoDoProvedor } from "@/lib/fiscal/tipos";
 
 export type ResultadoNota = { ok: true; id: string } | { ok: false; error: string };
 
@@ -117,4 +138,325 @@ function valoresDoRascunho(r: RascunhoDaNota) {
     tomadorUf: r.tomadorUf,
     tomadorCep: r.tomadorCep,
   };
+}
+
+// ── Envio, consulta e reenvio (Prompt AG, seção 4) ─────────────────────────
+
+export type ResultadoDoEnvio =
+  | { ok: true; situacao: string; aviso?: string }
+  | { ok: false; error: string; pendencias?: string[] };
+
+const naoEncontrada = { ok: false as const, error: "Nota não encontrada." };
+
+/**
+ * Envia a nota à Focus NFe. O PONTO SEM VOLTA: a tela de conferência vem
+ * antes e manda `conferido = true`.
+ *
+ * Idempotência (seção 3): a tentativa, a ref e a situação "processando" são
+ * gravadas numa transação ANTES da chamada; a chamada é fora da transação.
+ * Duplo clique encontra "processando" e para. Sem resposta, a nota fica
+ * processando — nunca reenvia sozinha.
+ */
+export async function enviarNota(id: string, conferido: boolean): Promise<ResultadoDoEnvio> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "notasfiscais", "ver") || !can(ctx.perms, "notaemitir", "editar"))
+    return { ok: false, error: "Sem permissão para emitir nota fiscal." };
+  if (!conferido) return { ok: false, error: "Confira a nota antes de enviar." };
+  const tenantId = ctx.tenant.id;
+  const [n] = await db
+    .select()
+    .from(schema.notasServico)
+    .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+    .limit(1);
+  const projeto = n && ctx.projects.find((p) => p.id === n.projectId);
+  if (!n || !projeto) return naoEncontrada;
+
+  const amb = ambienteDoEnvio(n, resolverAmbiente(ctx.tenant.fiscalAmbiente));
+  if (!amb.ok) return amb;
+  const ambiente = amb.ambiente;
+  const emitente = emitenteDoTenant(ctx.tenant);
+  const bloqueios = bloqueiosDoEnvio({
+    status: n.status,
+    podeEmitir: true,
+    recusaDoTenant: recusaDoTenant(tenantId, process.env.NFSE_TENANT_ID),
+    focusConfigurado: focusConfigurado(ambiente),
+    ambiente,
+    emitente,
+  });
+  if (bloqueios.length) return { ok: false, error: "A nota não pode ser enviada agora.", pendencias: bloqueios };
+  const m = conferirAntesDoEnvio(n, emitente, obraFiscalDoProjeto(projeto), dataDeEmissao());
+  if (!m.payload || !m.calculo) return { ok: false, error: "Corrija a nota antes de enviar.", pendencias: m.erros };
+  const { payload, calculo } = m;
+
+  let ref: string;
+  try {
+    ref = await db.transaction(async (tx) => {
+      const [atual] = await tx
+        .select({ status: schema.notasServico.status, tentativa: schema.notasServico.tentativa })
+        .from(schema.notasServico)
+        .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
+      if (!atual) throw new Recusa("Nota não encontrada.");
+      if (!podeEnviar(atual.status)) throw new Recusa("Esta nota já foi enviada. Use “Atualizar situação”.");
+      const tentativa = atual.tentativa + 1;
+      const novaRef = refDaTentativa(id, tentativa);
+      await tx
+        .update(schema.notasServico)
+        .set({
+          status: "processando",
+          ambiente,
+          tentativa,
+          ref: novaRef,
+          enviadaEm: new Date(),
+          mensagemRetorno: null,
+          codigoMunicipioPrestacao: String(payload.servico.codigo_municipio ?? ""),
+          baseCalculo: String(calculo.baseCalculo),
+          valorIss: String(calculo.valorIss),
+          totalRetencoes: String(calculo.totalRetencoes),
+          valorLiquido: String(calculo.valorLiquido),
+        })
+        .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)));
+      await tx.insert(schema.notaServicoEventos).values({ tenantId, notaId: id, tipo: "enviada", ref: novaRef, status: "processando", createdBy: ctx.userId });
+      return novaRef;
+    });
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
+  await logAudit({
+    tenantId,
+    userId: ctx.userId,
+    action: "nfse.enviar",
+    entity: "nota_servico",
+    entityId: id,
+    meta: { ambiente, ref, valorServicos: Number(n.valorServicos) },
+  });
+
+  // Fora da transação: a rede pode demorar ou falhar.
+  let post: RetornoDoProvedor | null = null;
+  try {
+    post = await emitirNfse(ambiente, ref, payload as Parameters<typeof emitirNfse>[2]);
+  } catch {
+    post = null;
+  }
+  const r = await desfechoDoPost(tenantId, id, ambiente, ref, post, ctx.userId);
+  revalidatePath("/notasfiscais");
+  return r;
+}
+
+/** “Atualizar situação”: pergunta ao provedor como está a nota processando. */
+export async function atualizarNota(id: string): Promise<ResultadoDoEnvio> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "notasfiscais", "ver") || !(can(ctx.perms, "notaemitir", "editar") || can(ctx.perms, "notasfiscais", "editar")))
+    return { ok: false, error: "Sem permissão para atualizar a nota." };
+  const n = await notaDoTenant(ctx.tenant.id, id, ctx.projects);
+  if (!n) return naoEncontrada;
+  if (n.status !== "processando" || !n.ref) return { ok: true, situacao: n.status, aviso: "Esta nota não está processando." };
+  const ambiente = resolverAmbiente(n.ambiente);
+  if (!focusConfigurado(ambiente)) return { ok: false, error: "O token da Focus NFe deste ambiente não está configurado no servidor." };
+  let c: RetornoDoProvedor | null = null;
+  try {
+    c = await consultarNfse(ambiente, n.ref);
+  } catch {
+    c = null;
+  }
+  const r = !c || consultaSemValor(c)
+    ? await registrarSemResposta(
+        ctx.tenant.id,
+        id,
+        n.ref,
+        ctx.userId,
+        `A Focus não respondeu à consulta. A nota continua processando.${c ? ` ${mensagemDoRetorno(c) ?? ""}` : ""}`.trim(),
+      )
+    : await aplicarRetorno(ctx.tenant.id, id, n.ref, c, ctx.userId, "consulta");
+  revalidatePath("/notasfiscais");
+  return r;
+}
+
+/**
+ * Reenvio MANUAL com a MESMA ref, para o envio que nunca chegou (a rede caiu).
+ * Só reenvia se a consulta disser que o provedor não conhece a ref — assim não
+ * existe caminho para duas notas. Um reenvio por minuto, no máximo.
+ */
+export async function reenviarNota(id: string): Promise<ResultadoDoEnvio> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "notasfiscais", "ver") || !can(ctx.perms, "notaemitir", "editar"))
+    return { ok: false, error: "Sem permissão para emitir nota fiscal." };
+  const tenantId = ctx.tenant.id;
+  const n = await notaDoTenant(tenantId, id, ctx.projects);
+  if (!n) return naoEncontrada;
+  if (n.status !== "processando" || !n.ref) return { ok: false, error: "Só se reenvia nota que está processando." };
+  const ref = n.ref;
+  const ambiente = resolverAmbiente(n.ambiente);
+  if (!focusConfigurado(ambiente)) return { ok: false, error: "O token da Focus NFe deste ambiente não está configurado no servidor." };
+  const recusa = recusaDoTenant(tenantId, process.env.NFSE_TENANT_ID);
+  if (recusa) return { ok: false, error: recusa };
+
+  let c: RetornoDoProvedor | null = null;
+  try {
+    c = await consultarNfse(ambiente, ref);
+  } catch {
+    c = null;
+  }
+  if (!c || consultaSemValor(c))
+    return { ok: false, error: `A Focus não respondeu à consulta. Nada foi reenviado. ${c ? (mensagemDoRetorno(c) ?? "") : ""}`.trim() };
+  if (c.status !== "nao_encontrada") {
+    const r = await aplicarRetorno(tenantId, id, ref, c, ctx.userId, "consulta");
+    revalidatePath("/notasfiscais");
+    return r.ok ? { ...r, aviso: "A Focus já tem esta nota — nada foi reenviado." } : r;
+  }
+
+  const projeto = ctx.projects.find((p) => p.id === n.projectId)!;
+  const m = conferirAntesDoEnvio(n, emitenteDoTenant(ctx.tenant), obraFiscalDoProjeto(projeto), dataDeEmissao());
+  if (!m.payload) return { ok: false, error: "Corrija o cadastro antes de reenviar.", pendencias: m.erros };
+  try {
+    await db.transaction(async (tx) => {
+      const [atual] = await tx
+        .select({ status: schema.notasServico.status, ref: schema.notasServico.ref })
+        .from(schema.notasServico)
+        .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
+      if (!atual || atual.status !== "processando" || atual.ref !== ref) throw new Recusa("A nota mudou enquanto você olhava. Recarregue a página.");
+      const [recente] = await tx
+        .select({ id: schema.notaServicoEventos.id })
+        .from(schema.notaServicoEventos)
+        .where(
+          and(
+            eq(schema.notaServicoEventos.notaId, id),
+            inArray(schema.notaServicoEventos.tipo, ["enviada", "reenviada"]),
+            gt(schema.notaServicoEventos.createdAt, new Date(Date.now() - 60_000)),
+          ),
+        )
+        .orderBy(desc(schema.notaServicoEventos.createdAt))
+        .limit(1);
+      if (recente) throw new Recusa("A nota acabou de ser enviada. Espere um minuto e use “Atualizar situação”.");
+      await tx.insert(schema.notaServicoEventos).values({ tenantId, notaId: id, tipo: "reenviada", ref, status: "processando", createdBy: ctx.userId });
+    });
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
+  await logAudit({ tenantId, userId: ctx.userId, action: "nfse.reenviar", entity: "nota_servico", entityId: id, meta: { ambiente, ref } });
+  let post: RetornoDoProvedor | null = null;
+  try {
+    post = await emitirNfse(ambiente, ref, m.payload as Parameters<typeof emitirNfse>[2]);
+  } catch {
+    post = null;
+  }
+  const r = await desfechoDoPost(tenantId, id, ambiente, ref, post, ctx.userId);
+  revalidatePath("/notasfiscais");
+  return r;
+}
+
+async function notaDoTenant(tenantId: string, id: string, projects: { id: string }[]) {
+  const [n] = await db
+    .select()
+    .from(schema.notasServico)
+    .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+    .limit(1);
+  return n && projects.some((p) => p.id === n.projectId) ? n : null;
+}
+
+/** O que fazer com a resposta do POST (seção 3.3). */
+async function desfechoDoPost(
+  tenantId: string,
+  id: string,
+  ambiente: AmbienteFiscal,
+  ref: string,
+  post: RetornoDoProvedor | null,
+  userId: string | null,
+): Promise<ResultadoDoEnvio> {
+  if (!post || semResposta(post))
+    return registrarSemResposta(tenantId, id, ref, userId, "A Focus não respondeu ao envio. A nota fica processando: use “Atualizar situação” em alguns minutos.");
+  let consulta: RetornoDoProvedor | null = null;
+  if (post.status === "erro") {
+    try {
+      consulta = await consultarNfse(ambiente, ref);
+    } catch {
+      consulta = null;
+    }
+  }
+  const vale = retornoQueVale(post, consulta);
+  if (!vale)
+    return registrarSemResposta(
+      tenantId,
+      id,
+      ref,
+      userId,
+      `A Focus recusou o envio, mas não foi possível confirmar. A nota fica processando até a consulta confirmar. ${mensagemDoRetorno(post) ?? ""}`.trim(),
+    );
+  return aplicarRetorno(tenantId, id, ref, vale, userId, vale === post ? "retorno" : "consulta");
+}
+
+async function registrarSemResposta(tenantId: string, id: string, ref: string, userId: string | null, mensagem: string): Promise<ResultadoDoEnvio> {
+  await db.insert(schema.notaServicoEventos).values({ tenantId, notaId: id, tipo: "falha_rede", ref, status: "processando", mensagem, createdBy: userId });
+  return { ok: true, situacao: "processando", aviso: mensagem };
+}
+
+/**
+ * Grava o que o provedor disse — só se a ref ainda é a da nota e a transição é
+ * permitida (nenhuma situação volta). Resposta velha vira só histórico.
+ */
+async function aplicarRetorno(
+  tenantId: string,
+  id: string,
+  ref: string,
+  r: RetornoDoProvedor,
+  userId: string | null,
+  tipo: "retorno" | "consulta",
+): Promise<ResultadoDoEnvio> {
+  const para = situacaoDoRetorno(r.status);
+  const mensagem = mensagemDoRetorno(r);
+  const bruto = r.bruto === undefined ? null : (r.bruto as Record<string, unknown>);
+  const res = await db.transaction(async (tx) => {
+    const [n] = await tx
+      .select({ status: schema.notasServico.status, ref: schema.notasServico.ref })
+      .from(schema.notasServico)
+      .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+      .for("update")
+      .limit(1);
+    if (!n) return { mudou: false, situacao: "?", de: "?" };
+    const valida = para !== null && n.ref === ref && (para === n.status || transicaoPermitida(n.status, para));
+    await tx.insert(schema.notaServicoEventos).values({
+      tenantId,
+      notaId: id,
+      tipo,
+      ref,
+      status: valida ? para : n.status,
+      mensagem: para === null ? "A Focus ainda não conhece esta nota." : valida ? mensagem : `Resposta ignorada (${r.status}): a nota já está ${n.status}.`,
+      bruto,
+      createdBy: userId,
+    });
+    if (!valida || para === null) return { mudou: false, situacao: n.status, de: n.status };
+    await tx
+      .update(schema.notasServico)
+      .set({
+        status: para,
+        mensagemRetorno: mensagem,
+        ...(r.numero ? { numero: r.numero } : {}),
+        ...(r.numeroRps ? { numeroRps: r.numeroRps } : {}),
+        ...(r.serieRps ? { serieRps: r.serieRps } : {}),
+        ...(r.codigoVerificacao ? { codigoVerificacao: r.codigoVerificacao } : {}),
+        ...(r.urlDanfse ? { urlDanfse: r.urlDanfse } : {}),
+        ...(r.urlEspelho ? { urlEspelho: r.urlEspelho } : {}),
+        ...(r.caminhoXml ? { caminhoXml: r.caminhoXml } : {}),
+        ...(para === "autorizada" ? { autorizadaEm: new Date() } : {}),
+      })
+      .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)));
+    return { mudou: para !== n.status, situacao: para as string, de: n.status };
+  });
+  if (res.mudou)
+    await logAudit({ tenantId, userId, action: "nfse.situacao", entity: "nota_servico", entityId: id, meta: { de: res.de, para: res.situacao, ref } });
+  const aviso =
+    res.situacao === "processando"
+      ? "A prefeitura ainda está processando. Use “Atualizar situação” em alguns minutos."
+      : res.situacao === "rejeitada"
+        ? "A nota foi rejeitada. Corrija e envie de novo — a nova tentativa usa outra referência."
+        : undefined;
+  return { ok: true, situacao: res.situacao as SituacaoDaNota, ...(aviso ? { aviso } : {}) };
 }

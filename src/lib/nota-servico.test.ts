@@ -166,3 +166,56 @@ describe("números do formulário", () => {
     expect(numeroBR("")).toBe(0);
   });
 });
+
+describe("Prompt AG PR3 — regras do envio", async () => {
+  const m = await import("./nota-servico");
+  it("ambiente: rascunho segue a empresa; rejeitada fica onde foi tentada", () => {
+    expect(m.ambienteDoEnvio({ status: "rascunho", tentativa: 0, ambiente: "homologacao" }, "producao")).toEqual({ ok: true, ambiente: "producao" });
+    expect(m.ambienteDoEnvio({ status: "rejeitada", tentativa: 1, ambiente: "homologacao" }, "homologacao")).toEqual({ ok: true, ambiente: "homologacao" });
+    const r = m.ambienteDoEnvio({ status: "rejeitada", tentativa: 1, ambiente: "homologacao" }, "producao");
+    expect(r.ok).toBe(false);
+  });
+  it("sem resposta: 5xx, 408 e 429 — nunca rejeição", () => {
+    for (const http of [500, 502, 503, 408, 429]) expect(m.semResposta({ http })).toBe(true);
+    for (const http of [200, 201, 400, 404, 422, undefined]) expect(m.semResposta({ http })).toBe(false);
+  });
+  it("erro do POST só vale como rejeição se a consulta confirmar", () => {
+    const erro = { status: "erro" as const, ref: "r", http: 422 };
+    expect(m.retornoQueVale(erro, null)).toBeNull();
+    expect(m.retornoQueVale(erro, { status: "processando", ref: "r", http: 500 })).toBeNull();
+    expect(m.retornoQueVale(erro, { status: "nao_encontrada", ref: "r", http: 404 })).toBe(erro);
+    const proc = { status: "processando" as const, ref: "r", http: 200 };
+    expect(m.retornoQueVale(erro, proc)).toBe(proc);
+    const ok = { status: "processando" as const, ref: "r", http: 201 };
+    expect(m.retornoQueVale(ok, null)).toBe(ok);
+  });
+  it("mensagem do retorno, data de emissão e link seguro", () => {
+    expect(m.mensagemDoRetorno({ erros: [{ codigo: "E1", mensagem: "CNPJ inválido", correcao: "confira" }, { mensagem: "Outro" }] })).toBe("E1: CNPJ inválido (confira)\nOutro");
+    expect(m.mensagemDoRetorno({})).toBeNull();
+    expect(m.dataDeEmissao(new Date("2026-10-26T13:05:09Z"))).toBe("2026-10-26T10:05:09-03:00");
+    expect(m.urlSegura("https://focus.com/a.pdf")).toBe("https://focus.com/a.pdf");
+    expect(m.urlSegura("javascript:alert(1)")).toBeNull();
+    expect(m.urlSegura("http://x")).toBeNull();
+  });
+  it("bloqueios: permissão, empresa, token e cadastro incompleto", () => {
+    const base = { status: "rascunho", podeEmitir: true, recusaDoTenant: null, focusConfigurado: true, ambiente: "homologacao" as const };
+    const completo = {
+      razaoSocial: "X", cnpj: "11222333000181", inscricaoMunicipal: "1", regimeTributario: "LUCRO_PRESUMIDO", itemListaServico: "7.02",
+      aliquotaIss: 3, codigoMunicipio: "3552502", municipio: "Itanhaém", uf: "SP", logradouro: "Av", numero: "1", bairro: "C", cep: "11740-000", email: "a@b.c",
+    };
+    expect(m.bloqueiosDoEnvio({ ...base, emitente: completo })).toEqual([]);
+    expect(m.bloqueiosDoEnvio({ ...base, status: "autorizada", emitente: completo })).toHaveLength(1);
+    expect(m.bloqueiosDoEnvio({ ...base, podeEmitir: false, focusConfigurado: false, recusaDoTenant: "outra", emitente: completo })).toHaveLength(3);
+    expect(m.bloqueiosDoEnvio({ ...base, emitente: { ...completo, cnpj: null } }).some((b) => b.startsWith("Empresa:"))).toBe(true);
+  });
+});
+
+describe("Prompt AG PR3 — consulta sem valor", async () => {
+  const m = await import("./nota-servico");
+  it("401/403/5xx na consulta não confirmam rejeição", () => {
+    for (const http of [401, 403, 422, 500]) expect(m.consultaSemValor({ http })).toBe(true);
+    for (const http of [200, 404, undefined]) expect(m.consultaSemValor({ http })).toBe(false);
+    const erro = { status: "erro" as const, ref: "r", http: 401 };
+    expect(m.retornoQueVale(erro, { status: "erro", ref: "r", http: 401 })).toBeNull();
+  });
+});

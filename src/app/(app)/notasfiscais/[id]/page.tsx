@@ -2,15 +2,28 @@ import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getContasReceber, getEventosDaNota, getNotaServico } from "@/lib/queries";
-import { ROTULO_DA_SITUACAO, ROTULO_DO_AMBIENTE, emitenteDoTenant, entradaDaNota, podeEditar, type SituacaoDaNota } from "@/lib/nota-servico";
+import {
+  ROTULO_DA_SITUACAO,
+  ROTULO_DO_AMBIENTE,
+  ambienteDoEnvio,
+  bloqueiosDoEnvio,
+  emitenteDoTenant,
+  entradaDaNota,
+  podeEditar,
+  podeEnviar,
+  recusaDoTenant,
+  urlSegura,
+  type SituacaoDaNota,
+} from "@/lib/nota-servico";
 import { rotuloDaConta, valoresIniciais } from "@/lib/nota-servico-tela";
 import { calcularNfse, validarNfse } from "@/lib/calc/nfse";
 import { formatarCnpj } from "@/lib/calc/emitente-fiscal";
-import { resolverAmbiente } from "@/lib/fiscal/focus";
+import { focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
 import { brl } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { NotaServicoForm } from "@/components/app/nota-servico-form";
+import { AcoesDaNotaProcessando } from "@/components/app/nota-servico-acoes";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +32,8 @@ const ROTULO_DO_EVENTO: Record<string, string> = {
   criada: "Rascunho criado",
   editada: "Rascunho corrigido",
   enviada: "Enviada ao provedor",
+  reenviada: "Reenviada com a mesma referência",
+  retorno: "Resposta do provedor",
   consulta: "Situação consultada",
   falha_rede: "Sem resposta do provedor",
   cancelamento: "Cancelamento",
@@ -50,6 +65,26 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
   const e = emitenteDoTenant(ctx.tenant);
   const entrada = entradaDaNota(n);
   const calc = validarNfse(entrada) ? null : calcularNfse(entrada);
+  const podeEmitir = can(ctx.perms, "notaemitir", "editar");
+  const pdf = urlSegura(n.urlDanfse);
+  const espelho = urlSegura(n.urlEspelho);
+  // 4.1 — o botão de envio só aparece sem bloqueio; com bloqueio, a lista diz o que falta.
+  const amb = ambienteDoEnvio(n, resolverAmbiente(ctx.tenant.fiscalAmbiente));
+  const ambienteDoProximoEnvio = amb.ok ? amb.ambiente : resolverAmbiente(n.ambiente);
+  const bloqueios =
+    podeEnviar(n.status) && podeEmitir
+      ? [
+          ...(amb.ok ? [] : [amb.error]),
+          ...bloqueiosDoEnvio({
+            status: n.status,
+            podeEmitir,
+            recusaDoTenant: recusaDoTenant(ctx.tenant.id, process.env.NFSE_TENANT_ID),
+            focusConfigurado: focusConfigurado(ambienteDoProximoEnvio),
+            ambiente: ambienteDoProximoEnvio,
+            emitente: e,
+          }),
+        ]
+      : [];
 
   return (
     <>
@@ -66,6 +101,59 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
       {homolog && (
         <p className="mb-4 rounded-[8px] border border-[var(--color-warning)]/50 bg-[var(--color-warning)]/12 px-4 py-3 text-[13px] font-medium text-[var(--color-ink)]" data-marca-homologacao>
           NOTA DE HOMOLOGAÇÃO — SEM VALOR FISCAL. Existe só para testar o caminho; não conta em nenhum relatório.
+        </p>
+      )}
+      {podeEnviar(n.status) && podeEmitir && (
+        <Card className="mb-4">
+          <CardContent className="p-5" data-envio>
+            {bloqueios.length === 0 ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href={`/notasfiscais/${n.id}/enviar`}
+                  className="inline-flex h-9 items-center rounded-[8px] bg-[var(--color-accent)] px-4 text-sm font-medium text-white hover:bg-[var(--color-accent2)]"
+                  data-botao-enviar
+                >
+                  Conferir e enviar →
+                </Link>
+                <span className="text-[12px] text-[var(--color-ink3)]">
+                  {ROTULO_DO_AMBIENTE[ambienteDoProximoEnvio]} · a próxima tela mostra tudo o que vai na nota antes de enviar.
+                </span>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-sm font-semibold text-[var(--color-ink)]">Para enviar esta nota falta:</h2>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-[var(--color-ink2)]" data-bloqueios-envio>
+                  {bloqueios.map((b) => (
+                    <li key={b}>{b}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {n.status === "processando" && (podeEmitir || can(ctx.perms, "notasfiscais", "editar")) && (
+        <Card className="mb-4">
+          <CardContent className="space-y-2 p-5">
+            <p className="text-[13px] text-[var(--color-ink2)]">
+              A nota foi enviada e aguarda a prefeitura. A situação não se atualiza sozinha: consulte quando quiser.
+            </p>
+            <AcoesDaNotaProcessando id={n.id} podeReenviar={podeEmitir} />
+          </CardContent>
+        </Card>
+      )}
+      {(pdf || espelho) && (
+        <p className="mb-4 flex flex-wrap gap-4 text-[13px]">
+          {pdf && (
+            <a href={pdf} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent2)] hover:underline">
+              PDF da nota (no provedor){homolog ? " — homologação" : ""}
+            </a>
+          )}
+          {espelho && (
+            <a href={espelho} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent2)] hover:underline">
+              Ver na prefeitura
+            </a>
+          )}
         </p>
       )}
       {n.mensagemRetorno && (
