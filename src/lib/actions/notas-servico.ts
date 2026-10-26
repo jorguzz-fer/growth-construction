@@ -32,6 +32,7 @@ import {
 } from "@/lib/nota-servico";
 import { cancelarNfse, consultarNfse, emitirNfse, focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
 import type { AmbienteFiscal, ResultadoNota as RetornoDoProvedor } from "@/lib/fiscal/tipos";
+import { guardarArquivosDaNota } from "@/lib/nota-servico-arquivos";
 
 export type ResultadoNota = { ok: true; id: string } | { ok: false; error: string };
 
@@ -471,6 +472,8 @@ async function aplicarRetorno(
   });
   if (res.mudou)
     await logAudit({ tenantId, userId, action: "nfse.situacao", entity: "nota_servico", entityId: id, meta: { de: res.de, para: res.situacao, ref } });
+  // 5.5 — autorizou: guarda a cópia do PDF e do XML (melhor esforço; o download tenta de novo).
+  if (res.mudou && res.situacao === "autorizada") await guardarArquivosDaNota(tenantId, id).catch(() => {});
   const aviso =
     res.situacao === "processando"
       ? "A prefeitura ainda está processando. Use “Atualizar situação” em alguns minutos."

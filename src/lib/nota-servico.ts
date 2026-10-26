@@ -106,7 +106,9 @@ export const ROTULO_DO_AMBIENTE: Record<AmbienteFiscal, string> = {
 
 /** Nome do arquivo baixado: a marcação de homologação vai junto, para sempre (5.5). */
 export function nomeDoArquivoDaNota(n: { ambiente: string; numero: string | null; id: string }, tipo: "pdf" | "xml"): string {
-  const id = n.numero ? `NFSe-${n.numero}` : `NFSe-${n.id.slice(0, 8)}`;
+  // O número vem do provedor: só letras, dígitos, ponto e hífen chegam ao nome do arquivo.
+  const numero = (n.numero ?? "").replace(/[^A-Za-z0-9.-]/g, "").slice(0, 30);
+  const id = numero ? `NFSe-${numero}` : `NFSe-${n.id.slice(0, 8)}`;
   const marca = n.ambiente === "producao" ? "" : "HOMOLOGACAO-SEM-VALOR-FISCAL-";
   return `${marca}${id}.${tipo}`;
 }
