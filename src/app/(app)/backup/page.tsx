@@ -1,6 +1,11 @@
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { listSemesters } from "@/lib/backup";
+import { pacotesDaEmpresa } from "@/lib/backup-geracao";
+import { situacaoDoPacote } from "@/lib/backup-historico";
+import { currentSemesterKey, semesterInfo } from "@/lib/semester";
+import { isR2Configured } from "@/lib/storage/r2";
+import { BackupPacote, type PacoteNaTela } from "@/components/app/backup-pacote";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +21,25 @@ export default async function BackupPage() {
 
   const { semesters, pendingKey } = await listSemesters(ctx.tenant.id);
   const pending = semesters.find((s) => s.key === pendingKey) ?? null;
+  const agora = new Date();
+  const pacotes: PacoteNaTela[] = (await pacotesDaEmpresa(ctx.tenant.id)).map(({ p, email }) => {
+    const r = (p.resumo ?? {}) as { totalDeLinhas?: number; documentos?: { incluidos: number; noPeriodo: number; falhos: number } };
+    return {
+      id: p.id,
+      semestre: p.semestre,
+      rotulo: semesterInfo(p.semestre)?.label.split(" (")[0] ?? p.semestre,
+      situacao: situacaoDoPacote(p, agora),
+      etapa: p.etapa,
+      feitas: p.feitas,
+      total: p.total,
+      pedidoEm: p.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+      por: email ?? "—",
+      bytes: p.bytes,
+      linhas: r.totalDeLinhas ?? null,
+      documentos: r.documentos ? `${r.documentos.incluidos} de ${r.documentos.noPeriodo}${r.documentos.falhos ? ` · ${r.documentos.falhos} falharam` : ""}` : null,
+      erro: p.erro,
+    };
+  });
 
   return (
     <>
@@ -62,6 +86,30 @@ export default async function BackupPage() {
             &ldquo;Encerrado&rdquo; é só calendário: semestre encerrado continua recebendo lançamento. Um backup baixado e depois
             alterado fica desatualizado — a coluna Último backup mostra quando cada semestre foi baixado.
           </span>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-5">
+        <CardContent className="space-y-3 p-5">
+          <div>
+            <h2 className="text-[14px] font-semibold text-[var(--color-ink)]">Pacote completo</h2>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--color-ink3)]">
+              Além da planilha, leva <strong className="text-[var(--color-ink)]">todas as tabelas de lançamento</strong> com todas as
+              colunas e chaves, o manifesto (linhas e somas de controle de cada tabela) e os documentos do semestre. O cadastro vem
+              inteiro; o movimento, pelo semestre. É gerado em segundo plano e fica disponível aqui para baixar.
+            </p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--color-ink3)]" data-aviso-lgpd>
+              <strong className="text-[var(--color-ink)]">Contém dado pessoal</strong> (CPF, endereço e telefone de clientes,
+              fornecedores e funcionários). Os dados sensíveis ficam fora — renda, FGTS, score e estado civil do comprador; salário,
+              endereço e banco do funcionário; ASO. A guarda do arquivo é responsabilidade de quem baixou. É apenas uma cópia: nenhum
+              dado é removido do sistema.
+            </p>
+          </div>
+          <BackupPacote
+            semestres={(semesters.length ? semesters : [{ key: currentSemesterKey(), label: semesterInfo(currentSemesterKey())!.label }]).map((s) => ({ key: s.key, label: s.label }))}
+            pacotes={pacotes}
+            disponivel={isR2Configured()}
+          />
         </CardContent>
       </Card>
 

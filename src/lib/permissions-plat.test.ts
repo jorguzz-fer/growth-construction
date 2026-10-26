@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Role } from "./context";
-import { SCREENS, TELAS_SO_PLATAFORMA, defaultPermissions, effectivePermissions, overridesDivergentes, validarMatriz } from "./permissions";
+import { SCREENS, TELAS_SENSIVEIS, TELAS_SO_PLATAFORMA, defaultPermissions, effectivePermissions, overridesDivergentes, validarMatriz } from "./permissions";
 
 /**
  * Prompt PLAT (Fase 3, revisão V5): Chaves de mudança e Backup só para os
@@ -11,8 +11,8 @@ const FULL = { ver: true, criar: true, editar: true, excluir: true };
 const PAPEIS: Role[] = ["owner", "admin", "membro", "contador", "engenheiro"];
 
 describe("Prompt PLAT — telas só da plataforma", () => {
-  it("são exatamente Chaves e Backup, e existem em SCREENS", () => {
-    expect([...TELAS_SO_PLATAFORMA].sort()).toEqual(["backup", "chaves"]);
+  it("é só Chaves (o Backup saiu em 26/10 — BAO-2), e existe em SCREENS", () => {
+    expect([...TELAS_SO_PLATAFORMA].sort()).toEqual(["chaves"]);
     for (const id of TELAS_SO_PLATAFORMA) expect(SCREENS.some((s) => s.id === id)).toBe(true);
   });
 
@@ -40,9 +40,22 @@ describe("Prompt PLAT — telas só da plataforma", () => {
   });
 
   it("não se concede por override, e salvar a matriz não grava nada delas", () => {
-    expect(validarMatriz({ backup: { ...FULL } })).toMatch(/plataforma/);
     expect(validarMatriz({ chaves: { ver: true, criar: false, editar: false, excluir: false } })).toMatch(/plataforma/);
     const matriz = effectivePermissions("membro", null);
     expect(overridesDivergentes("membro", matriz)).toEqual({});
+  });
+});
+
+describe("Prompt AO, BAO-2 — Backup volta ao cliente como tela sensível", () => {
+  it("nasce só com owner e admin; membro, contador e engenheiro não veem", () => {
+    expect(TELAS_SENSIVEIS.has("backup")).toBe(true);
+    expect(effectivePermissions("owner", null).backup).toEqual(FULL);
+    expect(effectivePermissions("admin", null).backup).toEqual(FULL);
+    for (const role of ["membro", "contador", "engenheiro"] as Role[]) expect(effectivePermissions(role, null).backup, role).toEqual(NONE);
+  });
+  it("pode ser concedida na Gestão de Acessos; o operador da plataforma continua alcançando", () => {
+    expect(validarMatriz({ backup: { ...FULL } })).toBeNull();
+    expect(effectivePermissions("membro", { backup: { ver: true, criar: false, editar: false, excluir: false } }).backup.ver).toBe(true);
+    for (const role of PAPEIS) expect(effectivePermissions(role, null, { operadorDaPlataforma: true }).backup, role).toEqual(FULL);
   });
 });

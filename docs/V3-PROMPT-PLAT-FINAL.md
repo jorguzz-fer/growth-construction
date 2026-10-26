@@ -40,3 +40,16 @@ lista por empresa num prompt futuro.
 
 `npm run typecheck`, `npm run lint` e `npm test` sem falha (136 arquivos,
 1434 testes; 78 arquivos pulados por exigirem banco).
+
+## Revisão em 26/10/2026 (Prompt AO, BAO-2)
+
+O dono decidiu **abrir o Backup para proprietário e administrador**. A
+pergunta e a resposta estão em `V2-PROMPT-AO-PR3.md`.
+
+- `backup` saiu de `TELAS_SO_PLATAFORMA` e entrou em `TELAS_SENSIVEIS`: nasce
+  só com proprietário e administrador e pode ser concedido a outra pessoa na
+  Gestão de Acessos.
+- O operador da plataforma continua alcançando o Backup em qualquer papel
+  (`OPERADOR_SEMPRE_ALCANCA`).
+- **Chaves de mudança continuam só da plataforma.**
+- O aviso de backup no topo do app **não voltou**.

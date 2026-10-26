@@ -130,6 +130,7 @@ export const FORA_DO_PACOTE: readonly { tabela: string; grupo: string; motivo: s
   { tabela: "number_sequence", grupo: "Sequência", motivo: "estado do contador de PED — vai como informação neste leia-me (prefixo, próximo número, dígitos)" },
   { tabela: "tenant_flag", grupo: "Configuração", motivo: "chaves de mudança ligadas ou desligadas — configuração, não lançamento" },
   { tabela: "ia_uso", grupo: "Consumo", motivo: "registro de uso do assistente de IA — consumo, não lançamento" },
+  { tabela: "backup_pacote", grupo: "Backup", motivo: "registro dos próprios pacotes gerados — não é lançamento" },
 ];
 
 export const ehMovimento = (t: TabelaDoPacote) => t.recorte.tipo !== "cadastro";

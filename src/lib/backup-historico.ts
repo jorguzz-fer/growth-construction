@@ -23,3 +23,25 @@ export function semestrePendente<S extends { key: string; closed: boolean; total
 ): string | null {
   return semestres.find((s) => s.closed && s.total > 0 && !semestreSalvo(s.fim, backups.get(s.key)))?.key ?? null;
 }
+
+/**
+ * Prompt AO, 4.3 — pedido de pacote completo "gerando" que não dá sinal há
+ * mais de 15 minutos foi interrompido (o servidor reiniciou no meio). A tela
+ * diz isso e deixa pedir de novo — nunca fica "gerando" para sempre.
+ */
+export const MINUTOS_PARA_INTERROMPIDO = 15;
+
+export type SituacaoDoPacote = "gerando" | "pronto" | "falhou" | "interrompido";
+
+export function situacaoDoPacote(p: { status: string; atualizadoEm: Date }, agora: Date = new Date()): SituacaoDoPacote {
+  if (p.status === "pronto") return "pronto";
+  if (p.status === "falhou") return "falhou";
+  return agora.getTime() - p.atualizadoEm.getTime() > MINUTOS_PARA_INTERROMPIDO * 60_000 ? "interrompido" : "gerando";
+}
+
+export const ROTULO_DA_SITUACAO_DO_PACOTE: Record<SituacaoDoPacote, string> = {
+  gerando: "Gerando",
+  pronto: "Pronto",
+  falhou: "Falhou",
+  interrompido: "Interrompido",
+};
