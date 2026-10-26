@@ -26,6 +26,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { NotaServicoForm } from "@/components/app/nota-servico-form";
 import { AcoesDaNotaProcessando, CancelarNota } from "@/components/app/nota-servico-acoes";
+import { origemNoProvedor, temArquivos } from "@/lib/nota-servico-arquivos";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -75,7 +76,6 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
   const ultimoDeCancelamento = [...eventos].reverse().find((ev) => ev.tipo.startsWith("cancelamento_"));
   const cancelamentoPendente =
     n.status === "autorizada" && (ultimoDeCancelamento?.tipo === "cancelamento_pedido" || ultimoDeCancelamento?.tipo === "cancelamento_sem_resposta");
-  const pdf = urlSegura(n.urlDanfse);
   const espelho = urlSegura(n.urlEspelho);
   // 4.1 — o botão de envio só aparece sem bloqueio; com bloqueio, a lista diz o que falta.
   const amb = ambienteDoEnvio(n, resolverAmbiente(ctx.tenant.fiscalAmbiente));
@@ -168,18 +168,26 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
           </CardContent>
         </Card>
       )}
-      {(pdf || espelho) && (
-        <p className="mb-4 flex flex-wrap gap-4 text-[13px]">
-          {pdf && (
-            <a href={pdf} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent2)] hover:underline">
-              PDF da nota (no provedor){homolog ? " — homologação" : ""}
-            </a>
+      {temArquivos(n.status) && (
+        <p className="mb-4 flex flex-wrap items-center gap-4 text-[13px]" data-arquivos>
+          {(["pdf", "xml"] as const).map((t) =>
+            (t === "pdf" ? n.pdfKey : n.xmlKey) || origemNoProvedor(n, t) ? (
+              <a key={t} href={`/notasfiscais/${n.id}/arquivo?tipo=${t}`} className="text-[var(--color-accent2)] hover:underline">
+                Baixar {t.toUpperCase()}
+                {homolog ? " (homologação)" : ""}
+              </a>
+            ) : (
+              <span key={t} className="text-[var(--color-ink3)]">
+                {t.toUpperCase()} ainda não disponível no provedor
+              </span>
+            ),
           )}
           {espelho && (
             <a href={espelho} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent2)] hover:underline">
               Ver na prefeitura
             </a>
           )}
+          {(n.pdfKey || n.xmlKey) && <span className="text-[12px] text-[var(--color-ink3)]">Cópia guardada no sistema.</span>}
         </p>
       )}
       {n.mensagemRetorno && (

@@ -232,3 +232,43 @@ export async function cancelarNfse(
   );
   return mapear(ref, json, ok, http);
 }
+
+const ORIGENS: Record<AmbienteFiscal, string> = {
+  homologacao: "https://homologacao.focusnfe.com.br",
+  producao: "https://api.focusnfe.com.br",
+};
+
+/** 10 MB: PDF e XML de NFS-e têm dezenas de KB; mais que isso não é a nota. */
+const TAMANHO_MAXIMO = 10 * 1024 * 1024;
+
+/**
+ * Baixa o PDF (`url_danfse`) ou o XML (`caminho_xml_nota_fiscal`) da nota.
+ *
+ * O caminho do XML vem relativo ao host do ambiente; o PDF vem como URL
+ * completa. Só https. O token só é enviado ao host da própria Focus — nunca a
+ * um endereço de terceiros que apareça na resposta.
+ */
+export async function baixarArquivoDaNota(
+  ambiente: AmbienteFiscal,
+  caminhoOuUrl: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const origem = ORIGENS[ambiente];
+  const t = caminhoOuUrl.trim();
+  let url: URL;
+  if (/^https:\/\//i.test(t)) url = new URL(t);
+  else if (t.startsWith("/") && !t.startsWith("//")) url = new URL(t, origem);
+  else throw new Error("Caminho de arquivo inválido.");
+  if (url.protocol !== "https:") throw new Error("Só https.");
+  const token = tokenFocus(ambiente);
+  const resp = await fetch(url, {
+    headers: url.origin === origem && token ? { Authorization: cabecalhoAuth(token) } : {},
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    cache: "no-store",
+  });
+  if (!resp.ok) throw new Error(`O provedor não entregou o arquivo (HTTP ${resp.status}).`);
+  if (Number(resp.headers.get("content-length") ?? 0) > TAMANHO_MAXIMO) throw new Error("Arquivo grande demais.");
+  const bytes = new Uint8Array(await resp.arrayBuffer());
+  if (bytes.byteLength > TAMANHO_MAXIMO) throw new Error("Arquivo grande demais.");
+  if (bytes.byteLength === 0) throw new Error("O provedor entregou um arquivo vazio.");
+  return { bytes, contentType: resp.headers.get("content-type") ?? "" };
+}
