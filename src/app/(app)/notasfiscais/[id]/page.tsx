@@ -9,6 +9,8 @@ import {
   bloqueiosDoEnvio,
   emitenteDoTenant,
   entradaDaNota,
+  identificadorDaNota,
+  podeCancelar,
   podeEditar,
   podeEnviar,
   recusaDoTenant,
@@ -23,7 +25,7 @@ import { brl } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
 import { AccessDenied } from "@/components/app/access-denied";
 import { NotaServicoForm } from "@/components/app/nota-servico-form";
-import { AcoesDaNotaProcessando } from "@/components/app/nota-servico-acoes";
+import { AcoesDaNotaProcessando, CancelarNota } from "@/components/app/nota-servico-acoes";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +38,9 @@ const ROTULO_DO_EVENTO: Record<string, string> = {
   retorno: "Resposta do provedor",
   consulta: "Situação consultada",
   falha_rede: "Sem resposta do provedor",
-  cancelamento: "Cancelamento",
+  cancelamento_pedido: "Cancelamento pedido",
+  cancelamento_recusado: "Cancelamento recusado",
+  cancelamento_sem_resposta: "Cancelamento sem confirmação",
 };
 
 /** Prompt AG — a nota: rascunho editável, ou o registro do que foi emitido (nada se apaga, 5.7). */
@@ -66,6 +70,11 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
   const entrada = entradaDaNota(n);
   const calc = validarNfse(entrada) ? null : calcularNfse(entrada);
   const podeEmitir = can(ctx.perms, "notaemitir", "editar");
+  const podeCancelarAqui = podeCancelar(n.status) && can(ctx.perms, "notacancelar", "editar");
+  // Pedido de cancelamento sem desfecho conhecido: oferece a consulta.
+  const ultimoDeCancelamento = [...eventos].reverse().find((ev) => ev.tipo.startsWith("cancelamento_"));
+  const cancelamentoPendente =
+    n.status === "autorizada" && (ultimoDeCancelamento?.tipo === "cancelamento_pedido" || ultimoDeCancelamento?.tipo === "cancelamento_sem_resposta");
   const pdf = urlSegura(n.urlDanfse);
   const espelho = urlSegura(n.urlEspelho);
   // 4.1 — o botão de envio só aparece sem bloqueio; com bloqueio, a lista diz o que falta.
@@ -139,6 +148,23 @@ export default async function NotaPage({ params }: { params: Promise<{ id: strin
               A nota foi enviada e aguarda a prefeitura. A situação não se atualiza sozinha: consulte quando quiser.
             </p>
             <AcoesDaNotaProcessando id={n.id} podeReenviar={podeEmitir} />
+          </CardContent>
+        </Card>
+      )}
+      {cancelamentoPendente && (podeEmitir || podeCancelarAqui || can(ctx.perms, "notasfiscais", "editar")) && (
+        <Card className="mb-4">
+          <CardContent className="space-y-2 p-5" data-cancelamento-pendente>
+            <p className="text-[13px] text-[var(--color-ink2)]">
+              O cancelamento foi pedido, mas a Focus ainda não confirmou. A nota continua autorizada até a confirmação.
+            </p>
+            <AcoesDaNotaProcessando id={n.id} podeReenviar={false} rotulo="Conferir na Focus" />
+          </CardContent>
+        </Card>
+      )}
+      {podeCancelarAqui && !cancelamentoPendente && (
+        <Card className="mb-4">
+          <CardContent className="p-5">
+            <CancelarNota id={n.id} identificador={identificadorDaNota(n)} />
           </CardContent>
         </Card>
       )}
