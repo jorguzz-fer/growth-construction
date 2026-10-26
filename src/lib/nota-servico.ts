@@ -511,3 +511,6 @@ export function desfechoDoCancelamento(r: Pick<ResultadoNota, "status" | "http" 
   if (semResposta(r) || r.http === 401 || r.http === 403) return "sem_confirmacao";
   return (r.erros ?? []).length > 0 ? "recusado" : "sem_confirmacao";
 }
+
+/** Linhas da montagem que só repetem o cadastro da empresa (já listado à parte). */
+export const EMITENTE_REPETIDO = /^(O cadastro fiscal da empresa|CNPJ do emitente|Informe o item da lista|Informe o código IBGE do município da obra)/;

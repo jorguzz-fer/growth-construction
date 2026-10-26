@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
 import { getNotaServico } from "@/lib/queries";
 import {
+  EMITENTE_REPETIDO,
   ROTULO_DO_AMBIENTE,
   ambienteDoEnvio,
   bloqueiosDoEnvio,
@@ -23,8 +24,6 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
-/** Com o cadastro da empresa já listado nos bloqueios, estas linhas da montagem só repetiriam. */
-const EMITENTE_REPETIDO = /^(O cadastro fiscal da empresa|CNPJ do emitente|Informe o item da lista|Informe o código IBGE do município da obra)/;
 
 /**
  * Prompt AG, 4.2 — a conferência antes do ponto sem volta. Mostra exatamente
