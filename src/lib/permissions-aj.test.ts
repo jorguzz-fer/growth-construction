@@ -39,7 +39,9 @@ function antigoDefault(role: Role): PermMatrix {
     else if (TELAS_SENSIVEIS.has(s.id)) out[s.id] = { ...NONE };
     else if (role === "membro") out[s.id] = s.modulo === "Config" ? { ...NONE } : { ...EDIT };
     else if (role === "engenheiro") out[s.id] = s.id === "medicaolanc" ? { ...FULL } : { ...NONE };
-    else out[s.id] = CONTADOR_VE.has(s.id) ? { ...VIEW } : { ...NONE };
+    // Prompt AG, 6.4: "Notas Fiscais" é tela NOVA, que o prompt manda o
+    // contador ver (e não emitir). Ampliação declarada, não acidental.
+    else out[s.id] = CONTADOR_VE.has(s.id) || s.id === "notasfiscais" ? { ...VIEW } : { ...NONE };
   }
   return out;
 }

@@ -73,6 +73,11 @@ export const SCREENS: Screen[] = [
   // órfãozaria toda permissão já salva — o rótulo é o que mudou de nome.
   { id: "reembolso", label: "Liberações de Obra", modulo: "Receitas" },
   { id: "permuta", label: "Inventário de Permuta", modulo: "Receitas" },
+  // Prompt AG (6.1/6.2): a lista e o rascunho das notas EMITIDAS (NFS-e);
+  // emitir e cancelar são permissões próprias, com efeito externo.
+  { id: "notasfiscais", label: "Notas Fiscais (emitidas)", modulo: "Receitas" },
+  { id: "notaemitir", label: "Emitir nota fiscal (NFS-e)", modulo: "Receitas" },
+  { id: "notacancelar", label: "Cancelar nota fiscal (NFS-e)", modulo: "Receitas" },
   { id: "parametros", label: "Parâmetros / INCC", modulo: "Receitas" },
   { id: "despesas", label: "Lançamentos de Despesas", modulo: "Despesas" },
   { id: "contaspagar", label: "Contas a Pagar", modulo: "Despesas" },
@@ -146,6 +151,8 @@ export const CONTADOR_VE: ReadonlySet<string> = new Set([
   "planocontas",
   "despesas",
   "acoes",
+  // Prompt AG, 6.4: o contador vê as notas emitidas e não emite.
+  "notasfiscais",
 ]);
 
 /**
@@ -195,7 +202,7 @@ export const TELAS_SO_PLATAFORMA: ReadonlySet<string> = new Set(["chaves", "back
  * de Acessos (BM-3: "quem recebe a permissão nova por padrão: só owner e
  * admin").
  */
-export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava", "versaoaprova"]);
+export const TELAS_SENSIVEIS = new Set(["clientesdados", "funcionariosdados", "funcionariosaso", "versaotrava", "versaoaprova", "notaemitir", "notacancelar"]);
 
 /**
  * Papéis com TETO DE LEITURA (Prompt AL, Parte 3 · decisão BAL-2 = opção 1):

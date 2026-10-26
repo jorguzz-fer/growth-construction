@@ -2064,3 +2064,119 @@ export const iaUso = pgTable(
   },
   (t) => [index("ia_uso_tenant_quando_idx").on(t.tenantId, t.createdAt)],
 );
+
+/**
+ * NFS-e EMITIDA pela empresa (Prompt AG; migração 0069). Não confundir com
+ * `documento_fiscal` (nota RECEBIDA de fornecedor).
+ *
+ * Decisões de 26/10/2026: estreia com serviço avulso, que pode apontar para a
+ * conta a receber já lançada (BAG-1, opção b); a nota NÃO
+ * cria receita, conta a receber nem lançamento — é documento do fato (BAG-2);
+ * um CNPJ só, o tenant de `NFSE_TENANT_ID` (BAG-3); nota de homologação fica
+ * marcada e fora de relatório (BAG-4). Vive na versão Atual (1.3). Tomador e
+ * valores são COPIADOS na emissão (1.4). Nada é apagado (5.7).
+ */
+export const notasServico = pgTable(
+  "nota_servico",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Sem cascata: obra com nota emitida não some (NO ACTION). */
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id),
+    /** rascunho | processando | autorizada | rejeitada | cancelada */
+    status: text("status").notNull().default("rascunho"),
+    /** homologacao | producao — fixado no envio; trocar na Empresa não muda nota já enviada. */
+    ambiente: text("ambiente").notNull().default("homologacao"),
+    /** quantas vezes foi enviada; compõe a `ref` (nova tentativa = nova ref). */
+    tentativa: integer("tentativa").notNull().default(0),
+    ref: text("ref"),
+    numero: text("numero"),
+    numeroRps: text("numero_rps"),
+    serieRps: text("serie_rps"),
+    codigoVerificacao: text("codigo_verificacao"),
+    /** mensagem do provedor, na íntegra (2.2). */
+    mensagemRetorno: text("mensagem_retorno"),
+    urlDanfse: text("url_danfse"),
+    urlEspelho: text("url_espelho"),
+    caminhoXml: text("caminho_xml"),
+    pdfKey: text("pdf_key"),
+    xmlKey: text("xml_key"),
+    /** competência "MM/YYYY". */
+    competencia: text("competencia"),
+    discriminacao: text("discriminacao").notNull().default(""),
+    itemListaServico: text("item_lista_servico"),
+    codigoTributarioMunicipio: text("codigo_tributario_municipio"),
+    codigoMunicipioPrestacao: text("codigo_municipio_prestacao"),
+    valorServicos: numeric("valor_servicos", { precision: 15, scale: 2 }).notNull().default("0"),
+    valorDeducoes: numeric("valor_deducoes", { precision: 15, scale: 2 }).notNull().default("0"),
+    descontoIncondicionado: numeric("desconto_incondicionado", { precision: 15, scale: 2 }).notNull().default("0"),
+    descontoCondicionado: numeric("desconto_condicionado", { precision: 15, scale: 2 }).notNull().default("0"),
+    aliquotaIss: numeric("aliquota_iss", { precision: 8, scale: 4 }).notNull().default("0"),
+    issRetido: boolean("iss_retido").notNull().default(false),
+    /** { pis?, cofins?, csll?, ir?, inss? } — cada um { aliquota, base? }. Nenhuma presumida. */
+    retencoes: jsonb("retencoes").$type<Record<string, { aliquota: number; base?: number }>>(),
+    outrasRetencoes: numeric("outras_retencoes", { precision: 15, scale: 2 }).notNull().default("0"),
+    baseCalculo: numeric("base_calculo", { precision: 15, scale: 2 }),
+    valorIss: numeric("valor_iss", { precision: 15, scale: 2 }),
+    totalRetencoes: numeric("total_retencoes", { precision: 15, scale: 2 }),
+    valorLiquido: numeric("valor_liquido", { precision: 15, scale: 2 }),
+    tomadorCpfCnpj: text("tomador_cpf_cnpj"),
+    tomadorNome: text("tomador_nome"),
+    tomadorInscricaoMunicipal: text("tomador_inscricao_municipal"),
+    tomadorEmail: text("tomador_email"),
+    tomadorTelefone: text("tomador_telefone"),
+    tomadorLogradouro: text("tomador_logradouro"),
+    tomadorNumero: text("tomador_numero"),
+    tomadorComplemento: text("tomador_complemento"),
+    tomadorBairro: text("tomador_bairro"),
+    tomadorCodigoMunicipio: text("tomador_codigo_municipio"),
+    tomadorUf: text("tomador_uf"),
+    tomadorCep: text("tomador_cep"),
+    /** BAG-1: "avulso" na estreia. */
+    origemTipo: text("origem_tipo").notNull().default("avulso"),
+    /**
+     * BAG-1, opção b: a nota pode APONTAR para a conta a receber já lançada.
+     * O vínculo é só referência — a nota não cria nem altera a conta (BAG-2).
+     */
+    contaReceberId: uuid("conta_receber_id").references(() => contasReceber.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    enviadaEm: timestamp("enviada_em", { mode: "date" }),
+    autorizadaEm: timestamp("autorizada_em", { mode: "date" }),
+    canceladaEm: timestamp("cancelada_em", { mode: "date" }),
+    canceladaPor: text("cancelada_por").references(() => users.id, { onDelete: "set null" }),
+    motivoCancelamento: text("motivo_cancelamento"),
+  },
+  (t) => [uniqueIndex("nota_servico_tenant_ref_uq").on(t.tenantId, t.ref), index("nota_servico_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+/** Histórico da nota (2.2): cada envio, consulta, rejeição e cancelamento. Só cresce. */
+export const notaServicoEventos = pgTable(
+  "nota_servico_evento",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    notaId: uuid("nota_id")
+      .notNull()
+      .references(() => notasServico.id, { onDelete: "cascade" }),
+    /** criada | enviada | consulta | cancelamento | falha_rede */
+    tipo: text("tipo").notNull(),
+    ref: text("ref"),
+    status: text("status"),
+    mensagem: text("mensagem"),
+    /** resposta crua do provedor (sem token). */
+    bruto: jsonb("bruto"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("nota_servico_evento_nota_idx").on(t.notaId, t.createdAt)],
+);
