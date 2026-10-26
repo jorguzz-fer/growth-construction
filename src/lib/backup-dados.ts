@@ -84,7 +84,7 @@ function chaveDoRecorte(t: TabelaDoPacote): SQL | null {
 }
 
 /** A condição do semestre (sem o tenant). undefined = cadastro, tudo entra. */
-function condicaoDoSemestre(tenantId: string, t: TabelaDoPacote, info: SemesterInfo): SQL | undefined {
+export function condicaoDoSemestre(tenantId: string, t: TabelaDoPacote, info: SemesterInfo): SQL | undefined {
   const tb = tabelaDrizzle(t);
   const r = t.recorte;
   const lim = limitesDoSemestre(info);
@@ -116,7 +116,7 @@ function condicaoDoSemestre(tenantId: string, t: TabelaDoPacote, info: SemesterI
   }
 }
 
-function filtroDoTenant(tenantId: string, t: TabelaDoPacote): SQL {
+export function filtroDoTenant(tenantId: string, t: TabelaDoPacote): SQL {
   const tb = tabelaDrizzle(t);
   return t.tabela === "tenant" ? eq(coluna(tb, "id"), tenantId) : eq(coluna(tb, "tenantId"), tenantId);
 }
@@ -227,4 +227,35 @@ export async function extrairDados(
     documentos: docs.linhas.map((l) => ({ id: String(l.id), storageKey: String(l.storage_key), filename: (l.filename as string | null) ?? null })),
     asoOmitidos: Number(aso?.n ?? 0),
   };
+}
+
+/**
+ * Prompt AO, 8.1 — o que entrou ou mudou DEPOIS de um instante (o último
+ * download do semestre). Só contagem por tabela — nunca o conteúdo das linhas.
+ * Vale para tabela com `created_at` (criadas) e `updated_at` (alteradas);
+ * alteração em tabela sem `updated_at` não tem como aparecer, e o painel diz isso.
+ */
+export async function mudancasDesde(tenantId: string, info: SemesterInfo, desde: Date): Promise<{ tabela: string; criadas: number; alteradas: number }[]> {
+  const out: { tabela: string; criadas: number; alteradas: number }[] = [];
+  for (const t of TABELAS_DO_PACOTE) {
+    const tb = tabelaDrizzle(t);
+    const cols = colunas(tb);
+    const criado = cols.createdAt;
+    const alterado = cols.updatedAt;
+    if (!criado && !alterado) continue;
+    const base = and(filtroDoTenant(tenantId, t), condicaoDoSemestre(tenantId, t, info), filtroSemAso(t));
+    // Mesmo formato com que o Drizzle grava `timestamp` (ISO, sem fuso).
+    const d = sql`${desde.toISOString()}::timestamp`;
+    const [c] = await db
+      .select({
+        criadas: criado ? sql<number>`count(*) filter (where ${criado} > ${d})::int` : sql<number>`0`,
+        alteradas: alterado ? sql<number>`count(*) filter (where ${alterado} > ${d}${criado ? sql` and ${criado} <= ${d}` : sql``})::int` : sql<number>`0`,
+      })
+      .from(tb)
+      .where(base);
+    const criadas = Number(c?.criadas ?? 0);
+    const alteradas = Number(c?.alteradas ?? 0);
+    if (criadas || alteradas) out.push({ tabela: t.tabela, criadas, alteradas });
+  }
+  return out;
 }

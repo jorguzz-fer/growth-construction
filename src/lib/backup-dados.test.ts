@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 
 describe.skipIf(!HAS_DB)("Prompt AO · extração do pacote completo", async () => {
   const { db, schema } = await import("@/lib/db");
-  const { extrairDados } = await import("./backup-dados");
+  const { extrairDados, mudancasDesde } = await import("./backup-dados");
   const { TABELAS_DO_PACOTE, tabelaDrizzle } = await import("./backup-catalogo");
   const { semesterInfo } = await import("./semester");
   let tenantId = "";
@@ -113,5 +113,16 @@ describe.skipIf(!HAS_DB)("Prompt AO · extração do pacote completo", async () 
     await extrairDados(tenantId, H1, (feitas) => void progresso.push(feitas));
     expect(await contagem()).toEqual(antes);
     expect(progresso.at(-1)).toBe(TABELAS_DO_PACOTE.length);
+  });
+
+  it("8.1 — o que mudou depois do último backup: só contagem, só do semestre", async () => {
+    const corte = new Date();
+    await new Promise((ok) => setTimeout(ok, 20));
+    const [v] = await db.select().from(schema.versions).where(eq(schema.versions.tenantId, tenantId));
+    await db.insert(schema.despesas).values({ tenantId, versionId: v.id, valor: "7", categoriaDre: "Custo Variável", status: "Pago", competencia: "04/2026" });
+    await db.insert(schema.despesas).values({ tenantId, versionId: v.id, valor: "8", categoriaDre: "Custo Variável", status: "Pago", competencia: "09/2026" });
+    const m = await mudancasDesde(tenantId, H1, corte);
+    expect(m).toContainEqual({ tabela: "despesa", criadas: 1, alteradas: 0 });
+    expect(m.find((x) => x.tabela === "cliente")).toBeUndefined();
   });
 });
