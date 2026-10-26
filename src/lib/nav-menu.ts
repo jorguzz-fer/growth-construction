@@ -108,6 +108,8 @@ export const NAV_MENU: NavModule[] = [
       { href: "/contasreceber", label: "Contas a Receber" },
       { href: "/reembolso", label: "Liberações de Obra" },
       { href: "/permuta", label: "Permuta" },
+      // Prompt AG: NFS-e de serviço EMITIDA (última seção de Receitas, como na revisão de 17/10).
+      { href: "/notasfiscais", label: "Notas Fiscais" },
     ],
   },
   {

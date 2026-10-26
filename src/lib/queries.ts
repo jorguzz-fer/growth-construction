@@ -4005,3 +4005,68 @@ export async function getUltimoTesteDeIa(tenantId: string) {
     .limit(1);
   return r ?? null;
 }
+
+/**
+ * Prompt AG — notas de serviço EMITIDAS (NFS-e), da empresa, só das obras que
+ * a pessoa vê. Filtro de tenant explícito em toda consulta (sem RLS).
+ */
+export async function getNotasServico(
+  tenantId: string,
+  projectIds: readonly string[],
+  f: { ambiente: string; status?: string | null; projectId?: string | null; de?: string | null; ate?: string | null },
+) {
+  if (projectIds.length === 0) return [];
+  const conds: SQL[] = [
+    eq(schema.notasServico.tenantId, tenantId),
+    inArray(schema.notasServico.projectId, f.projectId ? [f.projectId].filter((p) => projectIds.includes(p)) : [...projectIds]),
+    eq(schema.notasServico.ambiente, f.ambiente),
+  ];
+  if (f.status) conds.push(eq(schema.notasServico.status, f.status));
+  if (f.de) conds.push(gte(schema.notasServico.createdAt, new Date(`${f.de}T00:00:00`)));
+  if (f.ate) conds.push(lte(schema.notasServico.createdAt, new Date(`${f.ate}T23:59:59`)));
+  return db
+    .select({
+      id: schema.notasServico.id,
+      status: schema.notasServico.status,
+      ambiente: schema.notasServico.ambiente,
+      numero: schema.notasServico.numero,
+      competencia: schema.notasServico.competencia,
+      tomadorNome: schema.notasServico.tomadorNome,
+      valorServicos: schema.notasServico.valorServicos,
+      valorLiquido: schema.notasServico.valorLiquido,
+      createdAt: schema.notasServico.createdAt,
+      autorizadaEm: schema.notasServico.autorizadaEm,
+      projeto: schema.projects.name,
+    })
+    .from(schema.notasServico)
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.notasServico.projectId))
+    .where(and(...conds))
+    .orderBy(desc(schema.notasServico.createdAt))
+    .limit(500);
+}
+
+export async function getNotaServico(tenantId: string, id: string) {
+  const [n] = await db
+    .select()
+    .from(schema.notasServico)
+    .where(and(eq(schema.notasServico.tenantId, tenantId), eq(schema.notasServico.id, id)))
+    .limit(1);
+  return n ?? null;
+}
+
+export async function getEventosDaNota(tenantId: string, notaId: string) {
+  return db
+    .select({
+      id: schema.notaServicoEventos.id,
+      tipo: schema.notaServicoEventos.tipo,
+      ref: schema.notaServicoEventos.ref,
+      status: schema.notaServicoEventos.status,
+      mensagem: schema.notaServicoEventos.mensagem,
+      createdAt: schema.notaServicoEventos.createdAt,
+      email: schema.users.email,
+    })
+    .from(schema.notaServicoEventos)
+    .leftJoin(schema.users, eq(schema.users.id, schema.notaServicoEventos.createdBy))
+    .where(and(eq(schema.notaServicoEventos.tenantId, tenantId), eq(schema.notaServicoEventos.notaId, notaId)))
+    .orderBy(asc(schema.notaServicoEventos.createdAt));
+}

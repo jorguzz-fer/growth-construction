@@ -66,6 +66,7 @@ const TELAS_NOVAS: Record<string, string> = {
   "/funcionarios": "funcionarios", // Prompt Z, Parte 2
   "/equipes": "equipes", // Prompt Z, Parte 3
   "/conferencia": "conferencia", // Prompt AN, Parte 5 (era /diagnostico/categorias-invertidas)
+  "/notasfiscais": "notasfiscais", // Prompt AG: NFS-e emitida, última seção de Receitas
   "/dre/analitica": "dre", // Prompt AC3: mora sob /dre, mesma permissão
   "/fluxocaixa/analitico": "fluxocaixa", // Prompt AD3: mora sob /fluxocaixa, mesma permissão
   "/relatorios": "relatorios", // Prompt RC: tela nova, chave própria
