@@ -228,3 +228,157 @@ export function numeroBR(x: unknown): number {
   if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
   return /^\d{1,3}(\.\d{3})+$/.test(t) ? Number(t.replace(/\./g, "")) : Number(t);
 }
+
+export interface RascunhoDaNota {
+  projectId: string;
+  contaReceberId: string | null;
+  competencia: string | null;
+  discriminacao: string;
+  itemListaServico: string | null;
+  codigoTributarioMunicipio: string | null;
+  valorServicos: number;
+  valorDeducoes: number;
+  descontoIncondicionado: number;
+  descontoCondicionado: number;
+  aliquotaIss: number;
+  issRetido: boolean;
+  retencoes: Record<string, { aliquota: number; base?: number }>;
+  outrasRetencoes: number;
+  tomadorCpfCnpj: string | null;
+  tomadorNome: string | null;
+  tomadorInscricaoMunicipal: string | null;
+  tomadorEmail: string | null;
+  tomadorTelefone: string | null;
+  tomadorLogradouro: string | null;
+  tomadorNumero: string | null;
+  tomadorComplemento: string | null;
+  tomadorBairro: string | null;
+  tomadorCodigoMunicipio: string | null;
+  tomadorUf: string | null;
+  tomadorCep: string | null;
+}
+
+export const RETENCOES_DA_NOTA = RETENCOES;
+
+/**
+ * Lê o rascunho do formulário. O rascunho aceita estar incompleto — a
+ * conferência completa é no envio (4.3) —, mas recusa número inválido ou
+ * negativo e competência fora do formato.
+ */
+export function lerRascunhoDaNota(get: (campo: string) => unknown): { ok: true; rascunho: RascunhoDaNota } | { ok: false; error: string } {
+  const txt = (c: string, max = 300) => {
+    const v = get(c);
+    const t = typeof v === "string" ? v.trim().slice(0, max) : "";
+    return t || null;
+  };
+  const projectId = txt("projectId", 64);
+  if (!projectId) return { ok: false, error: "Escolha a obra (ou o escritório) da nota." };
+  const competencia = txt("competencia", 7);
+  if (competencia && !/^(0[1-9]|1[0-2])\/\d{4}$/.test(competencia)) return { ok: false, error: "Competência no formato MM/AAAA." };
+  const valores: Record<string, number> = {};
+  for (const c of ["valorServicos", "valorDeducoes", "descontoIncondicionado", "descontoCondicionado", "aliquotaIss", "outrasRetencoes"]) {
+    const n = numeroBR(get(c));
+    if (!Number.isFinite(n) || n < 0) return { ok: false, error: `Valor inválido em "${ROTULO_DO_CAMPO[c] ?? c}".` };
+    valores[c] = Math.round(n * (c === "aliquotaIss" ? 10000 : 100)) / (c === "aliquotaIss" ? 10000 : 100);
+  }
+  if (valores.aliquotaIss > 5) return { ok: false, error: "A alíquota do ISS vai de 0 a 5%." };
+  const retencoes: Record<string, { aliquota: number; base?: number }> = {};
+  for (const k of RETENCOES) {
+    const aliquota = numeroBR(get(`ret_${k}`));
+    const baseBruta = get(`ret_${k}_base`);
+    const base = typeof baseBruta === "string" && baseBruta.trim() ? numeroBR(baseBruta) : undefined;
+    if (!Number.isFinite(aliquota) || aliquota < 0 || aliquota > 100) return { ok: false, error: `Alíquota inválida na retenção ${k.toUpperCase()}.` };
+    if (base !== undefined && (!Number.isFinite(base) || base < 0)) return { ok: false, error: `Base inválida na retenção ${k.toUpperCase()}.` };
+    if (aliquota > 0) retencoes[k] = { aliquota, ...(base !== undefined ? { base } : {}) };
+  }
+  const doc = txt("tomadorCpfCnpj", 20);
+  return {
+    ok: true,
+    rascunho: {
+      projectId,
+      contaReceberId: txt("contaReceberId", 64),
+      competencia,
+      discriminacao: txt("discriminacao", 2000) ?? "",
+      itemListaServico: txt("itemListaServico", 10),
+      codigoTributarioMunicipio: txt("codigoTributarioMunicipio", 20),
+      valorServicos: valores.valorServicos,
+      valorDeducoes: valores.valorDeducoes,
+      descontoIncondicionado: valores.descontoIncondicionado,
+      descontoCondicionado: valores.descontoCondicionado,
+      aliquotaIss: valores.aliquotaIss,
+      issRetido: get("issRetido") === "on" || get("issRetido") === "true",
+      retencoes,
+      outrasRetencoes: valores.outrasRetencoes,
+      tomadorCpfCnpj: doc ? doc.replace(/\D/g, "") || null : null,
+      tomadorNome: txt("tomadorNome", 150),
+      tomadorInscricaoMunicipal: txt("tomadorInscricaoMunicipal", 30),
+      tomadorEmail: txt("tomadorEmail", 120),
+      tomadorTelefone: txt("tomadorTelefone", 20),
+      tomadorLogradouro: txt("tomadorLogradouro", 150),
+      tomadorNumero: txt("tomadorNumero", 20),
+      tomadorComplemento: txt("tomadorComplemento", 60),
+      tomadorBairro: txt("tomadorBairro", 80),
+      tomadorCodigoMunicipio: txt("tomadorCodigoMunicipio", 10),
+      tomadorUf: txt("tomadorUf", 2)?.toUpperCase() ?? null,
+      tomadorCep: txt("tomadorCep", 10),
+    },
+  };
+}
+
+const ROTULO_DO_CAMPO: Record<string, string> = {
+  valorServicos: "Valor dos serviços",
+  valorDeducoes: "Deduções",
+  descontoIncondicionado: "Desconto incondicionado",
+  descontoCondicionado: "Desconto condicionado",
+  aliquotaIss: "Alíquota do ISS",
+  outrasRetencoes: "Outras retenções",
+};
+
+/** O emitente a partir do cadastro da empresa (o mesmo mapeamento da tela Empresa). */
+export function emitenteDoTenant(t: {
+  name: string;
+  nomeFantasia: string | null;
+  cnpj: string | null;
+  inscricaoMunicipal: string | null;
+  inscricaoEstadual: string | null;
+  regimeTributario: string | null;
+  regimeEspecial: string | null;
+  itemListaServico: string | null;
+  codigoTributarioMunicipio: string | null;
+  cnae: string | null;
+  aliquotaIss: string | null;
+  logradouro: string | null;
+  numeroEndereco: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  codigoMunicipio: string | null;
+  municipio: string | null;
+  uf: string | null;
+  cep: string | null;
+  telefone: string | null;
+  emailFiscal: string | null;
+}): EmitenteFiscal {
+  return {
+    razaoSocial: t.name,
+    nomeFantasia: t.nomeFantasia,
+    cnpj: t.cnpj,
+    inscricaoMunicipal: t.inscricaoMunicipal,
+    inscricaoEstadual: t.inscricaoEstadual,
+    regimeTributario: t.regimeTributario,
+    regimeEspecial: t.regimeEspecial,
+    itemListaServico: t.itemListaServico,
+    codigoTributarioMunicipio: t.codigoTributarioMunicipio,
+    cnae: t.cnae,
+    aliquotaIss: t.aliquotaIss === null ? null : Number(t.aliquotaIss),
+    logradouro: t.logradouro,
+    numero: t.numeroEndereco,
+    complemento: t.complemento,
+    bairro: t.bairro,
+    codigoMunicipio: t.codigoMunicipio,
+    municipio: t.municipio,
+    uf: t.uf,
+    cep: t.cep,
+    telefone: t.telefone,
+    email: t.emailFiscal,
+  };
+}

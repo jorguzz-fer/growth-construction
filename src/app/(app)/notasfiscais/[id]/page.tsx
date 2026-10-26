@@ -1,0 +1,144 @@
+import Link from "next/link";
+import { getTenantContext } from "@/lib/context";
+import { can } from "@/lib/permissions";
+import { getContasReceber, getEventosDaNota, getNotaServico } from "@/lib/queries";
+import { ROTULO_DA_SITUACAO, ROTULO_DO_AMBIENTE, emitenteDoTenant, entradaDaNota, podeEditar, type SituacaoDaNota } from "@/lib/nota-servico";
+import { rotuloDaConta, valoresIniciais } from "@/lib/nota-servico-tela";
+import { calcularNfse, validarNfse } from "@/lib/calc/nfse";
+import { formatarCnpj } from "@/lib/calc/emitente-fiscal";
+import { resolverAmbiente } from "@/lib/fiscal/focus";
+import { brl } from "@/lib/utils";
+import { PageHeader } from "@/components/app/page-header";
+import { AccessDenied } from "@/components/app/access-denied";
+import { NotaServicoForm } from "@/components/app/nota-servico-form";
+import { Card, CardContent } from "@/components/ui/card";
+
+export const dynamic = "force-dynamic";
+
+const ROTULO_DO_EVENTO: Record<string, string> = {
+  criada: "Rascunho criado",
+  editada: "Rascunho corrigido",
+  enviada: "Enviada ao provedor",
+  consulta: "Situação consultada",
+  falha_rede: "Sem resposta do provedor",
+  cancelamento: "Cancelamento",
+};
+
+/** Prompt AG — a nota: rascunho editável, ou o registro do que foi emitido (nada se apaga, 5.7). */
+export default async function NotaPage({ params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getTenantContext();
+  if (!ctx) return null;
+  if (!can(ctx.perms, "notasfiscais", "ver")) return <AccessDenied />;
+  const { id } = await params;
+  const n = /^[0-9a-f-]{36}$/i.test(id) ? await getNotaServico(ctx.tenant.id, id) : null;
+  // Nota de obra que a pessoa não vê é tratada como inexistente.
+  if (!n || !ctx.projects.some((p) => p.id === n.projectId)) {
+    return (
+      <>
+        <PageHeader title="Nota fiscal" />
+        <Card>
+          <CardContent className="p-8 text-center text-[var(--color-ink3)]">Nota não encontrada.</CardContent>
+        </Card>
+      </>
+    );
+  }
+  const eventos = await getEventosDaNota(ctx.tenant.id, n.id);
+  const projeto = ctx.projects.find((p) => p.id === n.projectId)!;
+  const editavel = podeEditar(n.status) && can(ctx.perms, "notasfiscais", "editar");
+  const situacao = n.status as SituacaoDaNota;
+  const homolog = n.ambiente !== "producao";
+  const e = emitenteDoTenant(ctx.tenant);
+  const entrada = entradaDaNota(n);
+  const calc = validarNfse(entrada) ? null : calcularNfse(entrada);
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={`${projeto.name} · ${n.origemTipo === "avulso" ? "serviço avulso" : n.origemTipo}`}
+        title={n.numero ? `NFS-e nº ${n.numero}` : "Nota fiscal (sem número)"}
+        subtitle={`${ROTULO_DA_SITUACAO[situacao] ?? n.status} · ${ROTULO_DO_AMBIENTE[resolverAmbiente(n.ambiente)]}`}
+        actions={
+          <Link href="/notasfiscais" className="text-[13px] text-[var(--color-accent2)] hover:underline">
+            ← Notas Fiscais
+          </Link>
+        }
+      />
+      {homolog && (
+        <p className="mb-4 rounded-[8px] border border-[var(--color-warning)]/50 bg-[var(--color-warning)]/12 px-4 py-3 text-[13px] font-medium text-[var(--color-ink)]" data-marca-homologacao>
+          NOTA DE HOMOLOGAÇÃO — SEM VALOR FISCAL. Existe só para testar o caminho; não conta em nenhum relatório.
+        </p>
+      )}
+      {n.mensagemRetorno && (
+        <Card className="mb-4">
+          <CardContent className="p-5">
+            <h2 className="text-sm font-semibold text-[var(--color-ink)]">Mensagem do provedor</h2>
+            <p className="mt-1 whitespace-pre-wrap text-[13px] text-[var(--color-ink2)]" data-mensagem-provedor>
+              {n.mensagemRetorno}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {editavel ? (
+        <NotaServicoForm
+          inicial={valoresIniciais(n as unknown as Record<string, unknown>, {})}
+          projetos={ctx.projects.map((p) => ({ id: p.id, name: p.name }))}
+          contasReceber={(await getContasReceber(ctx.tenant.id, n.projectId)).map((c) => ({ id: c.id, projectId: c.projectId, rotulo: rotuloDaConta(c) }))}
+          emitente={{ razaoSocial: e.razaoSocial ?? "", cnpj: e.cnpj ? formatarCnpj(e.cnpj) : "", itemListaServico: e.itemListaServico ?? "", municipio: e.municipio ?? "" }}
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2" data-nota-leitura>
+          <Card>
+            <CardContent className="space-y-1.5 p-5 text-[13px]">
+              <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Serviço e valores</h2>
+              <p>Competência: {n.competencia ?? "—"}</p>
+              <p className="whitespace-pre-wrap">Discriminação: {n.discriminacao || "—"}</p>
+              <p>Valor dos serviços: {brl(Number(n.valorServicos))}</p>
+              <p>Alíquota do ISS: {Number(n.aliquotaIss).toString().replace(".", ",")}%{n.issRetido ? " · ISS retido pelo tomador" : ""}</p>
+              {calc && (
+                <>
+                  <p>ISS: {brl(calc.valorIss)}</p>
+                  <p>Total retido: {brl(calc.totalRetencoes)}</p>
+                  <p className="font-semibold">Valor líquido: {brl(Number(n.valorLiquido ?? calc.valorLiquido))}</p>
+                </>
+              )}
+              {n.codigoVerificacao && <p>Código de verificação: {n.codigoVerificacao}</p>}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="space-y-1.5 p-5 text-[13px]">
+              <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Tomador (como foi emitido)</h2>
+              <p>{n.tomadorNome ?? "—"}</p>
+              <p>Documento: {n.tomadorCpfCnpj ?? "—"}</p>
+              {n.tomadorEmail && <p>E-mail: {n.tomadorEmail}</p>}
+              {n.tomadorLogradouro && (
+                <p>
+                  {[n.tomadorLogradouro, n.tomadorNumero, n.tomadorComplemento, n.tomadorBairro, n.tomadorUf, n.tomadorCep].filter(Boolean).join(", ")}
+                </p>
+              )}
+              {n.canceladaEm && (
+                <p className="pt-2 text-[var(--color-warning)]">
+                  Cancelada em {n.canceladaEm.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}: {n.motivoCancelamento}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      <Card className="mt-4">
+        <CardContent className="p-5">
+          <h2 className="text-sm font-semibold text-[var(--color-ink)]">Histórico</h2>
+          <ul className="mt-2 space-y-1 text-[12.5px] text-[var(--color-ink2)]" data-historico>
+            {eventos.map((ev) => (
+              <li key={ev.id}>
+                {ev.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · {ROTULO_DO_EVENTO[ev.tipo] ?? ev.tipo}
+                {ev.status ? ` · ${ROTULO_DA_SITUACAO[ev.status as SituacaoDaNota] ?? ev.status}` : ""}
+                {ev.email ? ` · ${ev.email}` : ""}
+                {ev.mensagem ? <span className="block pl-4 text-[var(--color-ink3)]">{ev.mensagem}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
