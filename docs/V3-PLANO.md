@@ -87,7 +87,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 23 | **K2** | Contas a Receber e Liberações: chat lança | **Feito em 18/10** ([relatório](./V3-PROMPT-K2-FINAL.md)) | Edição por linha já existe; confirmar o que falta. |
 | 24 | **P2** | Permuta: documentos do ativo e chat | **Feito em 18/10** ([relatório](./V3-PROMPT-P2-FINAL.md)) | Upload de documento e foto do ativo. |
 | 25 | **N2** | Simulador | **Feito em 18/10** ([relatório](./V3-PROMPT-N2-FINAL.md)), a pedido do dono, sem a conferência do Thiago | Volta ao parcelamento da planilha; proposta ao cliente em PDF com a Cris. |
-| 26 | **AG2** | Emissão de NF-e no menu de Receitas | BAG2-1 | A tela não está neste repositório. Entra quando chegar. |
+| 26 | **AG2** | Emissão de NF-e no menu de Receitas | **BAG2-1 respondido em 26/10: construir aqui** ([decisões](./V2-PROMPT-AG-PR1.md)) | Feita pelo Prompt AG, sobre o Focus NFe já integrado: serviço avulso que pode apontar para a conta a receber lançada; a nota não vira receita. |
 
 ## Bloco 4 · Despesas, Caixa, Obra, Pessoas e Configurações
 
@@ -147,7 +147,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
   botão?
 - **BM2-1** · Foto de documento pessoal do cliente vai ao modelo? A regra de
   01/10 veda dado pessoal; aqui o documento é o dado.
-- **BAG2-1** · Onde está a tela de emissão que o Thiago diz pronta?
+- **BAG2-1** · Onde está a tela de emissão que o Thiago diz pronta? **Respondido em 26/10:** construir aqui (Prompt AG).
 - **BS3-1** · "Paga por terceiro": quem aparece é quem tem o papel, ou todo
   cadastro de Ressarcimentos?
 - **BL2-1** · A projeção dos próximos dias conta parcela a pagar sem dia?
