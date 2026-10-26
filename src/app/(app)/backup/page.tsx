@@ -6,6 +6,9 @@ import { situacaoDoPacote } from "@/lib/backup-historico";
 import { currentSemesterKey, semesterInfo } from "@/lib/semester";
 import { isR2Configured } from "@/lib/storage/r2";
 import { BackupPacote, type PacoteNaTela } from "@/components/app/backup-pacote";
+import { AssistenteBackup, type AnaliseDoBackup } from "@/components/app/assistente-backup";
+import { lerMudancas, lerResumoDoPacote, periodosSemBackup, type ResumoGuardado } from "@/lib/backup-analise";
+import { mudancasDesde } from "@/lib/backup-dados";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +25,8 @@ export default async function BackupPage() {
   const { semesters, pendingKey } = await listSemesters(ctx.tenant.id);
   const pending = semesters.find((s) => s.key === pendingKey) ?? null;
   const agora = new Date();
-  const pacotes: PacoteNaTela[] = (await pacotesDaEmpresa(ctx.tenant.id)).map(({ p, email }) => {
+  const registros = await pacotesDaEmpresa(ctx.tenant.id);
+  const pacotes: PacoteNaTela[] = registros.map(({ p, email }) => {
     const r = (p.resumo ?? {}) as { totalDeLinhas?: number; documentos?: { incluidos: number; noPeriodo: number; falhos: number } };
     return {
       id: p.id,
@@ -41,11 +45,38 @@ export default async function BackupPage() {
     };
   });
 
+  // Prompt AO, Parte 8 — o assistente lê contagens: o último pacote pronto, o
+  // que mudou depois do último download (até 3 semestres) e o que falta salvar.
+  const quando = (d: Date) => d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const ultimoPronto = registros.find(({ p }) => p.status === "pronto")?.p ?? null;
+  const baixados = semesters.filter((s) => s.ultimoBackup).slice(0, 3);
+  const analise: AnaliseDoBackup = {
+    pacote: ultimoPronto
+      ? {
+          rotulo: semesterInfo(ultimoPronto.semestre)?.label ?? ultimoPronto.semestre,
+          geradoEm: quando(ultimoPronto.concluidoEm ?? ultimoPronto.createdAt),
+          frases: lerResumoDoPacote((ultimoPronto.resumo ?? {}) as ResumoGuardado),
+        }
+      : null,
+    mudancas: (
+      await Promise.all(
+        baixados.map(async (s) => {
+          const info = semesterInfo(s.key);
+          const frases = info ? lerMudancas(await mudancasDesde(ctx.tenant.id, info, s.ultimoBackup!.em)) : [];
+          return { rotulo: s.label, desde: quando(s.ultimoBackup!.em), frases };
+        }),
+      )
+    ).filter((m) => m.frases.length > 0),
+    semBackup: periodosSemBackup(semesters),
+  };
+
   return (
     <>
       {/* Prompt AO, BAO-3 (recomendação 1): "Backup de dados", com a ressalva escrita. */}
       <PageHeader title="Backup de dados" subtitle="Cópia dos dados lançados, por semestre — não restaura o sistema" />
 
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {pending && (
         <Card className="mb-5 border-l-4 border-[var(--color-warning)]">
           <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -174,6 +205,9 @@ export default async function BackupPage() {
           </Table>
         </CardContent>
       </Card>
+      </div>
+      <AssistenteBackup usuario={ctx.userEmail ?? "anon"} analise={analise} />
+      </div>
     </>
   );
 }
