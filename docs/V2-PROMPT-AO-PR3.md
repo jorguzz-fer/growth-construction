@@ -27,7 +27,7 @@ simples e o pacote completo.
 1. Em **Configurações → Backup de dados**, card **Pacote completo**: escolha o
    semestre e clique em **Gerar pacote completo**.
 2. A geração roda **no servidor, em segundo plano**. A tela mostra a etapa e o
-   progresso ("Lendo tabelas: despesa · 12/57", "Baixando documentos ·
+   progresso ("Lendo tabelas: despesa · 12/56", "Baixando documentos ·
    120/400", "Compactando"…) e se atualiza sozinha a cada 3 segundos.
 3. Quando fica **Pronto**, aparece **Baixar** e o histórico mostra: quem pediu,
    quando, linhas, documentos (incluídos, do período e os que falharam) e
@@ -44,7 +44,7 @@ Backup_completo_<empresa>_<semestre>.zip
 ├── _leia-me.txt                 o que entrou, o que ficou fora e por quê, LGPD
 ├── _manifesto.json              linhas, recorte e somas de controle por tabela
 ├── planilha/dados_<semestre>.xlsx   a MESMA planilha de 3 abas de sempre
-├── dados/<tabela>.json          uma por tabela (57), todas as colunas e chaves
+├── dados/<tabela>.json          uma por tabela (56), todas as colunas e chaves
 └── documentos/NNN_<arquivo>     os documentos do semestre (sem ASO)
 ```
 
