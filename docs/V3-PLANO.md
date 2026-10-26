@@ -87,7 +87,7 @@ próprio. Entre parênteses, o que mudou desde o plano de 15/10.
 | 23 | **K2** | Contas a Receber e Liberações: chat lança | **Feito em 18/10** ([relatório](./V3-PROMPT-K2-FINAL.md)) | Edição por linha já existe; confirmar o que falta. |
 | 24 | **P2** | Permuta: documentos do ativo e chat | **Feito em 18/10** ([relatório](./V3-PROMPT-P2-FINAL.md)) | Upload de documento e foto do ativo. |
 | 25 | **N2** | Simulador | **Feito em 18/10** ([relatório](./V3-PROMPT-N2-FINAL.md)), a pedido do dono, sem a conferência do Thiago | Volta ao parcelamento da planilha; proposta ao cliente em PDF com a Cris. |
-| 26 | **AG2** | Emissão de NF-e no menu de Receitas | **BAG2-1 respondido em 26/10: construir aqui** ([decisões](./V2-PROMPT-AG-PR1.md)) | Feita pelo Prompt AG, sobre o Focus NFe já integrado: serviço avulso que pode apontar para a conta a receber lançada; a nota não vira receita. |
+| 26 | **AG2** | Emissão de NF-e no menu de Receitas | **BAG2-1 respondido em 26/10: construir aqui** ([decisões](./V2-PROMPT-AG-PR1.md)) | **Concluída em 26/10** pelo Prompt AG (PRs 1 a 6, [relatório](./V2-PROMPT-AG-FINAL.md)): serviço avulso que pode apontar para a conta a receber lançada; a nota não vira receita. Falta só configurar o servidor e testar em homologação. |
 
 ## Bloco 4 · Despesas, Caixa, Obra, Pessoas e Configurações
 

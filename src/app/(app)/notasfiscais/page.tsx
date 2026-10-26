@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { getTenantContext } from "@/lib/context";
 import { can } from "@/lib/permissions";
-import { getNotasServico } from "@/lib/queries";
-import { ROTULO_DA_SITUACAO, ROTULO_DO_AMBIENTE, SITUACOES_DA_NOTA, recusaDoTenant, type SituacaoDaNota } from "@/lib/nota-servico";
+import { getNotasParaAnalise, getNotasServico } from "@/lib/queries";
+import { ROTULO_DA_SITUACAO, ROTULO_DO_AMBIENTE, SITUACOES_DA_NOTA, emitenteDoTenant, obraFiscalDoProjeto, recusaDoTenant, type SituacaoDaNota } from "@/lib/nota-servico";
+import { analisarNotas } from "@/lib/nota-servico-analise";
+import { AssistenteNotas } from "@/components/app/assistente-notas";
 import { resolverAmbiente } from "@/lib/fiscal/focus";
 import { brl } from "@/lib/utils";
 import { PageHeader } from "@/components/app/page-header";
@@ -46,6 +48,11 @@ export default async function NotasFiscaisPage({
     { ambiente, status, projectId, de, ate },
   );
   const recusa = recusaDoTenant(ctx.tenant.id, process.env.NFSE_TENANT_ID);
+  // Seção 6 — o assistente olha as notas EM ABERTO do ambiente escolhido, sem os filtros da tabela.
+  const analise = analisarNotas(await getNotasParaAnalise(ctx.tenant.id, ctx.projects.map((p) => p.id), ambiente), {
+    emitente: emitenteDoTenant(ctx.tenant),
+    obras: new Map(ctx.projects.map((p) => [p.id, obraFiscalDoProjeto(p)])),
+  });
   const homolog = ambiente === "homologacao";
   const link = (o: Record<string, string | null>) => {
     const q = new URLSearchParams();
@@ -108,6 +115,8 @@ export default async function NotasFiscaisPage({
           </button>
         </form>
       </div>
+      <div className="flex flex-col gap-6 min-[1180px]:flex-row min-[1180px]:items-start">
+      <div className="min-w-0 flex-1">
       {homolog && (
         <p className="mb-3 rounded-[8px] bg-[var(--color-warning)]/12 px-3 py-2 text-[12.5px] text-[var(--color-ink2)]" data-aviso-homologacao>
           Homologação: notas de teste, <strong>sem valor fiscal</strong>. Não contam em nenhum relatório, total ou exportação.
@@ -161,6 +170,9 @@ export default async function NotasFiscaisPage({
           </Table>
         </CardContent>
       </Card>
+      </div>
+      <AssistenteNotas usuario={ctx.userEmail ?? "anon"} analise={analise} homologacao={homolog} />
+      </div>
     </>
   );
 }

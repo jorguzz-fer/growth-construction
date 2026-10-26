@@ -4070,3 +4070,23 @@ export async function getEventosDaNota(tenantId: string, notaId: string) {
     .where(and(eq(schema.notaServicoEventos.tenantId, tenantId), eq(schema.notaServicoEventos.notaId, notaId)))
     .orderBy(asc(schema.notaServicoEventos.createdAt));
 }
+
+/** Prompt AG, seção 6 — as notas que o assistente olha: em aberto, num ambiente. */
+export async function getNotasParaAnalise(tenantId: string, projectIds: readonly string[], ambiente: string) {
+  if (projectIds.length === 0) return [];
+  const rows = await db
+    .select({ n: schema.notasServico, projeto: schema.projects.name })
+    .from(schema.notasServico)
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.notasServico.projectId))
+    .where(
+      and(
+        eq(schema.notasServico.tenantId, tenantId),
+        inArray(schema.notasServico.projectId, [...projectIds]),
+        eq(schema.notasServico.ambiente, ambiente),
+        inArray(schema.notasServico.status, ["rascunho", "rejeitada", "processando"]),
+      ),
+    )
+    .orderBy(desc(schema.notasServico.createdAt))
+    .limit(500);
+  return rows.map((r) => ({ ...r.n, projeto: r.projeto }));
+}
