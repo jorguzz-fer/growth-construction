@@ -471,3 +471,41 @@ export function dataDeEmissao(agora: Date = new Date()): string {
 export function urlSegura(u: string | null | undefined): string | null {
   return u && /^https:\/\/[^\s"'<>]+$/i.test(u.trim()) ? u.trim() : null;
 }
+
+// ── Cancelamento (seção 5.6) ──────────────────────────────────────────────
+export const MOTIVO_MINIMO = 15;
+export const MOTIVO_MAXIMO = 255;
+
+/** O que a pessoa digita para confirmar: o número da nota (ou o começo do id, se não houver número). */
+export function identificadorDaNota(n: { numero: string | null; id: string }): string {
+  return (n.numero ?? "").trim() || n.id.slice(0, 8);
+}
+
+/** Motivo escrito (15 a 255 caracteres) e confirmação digitando o número. */
+export function lerCancelamento(
+  n: { numero: string | null; id: string },
+  motivo: unknown,
+  confirmacao: unknown,
+): { ok: true; motivo: string } | { ok: false; error: string } {
+  const m = typeof motivo === "string" ? motivo.trim().replace(/\s+/g, " ") : "";
+  if (m.length < MOTIVO_MINIMO) return { ok: false, error: `Escreva o motivo do cancelamento (pelo menos ${MOTIVO_MINIMO} caracteres).` };
+  if (m.length > MOTIVO_MAXIMO) return { ok: false, error: `O motivo pode ter até ${MOTIVO_MAXIMO} caracteres.` };
+  const c = typeof confirmacao === "string" ? confirmacao.trim() : "";
+  if (c !== identificadorDaNota(n)) return { ok: false, error: `Para confirmar, digite o número da nota: ${identificadorDaNota(n)}.` };
+  return { ok: true, motivo: m };
+}
+
+/**
+ * O que a resposta do pedido de cancelamento quer dizer.
+ * - "cancelada": a Focus confirmou.
+ * - "recusado": a Focus/prefeitura recusou, com mensagem (prazo, por exemplo).
+ *   A nota continua autorizada.
+ * - "sem_confirmacao": não dá para saber. A nota continua autorizada até a
+ *   consulta dizer "cancelado".
+ */
+export function desfechoDoCancelamento(r: Pick<ResultadoNota, "status" | "http" | "erros"> | null): "cancelada" | "recusado" | "sem_confirmacao" {
+  if (!r) return "sem_confirmacao";
+  if (r.status === "cancelado") return "cancelada";
+  if (semResposta(r) || r.http === 401 || r.http === 403) return "sem_confirmacao";
+  return (r.erros ?? []).length > 0 ? "recusado" : "sem_confirmacao";
+}

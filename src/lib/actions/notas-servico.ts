@@ -12,10 +12,13 @@ import {
   conferirAntesDoEnvio,
   consultaSemValor,
   dataDeEmissao,
+  desfechoDoCancelamento,
   emitenteDoTenant,
+  lerCancelamento,
   lerRascunhoDaNota,
   mensagemDoRetorno,
   obraFiscalDoProjeto,
+  podeCancelar,
   podeEditar,
   podeEnviar,
   recusaDoTenant,
@@ -27,7 +30,7 @@ import {
   type RascunhoDaNota,
   type SituacaoDaNota,
 } from "@/lib/nota-servico";
-import { consultarNfse, emitirNfse, focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
+import { cancelarNfse, consultarNfse, emitirNfse, focusConfigurado, resolverAmbiente } from "@/lib/fiscal/focus";
 import type { AmbienteFiscal, ResultadoNota as RetornoDoProvedor } from "@/lib/fiscal/tipos";
 
 export type ResultadoNota = { ok: true; id: string } | { ok: false; error: string };
@@ -254,7 +257,9 @@ export async function atualizarNota(id: string): Promise<ResultadoDoEnvio> {
     return { ok: false, error: "Sem permissão para atualizar a nota." };
   const n = await notaDoTenant(ctx.tenant.id, id, ctx.projects);
   if (!n) return naoEncontrada;
-  if (n.status !== "processando" || !n.ref) return { ok: true, situacao: n.status, aviso: "Esta nota não está processando." };
+  // Autorizada também: confirma um cancelamento cuja resposta se perdeu.
+  if (!(n.status === "processando" || n.status === "autorizada") || !n.ref)
+    return { ok: true, situacao: n.status, aviso: "Não há o que consultar nesta nota." };
   const ambiente = resolverAmbiente(n.ambiente);
   if (!focusConfigurado(ambiente)) return { ok: false, error: "O token da Focus NFe deste ambiente não está configurado no servidor." };
   let c: RetornoDoProvedor | null = null;
@@ -433,6 +438,17 @@ async function aplicarRetorno(
       createdBy: userId,
     });
     if (!valida || para === null) return { mudou: false, situacao: n.status, de: n.status };
+    const pedido =
+      para === "cancelada" && n.status !== "cancelada"
+        ? (
+            await tx
+              .select({ mensagem: schema.notaServicoEventos.mensagem, createdBy: schema.notaServicoEventos.createdBy })
+              .from(schema.notaServicoEventos)
+              .where(and(eq(schema.notaServicoEventos.notaId, id), eq(schema.notaServicoEventos.tipo, "cancelamento_pedido")))
+              .orderBy(desc(schema.notaServicoEventos.createdAt))
+              .limit(1)
+          )[0]
+        : undefined;
     await tx
       .update(schema.notasServico)
       .set({
@@ -446,6 +462,9 @@ async function aplicarRetorno(
         ...(r.urlEspelho ? { urlEspelho: r.urlEspelho } : {}),
         ...(r.caminhoXml ? { caminhoXml: r.caminhoXml } : {}),
         ...(para === "autorizada" ? { autorizadaEm: new Date() } : {}),
+        ...(para === "cancelada" && n.status !== "cancelada"
+          ? { canceladaEm: new Date(), canceladaPor: pedido?.createdBy ?? userId, motivoCancelamento: pedido?.mensagem ?? null }
+          : {}),
       })
       .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)));
     return { mudou: para !== n.status, situacao: para as string, de: n.status };
@@ -459,4 +478,87 @@ async function aplicarRetorno(
         ? "A nota foi rejeitada. Corrija e envie de novo — a nova tentativa usa outra referência."
         : undefined;
   return { ok: true, situacao: res.situacao as SituacaoDaNota, ...(aviso ? { aviso } : {}) };
+}
+
+/**
+ * Prompt AG, 5.6 — cancela uma nota AUTORIZADA. Motivo escrito e confirmação
+ * digitando o número. O registro nunca se apaga (5.7): a nota fica "cancelada"
+ * com quem, quando e por quê. O pedido é gravado antes da chamada; sem
+ * resposta, a nota continua autorizada até a consulta confirmar.
+ */
+export async function cancelarNota(id: string, motivo: string, confirmacao: string): Promise<ResultadoDoEnvio> {
+  const ctx = await getTenantContext();
+  if (!ctx) return { ok: false, error: "Sessão expirada. Entre de novo." };
+  if (!can(ctx.perms, "notasfiscais", "ver") || !can(ctx.perms, "notacancelar", "editar"))
+    return { ok: false, error: "Sem permissão para cancelar nota fiscal." };
+  const tenantId = ctx.tenant.id;
+  const n = await notaDoTenant(tenantId, id, ctx.projects);
+  if (!n) return naoEncontrada;
+  if (!podeCancelar(n.status) || !n.ref) return { ok: false, error: "Só nota autorizada pode ser cancelada." };
+  const lido = lerCancelamento(n, motivo, confirmacao);
+  if (!lido.ok) return lido;
+  const recusa = recusaDoTenant(tenantId, process.env.NFSE_TENANT_ID);
+  if (recusa) return { ok: false, error: recusa };
+  const ambiente = resolverAmbiente(n.ambiente);
+  if (!focusConfigurado(ambiente)) return { ok: false, error: "O token da Focus NFe deste ambiente não está configurado no servidor." };
+  const ref = n.ref;
+
+  try {
+    await db.transaction(async (tx) => {
+      const [atual] = await tx
+        .select({ status: schema.notasServico.status, ref: schema.notasServico.ref })
+        .from(schema.notasServico)
+        .where(and(eq(schema.notasServico.id, id), eq(schema.notasServico.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
+      if (!atual || !podeCancelar(atual.status) || atual.ref !== ref) throw new Recusa("A nota mudou enquanto você olhava. Recarregue a página.");
+      const [recente] = await tx
+        .select({ id: schema.notaServicoEventos.id })
+        .from(schema.notaServicoEventos)
+        .where(
+          and(
+            eq(schema.notaServicoEventos.notaId, id),
+            eq(schema.notaServicoEventos.tipo, "cancelamento_pedido"),
+            gt(schema.notaServicoEventos.createdAt, new Date(Date.now() - 60_000)),
+          ),
+        )
+        .limit(1);
+      if (recente) throw new Recusa("O cancelamento acabou de ser pedido. Espere um minuto e use “Conferir na Focus”.");
+      await tx.insert(schema.notaServicoEventos).values({ tenantId, notaId: id, tipo: "cancelamento_pedido", ref, status: "autorizada", mensagem: lido.motivo, createdBy: ctx.userId });
+    });
+  } catch (e) {
+    if (e instanceof Recusa) return { ok: false, error: e.message };
+    throw e;
+  }
+  await logAudit({ tenantId, userId: ctx.userId, action: "nfse.cancelar.pedido", entity: "nota_servico", entityId: id, meta: { ambiente, ref } });
+
+  let r: RetornoDoProvedor | null = null;
+  try {
+    r = await cancelarNfse(ambiente, ref, lido.motivo);
+  } catch {
+    r = null;
+  }
+  const desfecho = desfechoDoCancelamento(r);
+  let resultado: ResultadoDoEnvio;
+  if (desfecho === "cancelada") {
+    resultado = await aplicarRetorno(tenantId, id, ref, r!, ctx.userId, "retorno");
+  } else {
+    const mensagem =
+      desfecho === "recusado"
+        ? `A prefeitura não aceitou o cancelamento. ${mensagemDoRetorno(r!) ?? ""}`.trim()
+        : "A Focus não confirmou o cancelamento. A nota continua autorizada: use “Conferir na Focus” em alguns minutos.";
+    await db.insert(schema.notaServicoEventos).values({
+      tenantId,
+      notaId: id,
+      tipo: desfecho === "recusado" ? "cancelamento_recusado" : "cancelamento_sem_resposta",
+      ref,
+      status: "autorizada",
+      mensagem,
+      bruto: r?.bruto === undefined ? null : (r.bruto as Record<string, unknown>),
+      createdBy: ctx.userId,
+    });
+    resultado = desfecho === "recusado" ? { ok: false, error: mensagem } : { ok: true, situacao: "autorizada", aviso: mensagem };
+  }
+  revalidatePath("/notasfiscais");
+  return resultado;
 }

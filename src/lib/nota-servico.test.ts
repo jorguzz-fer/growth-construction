@@ -219,3 +219,23 @@ describe("Prompt AG PR3 — consulta sem valor", async () => {
     expect(m.retornoQueVale(erro, { status: "erro", ref: "r", http: 401 })).toBeNull();
   });
 });
+
+describe("Prompt AG PR4 — cancelamento", async () => {
+  const m = await import("./nota-servico");
+  const n = { numero: "77", id: "0f9b2c4e-aaaa-bbbb-cccc-000000000000" };
+  it("motivo escrito e confirmação pelo número", () => {
+    expect(m.lerCancelamento(n, "curto", "77")).toMatchObject({ ok: false });
+    expect(m.lerCancelamento(n, "x".repeat(256), "77")).toMatchObject({ ok: false });
+    expect(m.lerCancelamento(n, "Valor errado na medição de outubro", "78")).toMatchObject({ ok: false, error: expect.stringContaining("77") });
+    expect(m.lerCancelamento(n, "  Valor   errado na medição de outubro ", " 77 ")).toEqual({ ok: true, motivo: "Valor errado na medição de outubro" });
+    expect(m.identificadorDaNota({ numero: null, id: n.id })).toBe("0f9b2c4e");
+  });
+  it("desfecho: só 'cancelado' cancela; recusa com mensagem; o resto não confirma", () => {
+    expect(m.desfechoDoCancelamento({ status: "cancelado", http: 200 })).toBe("cancelada");
+    expect(m.desfechoDoCancelamento({ status: "processando", http: 422, erros: [{ mensagem: "Fora do prazo" }] })).toBe("recusado");
+    expect(m.desfechoDoCancelamento({ status: "erro", http: 401, erros: [{ mensagem: "auth" }] })).toBe("sem_confirmacao");
+    expect(m.desfechoDoCancelamento({ status: "erro", http: 503, erros: [{ mensagem: "x" }] })).toBe("sem_confirmacao");
+    expect(m.desfechoDoCancelamento({ status: "processando", http: 200 })).toBe("sem_confirmacao");
+    expect(m.desfechoDoCancelamento(null)).toBe("sem_confirmacao");
+  });
+});
