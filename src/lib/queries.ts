@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { vinculosDaVersao } from "@/lib/conciliacao-vinculos";
@@ -1732,14 +1733,18 @@ export async function getVersionKind(versionId: string): Promise<string | null> 
 }
 
 /** Tipo, situação e empresa da versão — para as leituras que só recebem o id. */
-async function versaoKindETenant(versionId: string): Promise<{ kind: string; tenantId: string; status: string } | null> {
+/**
+ * Tipo, tenant e situação da versão. Memorizado por requisição (React `cache`):
+ * a DRE da Empresa toda pedia isto ~190 vezes por abertura.
+ */
+const versaoKindETenant = cache(async (versionId: string): Promise<{ kind: string; tenantId: string; status: string } | null> => {
   const [v] = await db
     .select({ kind: schema.versions.kind, tenantId: schema.versions.tenantId, status: schema.versions.status })
     .from(schema.versions)
     .where(eq(schema.versions.id, versionId))
     .limit(1);
   return v ?? null;
-}
+});
 
 /**
  * FILTRO POR SITUAÇÃO — Prompt H, seção 1.
@@ -1806,6 +1811,60 @@ export async function getExpenseRows(versionId: string): Promise<ExpenseRow[]> {
       valor: Number(x.valor),
     }));
 }
+
+/** Uma linha de `getExpenseRowsAgrupadas`: a soma de `quantidade` lançamentos iguais em conta, categoria e competência. */
+export interface ExpenseRowAgrupada extends ExpenseRow {
+  quantidade: number;
+}
+
+/**
+ * As MESMAS despesas de `getExpenseRows`, já somadas no banco por conta,
+ * categoria e competência (desempenho da DRE, 27/10/2026). Cada versão vinha
+ * linha a linha (todas as colunas, ordenadas), duas vezes por abertura; agora
+ * vem uma vez, com poucas linhas. Mesma regra: canceladas fora, planejamento
+ * fora dos relatórios vazio, categoria do plano quando a chave estiver ligada.
+ * Memorizada por requisição: a cascata e o rodapé leem a mesma consulta.
+ */
+export const getExpenseRowsAgrupadas = cache(async (versionId: string): Promise<ExpenseRowAgrupada[]> => {
+  const versao = await versaoKindETenant(versionId);
+  const kind = versao?.kind ?? null;
+  if (kind === "budget" || kind === "forecast") {
+    if (await planejamentoForaDosRelatorios(versao)) return [];
+    const linhas = await db
+      .select({
+        contaCef: schema.budgetLines.rowKey,
+        categoriaDre: schema.budgetLines.dreCategory,
+        competencia: schema.budgetLines.mes,
+        valor: sql<string>`sum(${schema.budgetLines.valor})::text`,
+        quantidade: sql<number>`count(*)::int`,
+      })
+      .from(schema.budgetLines)
+      .where(and(eq(schema.budgetLines.versionId, versionId), eq(schema.budgetLines.kind, "despesa")))
+      .groupBy(schema.budgetLines.rowKey, schema.budgetLines.dreCategory, schema.budgetLines.mes);
+    return linhas.map((l) => ({ contaCef: l.contaCef, categoriaDre: l.categoriaDre, competencia: l.competencia, valor: Number(l.valor), quantidade: Number(l.quantidade) }));
+  }
+  const [linhas, mapa] = await Promise.all([
+    db
+      .select({
+        contaCef: schema.despesas.contaCef,
+        categoriaDre: schema.despesas.categoriaDre,
+        competencia: schema.despesas.competencia,
+        valor: sql<string>`sum(${schema.despesas.valor})::text`,
+        quantidade: sql<number>`count(*)::int`,
+      })
+      .from(schema.despesas)
+      .where(and(eq(schema.despesas.versionId, versionId), eq(schema.despesas.cancelado, false)))
+      .groupBy(schema.despesas.contaCef, schema.despesas.categoriaDre, schema.despesas.competencia),
+    versao && (async () => (await chaveLigada(versao.tenantId, "despesa_categoria_do_plano")) ? mapaParaDespesas(await getMapaDeCategorias(versao.tenantId)) : null)(),
+  ]);
+  return linhas.map((x) => ({
+    contaCef: x.contaCef,
+    categoriaDre: (mapa && x.contaCef && mapa[x.contaCef]) || x.categoriaDre,
+    competencia: x.competencia,
+    valor: Number(x.valor),
+    quantidade: Number(x.quantidade),
+  }));
+});
 
 /** Prompt DP — código da conta → categoria da DRE que vale (escolhida ou padrão). */
 export async function getMapaDeCategorias(tenantId: string): Promise<Record<string, CategoriaDRE>> {
@@ -2619,9 +2678,22 @@ export async function getMonthlyRevenue(
     return out;
   }
 
-  const [unitRows, reembRows] = await Promise.all([
+  // As três leituras da Atual em paralelo (antes, contas a receber esperava as outras duas).
+  const [unitRows, reembRows, crRows] = await Promise.all([
     getUnits(versao?.tenantId ?? "", versionId),
     getReembolsos(versao?.tenantId ?? "", versionId),
+    db
+      .select({
+        valor: schema.contasReceber.valor,
+        vencimento: schema.contasReceber.vencimento,
+      })
+      .from(schema.contasReceber)
+      .where(
+        and(
+          eq(schema.contasReceber.projectId, projectId),
+          eq(schema.contasReceber.cancelado, false),
+        ),
+      ),
   ]);
   const out: MonthlyProjection = {};
   // Receita da versão Atual = recebíveis das vendas (MESMA fonte da tela Contas
@@ -2652,18 +2724,6 @@ export async function getMonthlyRevenue(
   // versão Atual depende delas. Sem isto, uma receita lançada à mão (fora de um
   // plano de venda) aparecia em Contas a Receber e sumia da DRE, do Fluxo de
   // Caixa e do Dashboard. Agrega pelo mês do vencimento e ignora as canceladas.
-  const crRows = await db
-    .select({
-      valor: schema.contasReceber.valor,
-      vencimento: schema.contasReceber.vencimento,
-    })
-    .from(schema.contasReceber)
-    .where(
-      and(
-        eq(schema.contasReceber.projectId, projectId),
-        eq(schema.contasReceber.cancelado, false),
-      ),
-    );
   for (const c of crRows) {
     const p = (c.vencimento ?? "").split("/");
     if (p.length !== 3) continue;

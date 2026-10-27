@@ -1,7 +1,6 @@
 "use server";
 
-import { and, asc, eq } from "drizzle-orm";
-import { chaveDataBR } from "@/lib/db/ordem-data";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { getTenantContext } from "@/lib/context";
@@ -194,29 +193,26 @@ export async function registrarPagamento(input: RegistrarPagamentoInput): Promis
   }
 }
 
-/** Encargos financeiros (multa+juros+outros−desconto) por mês de pagamento. */
+/**
+ * Encargos financeiros (multa+juros+outros−desconto) por mês de pagamento.
+ * Somado no banco por mês (desempenho da DRE, 27/10/2026); mesma chave de
+ * antes: "MM/AAAA" a partir de "MM/DD/AAAA", só quando a data tem três partes.
+ */
 export async function getEncargosByVersion(
   versionId: string,
 ): Promise<Record<string, number>> {
+  const data = schema.pagamentos.dataPagamento;
+  const mes = sql<string | null>`case when ${data} ~ '^[^/]*/[^/]*/[^/]*$' then split_part(${data}, '/', 1) || '/' || split_part(${data}, '/', 3) end`;
   const rows = await db
     .select({
-      data: schema.pagamentos.dataPagamento,
-      multa: schema.pagamentos.multa,
-      juros: schema.pagamentos.juros,
-      outros: schema.pagamentos.outrosAcrescimos,
-      desconto: schema.pagamentos.desconto,
+      mes,
+      enc: sql<string>`sum(coalesce(${schema.pagamentos.multa}, 0) + coalesce(${schema.pagamentos.juros}, 0) + coalesce(${schema.pagamentos.outrosAcrescimos}, 0) - coalesce(${schema.pagamentos.desconto}, 0))::text`,
     })
     .from(schema.pagamentos)
     .innerJoin(schema.despesas, eq(schema.pagamentos.despesaId, schema.despesas.id))
     .where(eq(schema.despesas.versionId, versionId))
-    // §37 — data em texto: ordem cronológica, com desempate estável.
-    .orderBy(asc(chaveDataBR(schema.pagamentos.dataPagamento)), asc(schema.pagamentos.createdAt), asc(schema.pagamentos.id));
+    .groupBy(mes);
   const out: Record<string, number> = {};
-  for (const r of rows) {
-    const enc = Number(r.multa) + Number(r.juros) + Number(r.outros) - Number(r.desconto);
-    const p = (r.data ?? "").split("/");
-    const mm = p.length === 3 ? `${p[0]}/${p[2]}` : null;
-    if (mm) out[mm] = (out[mm] || 0) + enc;
-  }
+  for (const r of rows) if (r.mes) out[r.mes] = (out[r.mes] || 0) + Number(r.enc);
   return out;
 }

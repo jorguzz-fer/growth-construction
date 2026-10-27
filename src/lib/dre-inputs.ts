@@ -4,10 +4,11 @@
  * `dre/page.tsx` sem mudar o resultado. A DRE é por competência e NÃO lê o
  * caixa (Prompt L, 6.1): este arquivo também não (teste `dre-sem-caixa`).
  */
-import { and, asc, eq } from "drizzle-orm";
+import { cache } from "react";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Project } from "@/lib/context";
-import { getBudgetLines, getExpenseRows, getMonthlyRevenue, getPermutas, permToResale } from "@/lib/queries";
+import { getBudgetLines, getExpenseRows, getExpenseRowsAgrupadas, getMonthlyRevenue, getPermutas, permToResale } from "@/lib/queries";
 import { permutaRevenueByMonth } from "@/lib/calc";
 import { getEncargosByVersion } from "@/lib/actions/pagamentos";
 import { aggregateInputs, emptyInputs, NO_COMP, waterfall, type Inputs } from "@/lib/calc/dre-cascata";
@@ -57,10 +58,19 @@ export async function versionInputsByMonth(
    */
   opts: { definicaoNova?: boolean } = {},
 ): Promise<Record<string, Inputs>> {
-  const nova = !!opts.definicaoNova;
+  // Cópia: o resultado memorizado é compartilhado na requisição e quem chama pode somar em cima.
+  return structuredClone(await inputsMemorizados(tenantId, vid, projectId, !!opts.definicaoNova));
+}
+
+/**
+ * Desempenho (27/10/2026): uma versão é calculada UMA vez por requisição. Na
+ * Empresa toda, a Atual de um projeto sem Orçamento/Previsão entrava nos três
+ * cenários e era lida três vezes. Mesmos números (teste `dre-inputs-desempenho`).
+ */
+const inputsMemorizados = cache(async (tenantId: string, vid: string, projectId: string, nova: boolean): Promise<Record<string, Inputs>> => {
   const [revenue, despesas, permutas, encargosMes] = await Promise.all([
     getMonthlyRevenue(vid, projectId),
-    getExpenseRows(vid),
+    getExpenseRowsAgrupadas(vid),
     getPermutas(tenantId, vid),
     nova ? getEncargosPorCompetencia(vid) : getEncargosByVersion(vid),
   ]);
@@ -72,20 +82,20 @@ export async function versionInputsByMonth(
   // Receita da revenda de bens de permuta (inclui escambo), item 10.
   const permRev = permutaRevenueByMonth(permToResale(permutas));
   for (const [mm, v] of Object.entries(permRev)) bucket(mm).receita += v;
-  // Despesas por categoria da DRE.
+  // Despesas por categoria da DRE (já somadas no banco por conta, categoria e competência).
   for (const d of despesas) {
     if (!d.categoriaDre) continue;
     // Parte 2 (chave ligada): a "quinta origem" sai da soma — a tela lista à parte.
     if (nova && d.categoriaDre === "Receita") continue;
     const b = bucket(d.competencia);
-    b.byCat[d.categoriaDre] = (b.byCat[d.categoriaDre] || 0) + Number(d.valor);
+    b.byCat[d.categoriaDre] = (b.byCat[d.categoriaDre] || 0) + d.valor;
     // Receita/Custo Variável lançados como despesa entram na linha própria.
     // Prompt AC, 5.3: `byCat["Receita"]` e `byCat["Custo Variável"]` NÃO são
     // somados pela cascata (ela usa `receita` e `custoVar`); servem só para a
     // tela saber que a linha teve lançamento (Parte 9). Quem passar a ler
     // `cat("Custo Variável")` na cascata DUPLICA o custo.
-    if (d.categoriaDre === "Receita") b.receita += Number(d.valor);
-    if (d.categoriaDre === "Custo Variável") b.custoVar += Number(d.valor);
+    if (d.categoriaDre === "Receita") b.receita += d.valor;
+    if (d.categoriaDre === "Custo Variável") b.custoVar += d.valor;
   }
   // Custo Variável vem apenas das despesas lançadas como "Custo Variável"
   // (por competência) — a medição de obra NÃO entra na DRE (evita duplicidade).
@@ -94,7 +104,7 @@ export async function versionInputsByMonth(
     bucket(mm).byCat["Despesas Financeiras"] =
       (bucket(mm).byCat["Despesas Financeiras"] || 0) + v;
   return out;
-}
+});
 
 /**
  * Prompt AC3 — a mesma leitura de `versionInputsByMonth`, sem somar por
@@ -205,7 +215,8 @@ export async function getOrcadoRealizado(tenantId: string, projectId: string): P
  * conta: não muda nenhum número.
  */
 export async function foraDaCascataDaVersao(vid: string, opts: { definicaoNova?: boolean } = {}): Promise<ForaDaCascata> {
-  return resumirForaDaCascata(await getExpenseRows(vid), { receitaFora: !!opts.definicaoNova });
+  // A mesma leitura agrupada (e memorizada) da cascata: não lê as despesas de novo.
+  return resumirForaDaCascata(await getExpenseRowsAgrupadas(vid), { receitaFora: !!opts.definicaoNova });
 }
 
 /**
@@ -215,22 +226,22 @@ export async function foraDaCascataDaVersao(vid: string, opts: { definicaoNova?:
  * despesa. Função nova: `getEncargosByVersion` (data de pagamento) não muda.
  */
 export async function getEncargosPorCompetencia(versionId: string): Promise<Record<string, number>> {
+  // Somado no banco por competência (antes: pagamento a pagamento). Mesma regra:
+  // competência vazia ou só espaços cai em "sem competência".
+  const competencia = sql<string | null>`nullif(btrim(${schema.despesas.competencia}), '')`;
   const rows = await db
     .select({
-      competencia: schema.despesas.competencia,
-      multa: schema.pagamentos.multa,
-      juros: schema.pagamentos.juros,
-      outros: schema.pagamentos.outrosAcrescimos,
-      desconto: schema.pagamentos.desconto,
+      competencia,
+      enc: sql<string>`sum(coalesce(${schema.pagamentos.multa}, 0) + coalesce(${schema.pagamentos.juros}, 0) + coalesce(${schema.pagamentos.outrosAcrescimos}, 0) - coalesce(${schema.pagamentos.desconto}, 0))::text`,
     })
     .from(schema.pagamentos)
     .innerJoin(schema.despesas, eq(schema.pagamentos.despesaId, schema.despesas.id))
-    .where(eq(schema.despesas.versionId, versionId));
+    .where(eq(schema.despesas.versionId, versionId))
+    .groupBy(competencia);
   const out: Record<string, number> = {};
   for (const r of rows) {
-    const enc = Number(r.multa) + Number(r.juros) + Number(r.outros) - Number(r.desconto);
-    const mm = r.competencia && r.competencia.trim() ? r.competencia.trim() : NO_COMP;
-    out[mm] = (out[mm] || 0) + enc;
+    const mm = r.competencia ?? NO_COMP;
+    out[mm] = (out[mm] || 0) + Number(r.enc);
   }
   return out;
 }
