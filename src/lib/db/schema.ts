@@ -503,7 +503,10 @@ export const permutas = pgTable("permuta", {
   canceladoEm: text("cancelado_em"),
   canceladoPor: text("cancelado_por"),
   motivoCancelamento: text("motivo_cancelamento"),
-});
+}, (t) => [
+  // Desempenho da DRE (27/10/2026, PR 2): a consulta por versionId lia a tabela inteira.
+  index("permuta_version_idx").on(t.versionId),
+]);
 
 /** Reembolsos da versão. Ver docs/SPEC.md §3 e §7.3. */
 export const reembolsos = pgTable("reembolso", {
@@ -527,7 +530,10 @@ export const reembolsos = pgTable("reembolso", {
   canceladoEm: text("cancelado_em"),
   canceladoPor: text("cancelado_por"),
   motivoCancelamento: text("motivo_cancelamento"),
-});
+}, (t) => [
+  // Desempenho da DRE (27/10/2026, PR 2): a consulta por versionId lia a tabela inteira.
+  index("reembolso_version_idx").on(t.versionId),
+]);
 
 // ─────────────────── Fornecedores / contas / despesas ───────────────────
 
@@ -682,7 +688,10 @@ export const despesas = pgTable("despesa", {
   canceladoPor: text("cancelado_por"),
   motivoCancelamento: text("motivo_cancelamento"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Desempenho da DRE (27/10/2026, PR 2): a consulta por versionId lia a tabela inteira.
+  index("despesa_version_idx").on(t.versionId),
+]);
 
 /**
  * Despesa paga por terceiro com restituição posterior (Fase 4). A despesa é
@@ -1266,7 +1275,10 @@ export const pagamentos = pgTable("pagamento", {
   idempotencyKey: text("idempotency_key"),
   usuarioId: text("usuario_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Desempenho da DRE (27/10/2026, PR 2): a consulta por despesaId lia a tabela inteira.
+  index("pagamento_despesa_idx").on(t.despesaId),
+]);
 
 /** Documento anexado (NF/contrato) — armazenado no Cloudflare R2. Fase 3. §11 */
 export const documents = pgTable("document", {
@@ -1532,7 +1544,10 @@ export const contasReceber = pgTable("conta_receber", {
   cancelado: boolean("cancelado").notNull().default(false),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Desempenho da DRE (27/10/2026, PR 2): a consulta por projectId lia a tabela inteira.
+  index("conta_receber_project_idx").on(t.projectId),
+]);
 
 /**
  * Recebimento de uma conta a receber (Prompt K, seções 3 e 4; migração 0048):
