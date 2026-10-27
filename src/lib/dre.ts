@@ -227,7 +227,8 @@ export const FORA_VAZIO: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, s
 
 /** Resume as linhas de despesa da versão (as mesmas que a DRE lê) — só conta, não muda nada. */
 export function resumirForaDaCascata(
-  rows: readonly { categoriaDre: string | null; competencia: string | null; valor: number }[],
+  /** `quantidade`: a linha já agrupada vale N lançamentos (ausente = 1). */
+  rows: readonly { categoriaDre: string | null; competencia: string | null; valor: number; quantidade?: number }[],
   opts: { receitaFora?: boolean } = {},
 ): ForaDaCascata {
   const out: ForaDaCascata = { semCategoria: { qtd: 0, valor: 0 }, semCompetencia: { qtd: 0, valor: 0 }, foraDaLista: [] };
@@ -235,25 +236,26 @@ export function resumirForaDaCascata(
   const fora = new Map<string, { qtd: number; valor: number }>();
   for (const r of rows) {
     const v = Number(r.valor) || 0;
+    const n = r.quantidade ?? 1;
     if (opts.receitaFora && r.categoriaDre === "Receita") {
-      out.comoReceita!.qtd++;
+      out.comoReceita!.qtd += n;
       out.comoReceita!.valor += v;
       continue;
     }
     if (!r.categoriaDre) {
-      out.semCategoria.qtd++;
+      out.semCategoria.qtd += n;
       out.semCategoria.valor += v;
       continue;
     }
     if (!CATEGORIAS_LIDAS.has(r.categoriaDre)) {
       const f = fora.get(r.categoriaDre) ?? { qtd: 0, valor: 0 };
-      f.qtd++;
+      f.qtd += n;
       f.valor += v;
       fora.set(r.categoriaDre, f);
       continue;
     }
     if (!r.competencia || !r.competencia.trim()) {
-      out.semCompetencia.qtd++;
+      out.semCompetencia.qtd += n;
       out.semCompetencia.valor += v;
     }
   }
