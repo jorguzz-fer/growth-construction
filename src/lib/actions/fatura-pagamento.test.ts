@@ -21,6 +21,8 @@ describe.skipIf(!HAS_DB)("Pagamento da fatura de cartão (Prompt U, 3)", async (
   const { pagarFatura, previewPagamentoFatura, informarJurosDaFatura } = await import("./faturas");
   const { getFaturasCartao } = await import("@/lib/queries");
   const { comRotativo } = await import("@/lib/calc/fatura");
+  const { cicloAberto } = await import("@/lib/calc/cartao-ciclo");
+  const { hojeISO } = await import("@/lib/despesa-status");
   let tenantId = "";
   let projectId = "";
   let cartaoId = "";
@@ -116,10 +118,15 @@ describe.skipIf(!HAS_DB)("Pagamento da fatura de cartão (Prompt U, 3)", async (
     expect(depois.valorCompras).toBe(125); // a fatura passa a incluir o juro
     expect(depois.jurosDespesaId).toBe(j.id);
     expect(await informarJurosDaFatura({ faturaId: abr.id, valor: 5, data: "04/18/2026", projectId })).toMatchObject({ ok: false, error: expect.stringMatching(/já tem/) });
-    // fatura aberta (ciclo em curso) não aceita pagamento nem juro
-    expect((await addDespesa(fd({ projectId, categoriaDre: "Custo Variável", formaPagamento: "Cartão de crédito", status: "A pagar", cartaoId, competencia: "10/2026", valor: "10", cartaoDataCompra: "10/01/2026", cartaoParcelas: "1", obs: "out" }))).ok).toBe(true);
-    const aberta = (await getFaturasCartao(tenantId)).find((f) => f.fechamento === "10/10/2026")!;
-    expect(await pagarFatura({ faturaId: aberta.id, valor: 10, data: "10/01/2026", projectId })).toMatchObject({ ok: false, error: expect.stringMatching(/aberta/) });
-    expect(await informarJurosDaFatura({ faturaId: aberta.id, valor: 1, data: "10/01/2026", projectId })).toMatchObject({ ok: false, error: expect.stringMatching(/aberta/) });
+    // fatura aberta (ciclo em curso) não aceita pagamento nem juro. A compra é
+    // feita HOJE, então cai sempre no ciclo ainda aberto, em qualquer mês.
+    const [y, m, d] = hojeISO().split("-");
+    const hoje = `${m}/${d}/${y}`;
+    const fechamentoAberto = cicloAberto(hojeISO(), { diaFechamento: 10, diaVencimento: 20 })!.fechamento;
+    expect((await addDespesa(fd({ projectId, categoriaDre: "Custo Variável", formaPagamento: "Cartão de crédito", status: "A pagar", cartaoId, competencia: `${m}/${y}`, valor: "10", cartaoDataCompra: hoje, cartaoParcelas: "1", obs: "hoje" }))).ok).toBe(true);
+    const aberta = (await getFaturasCartao(tenantId)).find((f) => f.fechamento === fechamentoAberto)!;
+    expect(aberta).toBeDefined();
+    expect(await pagarFatura({ faturaId: aberta.id, valor: 10, data: hoje, projectId })).toMatchObject({ ok: false, error: expect.stringMatching(/aberta/) });
+    expect(await informarJurosDaFatura({ faturaId: aberta.id, valor: 1, data: hoje, projectId })).toMatchObject({ ok: false, error: expect.stringMatching(/aberta/) });
   });
 });
