@@ -2139,7 +2139,8 @@ export const iaUso = pgTable(
  * Decisões de 26/10/2026: estreia com serviço avulso, que pode apontar para a
  * conta a receber já lançada (BAG-1, opção b); a nota NÃO
  * cria receita, conta a receber nem lançamento — é documento do fato (BAG-2);
- * um CNPJ só, o tenant de `NFSE_TENANT_ID` (BAG-3); nota de homologação fica
+ * um CNPJ só, o tenant de `NFSE_TENANT_ID` (BAG-3, revista em 19/11/2026: cada
+ * empresa ativa a própria emissão — `nfse_emissor`); nota de homologação fica
  * marcada e fora de relatório (BAG-4). Vive na versão Atual (1.3). Tomador e
  * valores são COPIADOS na emissão (1.4). Nada é apagado (5.7).
  */
@@ -2368,3 +2369,37 @@ export const openfinancePossiveisDuplicados = pgTable(
   (t) => [uniqueIndex("openfinance_dup_conta_externo_uq").on(t.bankAccountId, t.externalId)],
 );
 
+
+// ────────────────────── Emissor de NFS-e (migração 0077) ──────────────────────
+
+/**
+ * O emissor de NFS-e da empresa, ativado por ela mesma em Configurações →
+ * Empresa (docs/EMISSAO-NF.md, seção 7). Guarda só o vínculo com o cadastro da
+ * empresa na Focus NFe e a validade do certificado. O certificado A1, as senhas
+ * e os tokens de emissão NÃO moram aqui: o certificado e as senhas vão direto
+ * para a Focus na ativação, e os tokens são lidos da Focus, com o token da conta
+ * da plataforma, na hora de emitir.
+ */
+export const nfseEmissores = pgTable(
+  "nfse_emissor",
+  {
+    tenantId: uuid("tenant_id")
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    provedor: text("provedor").notNull().default("focus"),
+    /** id da empresa no provedor (GET /v2/empresas/{id}). */
+    empresaIdProvedor: text("empresa_id_provedor").notNull(),
+    /** CNPJ ativado, sem máscara. Se o cadastro da empresa mudar de CNPJ, a emissão para até nova ativação. */
+    cnpj: text("cnpj").notNull(),
+    certificadoValidoDe: timestamp("certificado_valido_de", { mode: "date" }),
+    certificadoValidoAte: timestamp("certificado_valido_ate", { mode: "date" }),
+    certificadoCnpj: text("certificado_cnpj"),
+    /** situação da NFS-e no município, segundo a Focus, na última ativação. */
+    municipioStatus: text("municipio_status"),
+    ativadoPor: text("ativado_por").references(() => users.id, { onDelete: "set null" }),
+    ativadoEm: timestamp("ativado_em", { mode: "date" }).notNull().defaultNow(),
+    atualizadoPor: text("atualizado_por").references(() => users.id, { onDelete: "set null" }),
+    atualizadoEm: timestamp("atualizado_em", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("nfse_emissor_empresa_provedor_uk").on(t.provedor, t.empresaIdProvedor)],
+);
