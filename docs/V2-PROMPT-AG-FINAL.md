@@ -46,6 +46,11 @@ ou retenção.
 
 ## Para ligar em produção (passo a passo)
 
+> **Atualizado em 19/11/2026:** a empresa agora ativa a própria emissão na
+> tela (Configurações → Empresa), com o token master da plataforma. O passo a
+> passo vigente está em `docs/EMISSAO-NF.md`, seção 7. O roteiro abaixo é o
+> do modo antigo, que continua valendo para quem já estava nele.
+
 1. **Variáveis no Coolify** (o app reinicia sozinho):
    - `NFSE_TENANT_ID` = o id da RMV (a tabela `tenant`).
    - `FOCUS_NFE_TOKEN_HOMOLOGACAO` = o token de homologação do painel da Focus.
